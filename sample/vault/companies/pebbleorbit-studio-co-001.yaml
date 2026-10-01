@@ -1,0 +1,10 @@
+name: Pebbleorbit Studio
+website: https://pebbleorbit.example
+size: 50-200
+locations:
+- Harbourline
+sector: Product tools
+notes: A **small studio** expanding its platform team.
+custom: {}
+id: CO-001
+name_source: auto

@@ -53,3 +53,142 @@
   this sandbox to complete live and visual verification. Work stops here as
   requested by the brief.
 - No real vault was accessed, and no commit or push was made.
+
+# Chunk 3 — job intake, company profiles, jobs board
+
+- Built atomic YAML job/company storage and ID allocation; mocked-fetch-friendly
+  posting intake with URL fallback, naive metadata/salary/location extraction,
+  and case-insensitive company reuse. Added job CRUD/status APIs and company
+  read/update APIs, a filtered board with optimistic intake and styled toasts,
+  job detail/status/notes editing, and editable company profiles with linked jobs.
+  Reused the Linear-dark controls and safe Markdown renderer; shell is Chunk 3.
+- Added two synthetic companies and four jobs across four statuses, including
+  a public salary disclosure and a pending-enrichment job. Experience salaries
+  remain null. Updated schemas, API documentation, and README chunk status.
+- Verification: **65 tests passed (26 previous + 39 new)**. Tests cover every new
+  page/API route, CRUD/status transitions, validation, storage round-trips and
+  IDs, malformed YAML tolerance, mocked intake success/failure/dedupe, extraction,
+  salary badges, safe Markdown, and the no-new-host-vault-path check. Every intake
+  test replaces the fetch hook; no test reaches the network. Python compilation
+  of the changed backend and host verification script also passed.
+- Rendered and inspected `/jobs`, `/jobs/JOB-001`, `/companies`, and
+  `/companies/CO-001` using the Flask test client. HTML and inspection notes are
+  in `/tmp/careeros-chunk3-html/`. Checked headings, navigation, company/job links,
+  details, badges, editors, status options, and shared styles.
+- Sandbox-blocked verification: listening sockets, real network intake, and
+  Chromium/screenshots were not attempted, as instructed. Extended
+  `scripts/verify.py` for host execution on :8788 with `--vault sample/vault`,
+  curl coverage of every new page/API, real direct-employer intake from Mozilla's
+  careers page, job/profile mutations, browser filters and editors, and desktop
+  plus mobile screenshots in `/tmp/careeros-chunk3/`. It restores exact sample
+  YAML bytes and removes temporary intake records in its finally block.
+- Implementation choices/deviations: domain extraction is a best-effort suffix
+  heuristic (including common multipart suffixes), not a full public-suffix
+  database. Fetches cap HTML at two megabytes. No original company URL is guessed
+  from an ATS URL; it remains nullable/editable through the API. Open-job counts
+  exclude rejected, closed, and withdrawn statuses. GET company collection/detail
+  APIs were added to support inspection and host verification. No other scope
+  deviations. No real vault access, commit, or push.
+
+# Chunk 3 fix round
+
+- Finding 1: resolve posting hosts with `socket.getaddrinfo` before fetching
+  and reject any private, loopback, link-local, multicast, reserved, or
+  unspecified address, including mixed public/private DNS results. Disable
+  redirects and environment proxies. Regression tests mock DNS and openers;
+  the autouse fetcher guard remains and the default opener is also blocked.
+- Finding 2: replace the job detail field dump with escaped title, location,
+  source, posted date, and added date. Reuse the existing row/chip styles for
+  remote, status, salary disclosure, and pending enrichment. Preserve posting
+  links, status selection, notes editing, and rendered Markdown.
+- Finding 3: enforce a 15-second caller deadline with a bounded queue wait and
+  monotonic checks around chunked reads, retaining the two-megabyte cap and
+  socket timeout. The daemon worker owns and closes its response; a blocked
+  operation may finish after the caller times out. A mocked slow-stream test
+  verifies TimeoutError and successful URL-only job creation through the API.
+- Finding 4: add `novalidate` to intake while retaining the URL input type and
+  existing server validation/styled error toast.
+- Finding 5: give all four sample jobs distinct notes about their actual roles,
+  including platform scope/compensation, developer tooling, backend design,
+  and management interview preparation.
+- TDD: observed all 12 new regression cases fail before implementation. Full
+  verification: `.venv/bin/python -m pytest -q` — **77 passed**. No real network
+  was used, no vault outside sample/vault was accessed (tests use temporary
+  copies), and no commit or push was made.
+
+# Chunk 3.5
+
+- ATS extraction now prioritizes JSON-LD JobPosting objects, arrays and @graph,
+  then employer metadata and known platform slug fallbacks. Added all requested
+  ATS labels, jobs.ch employer handling, validated employer website hints,
+  structured location/date/employment/expiry fields, and Swiss salary separators.
+  ATS posting URLs are retained in both url and original_url. Unknown employers
+  leave company_id null instead of creating an invalid empty company record.
+- Jobs now render eight ordered kanban columns with counts and a sortable dense
+  list. Board/List preference persists in localStorage; status filters apply to
+  both views. Mobile boards scroll internally and list rows stack. Cards show
+  employer, source, salary disclosure and added date using existing house styles.
+- Added locked POST enrichment with guarded fetching, empty/default metadata
+  merging, owner-field preservation, employer dedupe and shared-profile handling.
+  Failures return 422 without writes. Detail Enrich and sequential visible-pending
+  bulk enrichment provide feedback and refresh the views.
+- Added synthetic Personio and jobs.ch sample jobs and employer profiles through
+  vault.py. Updated schema semantics and the host verification script for view
+  persistence, sorting, mobile layout and enrichment controls.
+- Validation: `.venv/bin/python -m pytest -q` — **105 passed**, fully offline;
+  `scripts/verify.py` compiles successfully. Existing SSRF, redirect, deadline and
+  no-network fixture tests remain enforced. Added regression cases cover all ATS
+  platforms, schema shapes/precedence, salary variants, missing employers,
+  enrichment failure/merge, company reconciliation and view markup.
+- Deviations/clarifications: existing nonempty titles are always preserved because
+  title provenance is unavailable. Matching employer records take precedence over
+  in-place renames to prevent duplicates. Employment type and valid-through hints
+  are persisted as optional strings. Socket-based host verification was not run
+  in the builder sandbox; its enrichment UI flows use browser response stubs,
+  while offline API tests cover actual persistence. Removed the previous external
+  live-fetch verification step. No commits/pushes or personal-vault access.
+
+## Chunk 3.5 fix round
+
+- **Finding 1:** Added validated company `name_source` provenance. Intake and enrichment creations set `auto`; every company PUT forces `owner`, even when changing unrelated fields. Missing provenance is treated as owner-controlled. Owner names and links are preserved, with websites filled only when empty; matching profiles also use fill-only website updates. Synthetic sample companies declare `auto`. Tests cover automatic rename/dedupe, owner edits, both website branches, unrelated PUTs, and legacy records.
+- **Finding 2:** Salary fields are eligible for filling only before the first successful enrichment. Repeat enrichment preserves explicit false/empty salary decisions while other empty metadata remains fillable.
+- **Finding 3:** URL checking, fetching and extraction run outside the mutation lock. Reconciliation reloads the current job and saves under the lock. A lock spy verifies fetch-outside/save-inside behavior. Concurrent edits are preserved; deletion returns 404 and a changed posting URL returns 409 without applying stale extraction.
+- **Finding 4:** Mobile list view hides the table header and provides a labelled Sort by selector with ascending/descending options. It shares the desktop sort function and delegated event handling, including after refresh. Rendered HTML tests retain desktop headers; browser verification now checks responsive visibility and mobile ordering.
+- **Finding 5:** Collect all JSON-LD JobPosting candidates and prefer request URL/path matches in `url` or `mainEntityOfPage` (including object references), otherwise use the first candidate. Tests place the matching posting both first and second; single-node coverage remains intact.
+- **Finding 6:** Salary extraction accepts trailing currency ranges, including `95,000-110,000 CHF` and `120k-150k USD`. Tests retain prefixed CHF and reject ordinary experience numbers and product prices.
+- **Validation:** Findings 1–3 had failing regression tests before implementation (six parametrized failures: four provenance cases, salary preservation, and lock placement). Final host-side `.venv/bin/python -m pytest -q`: **129 passed**. The autouse offline fixture and fetch-path SSRF guards remain intact. `git diff --check` passes. Schema documentation covers provenance and salary fill semantics.
+- **Deviations / environment limit:** `scripts/verify.py` was attempted; its then-current pytest run passed **123 tests**, but the sandbox rejected `socket.socket()` with `PermissionError: [Errno 1] Operation not permitted` before the localhost server could start. Therefore API/browser verification cannot be claimed as passing here; rerun `.venv/bin/python scripts/verify.py` on a host allowing localhost sockets. No approval escalation is available. The 404/409 race handling and preservation of owner-linked companies are defensive consequences of moving fetch outside the lock and respecting owner provenance. No commit or push; no real vault accessed.
+
+## Chunk 3.5b (delete + company extraction)
+
+- Added atomic company-file deletion with an unknown-ID ValueError and DELETE
+  /api/companies/<id>. The server checks all linked jobs under the write lock;
+  linked companies return 409 with count and "Still linked to N jobs".
+  No jobs are cascade-deleted.
+- Added red Delete job / Delete company buttons on detail pages, with native
+  confirm(), error toasts, and navigation back to the collection after success.
+  Lists/board cards have no delete controls. Experience detail already had a
+  confirmation dialog and working delete flow, so it was preserved.
+- JSON-LD company extraction now carries industry to sector, numberOfEmployees
+  (including QuantitativeValue.value) to size buckets, and jobLocation locality,
+  region, and country to job location and company locations. Intake and enrich
+  fill empty company metadata only; nonempty values and existing name_source
+  reconciliation rules are preserved. Documented sources and semantics.
+- Extended verify.py with a throwaway intake-fallback company/API delete round
+  trip and browser checks for cancellation, linked-company feedback, and
+  successful job/company deletion. Its child server uses verification-only
+  mocked DNS and blocked fetching to keep that round trip offline. Production
+  SSRF code and the pytest autouse no-network fixture are unchanged.
+- TDD: new tests first produced 19 failures / 105 passes in test_jobs.py.
+  After implementation the full suite passed: **151 passed** (22 added).
+  verify.py also completed its 151-test phase successfully. git diff --check
+  passed.
+- Deviations / verification limitation: this execution sandbox prohibits socket
+  creation (PermissionError: [Errno 1] Operation not permitted), so verify.py
+  stopped at its port-availability check before starting the server. Live curl
+  and browser checks could not run here and still require a host-side run of
+  .venv/bin/python scripts/verify.py. The shared boundary 1000 is assigned to
+  201-1000; 1000+ means values above 1000. Organization address does not override
+  the explicitly requested jobLocation source.
+- No commit or push. No external/owner vault was accessed; application
+  verification targets sample/vault and pytest uses isolated fixture copies.

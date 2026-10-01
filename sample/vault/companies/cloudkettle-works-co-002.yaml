@@ -1,0 +1,11 @@
+name: Cloudkettle Works
+website: https://cloudkettle.example
+size: 200-500
+locations:
+- Eastvale
+- Remote
+sector: Logistics software
+notes: Distributed teams building planning tools.
+custom: {}
+id: CO-002
+name_source: auto

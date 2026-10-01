@@ -124,3 +124,116 @@ def delete_experience(root, identifier):
             path.unlink()
             return True
     return False
+
+# Chunk 3 records share the established tolerant reader and atomic writer.
+STATUSES = ('new', 'interested', 'applied', 'interviewing', 'offer', 'rejected', 'closed', 'withdrawn')
+
+def _records(root, kind):
+    for path in sorted((Path(root) / kind).glob('*.yaml')):
+        data = _read(path)
+        if data:
+            yield path, data
+
+def list_jobs(root):
+    return sorted((d for _, d in _records(root, 'jobs')), key=lambda d: str(d.get('added', '')), reverse=True)
+
+def list_companies(root):
+    return sorted((d for _, d in _records(root, 'companies')), key=lambda d: str(d.get('name', '')).casefold())
+
+def _load(root, kind, identifier):
+    return next((d for _, d in _records(root, kind) if d.get('id') == identifier), None)
+
+def load_job(root, identifier):
+    return _load(root, 'jobs', identifier)
+
+def load_company(root, identifier):
+    return _load(root, 'companies', identifier)
+
+def _next(root, kind, prefix):
+    numbers = [int(d['id'][len(prefix):]) for _, d in _records(root, kind) if re.fullmatch(prefix + r'\d+', str(d.get('id', '')))]
+    return f'{prefix}{max(numbers, default=0)+1:03d}'
+
+def next_job_id(root):
+    return _next(root, 'jobs', 'JOB-')
+
+def next_company_id(root):
+    return _next(root, 'companies', 'CO-')
+
+def _save_record(root, kind, data, identifier=None):
+    from careeros.intake import check_url_format
+    if not isinstance(data, dict):
+        raise ValueError('Record must be an object.')
+    existing = next(((p,d) for p,d in _records(root, kind) if d.get('id') == identifier), None) if identifier else None
+    if identifier and not existing:
+        raise KeyError(identifier)
+    job = kind == 'jobs'
+    defaults = (dict(company_id=None, title='', url='', original_url=None, source='', status='new', posted_date=None,
+                     added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
+                     notes='', enriched=False, employment_type='', valid_through='', custom={}) if job else
+                dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None, notes='', custom={}))
+    result = defaults | (existing[1] if existing else {})
+    result.update({k:v for k,v in data.items() if k in defaults})
+    required = 'title' if job else 'name'
+    for key, default in defaults.items():
+        value = result[key]
+        if isinstance(default, str) and not isinstance(value, str):
+            raise ValueError(f'{key} must be text.')
+    if not result[required].strip():
+        raise ValueError(f'{required} is required.')
+    for key in (('company_id', 'original_url') if job else ('website', 'size', 'sector')):
+        if result[key] is not None and not isinstance(result[key], str):
+            raise ValueError(f'{key} must be text or null.')
+    if not isinstance(result['custom'], dict) or any(not isinstance(k,str) for k in result['custom']):
+        raise ValueError('custom must be an object with text keys.')
+    for key in (('url', 'original_url') if job else ('website',)):
+        if result[key] is not None:
+            check_url_format(result[key])
+    if job:
+        if result['status'] not in STATUSES:
+            raise ValueError('Invalid job status.')
+        for key in ('salary_info', 'enriched', 'remote_ok'):
+            if type(result[key]) is not bool and not (key == 'remote_ok' and result[key] is None):
+                raise ValueError(f'{key} must be boolean' + (' or null.' if key == 'remote_ok' else '.'))
+        for key in ('posted_date', 'added'):
+            value = result[key]
+            if value is None and key == 'posted_date':
+                continue
+            try:
+                result[key] = date.fromisoformat(str(value)).isoformat()
+            except ValueError:
+                raise ValueError(f'{key} must be YYYY-MM-DD.')
+        if result['company_id'] and not load_company(root, result['company_id']):
+            raise ValueError('Company not found.')
+        if existing and result['status'] != existing[1].get('status'):
+            result['status_changed'] = date.today().isoformat()
+    elif not isinstance(result['locations'], list) or any(not isinstance(x,str) for x in result['locations']):
+        raise ValueError('locations must be a list of text values.')
+    if not job and result['name_source'] not in ('auto', 'owner'):
+        raise ValueError('Invalid company name_source.')
+    result['id'] = identifier or (next_job_id(root) if job else next_company_id(root))
+    path = Path(root) / kind / f"{slugify(result[required])}-{result['id'].lower()}.yaml"
+    _write(path, result)
+    if existing and existing[0] != path:
+        existing[0].unlink()
+    return result
+
+def save_job(root, data, identifier=None):
+    return _save_record(root, 'jobs', data, identifier)
+
+def save_company(root, data, identifier=None):
+    return _save_record(root, 'companies', data, identifier)
+
+def delete_job(root, identifier):
+    for path, data in _records(root, 'jobs'):
+        if data.get('id') == identifier:
+            path.unlink()
+            return True
+    return False
+
+
+def delete_company(root, identifier):
+    for path, data in _records(root, 'companies'):
+        if data.get('id') == identifier:
+            path.unlink()
+            return True
+    raise ValueError('Company not found.')

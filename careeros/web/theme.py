@@ -12,7 +12,7 @@ from html import escape
 CONTENT_MAX_WIDTH = 1180
 
 #: Muted tag next to the wordmark, bump when a chunk is accepted.
-SHELL_TAG = "Chunk 1"
+SHELL_TAG = "Chunk 3"
 
 #: Navigation order shared by every CareerOS page.
 NAV_PAGES = (

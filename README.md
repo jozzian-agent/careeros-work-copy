@@ -1,13 +1,15 @@
 # CareerOS
 
 A personal career and job-hunt dashboard using the accepted Linear-dark shell.
-Search criteria and experience records are editable YAML-backed pages. Jobs,
-Companies, and Interviews retain their empty shell pages.
+Search criteria, experiences, jobs, and company profiles are editable YAML-backed
+pages. Paste direct employer posting links into Jobs; failed fetches still save
+the opportunity for later enrichment. Interviews retains its empty shell page.
 
 | Chunk | Scope | Status |
 | --- | --- | --- |
 | 0 | Package scaffold, shared theme, Flask routes, empty states | accepted |
-| 1 | Search criteria, experience library, YAML storage and editing | in-review |
+| 1 | Search criteria, experience library, YAML storage and editing | accepted |
+| 3 | Job intake, company profiles, jobs board | in-review |
 
 Use Python 3.11 and the repository virtual environment:
 
@@ -18,7 +20,8 @@ Use Python 3.11 and the repository virtual environment:
 
 Open `http://localhost:8788` or `http://<host-LAN-IP>:8788` from the LAN.
 Routes: `/`, `/search`, `/experiences`, `/experiences/new`, `/experiences/<id>`,
-`/experiences/<id>/edit`, `/jobs`, `/companies`, `/interviews`.
+`/experiences/<id>/edit`, `/jobs`, `/jobs/<id>`, `/companies`,
+`/companies/<id>`, `/interviews`.
 Unknown paths return a styled 404. Stop the server with Ctrl-C.
 
 The optional `--vault PATH` takes precedence over `CAREEROS_VAULT`; otherwise the
@@ -47,7 +50,14 @@ The verification script runs pytest, starts the server on :8788 against
 create/edit/delete and criteria save, and checks browser editing and deletion.
 It restores sample YAML bytes and stops its server even after failure. Screenshots
 (search view/edit, experience list/detail/new form, and mobile search) and logs go
-to `/tmp/careeros-chunk1/`. It uses the existing Chromium headless shell revision
+to `/tmp/careeros-chunk3/`. It uses the existing Chromium headless shell revision
 1228. No browser download or external font/network dependency is required.
 
 See [FIXES.md](FIXES.md) for environment limitations and deviations.
+
+Chunk 3 verification additionally exercises job and company APIs, direct-employer
+intake against a real Mozilla careers URL over the host network, status filtering,
+notes/profile editing, and desktop/mobile job and company screenshots. The
+script restores all sample YAML afterward, including removing intake records.
+Run it on the host: sandbox verification uses Flask test clients and HTML dumps
+in `/tmp/careeros-chunk3-html/`, with no sockets, Chromium, or network.

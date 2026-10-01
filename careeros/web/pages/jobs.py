@@ -1,11 +1,19 @@
-"""Jobs placeholder page."""
+"""Posting board and job detail."""
+from flask import abort, current_app
+from markupsafe import Markup
+from careeros import vault
+from careeros.web.ui import page
+from careeros.web.markdown import render_markdown
 
-from careeros.web.theme import page_shell
+EMPTY_STATE = 'No jobs yet — paste a posting link to get started.'
 
-EMPTY_STATE = 'Job board lands in a later chunk — paste-link intake, company profiles, status tracking.'
+def build_page():
+    root = current_app.config['VAULT_PATH']
+    return page('Jobs', 'jobs', 'jobs.html', entries=vault.list_jobs(root), companies={c['id']: c for c in vault.list_companies(root) if 'id' in c}, statuses=vault.STATUSES, empty=EMPTY_STATE)
 
-
-def build_page() -> str:
-    """Return the complete styled page without reading vault data."""
-    body = f"<section class='card empty-state'><h1>Jobs</h1><p class='muted'>{EMPTY_STATE}</p></section>"
-    return page_shell('Jobs', 'jobs', body)
+def detail(identifier):
+    root = current_app.config['VAULT_PATH']
+    job = vault.load_job(root, identifier)
+    if job is None:
+        abort(404)
+    return page(job.get('title', 'Job'), 'jobs', 'job_detail.html', job=job, company=vault.load_company(root, job.get('company_id')), statuses=vault.STATUSES, markdown=Markup(render_markdown(job.get('notes', ''))))
