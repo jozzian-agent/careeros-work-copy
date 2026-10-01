@@ -1,0 +1,29 @@
+company: Pebbleorbit Studio
+title: Software Engineer
+start: 2017-06
+end: 2020-01
+location: On-site · Harbourline
+summary: First engineering hire at a fictional eight-person product studio. Shipped
+  customer-facing features end to end, from database schema to UI polish.
+detail: 'Generalist years: wrote the **initial version of the billing module** and
+  maintained it through two pricing-model changes.
+
+
+  - Stood up the studio''s first CI pipeline and staging environment.
+
+  - Ran user-testing sessions that reshaped the onboarding flow.
+
+
+  Learned to ship small, talk to customers, and own outcomes.'
+highlights:
+- Shipped billing v1 that processed payments for 18 months without a rewrite.
+- Reduced median page load from 3.1s to 0.9s on the marketing site.
+skills:
+- JavaScript
+- Django
+- PostgreSQL
+- Customer discovery
+people_led: null
+salary: null
+custom: {}
+id: EXP-003

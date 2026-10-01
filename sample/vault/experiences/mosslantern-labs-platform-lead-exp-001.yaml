@@ -1,0 +1,34 @@
+company: Mosslantern Labs
+title: Platform Lead
+start: 2023-04
+end: present
+location: Remote · Northmere
+summary: Lead the platform group for a fictional resource-planning product. Own the
+  internal developer experience and mentor a team of four engineers.
+detail: 'Set the direction for **release reliability** across three product teams,
+  favoring small reversible changes over big-bang launches.
+
+
+  - Introduced repeatable release checks and a rollback drill rotation.
+
+  - Documented recovery exercises and published an incident retrospective guide.
+
+
+  The team used the findings to simplify its support workflow and cut after-hours
+  pages in half.'
+highlights:
+- Reduced simulated deployment time by 35%.
+- Created a shared onboarding guide for new teammates.
+- Grew the platform team from two engineers to four.
+skills:
+- Python
+- Platform design
+- Mentoring
+people_led: 4
+salary: null
+custom:
+  Team model: Distributed
+  Focus areas:
+  - Reliability
+  - Mentoring
+id: EXP-001

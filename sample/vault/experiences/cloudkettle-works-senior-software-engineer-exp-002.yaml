@@ -1,0 +1,29 @@
+company: Cloudkettle Works
+title: Senior Software Engineer
+start: 2020-02
+end: 2023-03
+location: Hybrid · Eastvale
+summary: Built backend services for a fictional logistics marketplace. Deepened
+  distributed-systems skills and became the team's go-to for data pipelines.
+detail: 'Owned the **event ingestion pipeline** that fed every downstream reporting
+  surface, moving from nightly batches to near-real-time streaming.
+
+
+  - Migrated 40+ cron jobs onto a single orchestrated scheduler.
+
+  - Added contract tests that caught two breaking vendor changes pre-release.
+
+
+  Left to take a leadership role.'
+highlights:
+- Cut reporting latency from 24 hours to under 5 minutes.
+- Pair-programmed weekly with two junior engineers, both since promoted.
+skills:
+- Python
+- SQL
+- Event streaming
+- AWS
+people_led: null
+salary: null
+custom: {}
+id: EXP-002
