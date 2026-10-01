@@ -10,7 +10,12 @@ salary_info: false
 salary_note: ''
 location: Eastvale
 remote_ok: true
-notes: Application submitted for the backend role. Prepare examples of service reliability improvements and cross-team API design.
+notes: Application submitted for the backend role. Prepare examples of service reliability
+  improvements and cross-team API design.
 enriched: true
 custom: {}
 id: JOB-003
+history:
+- ts: '2026-10-01T00:00:00+00:00'
+  event: created
+  detail: Synthetic sample job created

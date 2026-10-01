@@ -10,7 +10,12 @@ salary_info: false
 salary_note: ''
 location: Eastvale
 remote_ok: true
-notes: Prepare for the management interview with examples of coaching and delivery planning. Clarify remote team coverage and the product areas this group owns.
+notes: Prepare for the management interview with examples of coaching and delivery
+  planning. Clarify remote team coverage and the product areas this group owns.
 enriched: true
 custom: {}
 id: JOB-004
+history:
+- ts: '2026-10-01T00:00:00+00:00'
+  event: created
+  detail: Synthetic sample job created

@@ -1,5 +1,5 @@
 """YAML storage for a selected vault; no implicit access to the host vault."""
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 import re
 import tempfile
@@ -206,6 +206,16 @@ def _save_record(root, kind, data, identifier=None):
             raise ValueError('Company not found.')
         if existing and result['status'] != existing[1].get('status'):
             result['status_changed'] = date.today().isoformat()
+            append_event(result, 'status_changed', f"{existing[1].get('status')} -> {result['status']}")
+            if (result['status'] in ('new', 'interested', 'applied', 'interviewing')
+                    and result.get('watch', {}).get('watch_status') == 'gone'):
+                result['watch'] = {}
+        if not existing:
+            append_event(result, 'created', 'Job created')
+        if result.get('notes') and not (existing and existing[1].get('notes')):
+            append_event(result, 'note_added', 'Notes added')
+        if result.get('enriched') and not (existing and existing[1].get('enriched')):
+            append_event(result, 'enriched', 'Posting enriched')
     elif not isinstance(result['locations'], list) or any(not isinstance(x,str) for x in result['locations']):
         raise ValueError('locations must be a list of text values.')
     if not job and result['name_source'] not in ('auto', 'owner'):
@@ -237,3 +247,58 @@ def delete_company(root, identifier):
             path.unlink()
             return True
     raise ValueError('Company not found.')
+
+
+# Lock the existing vault directory: no lock-file writes during dry runs.
+# flock coordinates CLI/server processes; RLock coordinates server threads.
+from threading import RLock
+import fcntl
+_LOCK = RLock()
+
+class WriteLock:
+    """Thread/process write lock; nesting on the same instance raises, never flocks twice."""
+    def __init__(self, root, thread_lock=None):
+        self.root = Path(root)
+        self.depth = 0
+        self.thread_lock = thread_lock if thread_lock is not None else _LOCK
+
+    def __enter__(self):
+        self.thread_lock.__enter__()
+        if self.depth:
+            self.thread_lock.__exit__(None, None, None)
+            raise RuntimeError('WriteLock is not reentrant across flock; refactor to acquire once')
+        self.fd = None
+        try:
+            self.fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+            fcntl.flock(self.fd, fcntl.LOCK_EX)
+        except Exception:
+            if self.fd is not None:
+                os.close(self.fd)
+            self.thread_lock.__exit__(None, None, None)
+            raise
+        self.depth = 1
+        return self
+
+    def __exit__(self, *args):
+        try:
+            fcntl.flock(self.fd, fcntl.LOCK_UN)
+            os.close(self.fd)
+        finally:
+            self.depth = 0
+            self.thread_lock.__exit__(*args)
+
+
+def timestamp():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def append_event(job, event, detail):
+    entry = dict(ts=timestamp(), event=event, detail=detail)
+    job['history'] = [*job.get('history', []), entry][-50:]
+    return entry
+
+
+def save_watch_result(root, job):
+    """Internal watcher persistence; callers hold WriteLock. API cannot edit history."""
+    path = next(p for p, d in _records(root, 'jobs') if d.get('id') == job['id'])
+    _write(path, job)

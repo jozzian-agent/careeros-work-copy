@@ -192,3 +192,89 @@
   the explicitly requested jobLocation source.
 - No commit or push. No external/owner vault was accessed; application
   verification targets sample/vault and pytest uses isolated fixture copies.
+
+## Chunk 4 (watcher)
+
+- Added posting scans, normalized SHA-256 baselines, immediate HTTP 404/410
+  removal detection, three-consecutive-error escalation, recovery counters,
+  gone-job skipping and reactivation on a real status change into a watched
+  status. Salary discovery fills only empty salary fields. Atomic watcher
+  writes append history and persist watch metadata under `watch`.
+- Added automatic created/status_changed/note_added/first-enriched history;
+  legacy records gain no invented events. API payloads cannot replace history
+  or watch metadata. Detail pages show escaped, newest-first muted timelines
+  and a Check posting button with inline results and no reload.
+- Added all-job and single-job POST /api/watch/scan, plus the silent-unless-news
+  CLI with job IDs, single-line Telegram output and byte-preserving dry runs.
+  Fetches use the unchanged intake SSRF guard outside the write lock; records
+  are reloaded and mutated inside it. Concurrent deletion, URL/status changes,
+  and newer scan results discard stale fetch results. Owner edits survive.
+  Server mutations and CLI scans share directory flock locking across processes
+  plus thread locking; dry runs create no lock files.
+- Synthetic sample jobs now have explicit seed-created events; JOB-001 has a
+  stale demo content hash. Moved the existing autouse offline fixture into
+  conftest.py so it covers the whole suite. Added 29 watcher/history tests,
+  including error escalation, recovery, salary preservation, dry-run bytes,
+  CLI output, legacy records, API targeting, races and lock placement.
+- TDD: watcher tests first failed at collection because the module did not
+  exist; subsequent runs exposed missing timeline/button rendering before those
+  were implemented. Final `.venv/bin/python -m pytest -q`: **180 passed**
+  (151 existing + 29 new). `scripts/verify.py` also passed its 180-test phase,
+  then failed at socket creation with `PermissionError: Operation not permitted`
+  before starting any server. Live API/browser verification therefore remains
+  unverified and requires the orchestrator's host run with port 8788 free.
+  Extended that script to check timeline rendering and click Check posting;
+  verification-only DNS maps sample hosts to loopback so the real SSRF guard
+  deterministically rejects them, while disposable intake retains its offline
+  fallback. Production intake code is unchanged. `git diff --check` passes.
+- Brief clarifications/deviations: retained existing `url`, `salary_info`, and
+  `salary_note` schema rather than introducing duplicate posting/salary fields
+  (`url` is the sole posting URL field). `watch_started` is
+  persisted in history but excluded from returned notification events and CLI
+  stdout. The fetch default is resolved at call time for offline injection.
+  Optional keyword arguments support single-job scans and the server lock;
+  single-job responses add watch_status so transient errors can render inline
+  without generating cron news. HTTP errors other than 404/410 follow retry
+  escalation. No other scope deviations. Live verification is blocked as above.
+- No commit or push, no processes killed or stopped, and no access to
+  /root/career-os. Tree intentionally left dirty for owner review.
+
+
+## Chunk 4 fix round
+
+- Addressed all six cross-review findings. Hash version 2 uses canonical title,
+  company, location, posted date, salary text, and whitespace-normalized
+  description. Structured JobPosting data is isolated before intake extraction
+  so ads and page chrome cannot contaminate salary/location fallbacks. Comments,
+  scripts, and styles do not contribute description text. Existing unversioned
+  or version-1 baselines migrate silently, without `posting_changed` events.
+- History appends retain the newest 50 entries. Nested acquisition of the same
+  WriteLock raises the requested RuntimeError before opening another descriptor;
+  the outer lock stays held and the instance remains reusable after release.
+- Ineligible single-job scans return `not_watched` with the requested reason.
+  The detail page disables the button with that reason as its tooltip; client
+  responses show the reason inline. Check posting now sits beside Enrich in
+  the summary action row. Results with events reload to refresh history, while
+  unchanged/not-watched/error results stay inline. The header reads the shared
+  `careeros.CHUNK` constant, currently `Chunk 4`.
+- Removed the nonexistent `posting_url` fallback and corrected the original
+  Chunk 4 deviation note above.
+- TDD: added 15 offline regression cases, observed failures before implementing
+  the behavior fixes, then ran the full suite: **195 passed**. Client behavior
+  tests execute the rendered handler in Node with mocked DOM/API objects and
+  no networking. `git diff --check` passes. The existing suite-wide offline
+  fixture and production SSRF guard are unchanged. Fetch/extraction remain
+  outside the write lock; reload and mutation remain inside it.
+- Verification: the orchestrator's earlier host-side `scripts/verify.py` run
+  already passed, as recorded in tmp-fix5.md. This round did not start a server
+  or rerun that script against the owner's occupied port 8788; the updated-tree
+  host-side verification remains assigned to the orchestrator.
+- Deviations: intake does not expose a description field, so the watcher reuses
+  its Posting parser and JobPosting selection before calling `intake.extract`.
+  Pages without structured JobPosting data use cleaned visible text, removing
+  common chrome containers and relative “posted N hours ago” timestamps. This
+  fallback cannot identify every site's arbitrary chrome markup. No change to
+  the intake/SSRF implementation was needed. Node is required for the three
+  isolated client-handler tests.
+- No commit/push, no processes killed, and no access to /root/career-os. Existing
+  owner changes are preserved and the tree is intentionally left dirty.

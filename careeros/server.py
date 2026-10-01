@@ -29,7 +29,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
     app.add_url_rule('/experiences/<identifier>/edit', 'experience_edit', experiences.form)
     app.add_url_rule('/jobs/<identifier>', 'job_detail', jobs.detail)
     app.add_url_rule('/companies/<identifier>', 'company_detail', companies.detail)
-    write_lock = RLock()
+    write_lock = storage.WriteLock(app.config['VAULT_PATH'], RLock())
 
     def fill_company_metadata(root, company, extracted):
         changes = {key: extracted[key] for key in ('sector', 'size', 'locations')
@@ -112,6 +112,23 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 fill_company_metadata(root, target, extracted)
             updates['enriched'] = True
             return jsonify(storage.save_job(root, updates, identifier))
+
+    @app.post('/api/watch/scan')
+    def watch_scan():
+        from careeros import watcher
+        root = app.config['VAULT_PATH']
+        identifier = request.args.get('job')
+        if identifier is not None and storage.load_job(root, identifier) is None:
+            return jsonify(error='Job not found.'), 404
+        events = watcher.scan(root, job_id=identifier, lock=write_lock)
+        result = dict(events=events)
+        if identifier:
+            job = storage.load_job(root, identifier)
+            if not watcher.eligible(job):
+                result.update(watch_status='not_watched', reason=watcher.NOT_WATCHED_REASON)
+            else:
+                result['watch_status'] = job.get('watch', {}).get('watch_status', 'unchanged')
+        return jsonify(result)
 
     @app.get('/api/jobs')
     def job_collection():

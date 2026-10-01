@@ -1,7 +1,7 @@
 """Posting board and job detail."""
 from flask import abort, current_app
 from markupsafe import Markup
-from careeros import vault
+from careeros import vault, watcher
 from careeros.web.ui import page
 from careeros.web.markdown import render_markdown
 
@@ -16,4 +16,4 @@ def detail(identifier):
     job = vault.load_job(root, identifier)
     if job is None:
         abort(404)
-    return page(job.get('title', 'Job'), 'jobs', 'job_detail.html', job=job, company=vault.load_company(root, job.get('company_id')), statuses=vault.STATUSES, markdown=Markup(render_markdown(job.get('notes', ''))))
+    return page(job.get('title', 'Job'), 'jobs', 'job_detail.html', job=job, watch_eligible=watcher.eligible(job), watch_reason=watcher.NOT_WATCHED_REASON, company=vault.load_company(root, job.get('company_id')), statuses=vault.STATUSES, markdown=Markup(render_markdown(job.get('notes', ''))))

@@ -1,4 +1,4 @@
-"""Full Chunk 3.5 verification. Run with .venv/bin/python scripts/verify.py."""
+"""Full Chunk 4 verification. Run with .venv/bin/python scripts/verify.py."""
 from pathlib import Path
 import json
 import socket
@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import sync_playwright
 from careeros.web.screenshot import CHROMIUM_PATH
 
-OUTPUT = Path('/tmp/careeros-chunk3')
+OUTPUT = Path('/tmp/careeros-chunk4')
 BASE = 'http://127.0.0.1:8788'
 
 def curl(route, method='GET', data=None, expected=200):
@@ -94,6 +94,9 @@ def browser_checks():
             page.get_by_role('button', name='Interested', exact=True).click()
             assert page.locator('.job-card:visible').count() == 1
             visit('/jobs/JOB-001', 'job-detail.png')
+            assert page.locator('#job-history').is_visible()
+            page.get_by_role('button', name='Check posting', exact=True).click()
+            page.wait_for_function("document.getElementById('watch-result').textContent.startsWith('Error:')")
             page.get_by_role('button', name='Enrich', exact=True).click()
             page.wait_for_function("document.getElementById('toast').textContent === 'Job enriched'")
             page.unroute('**/api/jobs/*/enrich', enrich_response)
@@ -167,8 +170,10 @@ def main():
                 "_real_gai=socket.getaddrinfo; "
                 "socket.getaddrinfo=lambda host,*a,**kw: _real_gai(host,*a,**kw) "
                 "if host in ('127.0.0.1','localhost','::1',None,'') "
-                "else [(2,1,6,'',('8.8.8.8',443))]; "
-                "intake.fetch_url=lambda url: (_ for _ in ()).throw(RuntimeError('Offline verification')); "
+                "else [(2,1,6,'',('8.8.8.8' if 'disposable.example' in host else '127.0.0.1',443))]; "
+                "_real_fetch=intake.fetch_url; "
+                "intake.fetch_url=lambda url: (_ for _ in ()).throw(RuntimeError('Offline verification')) "
+                "if 'disposable.example' in url else _real_fetch(url); "
                 "create_app('sample/vault').run(host='127.0.0.1',port=8788,debug=False)"
             )
             server = subprocess.Popen([sys.executable,'-c',offline_server], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)

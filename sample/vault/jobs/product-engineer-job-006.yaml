@@ -16,3 +16,7 @@ employment_type: FULL_TIME
 valid_through: ''
 custom: {}
 id: JOB-006
+history:
+- ts: '2026-10-01T00:00:00+00:00'
+  event: created
+  detail: Synthetic sample job created

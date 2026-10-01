@@ -10,7 +10,12 @@ salary_info: false
 salary_note: ''
 location: Harbourline
 remote_ok: false
-notes: Ask how the developer tools team prioritizes build speed and internal tooling requests. Confirm team size and Harbourline office expectations.
+notes: Ask how the developer tools team prioritizes build speed and internal tooling
+  requests. Confirm team size and Harbourline office expectations.
 enriched: true
 custom: {}
 id: JOB-002
+history:
+- ts: '2026-10-01T00:00:00+00:00'
+  event: created
+  detail: Synthetic sample job created
