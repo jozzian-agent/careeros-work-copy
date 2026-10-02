@@ -9,7 +9,10 @@ the opportunity for later enrichment. Interviews retains its empty shell page.
 | --- | --- | --- |
 | 0 | Package scaffold, shared theme, Flask routes, empty states | accepted |
 | 1 | Search criteria, experience library, YAML storage and editing | accepted |
-| 3 | Job intake, company profiles, jobs board | in-review |
+| 3 | Job intake, company profiles, jobs board | accepted |
+| 3.5 | Kanban/list boards, ATS-aware enrichment, delete everywhere | accepted |
+| 4 | Posting watcher, status history, notification CLI | accepted |
+| 5 | Interviews scheduling and follow-ups | not started |
 
 Use Python 3.11 and the repository virtual environment:
 
