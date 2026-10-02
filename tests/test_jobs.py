@@ -345,12 +345,19 @@ def test_invalid_schema_and_website():
 
 
 def test_enrich_preserves_shared_company(client, monkeypatch):
+    assert client.post('/api/companies/CO-001/enrich').status_code == 200
     before = client.get('/api/companies/CO-001').json
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name':'Different Test Labs'}))
     result = client.post('/api/jobs/JOB-001/enrich')
     assert result.status_code == 200
     assert result.json['company_id'] != 'CO-001'
-    assert client.get('/api/companies/CO-001').json == before
+    after = client.get('/api/companies/CO-001').json
+    assert after['enrichment'] != before['enrichment']
+    # Owner fields must survive enrichment regeneration untouched; only the
+    # derived enrichment block may change when a job is reassigned away.
+    for key, value in before.items():
+        if key != 'enrichment':
+            assert after[key] == value
 
 
 @pytest.mark.parametrize('wrapper', ['array', 'object'])

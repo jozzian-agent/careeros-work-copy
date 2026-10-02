@@ -57,7 +57,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 company = storage.save_company(root, {'name': name, 'website': website, 'name_source': 'auto'} | metadata)
             elif company:
                 company = fill_company_metadata(root, company, metadata)
-            job = storage.save_job(root, data | {'url': url, 'company_id': company['id'] if company else None})
+            job = storage.save_job(root, data | {'url': url, 'company_id': company['id'] if company else None, 'sector': metadata['sector']})
         return jsonify(job=job, company=company), 201
 
     @app.post('/api/jobs/<identifier>/enrich')
@@ -82,7 +82,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 return jsonify(error='Posting URL changed during enrichment. Try again.'), 409
             fill_fields = ('title', 'location', 'source', 'posted_date',
                            'employment_type', 'valid_through', 'description', 'company',
-                           'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok')
+                           'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
             updates = {key: extracted[key] for key in fill_fields
@@ -115,6 +115,15 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 fill_company_metadata(root, target, extracted)
             updates['enriched'] = True
             return jsonify(storage.save_job(root, updates, identifier))
+
+    @app.post('/api/companies/<identifier>/enrich')
+    def enrich_company(identifier):
+        from careeros.enrich import regenerate_company
+        with write_lock:
+            company = regenerate_company(app.config['VAULT_PATH'], identifier)
+            if company is None:
+                return jsonify(error='Company not found.'), 404
+            return jsonify(company)
 
     @app.post('/api/watch/scan')
     def watch_scan():

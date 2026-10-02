@@ -132,6 +132,10 @@ def _records(root, kind):
     for path in sorted((Path(root) / kind).glob('*.yaml')):
         data = _read(path)
         if data:
+            if kind == 'jobs':
+                for key in ('sectors', 'industries'):
+                    if data.get(key) is None:
+                        data[key] = []
             yield path, data
 
 def list_jobs(root):
@@ -171,8 +175,8 @@ def _save_record(root, kind, data, identifier=None):
                      added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
                      notes='', enriched=False, employment_type='', valid_through='', custom={},
                      description='', company='', seniority='', keywords=[], summary='',
-                     ingest_source='') if job else
-                dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None, notes='', custom={}))
+                     ingest_source='', sector=None, sectors=[], industry=None, industries=[]) if job else
+                dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None, notes='', custom={}, enrichment={}))
     result = defaults | (existing[1] if existing else {})
     result.update({k:v for k,v in data.items() if k in defaults})
     required = 'title' if job else 'name'
@@ -182,7 +186,7 @@ def _save_record(root, kind, data, identifier=None):
             raise ValueError(f'{key} must be text.')
     if not result[required].strip():
         raise ValueError(f'{required} is required.')
-    for key in (('company_id', 'original_url') if job else ('website', 'size', 'sector')):
+    for key in (('company_id', 'original_url', 'sector', 'industry') if job else ('website', 'size', 'sector')):
         if result[key] is not None and not isinstance(result[key], str):
             raise ValueError(f'{key} must be text or null.')
     if not isinstance(result['custom'], dict) or any(not isinstance(k,str) for k in result['custom']):
@@ -191,6 +195,11 @@ def _save_record(root, kind, data, identifier=None):
         if result[key] is not None:
             check_url_format(result[key])
     if job:
+        for key in ('sectors', 'industries'):
+            if result[key] is None:
+                result[key] = []
+            if not isinstance(result[key], list) or any(not isinstance(x, str) for x in result[key]):
+                raise ValueError(f'{key} must be a list of text values.')
         if result['ingest_source'] not in ('', 'llm', 'heuristic'):
             raise ValueError('Invalid ingest_source.')
         if not isinstance(result['keywords'], list) or any(not isinstance(x, str) for x in result['keywords']):
@@ -224,6 +233,8 @@ def _save_record(root, kind, data, identifier=None):
             append_event(result, 'enriched', 'Posting enriched')
     elif not isinstance(result['locations'], list) or any(not isinstance(x,str) for x in result['locations']):
         raise ValueError('locations must be a list of text values.')
+    if not job and 'enrichment' in data:
+        validate_enrichment(data['enrichment'])
     if not job and result['name_source'] not in ('auto', 'owner'):
         raise ValueError('Invalid company name_source.')
     result['id'] = identifier or (next_job_id(root) if job else next_company_id(root))
@@ -231,18 +242,35 @@ def _save_record(root, kind, data, identifier=None):
     _write(path, result)
     if existing and existing[0] != path:
         existing[0].unlink()
-    return result
+    return result, existing[1] if existing else None
 
 def save_job(root, data, identifier=None):
-    return _save_record(root, 'jobs', data, identifier)
+    from careeros.enrich import regenerate_company
+    result, previous = _save_record(root, 'jobs', data, identifier)
+    for company_id in sorted({c for c in (result.get('company_id'),
+                                          previous.get('company_id') if previous else None) if c}):
+        try:
+            regenerate_company(root, company_id)
+        except Exception:
+            # Derived data failure must not mask a persisted job save.
+            pass
+    return result
 
 def save_company(root, data, identifier=None):
-    return _save_record(root, 'companies', data, identifier)
+    result, _ = _save_record(root, 'companies', data, identifier)
+    return result
 
 def delete_job(root, identifier):
+    from careeros.enrich import regenerate_company
     for path, data in _records(root, 'jobs'):
         if data.get('id') == identifier:
             path.unlink()
+            if data.get('company_id'):
+                try:
+                    regenerate_company(root, data['company_id'])
+                except Exception:
+                    # The deletion succeeded; derived data can be rebuilt later.
+                    pass
             return True
     return False
 
@@ -308,3 +336,36 @@ def save_watch_result(root, job):
     """Internal watcher persistence; callers hold WriteLock. API cannot edit history."""
     path = next(p for p, d in _records(root, 'jobs') if d.get('id') == job['id'])
     _write(path, job)
+    if job.get('company_id'):
+        from careeros.enrich import regenerate_company
+        regenerate_company(root, job['company_id'])
+
+
+def validate_enrichment(block):
+    """Validate known derived fields while retaining future extension keys."""
+    if not isinstance(block, dict):
+        raise ValueError('enrichment must be an object.')
+    for key in ('sectors', 'locations_seen', 'top_keywords'):
+        if key in block and (not isinstance(block[key], list) or
+                             any(not isinstance(v, str) for v in block[key])):
+            raise ValueError(f'enrichment.{key} must be a list of text values.')
+    if 'remote_friendly' in block and type(block['remote_friendly']) is not bool:
+        raise ValueError('enrichment.remote_friendly must be boolean.')
+    for key in ('seniority_range', 'hiring_activity'):
+        if key in block and not isinstance(block[key], dict):
+            raise ValueError(f'enrichment.{key} must be an object.')
+    for key in ('min', 'max'):
+        value = block.get('seniority_range', {}).get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f'enrichment.seniority_range.{key} must be text or null.')
+    activity = block.get('hiring_activity', {})
+    if 'count' in activity and (type(activity['count']) is not int or activity['count'] < 0):
+        raise ValueError('enrichment.hiring_activity.count must be a nonnegative integer.')
+    value = activity.get('most_recent_posted_date')
+    if value is not None:
+        try:
+            if not isinstance(value, (str, date)):
+                raise ValueError
+            date.fromisoformat(str(value))
+        except ValueError:
+            raise ValueError('enrichment.hiring_activity.most_recent_posted_date must be YYYY-MM-DD or null.')
