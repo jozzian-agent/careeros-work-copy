@@ -63,6 +63,15 @@ def test_theme_is_domain_free():
     assert 'font-weight: 700' not in theme.BASE_CSS
 
 
+def test_external_link_token_and_no_hardcoded_colors():
+    assert '--link-external' in theme.CSS_VARS
+    assert re.search(r'a\.external\s*\{[^}]*color:\s*var\(--link-external\)', theme.BASE_CSS)
+    assert '::after' in theme.BASE_CSS
+    link_rules = re.findall(r'a(?:\.external)?\s*\{[^}]*\}', theme.BASE_CSS)
+    assert link_rules
+    assert not any(re.search(r'#[0-9a-fA-F]{3,6}', rule) for rule in link_rules)
+
+
 def test_synthetic_sample():
     criteria = yaml.safe_load((ROOT / 'sample/vault/search.yaml').read_text())
     assert criteria['roles'] == ['Platform engineering lead', 'Developer tools manager']

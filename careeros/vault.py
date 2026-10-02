@@ -169,7 +169,9 @@ def _save_record(root, kind, data, identifier=None):
     job = kind == 'jobs'
     defaults = (dict(company_id=None, title='', url='', original_url=None, source='', status='new', posted_date=None,
                      added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
-                     notes='', enriched=False, employment_type='', valid_through='', custom={}) if job else
+                     notes='', enriched=False, employment_type='', valid_through='', custom={},
+                     description='', company='', seniority='', keywords=[], summary='',
+                     ingest_source='') if job else
                 dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None, notes='', custom={}))
     result = defaults | (existing[1] if existing else {})
     result.update({k:v for k,v in data.items() if k in defaults})
@@ -189,6 +191,10 @@ def _save_record(root, kind, data, identifier=None):
         if result[key] is not None:
             check_url_format(result[key])
     if job:
+        if result['ingest_source'] not in ('', 'llm', 'heuristic'):
+            raise ValueError('Invalid ingest_source.')
+        if not isinstance(result['keywords'], list) or any(not isinstance(x, str) for x in result['keywords']):
+            raise ValueError('keywords must be a list of text values.')
         if result['status'] not in STATUSES:
             raise ValueError('Invalid job status.')
         for key in ('salary_info', 'enriched', 'remote_ok'):

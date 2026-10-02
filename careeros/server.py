@@ -46,8 +46,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             html = intake.fetch_url(url)
         except Exception:
             html = ''
-        data = intake.extract(url, html)
-        name = data.pop('company')
+        data = intake.ingest_posting(url, html)
+        name = data['company']
         website = data.pop('website')
         metadata = {key: data.pop(key) for key in ('sector', 'size', 'locations')}
         root = app.config['VAULT_PATH']
@@ -71,7 +71,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             html = intake.fetch_url(url)
             if not isinstance(html, str) or not html.strip():
                 raise ValueError('Posting returned no content.')
-            extracted = intake.extract(url, html)
+            extracted = intake.ingest_posting(url, html)
         except Exception:
             return jsonify(error='Unable to fetch and parse posting.'), 422
         with write_lock:
@@ -81,11 +81,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if job.get('url') != url:
                 return jsonify(error='Posting URL changed during enrichment. Try again.'), 409
             fill_fields = ('title', 'location', 'source', 'posted_date',
-                           'employment_type', 'valid_through')
+                           'employment_type', 'valid_through', 'description', 'company',
+                           'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
             updates = {key: extracted[key] for key in fill_fields
-                       if job.get(key) in (None, '', False) and extracted.get(key) not in (None, '')}
+                       if (job.get(key) in (None, '', []) or
+                           (key == 'salary_info' and job.get(key) is False))
+                       and extracted.get(key) not in (None, '')}
             # A nonempty title is always treated as owner-set; no heuristic replacement.
             name, website = extracted['company'], extracted['website']
             company = storage.load_company(root, job.get('company_id'))

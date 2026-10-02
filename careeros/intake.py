@@ -95,12 +95,16 @@ class Posting(HTMLParser):
     def __init__(self):
         super().__init__()
         self.meta, self.title, self.text = {}, [], []
+        self.regions = {tag: [] for tag in ('main', 'article', 'body')}
+        self.region_depth = dict.fromkeys(self.regions, 0)
         self.in_title = False
         self.hidden = 0
         self.json_blocks = []
         self.json_buffer = None
 
     def handle_starttag(self, tag, attrs):
+        if tag in self.region_depth:
+            self.region_depth[tag] += 1
         attrs = dict(attrs)
         if tag == 'meta':
             self.meta[(attrs.get('property') or attrs.get('name') or attrs.get('itemprop') or '').lower()] = attrs.get('content', '')
@@ -112,6 +116,8 @@ class Posting(HTMLParser):
             self.hidden += 1
 
     def handle_endtag(self, tag):
+        if tag in self.region_depth:
+            self.region_depth[tag] = max(0, self.region_depth[tag] - 1)
         if tag == 'script' and self.json_buffer is not None:
             self.json_blocks.append(''.join(self.json_buffer))
             self.json_buffer = None
@@ -127,6 +133,9 @@ class Posting(HTMLParser):
             self.title.append(value)
         if not self.hidden:
             self.text.append(value)
+            for tag, depth in self.region_depth.items():
+                if depth:
+                    self.regions[tag].append(value)
 
 
 def ats(url):
@@ -183,6 +192,10 @@ def extract(url, html=''):
     parser = Posting()
     parser.feed(html)
     schema = job_schema(parser, url)
+    return _extract(url, parser, schema)
+
+
+def _extract(url, parser, schema):
     platform, slug = ats(url)
     source = platform or domain(url)
     org = schema.get('hiringOrganization', {})
@@ -260,8 +273,39 @@ def extract(url, html=''):
         pass
     sector = org.get('industry')
     sector = sector if isinstance(sector, str) else None
-    return dict(sector=sector, size=size, locations=list(dict.fromkeys(locations)),
+    visible = next((parser.regions[tag] for tag in ('main', 'article', 'body')
+                    if any(value.strip() for value in parser.regions[tag])), parser.text)
+    return dict(description='\n'.join(description.text or visible).strip(),
+                sector=sector, size=size, locations=list(dict.fromkeys(locations)),
                 title=title or fallback, company=company, website=website, source=source,
                 original_url=url if platform else None, salary_info=bool(salary), salary_note=salary,
                 location=', '.join(dict.fromkeys(locations)), remote_ok=remote, posted_date=posted,
                 employment_type=str(employment), valid_through=str(schema.get('validThrough') or ''))
+
+
+def ingest_posting(url, html):
+    """Combine posting metadata with description extraction after a fetch."""
+    from careeros import ingest
+    parser = Posting()
+    parser.feed(html)
+    schema = job_schema(parser, url)
+    data = _extract(url, parser, schema)
+    fields = ingest.extract(data['description'])
+    org = schema.get('hiringOrganization')
+    protected = {
+        'title': schema.get('title') or parser.meta.get('og:title') or
+                 parser.meta.get('twitter:title') or parser.title,
+        'company': (org.get('name') if isinstance(org, dict) else None) or
+                   parser.meta.get('og:site_name'),
+        'location': schema.get('jobLocation'),
+        'employment_type': schema.get('employmentType'),
+    }
+    for key, value in fields.items():
+        if key in ('title', 'company', 'location', 'employment_type', 'remote_ok'):
+            # Keep explicit posting metadata when the offline rules are used.
+            if fields['ingest_source'] == 'heuristic' and protected.get(key) and data.get(key) not in (None, ''):
+                continue
+            if value in (None, ''):
+                continue
+        data[key] = value
+    return data
