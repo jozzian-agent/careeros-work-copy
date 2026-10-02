@@ -7,7 +7,7 @@ import pytest
 import yaml
 
 from careeros.server import create_app
-from careeros.web import theme
+from careeros.web import theme, ui
 from careeros.web.pages import companies, experiences, interviews, jobs, search
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,6 +70,25 @@ def test_external_link_token_and_no_hardcoded_colors():
     link_rules = re.findall(r'a(?:\.external)?\s*\{[^}]*\}', theme.BASE_CSS)
     assert link_rules
     assert not any(re.search(r'#[0-9a-fA-F]{3,6}', rule) for rule in link_rules)
+
+
+def test_viewport_meta_tag_present(client):
+    response = client.get('/jobs')
+    html = response.get_data(as_text=True)
+    assert "<meta name='viewport' content='width=device-width, initial-scale=1'>" in html
+
+
+def test_mobile_breakpoint_css_in_served_stylesheet(client):
+    response = client.get('/companies')
+    html = response.get_data(as_text=True)
+    assert f'@media (max-width: {theme.MOBILE_BREAKPOINT}px)' in html
+    assert f'@media(max-width:{theme.MOBILE_BREAKPOINT}px)' in html
+    assert '.grid {grid-template-columns:1fr;}' in html
+
+
+def test_no_hardcoded_colors_in_mobile_css():
+    for sheet in (theme.BASE_CSS, ui.CSS):
+        assert not re.search(r'#[0-9a-fA-F]{3,6}', sheet)
 
 
 def test_synthetic_sample():

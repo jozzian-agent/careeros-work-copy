@@ -11,6 +11,12 @@ from html import escape
 #: its own value.
 CONTENT_MAX_WIDTH = 1180
 
+#: The single source of truth for the mobile breakpoint -- BASE_CSS and
+#: ui.py both stack layouts and grow tap targets below this width, so a
+#: page never flips to single-column at one width while its controls
+#: still expect two.
+MOBILE_BREAKPOINT = 640
+
 #: Muted tag next to the wordmark, bump when a chunk is accepted.
 from careeros import CHUNK
 
@@ -121,12 +127,16 @@ a.external::after { content: ' \\2197'; display: inline-block; }
 a:focus-visible { outline: 2px solid var(--accent-indigo); outline-offset: 5px; border-radius: 2px; }
 .empty-state { padding: 32px; min-height: 180px; }
 .empty-state p { font-size: 14px; line-height: 1.7; margin: 12px 0 0; max-width: 640px; }
-@media (max-width: 600px) {
+@media (max-width: __MOBILE_BREAKPOINT__px) {
+  html, body { font-size: 17px; }
+  h1 { font-size: 24px; }
   .page { padding: 24px 18px; }
   .empty-state { padding: 24px; }
   .page-nav a.active { text-underline-offset: 5px; }
+  .page-nav a { min-height: 44px; display: inline-flex; align-items: center; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
 }
-""".replace("__CONTENT_MAX_WIDTH__", str(CONTENT_MAX_WIDTH))
+""".replace("__CONTENT_MAX_WIDTH__", str(CONTENT_MAX_WIDTH)).replace("__MOBILE_BREAKPOINT__", str(MOBILE_BREAKPOINT))
 
 def fmt1(value: float) -> str:
     """Round a displayed float to at most one decimal without trailing zeros."""
