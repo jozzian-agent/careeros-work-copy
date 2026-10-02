@@ -204,6 +204,21 @@ def test_curated_job_detail(client, salary):
         assert '&lt;b&gt;Pay&lt;/b&gt;' in html
 
 
+def test_external_link_markup(client):
+    html = client.get('/jobs/JOB-001').text
+    assert ('href="https://pebbleorbit.example/careers/platform-engineering-lead" '
+            'target="_blank" rel="noopener noreferrer" class="external"') in html
+    internal_link = '<a href="/companies/CO-001">Pebbleorbit Studio</a>'
+    assert internal_link in html
+
+
+def test_external_link_markup_both_urls(client):
+    html = client.get('/jobs/JOB-005').text
+    assert html.count('class="external"') == 2
+    assert html.count('target="_blank"') == 2
+    assert 'Open posting' in html and 'Original posting' in html
+
+
 def schema_html(**values):
     import json
     data = {'@type': 'JobPosting', 'title': 'Platform Builder',

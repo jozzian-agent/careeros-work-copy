@@ -38,6 +38,7 @@ CSS_VARS = """
   --text-faint: #62666d;
   --accent-indigo: #5e6ad2;
   --accent-violet: #7170ff;
+  --link-external: var(--text-muted);
   --status-success: #27a644;
   --status-emerald: #10b981;
   --status-fail: #e5484d;
@@ -91,6 +92,8 @@ h2 { font-size: 15px; color: var(--text-secondary); font-weight: 510; }
   border-radius: 5px;
 }
 a { color: var(--accent-violet); }
+a.external { color: var(--link-external); }
+a.external::after { content: ' \\2197'; display: inline-block; }
 .goal-annotation { color: var(--text-faint); font-size: 0.85em; font-weight: 400; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
 .job-detail-header { flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
