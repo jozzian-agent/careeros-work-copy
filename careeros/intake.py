@@ -91,6 +91,27 @@ def domain(url):
     return '.'.join(parts[-count:])
 
 
+# Structural chrome: suppressed exactly like script/style, their text never
+# reaches parser.text or regions.
+HIDDEN_TAGS = ('script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'noscript')
+# Void elements never get a matching handle_endtag call; excluding them from
+# the suppress stack keeps start/end bookkeeping balanced.
+VOID_TAGS = frozenset(('br', 'img', 'input', 'hr', 'meta', 'link', 'area', 'base',
+                      'col', 'embed', 'param', 'source', 'track', 'wbr'))
+BLOCK_TAGS = frozenset(('p', 'div', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'section'))
+def is_chrome(attrs):
+    for value in (attrs.get('class') or '', attrs.get('id') or ''):
+        for name in value.lower().split():
+            tokens = set(filter(None, re.split(r'[^a-z0-9]+', name)))
+            if tokens & {'cookie', 'cookies', 'consent', 'gdpr', 'modal', 'dialog', 'breadcrumb', 'pagination'}:
+                return True
+            if name in {'header', 'footer', 'sidebar'}:
+                return True
+            if tokens & {'share', 'social', 'related', 'menu', 'nav', 'navigation', 'privacy', 'header', 'footer', 'job'} and tokens & {'banner', 'widget', 'bar', 'buttons', 'links', 'jobs', 'list', 'alert', 'icon'}:
+                return True
+    return False
+
+
 class Posting(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -99,6 +120,7 @@ class Posting(HTMLParser):
         self.region_depth = dict.fromkeys(self.regions, 0)
         self.in_title = False
         self.hidden = 0
+        self.suppress_stack = []
         self.json_blocks = []
         self.json_buffer = None
 
@@ -112,19 +134,38 @@ class Posting(HTMLParser):
             self.in_title = True
         if tag == 'script' and attrs.get('type', '').lower() == 'application/ld+json':
             self.json_buffer = []
-        if tag in ('script', 'style'):
+        suppress = tag not in VOID_TAGS and (tag in HIDDEN_TAGS or is_chrome(attrs))
+        if suppress:
             self.hidden += 1
+        if tag not in VOID_TAGS:
+            self.suppress_stack.append((tag, suppress))
+        if tag in BLOCK_TAGS and not self.hidden:
+            self.text.append('\n')
+            for region, depth in self.region_depth.items():
+                if depth:
+                    self.regions[region].append('\n')
 
     def handle_endtag(self, tag):
-        if tag in self.region_depth:
-            self.region_depth[tag] = max(0, self.region_depth[tag] - 1)
-        if tag == 'script' and self.json_buffer is not None:
-            self.json_blocks.append(''.join(self.json_buffer))
-            self.json_buffer = None
-        if tag == 'title':
-            self.in_title = False
-        if tag in ('script', 'style'):
-            self.hidden = max(0, self.hidden - 1)
+        match = next((i for i in range(len(self.suppress_stack) - 1, -1, -1)
+                      if self.suppress_stack[i][0] == tag), None)
+        if match is None:
+            return
+        closed = self.suppress_stack[match:]
+        del self.suppress_stack[match:]
+        for opened, suppressed in closed:
+            self.hidden -= int(suppressed)
+            if opened in self.region_depth:
+                self.region_depth[opened] = max(0, self.region_depth[opened] - 1)
+            if opened == 'script' and self.json_buffer is not None:
+                self.json_blocks.append(''.join(self.json_buffer))
+                self.json_buffer = None
+            if opened == 'title':
+                self.in_title = False
+        if any(opened in BLOCK_TAGS for opened, _ in closed) and not self.hidden:
+            self.text.append('\n')
+            for region, depth in self.region_depth.items():
+                if depth:
+                    self.regions[region].append('\n')
 
     def handle_data(self, value):
         if self.json_buffer is not None:
@@ -213,6 +254,30 @@ def extract(url, html=''):
     return redact(_extract(url, parser, schema))
 
 
+# Trailing/leading-line chrome that slips past structural suppression (e.g. a
+# consent banner with no recognizable class/id). Only trimmed from the edges
+# of the body fallback, never from schema-supplied description text.
+EDGE_CHROME_RE = re.compile(r'cookie|all rights reserved|follow us|subscribe|imprint|'
+                            r'datenschutz|privacy policy|privacy notice|\bagb\b|apply now|'
+                            r'^select how often .*alert|^create alert$|^(?:menu|skip to content)$', re.I)
+
+
+def _collapse_lines(parts):
+    """Join fragments, collapsing in-line whitespace while keeping the block
+    newlines Posting() inserts between paragraphs as real line breaks."""
+    lines = (re.sub(r'[ \t]+', ' ', line).strip() for line in ''.join(parts).split('\n'))
+    return [line for line in lines if line]
+
+
+def _strip_chrome_edges(lines):
+    start, end = 0, len(lines)
+    while start < end and EDGE_CHROME_RE.search(lines[start]):
+        start += 1
+    while end > start and EDGE_CHROME_RE.search(lines[end - 1]):
+        end -= 1
+    return lines[start:end]
+
+
 def _extract(url, parser, schema):
     platform, slug = ats(url)
     source = platform or domain(url)
@@ -245,9 +310,9 @@ def _extract(url, parser, schema):
         title = re.split(r'\s+[|–—]\s+|\s+-\s+', title)[0].strip()
         if company:
             title = re.sub(r'\s+(?:at|@)\s+' + re.escape(company) + r'$', '', title, flags=re.I)
-    description = Posting()
-    description.feed(str(schema.get('description') or ''))
-    text = re.sub(r'\s+', ' ', ' '.join(description.text + parser.text))
+    schema_description = Posting()
+    schema_description.feed(str(schema.get('description') or ''))
+    text = re.sub(r'\s+', ' ', ' '.join(schema_description.text + parser.text))
     currency = r"(?:CHF|USD|EUR|[$€])"
     number = r"\d[\d,.'’]*(?:\s*[kK])?"
     amount = (rf"{currency}\s*{number}(?:\s*[-–]\s*(?:{currency}\s*)?{number})?"
@@ -294,7 +359,9 @@ def _extract(url, parser, schema):
     sector = sector if isinstance(sector, str) else None
     visible = next((parser.regions[tag] for tag in ('main', 'article', 'body')
                     if any(value.strip() for value in parser.regions[tag])), parser.text)
-    return dict(description='\n'.join(description.text or visible).strip(),
+    schema_lines = _collapse_lines(schema_description.text)
+    body_lines = schema_lines if schema_lines else _strip_chrome_edges(_collapse_lines(visible))
+    return dict(description='\n'.join(body_lines).strip(),
                 sector=sector, size=size, locations=list(dict.fromkeys(locations)),
                 title=title or fallback, company=company, website=website, source=source,
                 original_url=url if platform else None, salary_info=bool(salary), salary_note=salary,

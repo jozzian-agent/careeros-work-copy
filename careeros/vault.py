@@ -163,7 +163,7 @@ def next_job_id(root):
 def next_company_id(root):
     return _next(root, 'companies', 'CO-')
 
-def _save_record(root, kind, data, identifier=None, *, correction_detail=None):
+def _save_record(root, kind, data, identifier=None, *, correction_detail=None, history_event=None):
     from careeros.intake import check_url_format
     if not isinstance(data, dict):
         raise ValueError('Record must be an object.')
@@ -176,7 +176,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None):
                      notes='', enriched=False, employment_type='', valid_through='', custom={},
                      description='', company='', seniority='', keywords=[], summary='', contact_email='',
                      ingest_source='', sector=None, sectors=[], industry=None, industries=[],
-                     background='', skills=[], certifications=[], responsibilities=[], summary_source='') if job else
+                     background='', skills=[], certifications=[], responsibilities=[], summary_source='', refresh='skipped') if job else
                 dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                      contact_email='', notes='', custom={}, enrichment={}))
     result = defaults | (existing[1] if existing else {})
@@ -232,6 +232,8 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None):
                 result['watch'] = {}
         if correction_detail:
             append_event(result, 'company_correction', correction_detail)
+        if history_event:
+            append_event(result, *history_event)
         if not existing:
             append_event(result, 'created', 'Job created')
         if result.get('notes') and not (existing and existing[1].get('notes')):
@@ -253,9 +255,10 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None):
         existing[0].unlink()
     return result, existing[1] if existing else None
 
-def save_job(root, data, identifier=None, *, correction_detail=None):
+def save_job(root, data, identifier=None, *, correction_detail=None, history_event=None):
     from careeros.enrich import regenerate_company
-    result, previous = _save_record(root, 'jobs', data, identifier, correction_detail=correction_detail)
+    result, previous = _save_record(root, 'jobs', data, identifier, correction_detail=correction_detail,
+                                     history_event=history_event)
     from careeros.ingest import is_valid_contact_email
     if is_valid_contact_email(result.get('contact_email')) and result.get('company_id'):
         company = load_company(root, result['company_id'])

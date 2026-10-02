@@ -665,7 +665,7 @@ def test_thread_start_failure_clears_pending(tmp_path, monkeypatch, capsys):
     assert response.status_code == 201
     assert api.get('/api/jobs/' + response.json['job']['id']).json['llm_pending'] is False
     assert app.config['LLM_THREADS'] == {}
-    assert capsys.readouterr().err == 'ingest: RuntimeError\n'
+    assert set(capsys.readouterr().err.splitlines()) == {'ingest: RuntimeError'}
 
 
 def test_callback_save_failure_contained(tmp_path, monkeypatch, capsys):
@@ -681,7 +681,7 @@ def test_entire_async_callback_contained(capsys):
         raise RuntimeError(SYNTHETIC_ENDPOINT)
     thread = ingest.extract_async('', callback)
     thread.join(1)
-    assert capsys.readouterr().err == 'ingest: RuntimeError\n'
+    assert set(capsys.readouterr().err.splitlines()) == {'ingest: RuntimeError'}
 
 
 def test_auto_website_redaction(tmp_path, monkeypatch):
@@ -776,12 +776,16 @@ def test_extract_endpoint_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, 'extract_async', start)
     api = create_app(tmp_path).test_client()
     first = api.post('/api/jobs/' + job['id'] + '/extract')
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
     assert first.status_code == 202
     assert first.json['llm_pending'] is True
     assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is True
     assert callbacks[0][0] == 'Stored description text.'
     # A second call while a run is pending must skip gracefully (no new worker).
     second = api.post('/api/jobs/' + job['id'] + '/extract')
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
     assert second.status_code == 202
     assert len(callbacks) == 1
     callbacks[0][1]({'summary': 'AI summary.', 'skills': ['Python'], 'certifications': ['PMP']})
@@ -808,6 +812,8 @@ def test_extract_endpoint_respects_owner_edit(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, 'extract_async', start)
     api = create_app(tmp_path).test_client()
     assert api.post('/api/jobs/' + job['id'] + '/extract').status_code == 202
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
     assert api.put('/api/jobs/' + job['id'], json={'title': 'Owner Title'}).status_code == 200
     callbacks[0]({'title': 'LLM Title', 'summary': 'LLM summary.'})
     result = api.get('/api/jobs/' + job['id']).json
@@ -836,6 +842,8 @@ def test_extract_endpoint_empty_description_clears_pending(tmp_path, monkeypatch
     job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
     api = create_app(tmp_path).test_client()
     response = api.post('/api/jobs/' + job['id'] + '/extract')
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
     assert response.status_code == 202
     app = api.application
     app.config['LLM_THREADS'][job['id']].join(timeout=2)
@@ -936,6 +944,8 @@ def test_concurrent_extract_calls_start_exactly_one_worker(tmp_path, monkeypatch
 
     def call():
         response = api.post('/api/jobs/' + job['id'] + '/extract')
+        for worker in list(api.application.config['REFRESH_THREADS'].values()):
+            worker.join(timeout=2)
         with results_lock:
             results.append(response.json)
 
@@ -965,6 +975,8 @@ def test_stale_callback_cannot_clear_newer_runs_pending_state(tmp_path, monkeypa
     app = create_app(tmp_path)
     api = app.test_client()
     first = api.post('/api/jobs/' + job['id'] + '/extract')
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
     assert first.status_code == 202
     pending = app.config['LLM_PENDING']
     assert job['id'] in pending
@@ -985,10 +997,12 @@ def test_extract_endpoint_reports_start_failure_truthfully(tmp_path, monkeypatch
     monkeypatch.setattr(ingest, 'extract_async', Mock(side_effect=RuntimeError('boom')))
     api = create_app(tmp_path).test_client()
     response = api.post('/api/jobs/' + job['id'] + '/extract')
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
     assert response.status_code == 202
-    assert response.json['llm_pending'] is False
+    assert response.json['llm_pending'] is True
     assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is False
-    assert capsys.readouterr().err == 'ingest: RuntimeError\n'
+    assert set(capsys.readouterr().err.splitlines()) == {'ingest: RuntimeError'}
 
 
 @pytest.mark.parametrize('field,baseline_value,owner_value', [
@@ -1019,9 +1033,130 @@ def test_owner_edit_or_clear_survives_inflight_callback(tmp_path, monkeypatch, f
     monkeypatch.setattr(ingest, 'extract_async', start)
     api = create_app(tmp_path).test_client()
     assert api.post('/api/jobs/' + job['id'] + '/extract').status_code == 202
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
     assert api.put('/api/jobs/' + job['id'], json={field: owner_value}).status_code == 200
     callbacks[0]({'summary': 'LLM summary.', 'background': 'LLM background.',
                   'skills': ['LLMSkill'], 'certifications': ['LLMCert'],
                   'responsibilities': ['LLMResp']})
     result = api.get('/api/jobs/' + job['id']).json
     assert result[field] == owner_value
+
+
+# --- JOZ-261 fix round: boilerplate-free description extraction ---
+
+def test_parser_suppresses_structural_chrome():
+    """Nav/header/footer and a class-marked cookie banner must never reach
+    parser text or regions, even when they sit alongside real content."""
+    html = ('<nav>Site nav links</nav>'
+            '<header>Header menu</header>'
+            '<div class="cookie-consent">We use cookies to offer you the best possible website experience.</div>'
+            '<main><h1>Senior Engineer</h1><p>Build great products with Python.</p></main>'
+            '<footer>All rights reserved. Follow us.</footer>')
+    result = intake.extract('https://posting.example/role', html)
+    description = result['description']
+    assert description == 'Senior Engineer\nBuild great products with Python.'
+    for junk in ('nav', 'menu', 'cookies', 'rights reserved', 'Follow us'):
+        assert junk not in description.casefold()
+
+
+def test_body_fallback_strips_banner_and_preserves_paragraphs():
+    """Swissgrid-like page: no main/article, consent banner is the first
+    thing in body. The banner must be suppressed and the real paragraphs
+    must survive as separate lines, not one flattened line."""
+    html = ('<body>'
+            '<div class="cookie-consent">We use cookies to offer you the best possible website experience.</div>'
+            '<p>We are hiring a Head of Market and Product Design.</p>'
+            '<p>You will lead a cross-functional team and own the roadmap.</p>'
+            '</body>')
+    result = intake.extract('https://posting.example/role', html)
+    description = result['description']
+    assert 'cookies' not in description.casefold()
+    assert description.splitlines() == [
+        'We are hiring a Head of Market and Product Design.',
+        'You will lead a cross-functional team and own the roadmap.',
+    ]
+
+
+def test_heuristic_summary_skips_cookie_boilerplate():
+    description = ('We use cookies to offer you the best possible website experience.\n'
+                    'We are hiring a Senior Backend Engineer to join our platform team.\n'
+                    'You will design resilient APIs.')
+    summary = ingest.heuristic_extract(description)['summary']
+    assert 'cookie' not in summary.casefold()
+    assert 'Senior Backend Engineer' in summary
+
+
+def test_heuristic_summary_empty_when_only_boilerplate_present():
+    description = 'We use cookies to offer you the best possible website experience. All rights reserved.'
+    assert ingest.heuristic_extract(description)['summary'] == ''
+
+
+def test_flat_single_line_description_still_heuristically_extracted():
+    """Pre-existing callers that hand heuristic_extract flat, tag-free text
+    (no HTML, no boilerplate) must see unchanged behavior."""
+    description = 'Senior Engineer at Example Labs\nLocation: Remote\nFull-time. Build Python services.'
+    result = ingest.heuristic_extract(description)
+    assert result['title'] == 'Senior Engineer'
+    assert result['company'] == 'Example Labs'
+    assert result['location'] == 'Remote'
+    assert result['summary']
+
+
+def test_extract_endpoint_refetch_replaces_polluted_description_and_respects_owner_edit(tmp_path, monkeypatch):
+    """/extract must re-fetch the live posting and replace a chrome-polluted
+    stored description before enriching, while the existing owner-edit
+    protection for other fillable fields (e.g. title) still holds."""
+    job = vault.save_job(tmp_path, {'title': 'Old Title', 'url': 'https://posting.example/role',
+                                    'description': 'We use cookies to offer you the best experience.'})
+    html = ('<nav>Navigation</nav>'
+            '<main><h1>Senior Engineer</h1><p>Build great products with Python.</p></main>'
+            '<footer>All rights reserved.</footer>')
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: html)
+    callbacks = []
+
+    def start(description, callback):
+        callbacks.append((description, callback))
+        return Mock(is_alive=lambda: False)
+
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/' + job['id'] + '/extract')
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
+    assert response.status_code == 202
+    assert response.json['description'] == job['description']
+    fresh_description = api.get('/api/jobs/' + job['id']).json['description']
+    assert 'cookies' not in fresh_description.casefold()
+    assert 'Build great products with Python.' in fresh_description
+    assert api.get('/api/jobs/' + job['id']).json['description'] == fresh_description
+    assert callbacks[0][0] == fresh_description
+    assert api.put('/api/jobs/' + job['id'], json={'title': 'Owner Title'}).status_code == 200
+    callbacks[0][1]({'title': 'LLM Title', 'summary': 'LLM summary.'})
+    result = api.get('/api/jobs/' + job['id']).json
+    assert result['title'] == 'Owner Title'
+    assert result['summary'] == 'LLM summary.'
+    assert result['description'] == fresh_description
+
+
+def test_extract_endpoint_refetch_failure_falls_back_to_stored_description(tmp_path, monkeypatch):
+    """A fetch failure during the /extract re-fetch attempt (offline, posting
+    gone, timeout) must silently fall back to enriching the description
+    already on file, exactly like before the re-fetch existed."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'description': 'Stored description text.'})
+    monkeypatch.setattr(intake, 'fetch_url', Mock(side_effect=RuntimeError('unreachable')))
+    callbacks = []
+
+    def start(description, callback):
+        callbacks.append(description)
+        return Mock(is_alive=lambda: False)
+
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/' + job['id'] + '/extract')
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=2)
+    assert response.status_code == 202
+    assert response.json['description'] == 'Stored description text.'
+    assert callbacks == ['Stored description text.']

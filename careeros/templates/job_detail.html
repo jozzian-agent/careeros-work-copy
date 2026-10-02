@@ -1,6 +1,7 @@
 <a href="/jobs">← Jobs</a><div class="page-header job-detail-header spaced"><h1>{{ job.title }}</h1><small class="muted">{{ job.id }}</small></div>
 <div class="row spaced"><button type="button" id="extract-job"{% if llm_pending %} disabled{% endif %}>Enrich with AI</button>{% if llm_pending %}<span class="muted" id="extract-pending-chip">Enrichment pending</span>{% endif %}</div>
 <div class="stack">
+{% if job.refresh == 'failed' %}<p class="muted">Live page unavailable — enriched stored text</p>{% endif %}
 {% if job.summary %}<section class="card ai-summary">{% if job.summary_source == 'ai' %}<span class="chip ai-badge">AI-generated</span>{% endif %}<p>{{ job.summary }}</p></section>{% endif %}
 {% if job.background %}<section class="card"><h2>Background required</h2><p class="preserve">{{ job.background }}</p></section>{% endif %}
 {% if job.skills %}<section class="card"><h2>Skills</h2><div class="job-chips">{% for skill in job.skills %}<span class="chip">{{ skill }}</span>{% endfor %}</div></section>{% endif %}

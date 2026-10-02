@@ -2,7 +2,7 @@
 
 import argparse
 import os
-from threading import RLock
+from threading import RLock, Thread
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -73,6 +73,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
     app.config['LLM_PENDING'] = llm_pending
     # Exposed so tests can join a background extraction deterministically.
     app.config['LLM_THREADS'] = {}
+    app.config['REFRESH_THREADS'] = {}
     # Guards llm_pending reservation so intake and /extract can never both
     # win a worker slot for the same job, and so a stale callback can never
     # clear a slot a newer run holds.
@@ -98,28 +99,38 @@ def create_app(vault: str | Path | None = None) -> Flask:
                          if _company_url_key(c.get('website')) == key or c['id'] in linked), None)
         return None
 
-    def apply_llm_update(root, baseline, fields):
+    def apply_llm_update(root, baseline, fields, token):
         """baseline is the just-created heuristic record: a field only counts as
         still heuristic-sourced (safe to overwrite) if it still matches that
         snapshot, so an owner edit made while the LLM call is in flight sticks."""
         fillable = ('title', 'company', 'location', 'employment_type', 'seniority',
-                    'remote_ok', 'keywords', 'summary', 'contact_email',
+                    'remote_ok', 'keywords', 'contact_email',
                     'background', 'skills', 'certifications', 'responsibilities')
-        with write_lock:
-            job = storage.load_job(root, baseline['id'])
-            if job is None or job.get('url') != baseline.get('url'):
+        with write_lock, pending_lock:
+            if llm_pending.get(baseline['id']) is not token:
                 return
+            job = storage.load_job(root, baseline['id'])
+            if job is None or any(job.get(key) != baseline.get(key) for key in ('url', 'original_url')):
+                return
+            explicit_empty_summary = 'summary' in fields and not (fields['summary'] or '').strip()
             fields = ingest.redact(fields)
             if not ingest.is_valid_contact_email(fields.get('contact_email')):
                 fields.pop('contact_email', None)
             updates = {key: fields[key] for key in fillable
                        if fields.get(key) not in (None, '', [])
                        and job.get(key) == baseline.get(key)}
+            # A key present with an empty value means the model deliberately
+            # found no real summary (e.g. a chrome-only page); that must be
+            # able to clear a previously polluted summary and its AI badge,
+            # which the blanket not-in-(None,'',[]) filter above would block.
+            # An absent key (no 'summary' in fields) must leave it untouched.
+            if ('summary' in fields and (fields['summary'] or explicit_empty_summary)
+                    and job.get('summary') == baseline.get('summary')):
+                summary = (fields['summary'] or '').strip()
+                updates['summary'] = summary
+                updates['summary_source'] = 'ai' if summary else ''
             if job.get('ingest_source') == 'heuristic':
                 updates['ingest_source'] = 'llm'
-            if 'summary' in updates:
-                # This callback only ever runs with a genuine LLM result.
-                updates['summary_source'] = 'ai'
             correction = updates.get('company')
             changed_company = correction and correction != job.get('company')
             if changed_company and job.get('company_id') == baseline.get('company_id'):
@@ -172,7 +183,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         def on_result(fields):
             try:
                 if fields:
-                    apply_llm_update(root, baseline, fields)
+                    apply_llm_update(root, baseline, fields, token)
             except Exception as error:
                 ingest.warn(error)
             finally:
@@ -286,24 +297,69 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.post('/api/jobs/<identifier>/extract')
     def extract_job(identifier):
-        """Re-run LLM extraction over the already-stored description, for jobs
-        that predate the structured fields or whose first pass used the
-        heuristic fallback. Reuses the intake async worker path verbatim.
-
-        llm_pending in the response is always truthful: True covers both a
-        freshly started worker and an already-running one (the caller cannot
-        tell them apart and shouldn't need to); False means starting a
-        worker failed outright, so the response never claims work is
-        underway when nothing is running.
-        """
+        """Reserve before starting background refresh and enrichment."""
         root = app.config['VAULT_PATH']
         with write_lock:
             job = storage.load_job(root, identifier)
-        if job is None:
-            return jsonify(error='Job not found.'), 404
-        token = reserve_enrichment(identifier)
-        pending = True if token is None else start_llm_enrichment(root, job, job.get('description') or '', token)
-        return jsonify(job | {'llm_pending': pending}), 202
+            if job is None:
+                return jsonify(error='Job not found.'), 404
+            token = reserve_enrichment(identifier)
+        if token is None:
+            return jsonify(job | {'llm_pending': True}), 202
+        target = job.get('original_url') or job.get('url')
+
+        def refresh_and_enrich():
+            handed_off = False
+            try:
+                outcome, description = 'skipped', job.get('description') or ''
+                if target:
+                    try:
+                        html = intake.fetch_url(target)
+                        if not isinstance(html, str) or not html.strip():
+                            raise ValueError('Empty posting response.')
+                        description = intake.extract(target, html).get('description') or ''
+                        outcome = 'ok'
+                    except Exception as error:
+                        ingest.warn(error)
+                        outcome = 'failed'
+                with write_lock:
+                    current = storage.load_job(root, identifier)
+                    if current is None or any(current.get(key) != job.get(key)
+                                              for key in ('url', 'original_url', 'description')):
+                        return
+                    with pending_lock:
+                        if llm_pending.get(identifier) is not token:
+                            return
+                    updates = {'refresh': outcome}
+                    if outcome == 'ok':
+                        updates['description'] = description
+                    storage.save_job(root, ingest.redact(updates), identifier,
+                                     history_event=('description_refreshed' if outcome == 'ok'
+                                                    else 'description_refresh_' + outcome,
+                                                    'Live posting refreshed.' if outcome == 'ok'
+                                                    else 'Live page unavailable; enriching stored text.' if outcome == 'failed'
+                                                    else 'No posting URL; enriching stored text.'))
+                # Keep the reservation snapshot for owner-edit protection.
+                handed_off = start_llm_enrichment(root, job, description, token)
+            except Exception as error:
+                ingest.warn(error)
+            finally:
+                if not handed_off:
+                    with pending_lock:
+                        if llm_pending.get(identifier) is token:
+                            llm_pending.pop(identifier, None)
+
+        thread = Thread(target=refresh_and_enrich, daemon=True)
+        app.config['REFRESH_THREADS'][identifier] = thread
+        try:
+            thread.start()
+        except Exception as error:
+            ingest.warn(error)
+            with pending_lock:
+                if llm_pending.get(identifier) is token:
+                    llm_pending.pop(identifier, None)
+            return jsonify(job | {'llm_pending': False}), 202
+        return jsonify(job | {'llm_pending': True}), 202
 
     @app.post('/api/companies/<identifier>/enrich')
     def enrich_company(identifier):
