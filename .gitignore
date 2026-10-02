@@ -6,3 +6,4 @@ __pycache__/
 .wheelhouse/
 tmp-brief*.md
 /tmp/
+.hermes-handover.md
