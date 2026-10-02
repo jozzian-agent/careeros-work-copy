@@ -4,7 +4,7 @@ import os
 from types import SimpleNamespace
 from urllib import request
 
-TIMEOUT = 30
+TIMEOUT = 120
 
 
 def get_llm_model():

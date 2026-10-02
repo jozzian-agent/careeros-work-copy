@@ -163,7 +163,7 @@ def next_job_id(root):
 def next_company_id(root):
     return _next(root, 'companies', 'CO-')
 
-def _save_record(root, kind, data, identifier=None):
+def _save_record(root, kind, data, identifier=None, *, correction_detail=None):
     from careeros.intake import check_url_format
     if not isinstance(data, dict):
         raise ValueError('Record must be an object.')
@@ -174,9 +174,10 @@ def _save_record(root, kind, data, identifier=None):
     defaults = (dict(company_id=None, title='', url='', original_url=None, source='', status='new', posted_date=None,
                      added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
                      notes='', enriched=False, employment_type='', valid_through='', custom={},
-                     description='', company='', seniority='', keywords=[], summary='',
+                     description='', company='', seniority='', keywords=[], summary='', contact_email='',
                      ingest_source='', sector=None, sectors=[], industry=None, industries=[]) if job else
-                dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None, notes='', custom={}, enrichment={}))
+                dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
+                     contact_email='', notes='', custom={}, enrichment={}))
     result = defaults | (existing[1] if existing else {})
     result.update({k:v for k,v in data.items() if k in defaults})
     required = 'title' if job else 'name'
@@ -225,12 +226,16 @@ def _save_record(root, kind, data, identifier=None):
             if (result['status'] in ('new', 'interested', 'applied', 'interviewing')
                     and result.get('watch', {}).get('watch_status') == 'gone'):
                 result['watch'] = {}
+        if correction_detail:
+            append_event(result, 'company_correction', correction_detail)
         if not existing:
             append_event(result, 'created', 'Job created')
         if result.get('notes') and not (existing and existing[1].get('notes')):
             append_event(result, 'note_added', 'Notes added')
         if result.get('enriched') and not (existing and existing[1].get('enriched')):
             append_event(result, 'enriched', 'Posting enriched')
+        if result.get('ingest_source') == 'llm' and not (existing and existing[1].get('ingest_source') == 'llm'):
+            append_event(result, 'llm_enriched', 'LLM extraction completed')
     elif not isinstance(result['locations'], list) or any(not isinstance(x,str) for x in result['locations']):
         raise ValueError('locations must be a list of text values.')
     if not job and 'enrichment' in data:
@@ -244,9 +249,14 @@ def _save_record(root, kind, data, identifier=None):
         existing[0].unlink()
     return result, existing[1] if existing else None
 
-def save_job(root, data, identifier=None):
+def save_job(root, data, identifier=None, *, correction_detail=None):
     from careeros.enrich import regenerate_company
-    result, previous = _save_record(root, 'jobs', data, identifier)
+    result, previous = _save_record(root, 'jobs', data, identifier, correction_detail=correction_detail)
+    from careeros.ingest import is_valid_contact_email
+    if is_valid_contact_email(result.get('contact_email')) and result.get('company_id'):
+        company = load_company(root, result['company_id'])
+        if company and not company.get('contact_email'):
+            save_company(root, {'contact_email': result['contact_email']}, company['id'])
     for company_id in sorted({c for c in (result.get('company_id'),
                                           previous.get('company_id') if previous else None) if c}):
         try:

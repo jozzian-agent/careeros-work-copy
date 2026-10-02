@@ -188,11 +188,29 @@ def job_schema(parser, url):
     return postings[0] if postings else {}
 
 
+MAILTO_RE = re.compile(r'mailto:([^"\'\s<>?&]+)', re.I)
+
+
+def find_mailto(html):
+    """Pull the first plausible recruiting address out of raw markup.
+
+    mailto: hrefs never reach the rendered text that heuristic_extract sees,
+    so this scans the untouched HTML instead.
+    """
+    from careeros import ingest
+    for match in MAILTO_RE.finditer(html or ''):
+        candidate = ingest.redact(unquote(match.group(1)))
+        if ingest.is_valid_contact_email(candidate):
+            return candidate
+    return ''
+
+
 def extract(url, html=''):
     parser = Posting()
     parser.feed(html)
     schema = job_schema(parser, url)
-    return _extract(url, parser, schema)
+    from careeros.ingest import redact
+    return redact(_extract(url, parser, schema))
 
 
 def _extract(url, parser, schema):
@@ -213,10 +231,11 @@ def _extract(url, parser, schema):
     if not company:
         company = slug.replace('-', ' ').replace('_', ' ').title() if platform else source.split('.')[0].replace('-', ' ').title()
     website = None
+    from careeros.ingest import redact
     for candidate in (org.get('sameAs'), org.get('url')):
         if candidate:
             try:
-                website = check_url_format(candidate)
+                website = check_url_format(redact(candidate))
                 break
             except ValueError:
                 pass
@@ -283,14 +302,7 @@ def _extract(url, parser, schema):
                 employment_type=str(employment), valid_through=str(schema.get('validThrough') or ''))
 
 
-def ingest_posting(url, html):
-    """Combine posting metadata with description extraction after a fetch."""
-    from careeros import ingest
-    parser = Posting()
-    parser.feed(html)
-    schema = job_schema(parser, url)
-    data = _extract(url, parser, schema)
-    fields = ingest.extract(data['description'])
+def _merge_extracted(data, fields, schema, parser):
     org = schema.get('hiringOrganization')
     protected = {
         'title': schema.get('title') or parser.meta.get('og:title') or
@@ -308,4 +320,41 @@ def ingest_posting(url, html):
             if value in (None, ''):
                 continue
         data[key] = value
-    return data
+    from careeros.ingest import redact
+    return redact(data)
+
+
+def heuristic_posting(url, html):
+    """Posting metadata plus an instant offline pass; never calls the LLM.
+
+    Used by the intake route so the response never waits on the slow model;
+    callers queue ingest.extract_async separately to fill richer fields later.
+    """
+    from careeros import ingest
+    parser = Posting()
+    parser.feed(html)
+    schema = job_schema(parser, url)
+    data = _extract(url, parser, schema)
+    fields = ingest.heuristic_extract(data['description']) | {'ingest_source': 'heuristic'}
+    data = _merge_extracted(data, fields, schema, parser)
+    mailto = find_mailto(html)
+    if mailto:
+        data['contact_email'] = mailto
+    from careeros.ingest import redact
+    return redact(data)
+
+
+def ingest_posting(url, html):
+    """Combine posting metadata with description extraction after a fetch."""
+    from careeros import ingest
+    parser = Posting()
+    parser.feed(html)
+    schema = job_schema(parser, url)
+    data = _extract(url, parser, schema)
+    fields = ingest.extract(data['description'])
+    data = _merge_extracted(data, fields, schema, parser)
+    mailto = find_mailto(html)
+    if mailto:
+        data['contact_email'] = mailto
+    from careeros.ingest import redact
+    return redact(data)
