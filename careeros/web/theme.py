@@ -93,6 +93,8 @@ h2 { font-size: 15px; color: var(--text-secondary); font-weight: 510; }
 a { color: var(--accent-violet); }
 .goal-annotation { color: var(--text-faint); font-size: 0.85em; font-weight: 400; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.job-detail-header { flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+.job-detail-header > * { max-width: 100%; }
 .stat-row { display: flex; gap: 22px; font-size: 13px; color: var(--text-secondary); align-items: baseline; }
 .stat-row b { color: var(--text-primary); font-weight: 510; }
 .status-chip {

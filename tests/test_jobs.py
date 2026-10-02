@@ -501,7 +501,20 @@ def test_delete_company_api_roundtrip(client):
 def test_delete_detail_buttons(client, kind, identifier, label):
     html = client.get('/'+kind+'/'+identifier).text
     assert label in html and 'class="danger"' in html
-    assert 'confirm(' in html and "'DELETE'" in html
+    singular = 'job' if kind == 'jobs' else 'company'
+    record = client.get('/api/'+kind+'/'+identifier).json
+    name = record['title' if kind == 'jobs' else 'name']
+    assert '<dialog id="confirm">' in html
+    assert f'Are you sure you want to delete this {singular}?' in html
+    assert f'This removes {name} from your {kind}.' in html
+    assert f'<button id="cancel-delete" autofocus>Keep {singular}</button>' in html
+    assert f'<button class="danger" id="confirm-delete">{label}</button>' in html
+    assert f"document.getElementById('delete-{singular}').onclick=()=>dialog.showModal()" in html
+    assert "document.getElementById('cancel-delete').onclick=()=>dialog.close()" in html
+    assert f"await api('/api/{kind}/'+" in html and "'DELETE'" in html
+    assert f"location.href='/{kind}'" in html
+    assert 'dialog.close();toast(err.message,true)' in html
+    assert 'confirm(' not in html
     assert label not in client.get('/'+kind).text
 
 
@@ -553,3 +566,40 @@ def test_company_missing_metadata(client):
     assert data['company']['sector'] is None
     assert data['company']['size'] is None
     assert data['company']['locations'] == []
+
+
+@pytest.mark.parametrize('location,remote_ok,expected', [
+    ('Hybrid, Zurich, Remote', True, False),
+    ('REMOTE', True, False),
+    ('remote', True, False),
+    ('Zurich', True, True),
+    ('Zurich', False, False),
+    ('Remote', False, False),
+    (None, True, True),
+    ('', True, True),
+    ('Remotedorf', True, True),
+    ('Remotenberg, CH', True, True),
+])
+def test_show_remote_chip(location, remote_ok, expected):
+    from careeros.web.pages.jobs import show_remote_chip
+    assert show_remote_chip({'location': location, 'remote_ok': remote_ok}) is expected
+
+
+@pytest.mark.parametrize('location,remote_ok,mentions,chip', [
+    ('Hybrid, Zurich, Remote', True, 1, False),
+    ('Hybrid, Zurich, REMOTE', True, 1, False),
+    ('Zurich', True, 1, True),
+    ('Zurich', False, 0, False),
+    ('Remote', False, 1, False),
+])
+def test_job_detail_location_and_header(client, location, remote_ok, mentions, chip):
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'location': location, 'remote_ok': remote_ok}, 'JOB-001')
+    response = client.get('/jobs/JOB-001')
+    assert response.status_code == 200
+    html = response.text
+    assert html.lower().count('remote') == mentions
+    assert ('<span class="chip">Remote</span>' in html) is chip
+    title = vault.load_job(root, 'JOB-001')['title']
+    assert f'<div class="page-header job-detail-header spaced"><h1>{title}</h1><small class="muted">JOB-001</small></div>' in html
+    assert vault.load_job(root, 'JOB-001')['location'] == location
