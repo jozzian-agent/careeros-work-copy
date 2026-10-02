@@ -676,6 +676,128 @@ def test_kanban_rendered_styles(client):
     assert 'button,.button,input,select {min-height:44px;}' in styles
 
 
+def test_job_detail_ai_summary_badge(client):
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'summary': 'Heuristic summary.'}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert 'Heuristic summary.' in html
+    assert 'AI-generated' not in html
+    vault.save_job(root, {'summary': 'AI summary.', 'summary_source': 'ai'}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert 'AI summary.' in html
+    assert 'AI-generated' in html
+
+
+def test_job_detail_extracted_sections(client):
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'background': '5+ years experience.', 'skills': ['Python', 'SQL'],
+                          'certifications': ['PMP'], 'responsibilities': ['Lead the team']}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert 'Background required' in html and '5+ years experience.' in html
+    assert 'class="job-chips"' in html and '>Python<' in html and '>SQL<' in html
+    assert 'Certifications' in html and 'PMP' in html
+    assert 'Responsibilities' in html and 'Lead the team' in html
+
+
+def test_job_detail_hides_empty_extracted_sections(client):
+    html = client.get('/jobs/JOB-001').text
+    for label in ['Background required', '<h2>Skills</h2>', 'Certifications', 'Responsibilities',
+                 'Original description', 'AI-generated']:
+        assert label not in html
+
+
+def test_job_detail_original_description_collapsible(client):
+    root = client.application.config['VAULT_PATH']
+    long_text = 'Paragraph one.\n\n' + ('Filler sentence. ' * 100)
+    vault.save_job(root, {'description': long_text}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert 'Original description' in html
+    assert '<details>' in html and '<summary>Show full description</summary>' in html
+    assert 'Paragraph one.' in html
+
+
+def test_job_detail_short_description_not_collapsible(client):
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'description': 'Short description.'}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert 'Short description.' in html
+    assert '<details>' not in html
+
+
+def test_job_detail_reenrich_button_present(client):
+    html = client.get('/jobs/JOB-001').text
+    assert 'id="extract-job"' in html and 'Enrich with AI' in html
+    assert 'id="extract-pending-chip"' not in html
+
+
+def test_job_detail_shows_pending_ai_state(client, monkeypatch):
+    import re
+    from careeros import ingest
+    from unittest.mock import Mock
+    monkeypatch.setattr(ingest, 'extract_async', lambda description, callback: Mock(is_alive=lambda: True))
+    assert client.post('/api/jobs/JOB-001/extract').status_code == 202
+    html = client.get('/jobs/JOB-001').text
+    assert 'id="extract-pending-chip"' in html
+    assert re.search(r'id="extract-job"[^>]*\bdisabled\b', html)
+
+
+def test_job_detail_polls_only_while_pending(client, monkeypatch):
+    """MINOR 4: the page must poll for completion while enrichment is
+    pending, and must not poll when it isn't."""
+    from careeros import ingest
+    from unittest.mock import Mock
+    html = client.get('/jobs/JOB-001').text
+    assert 'if(false)pollTimer=setInterval(checkEnrichment,4000)' in html
+    monkeypatch.setattr(ingest, 'extract_async', lambda description, callback: Mock(is_alive=lambda: True))
+    assert client.post('/api/jobs/JOB-001/extract').status_code == 202
+    html = client.get('/jobs/JOB-001').text
+    assert 'if(true)pollTimer=setInterval(checkEnrichment,4000)' in html
+    assert 'data.llm_pending' in html
+    assert 'notesOriginal' in html
+
+
+def test_job_detail_whitespace_only_description_hides_section(client):
+    """NIT 7: whitespace-only descriptions must not render an empty section."""
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'description': ' ' * 1201}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert 'Original description' not in html
+
+
+def test_job_detail_description_boundary_1200_not_collapsible(client):
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'description': 'a' * 1200}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert 'Original description' in html
+    assert '<details>' not in html
+
+
+def test_job_detail_description_boundary_1201_reconstructs_exactly(client):
+    import re
+    root = client.application.config['VAULT_PATH']
+    text = 'a' * 1200 + 'b'
+    vault.save_job(root, {'description': text}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert '<details>' in html
+    preview = re.search(r'<p class="preserve">(a+)</p>', html).group(1)
+    rest = re.search(r'<summary>Show full description</summary><p class="preserve">(.*?)</p>', html, re.S).group(1)
+    assert len(preview) == 1200
+    assert len(rest) == 1
+    assert preview + rest == text
+
+
+def test_job_detail_description_escapes_html_in_both_halves(client):
+    root = client.application.config['VAULT_PATH']
+    text = '<script>evil()</script>' * 60 + '<b>tail</b>'
+    assert len(text) > 1200
+    vault.save_job(root, {'description': text}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    assert '<script>evil()' not in html
+    assert '&lt;script&gt;evil()&lt;/script&gt;' in html
+    assert '<b>tail</b>' not in html
+    assert '&lt;b&gt;tail&lt;/b&gt;' in html
+
+
 def test_full_record_status_update(client):
     fields = {'notes':'Keep notes', 'custom':{'keep':['detail']}, 'description':'Keep description', 'keywords':['Python']}
     assert client.put('/api/jobs/JOB-001', json=fields).status_code == 200

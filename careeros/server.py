@@ -69,8 +69,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     # Worker-local pending assumes a single-process deployment.
     llm_pending = {}
+    # Exposed so pages can render the pending state without reaching into the closure.
+    app.config['LLM_PENDING'] = llm_pending
     # Exposed so tests can join a background extraction deterministically.
     app.config['LLM_THREADS'] = {}
+    # Guards llm_pending reservation so intake and /extract can never both
+    # win a worker slot for the same job, and so a stale callback can never
+    # clear a slot a newer run holds.
+    pending_lock = RLock()
 
     def fill_company_metadata(root, company, extracted):
         changes = {key: extracted[key] for key in ('sector', 'size', 'locations')
@@ -97,7 +103,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
         still heuristic-sourced (safe to overwrite) if it still matches that
         snapshot, so an owner edit made while the LLM call is in flight sticks."""
         fillable = ('title', 'company', 'location', 'employment_type', 'seniority',
-                    'remote_ok', 'keywords', 'summary', 'contact_email')
+                    'remote_ok', 'keywords', 'summary', 'contact_email',
+                    'background', 'skills', 'certifications', 'responsibilities')
         with write_lock:
             job = storage.load_job(root, baseline['id'])
             if job is None or job.get('url') != baseline.get('url'):
@@ -110,6 +117,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
                        and job.get(key) == baseline.get(key)}
             if job.get('ingest_source') == 'heuristic':
                 updates['ingest_source'] = 'llm'
+            if 'summary' in updates:
+                # This callback only ever runs with a genuine LLM result.
+                updates['summary_source'] = 'ai'
             correction = updates.get('company')
             changed_company = correction and correction != job.get('company')
             if changed_company and job.get('company_id') == baseline.get('company_id'):
@@ -136,9 +146,28 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def prune_completed_enrichment():
         prune_threads()
 
-    def start_llm_enrichment(root, baseline, description):
+    def reserve_enrichment(job_id):
+        """Atomically claim the right to start a worker for this job.
+
+        Returns a unique token on success, or None if a run is already
+        pending. Checking both entry points against the same lock means
+        intake and /extract can never both start a worker for the same job.
+        """
+        with pending_lock:
+            if job_id in llm_pending:
+                return None
+            token = object()
+            llm_pending[job_id] = token
+            return token
+
+    def start_llm_enrichment(root, baseline, description, token):
+        """Start the background worker for a reserved token.
+
+        Returns True if a worker thread actually started. The callback only
+        clears llm_pending if it still owns the slot (token identity check),
+        so a slow/stale run can never clobber a newer run's pending state.
+        """
         job_id = baseline['id']
-        llm_pending[job_id] = True
 
         def on_result(fields):
             try:
@@ -147,13 +176,20 @@ def create_app(vault: str | Path | None = None) -> Flask:
             except Exception as error:
                 ingest.warn(error)
             finally:
-                llm_pending.pop(job_id, None)
+                with pending_lock:
+                    if llm_pending.get(job_id) is token:
+                        llm_pending.pop(job_id, None)
 
         try:
-            app.config['LLM_THREADS'][job_id] = ingest.extract_async(description, on_result)
+            thread = ingest.extract_async(description, on_result)
         except Exception as error:
-            llm_pending.pop(job_id, None)
+            with pending_lock:
+                if llm_pending.get(job_id) is token:
+                    llm_pending.pop(job_id, None)
             ingest.warn(error)
+            return False
+        app.config['LLM_THREADS'][job_id] = thread
+        return True
 
     @app.route('/api/jobs/intake', methods=['POST'])
     def job_intake():
@@ -181,7 +217,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 if not company.get('website'):
                     company = storage.save_company(root, {'website': website or posting_origin}, company['id'])
             job = storage.save_job(root, data | {'url': url, 'company_id': company['id'] if company else None, 'sector': metadata['sector']})
-        start_llm_enrichment(root, job, data['description'])
+        token = reserve_enrichment(job['id'])
+        if token is not None:
+            start_llm_enrichment(root, job, data['description'], token)
         return jsonify(job=job, company=company), 201
 
     @app.post('/api/jobs/<identifier>/enrich')
@@ -206,13 +244,19 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 return jsonify(error='Posting URL changed during enrichment. Try again.'), 409
             fill_fields = ('title', 'location', 'source', 'posted_date',
                            'employment_type', 'valid_through', 'description', 'company',
-                           'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector')
+                           'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
+                           'background', 'skills', 'certifications', 'responsibilities')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
             updates = {key: extracted[key] for key in fill_fields
                        if (job.get(key) in (None, '', []) or
                            (key == 'salary_info' and job.get(key) is False))
                        and extracted.get(key) not in (None, '')}
+            if 'summary' in updates:
+                # extracted['summary'] can be the heuristic fallback even when
+                # other fields came from the model; trust the field-specific
+                # marker ingest.extract() computed, not the overall ingest_source.
+                updates['summary_source'] = extracted.get('summary_source', '')
             # A nonempty title is always treated as owner-set; no heuristic replacement.
             name, website = extracted['company'], _company_website(extracted['website'])
             company = storage.load_company(root, job.get('company_id'))
@@ -239,6 +283,27 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 fill_company_metadata(root, target, extracted)
             updates['enriched'] = True
             return jsonify(storage.save_job(root, updates, identifier))
+
+    @app.post('/api/jobs/<identifier>/extract')
+    def extract_job(identifier):
+        """Re-run LLM extraction over the already-stored description, for jobs
+        that predate the structured fields or whose first pass used the
+        heuristic fallback. Reuses the intake async worker path verbatim.
+
+        llm_pending in the response is always truthful: True covers both a
+        freshly started worker and an already-running one (the caller cannot
+        tell them apart and shouldn't need to); False means starting a
+        worker failed outright, so the response never claims work is
+        underway when nothing is running.
+        """
+        root = app.config['VAULT_PATH']
+        with write_lock:
+            job = storage.load_job(root, identifier)
+        if job is None:
+            return jsonify(error='Job not found.'), 404
+        token = reserve_enrichment(identifier)
+        pending = True if token is None else start_llm_enrichment(root, job, job.get('description') or '', token)
+        return jsonify(job | {'llm_pending': pending}), 202
 
     @app.post('/api/companies/<identifier>/enrich')
     def enrich_company(identifier):
@@ -286,7 +351,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if request.method == 'DELETE':
                 storage.delete_job(root, identifier)
                 return jsonify(deleted=identifier)
-            return jsonify(storage.save_job(root, request.get_json(), identifier))
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Record must be an object.')
+            # Only trusted extraction paths (apply_llm_update, /enrich,
+            # /extract) may set summary_source: strip any client-supplied
+            # value, then clear it whenever this PUT actually changes the
+            # summary text (replacement or clearing to empty), since an
+            # owner edit must never keep an AI badge on text it didn't write.
+            payload = {k: v for k, v in payload.items() if k != 'summary_source'}
+            if 'summary' in payload and payload['summary'] != data.get('summary'):
+                payload['summary_source'] = ''
+            return jsonify(storage.save_job(root, payload, identifier))
 
     @app.route('/api/companies/<identifier>', methods=['GET', 'PUT', 'DELETE'])
     def company_api(identifier):

@@ -175,7 +175,8 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None):
                      added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
                      notes='', enriched=False, employment_type='', valid_through='', custom={},
                      description='', company='', seniority='', keywords=[], summary='', contact_email='',
-                     ingest_source='', sector=None, sectors=[], industry=None, industries=[]) if job else
+                     ingest_source='', sector=None, sectors=[], industry=None, industries=[],
+                     background='', skills=[], certifications=[], responsibilities=[], summary_source='') if job else
                 dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                      contact_email='', notes='', custom={}, enrichment={}))
     result = defaults | (existing[1] if existing else {})
@@ -203,8 +204,11 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None):
                 raise ValueError(f'{key} must be a list of text values.')
         if result['ingest_source'] not in ('', 'llm', 'heuristic'):
             raise ValueError('Invalid ingest_source.')
-        if not isinstance(result['keywords'], list) or any(not isinstance(x, str) for x in result['keywords']):
-            raise ValueError('keywords must be a list of text values.')
+        if result['summary_source'] not in ('', 'ai'):
+            raise ValueError('Invalid summary_source.')
+        for key in ('keywords', 'skills', 'certifications', 'responsibilities'):
+            if not isinstance(result[key], list) or any(not isinstance(x, str) for x in result[key]):
+                raise ValueError(f'{key} must be a list of text values.')
         if result['status'] not in STATUSES:
             raise ValueError('Invalid job status.')
         for key in ('salary_info', 'enriched', 'remote_ok'):

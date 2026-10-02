@@ -1,7 +1,7 @@
 """Offline structured ingestion contracts."""
 import json
 from time import monotonic
-from threading import Event
+from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
@@ -71,6 +71,40 @@ def test_llm_request_and_result():
     assert kwargs['timeout'] == 120
     assert kwargs['messages'] == ingest.build_prompt('Role: Engineer\nPython skills.')
     assert 'No commentary, no markdown fences' in kwargs['messages'][0]['content']
+
+
+def test_build_prompt_requests_new_fields():
+    content = ingest.build_prompt('Role text')[1]['content']
+    for field in ('background', 'skills', 'certifications', 'responsibilities'):
+        assert field in content
+
+
+def test_parse_response_new_fields():
+    content = json.dumps(dict(background='5+ years experience required.',
+                              skills=['Python', 'Python', None, 'SQL'],
+                              certifications=['AWS Certified', ''],
+                              responsibilities=['Lead the team', None]))
+    parsed = ingest.parse_response(content)
+    assert parsed['background'] == '5+ years experience required.'
+    assert parsed['skills'] == ['Python', 'SQL']
+    assert parsed['certifications'] == ['AWS Certified']
+    assert parsed['responsibilities'] == ['Lead the team']
+
+
+def test_redaction_covers_new_list_fields():
+    unsafe = 'worker.internal' + ':' + '9876'
+    result = ingest.parse_response(json.dumps({
+        'skills': [unsafe, 'Python'], 'certifications': [unsafe], 'responsibilities': [unsafe, 'Lead'],
+    }))
+    assert result['skills'] == ['Python']
+    assert result['certifications'] == []
+    assert result['responsibilities'] == ['Lead']
+
+
+def test_heuristic_extract_never_invents_new_fields():
+    result = ingest.heuristic_extract('Senior Engineer at Example Labs\nRemote\nPython.')
+    for field in ('background', 'skills', 'certifications', 'responsibilities'):
+        assert field not in result
 
 
 @pytest.mark.parametrize('client', [client_for('not json'), client_for(error=TimeoutError()),
@@ -219,7 +253,10 @@ def test_enrichment_legacy_job(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('values', [{'keywords': 'Python'}, {'keywords': [1]},
-                                   {'ingest_source': 'invalid'}, {'summary': 42}])
+                                   {'ingest_source': 'invalid'}, {'summary': 42},
+                                   {'skills': 'Python'}, {'skills': [1]}, {'certifications': [1]},
+                                   {'responsibilities': [1]}, {'summary_source': 'bogus'},
+                                   {'background': 42}])
 def test_vault_validates_structured_fields(tmp_path, values):
     with pytest.raises(ValueError):
         vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'} | values)
@@ -689,3 +726,302 @@ def test_company_email_fill_migrates_existing_job_email(tmp_path, monkeypatch):
     job = api.get('/api/jobs/' + baseline['id']).json
     assert job['contact_email'] == 'owner@safe.example'
     assert vault.load_company(tmp_path, target['id'])['contact_email'] == 'owner@safe.example'
+
+
+def test_async_summary_provenance_marker(tmp_path, monkeypatch):
+    app, api, baseline, callback = capture_intake(tmp_path, monkeypatch)
+    assert baseline['summary_source'] == ''
+    callback({'summary': 'LLM summary.', 'background': '5+ years.', 'skills': ['Python']})
+    job = api.get('/api/jobs/' + baseline['id']).json
+    assert job['summary'] == 'LLM summary.'
+    assert job['summary_source'] == 'ai'
+    assert job['background'] == '5+ years.'
+    assert job['skills'] == ['Python']
+
+
+def test_enrich_sync_heuristic_summary_has_no_ai_marker(tmp_path, monkeypatch):
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Engineer at Example Labs. Build Python services.</main>')
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/' + job['id'] + '/enrich')
+    assert response.status_code == 200
+    assert response.json['ingest_source'] == 'heuristic'
+    assert response.json['summary']
+    assert response.json['summary_source'] == ''
+
+
+def test_enrich_sync_llm_summary_gets_ai_marker(tmp_path, monkeypatch):
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Engineer at Example Labs.</main>')
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps({
+        'summary': 'LLM summary.', 'skills': ['Python'], 'background': '5+ years.'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/' + job['id'] + '/enrich')
+    assert response.status_code == 200
+    assert response.json['ingest_source'] == 'llm'
+    assert response.json['summary'] == 'LLM summary.'
+    assert response.json['summary_source'] == 'ai'
+    assert response.json['skills'] == ['Python']
+    assert response.json['background'] == '5+ years.'
+
+
+def test_extract_endpoint_lifecycle(tmp_path, monkeypatch):
+    job = vault.save_job(tmp_path, {'title': 'Owner title', 'url': 'https://posting.example/role',
+                                    'description': 'Stored description text.'})
+    callbacks = []
+    def start(description, callback):
+        callbacks.append((description, callback))
+        return Mock(is_alive=lambda: False)
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    api = create_app(tmp_path).test_client()
+    first = api.post('/api/jobs/' + job['id'] + '/extract')
+    assert first.status_code == 202
+    assert first.json['llm_pending'] is True
+    assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is True
+    assert callbacks[0][0] == 'Stored description text.'
+    # A second call while a run is pending must skip gracefully (no new worker).
+    second = api.post('/api/jobs/' + job['id'] + '/extract')
+    assert second.status_code == 202
+    assert len(callbacks) == 1
+    callbacks[0][1]({'summary': 'AI summary.', 'skills': ['Python'], 'certifications': ['PMP']})
+    job_after = api.get('/api/jobs/' + job['id']).json
+    assert job_after['llm_pending'] is False
+    assert job_after['summary'] == 'AI summary.'
+    assert job_after['summary_source'] == 'ai'
+    assert job_after['skills'] == ['Python']
+    assert job_after['certifications'] == ['PMP']
+
+
+def test_extract_endpoint_missing_job(tmp_path):
+    api = create_app(tmp_path).test_client()
+    assert api.post('/api/jobs/missing/extract').status_code == 404
+
+
+def test_extract_endpoint_respects_owner_edit(tmp_path, monkeypatch):
+    job = vault.save_job(tmp_path, {'title': 'Old Title', 'url': 'https://posting.example/role',
+                                    'description': 'Stored description text.'})
+    callbacks = []
+    def start(description, callback):
+        callbacks.append(callback)
+        return Mock(is_alive=lambda: False)
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    api = create_app(tmp_path).test_client()
+    assert api.post('/api/jobs/' + job['id'] + '/extract').status_code == 202
+    assert api.put('/api/jobs/' + job['id'], json={'title': 'Owner Title'}).status_code == 200
+    callbacks[0]({'title': 'LLM Title', 'summary': 'LLM summary.'})
+    result = api.get('/api/jobs/' + job['id']).json
+    assert result['title'] == 'Owner Title'
+    assert result['summary'] == 'LLM summary.'
+    assert result['summary_source'] == 'ai'
+
+
+def test_legacy_job_record_loads_without_new_fields(tmp_path):
+    job = vault.save_job(tmp_path, {'title': 'Legacy Role', 'url': 'https://posting.example/role'})
+    path = next((tmp_path / 'jobs').glob('*.yaml'))
+    stored = yaml.safe_load(path.read_text())
+    for field in ('background', 'skills', 'certifications', 'responsibilities', 'summary_source'):
+        stored.pop(field, None)
+    path.write_text(yaml.safe_dump(stored))
+    loaded = vault.load_job(tmp_path, job['id'])
+    assert loaded['title'] == 'Legacy Role'
+    assert 'background' not in loaded
+    updated = vault.save_job(tmp_path, {'notes': 'Touch the record.'}, job['id'])
+    assert updated['background'] == ''
+    assert updated['skills'] == []
+    assert updated['summary_source'] == ''
+
+
+def test_extract_endpoint_empty_description_clears_pending(tmp_path, monkeypatch):
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/' + job['id'] + '/extract')
+    assert response.status_code == 202
+    app = api.application
+    app.config['LLM_THREADS'][job['id']].join(timeout=2)
+    assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is False
+
+
+# --- JOZ-260 fix round: regressions for the cross-review findings ---
+
+def test_extract_summary_source_only_when_llm_supplies_summary(monkeypatch):
+    """MAJOR 1: a partial LLM result (no summary) must not badge the
+    retained heuristic summary, even though ingest_source becomes 'llm'."""
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps({'skills': ['Python']})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    result = ingest.extract('Engineer at Example Labs. Build Python services.')
+    assert result['ingest_source'] == 'llm'
+    assert result['skills'] == ['Python']
+    assert result['summary_source'] == ''
+    assert result['summary']
+
+
+def test_enrich_sync_partial_llm_result_keeps_heuristic_summary_unbadged(tmp_path, monkeypatch):
+    """MAJOR 1, via the /enrich route: same gap, exercised end-to-end."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Engineer at Example Labs. Build Python services.</main>')
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps({'skills': ['Python']})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/' + job['id'] + '/enrich')
+    assert response.status_code == 200
+    assert response.json['ingest_source'] == 'llm'
+    assert response.json['skills'] == ['Python']
+    assert response.json['summary']
+    assert response.json['summary_source'] == ''
+
+
+def test_owner_summary_replace_clears_ai_badge(tmp_path):
+    """MAJOR 2: replacing AI-badged summary text via PUT must drop the badge."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'summary': 'AI summary.', 'summary_source': 'ai'})
+    api = create_app(tmp_path).test_client()
+    response = api.put('/api/jobs/' + job['id'], json={'summary': 'Written by owner'})
+    assert response.status_code == 200
+    assert response.json['summary'] == 'Written by owner'
+    assert response.json['summary_source'] == ''
+
+
+def test_owner_summary_clear_removes_ai_badge(tmp_path):
+    """MAJOR 2: clearing an AI-badged summary to empty must drop the badge."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'summary': 'AI summary.', 'summary_source': 'ai'})
+    api = create_app(tmp_path).test_client()
+    response = api.put('/api/jobs/' + job['id'], json={'summary': ''})
+    assert response.status_code == 200
+    assert response.json['summary'] == ''
+    assert response.json['summary_source'] == ''
+
+
+def test_owner_put_cannot_set_ai_badge_directly(tmp_path):
+    """MAJOR 2: only trusted extraction paths may set summary_source; a
+    client-supplied value on an ordinary PUT must never stick."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    api = create_app(tmp_path).test_client()
+    response = api.put('/api/jobs/' + job['id'], json={'summary': 'Owner text', 'summary_source': 'ai'})
+    assert response.status_code == 200
+    assert response.json['summary'] == 'Owner text'
+    assert response.json['summary_source'] == ''
+
+
+def test_put_without_summary_change_preserves_badge(tmp_path):
+    """MAJOR 2 control: a PUT that doesn't touch summary must leave an
+    existing AI badge alone."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'summary': 'AI summary.', 'summary_source': 'ai'})
+    api = create_app(tmp_path).test_client()
+    response = api.put('/api/jobs/' + job['id'], json={'notes': 'unrelated edit'})
+    assert response.status_code == 200
+    assert response.json['summary'] == 'AI summary.'
+    assert response.json['summary_source'] == 'ai'
+
+
+def test_concurrent_extract_calls_start_exactly_one_worker(tmp_path, monkeypatch):
+    """MAJOR 3: the pending check-and-reserve must be atomic across threads,
+    not just across sequential requests."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'description': 'Stored description text.'})
+    starts = []
+    starts_lock = Lock()
+
+    def start(description, callback):
+        with starts_lock:
+            starts.append(callback)
+        return Mock(is_alive=lambda: True)
+
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    api = create_app(tmp_path).test_client()
+    results = []
+    results_lock = Lock()
+
+    def call():
+        response = api.post('/api/jobs/' + job['id'] + '/extract')
+        with results_lock:
+            results.append(response.json)
+
+    threads = [Thread(target=call) for _ in range(10)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+    assert len(starts) == 1
+    assert len(results) == 10
+    assert all(result['llm_pending'] is True for result in results)
+
+
+def test_stale_callback_cannot_clear_newer_runs_pending_state(tmp_path, monkeypatch):
+    """MAJOR 3: a per-run token must guard the llm_pending pop, so a run
+    that no longer owns the slot (simulated here via a token swap) can
+    never clear state a newer run holds."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'description': 'Stored description text.'})
+    callbacks = []
+
+    def start(description, callback):
+        callbacks.append(callback)
+        return Mock(is_alive=lambda: True)
+
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    app = create_app(tmp_path)
+    api = app.test_client()
+    first = api.post('/api/jobs/' + job['id'] + '/extract')
+    assert first.status_code == 202
+    pending = app.config['LLM_PENDING']
+    assert job['id'] in pending
+    # Simulate a newer run having since taken the slot; the real endpoints
+    # make this unreachable via reserve_enrichment, but the identity check
+    # must defend against it regardless.
+    pending[job['id']] = object()
+    callbacks[0](None)
+    assert job['id'] in pending
+    assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is True
+
+
+def test_extract_endpoint_reports_start_failure_truthfully(tmp_path, monkeypatch, capsys):
+    """MINOR 5: when the worker genuinely fails to start, the response must
+    not claim enrichment is pending."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'description': 'Stored description text.'})
+    monkeypatch.setattr(ingest, 'extract_async', Mock(side_effect=RuntimeError('boom')))
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/' + job['id'] + '/extract')
+    assert response.status_code == 202
+    assert response.json['llm_pending'] is False
+    assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is False
+    assert capsys.readouterr().err == 'ingest: RuntimeError\n'
+
+
+@pytest.mark.parametrize('field,baseline_value,owner_value', [
+    ('summary', 'Heuristic summary.', 'Owner summary.'),
+    ('summary', 'Heuristic summary.', ''),
+    ('background', 'Baseline background.', 'Owner background.'),
+    ('background', 'Baseline background.', ''),
+    ('skills', ['BaselineSkill'], ['OwnerSkill']),
+    ('skills', ['BaselineSkill'], []),
+    ('certifications', ['BaselineCert'], ['OwnerCert']),
+    ('certifications', ['BaselineCert'], []),
+    ('responsibilities', ['BaselineResp'], ['OwnerResp']),
+    ('responsibilities', ['BaselineResp'], []),
+])
+def test_owner_edit_or_clear_survives_inflight_callback(tmp_path, monkeypatch, field, baseline_value, owner_value):
+    """MINOR 6: owner edits AND clears of every LLM-fillable field must
+    survive a callback landing after the edit, for summary and all four
+    new fields. Uses /extract (baseline = current record) so the field
+    starts non-default, making a "clear" distinguishable from "untouched"."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'description': 'Stored description text.', field: baseline_value})
+    callbacks = []
+
+    def start(description, callback):
+        callbacks.append(callback)
+        return Mock(is_alive=lambda: True)
+
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    api = create_app(tmp_path).test_client()
+    assert api.post('/api/jobs/' + job['id'] + '/extract').status_code == 202
+    assert api.put('/api/jobs/' + job['id'], json={field: owner_value}).status_code == 200
+    callbacks[0]({'summary': 'LLM summary.', 'background': 'LLM background.',
+                  'skills': ['LLMSkill'], 'certifications': ['LLMCert'],
+                  'responsibilities': ['LLMResp']})
+    result = api.get('/api/jobs/' + job['id']).json
+    assert result[field] == owner_value
