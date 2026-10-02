@@ -14,7 +14,42 @@ function sortJobs(column,direction){ascending=direction===undefined?(sortColumn=
 document.getElementById('cards').addEventListener('click',e=>{const b=e.target.closest('[data-sort]');if(b)sortJobs(Number(b.dataset.sort));});
 document.getElementById('cards').addEventListener('change',e=>{if(e.target.id==='job-sort'){const [column,direction]=e.target.value.split(':');sortJobs(Number(column),direction==='asc');}});
 
-async function refresh(){const response=await fetch('/jobs');if(!response.ok)throw Error('Reload to refresh jobs.');const doc=new DOMParser().parseFromString(await response.text(),'text/html');document.getElementById('cards').replaceChildren(...doc.getElementById('cards').children);document.getElementById('empty').hidden=!!document.querySelector('.job-card');filter();view();}
+const cards=document.getElementById('cards');
+let dragged=null,pendingMoves=0,boardRevision=0,refreshQueued=false,refreshRequest=0;
+function counts(){document.querySelectorAll('[data-column]').forEach(column=>column.querySelector('.column-count').textContent=column.querySelectorAll('.job-card').length);}
+function clearDrag(){document.querySelectorAll('.drag-over').forEach(column=>column.classList.remove('drag-over'));}
+async function moveJob(card,status){
+    const previous=card.dataset.status,select=card.querySelector('.job-status');
+    if(card.getAttribute('aria-busy')==='true'||status===previous){select.value=previous;return;}
+    const target=Array.from(document.querySelectorAll('[data-column]')).find(column=>column.dataset.column===status);
+    if(!target){select.value=previous;return;}
+    const origin=card.parentNode,next=card.nextSibling,row=Array.from(document.querySelectorAll('.job-row')).find(row=>row.dataset.id===card.dataset.id),focused=document.activeElement;
+    function sync(value){card.dataset.status=value;select.value=value;if(row){row.dataset.status=value;row.querySelector('[data-label="Status"] .chip').textContent=value;}counts();filter();if(sortColumn!==null)sortJobs(sortColumn,ascending);}
+    pendingMoves++;boardRevision++;card.setAttribute('aria-busy','true');select.disabled=true;card.draggable=false;
+    target.append(card);sync(status);
+    try{const url='/api/jobs/'+encodeURIComponent(card.dataset.id);await api(url,'PUT',{status});toast('Status updated');}
+    catch(err){origin.insertBefore(card,next&&next.parentNode===origin?next:null);sync(previous);toast(err.message,true);}
+    finally{card.removeAttribute('aria-busy');select.disabled=false;card.draggable=true;pendingMoves--;boardRevision++;if(focused===select&&!card.hidden)select.focus();if(!pendingMoves&&refreshQueued){refreshQueued=false;refresh().catch(err=>toast(err.message,true));}}
+}
+cards.addEventListener('change',e=>{if(e.target.matches('.job-status'))moveJob(e.target.closest('.job-card'),e.target.value);});
+cards.addEventListener('dragstart',e=>{const card=e.target.closest('.job-card');if(!card||e.target.closest('a,select')||card.getAttribute('aria-busy')==='true'){e.preventDefault();return;}dragged=card;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',card.dataset.id);});
+cards.addEventListener('dragover',e=>{const column=e.target.closest('[data-column]');if(!dragged||!column)return;e.preventDefault();e.dataTransfer.dropEffect='move';clearDrag();column.classList.add('drag-over');});
+cards.addEventListener('dragleave',e=>{const column=e.target.closest('[data-column]');if(column&&!column.contains(e.relatedTarget))column.classList.remove('drag-over');});
+cards.addEventListener('drop',e=>{const column=e.target.closest('[data-column]'),card=dragged;if(!card||!column)return;e.preventDefault();dragged=null;clearDrag();moveJob(card,column.dataset.column);});
+cards.addEventListener('dragend',()=>{dragged=null;clearDrag();if(refreshQueued&&!pendingMoves){refreshQueued=false;refresh().catch(err=>toast(err.message,true));}});
+async function refresh(){
+    if(pendingMoves||dragged){refreshQueued=true;return;}
+    const revision=boardRevision,request=++refreshRequest,response=await fetch('/jobs',{cache:'no-store'});
+    if(!response.ok)throw Error('Reload to refresh jobs.');
+    const doc=new DOMParser().parseFromString(await response.text(),'text/html');
+    if(request!==refreshRequest)return;
+    if(pendingMoves||dragged){refreshQueued=true;return;}
+    if(revision!==boardRevision)return refresh();
+    cards.replaceChildren(...doc.getElementById('cards').children);document.getElementById('empty').hidden=!!document.querySelector('.job-card');filter();view();if(sortColumn!==null)sortJobs(sortColumn,ascending);
+}
+window.addEventListener('pageshow',e=>{if(e.persisted)refresh().catch(err=>toast(err.message,true));});
+let hiddenAt=document.hidden?Date.now():null;
+document.addEventListener('visibilitychange',()=>{if(document.hidden){hiddenAt=Date.now();}else{const elapsed=hiddenAt===null?0:Date.now()-hiddenAt;hiddenAt=null;if(elapsed>30000)refresh().catch(err=>toast(err.message,true));}});
 document.getElementById('intake').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button'),input=document.getElementById('posting');button.disabled=true;try{await api('/api/jobs/intake','POST',{url:input.value});await refresh();input.value='';toast('Job added');}catch(err){toast(err.message,true);}finally{button.disabled=false;}};
 document.getElementById('enrich-pending').onclick=async e=>{const button=e.currentTarget,ids=Array.from(document.querySelectorAll((activeView==='board'?'.job-card':'.job-row')+'[data-pending="true"]')).filter(c=>!c.hidden).map(c=>c.dataset.id);button.disabled=true;let updated=0,failed=0;try{for(const id of ids){try{await api('/api/jobs/'+encodeURIComponent(id)+'/enrich','POST');updated++;}catch{failed++;}}await refresh();toast(updated+' updated, '+failed+' failed',failed>0);}catch(err){toast(updated+' updated, '+failed+' failed. '+err.message,true);}finally{button.disabled=false;}};
 </script>

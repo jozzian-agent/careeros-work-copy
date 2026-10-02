@@ -69,8 +69,9 @@ def test_intake(client,monkeypatch,html):
     assert data['job']['company_id']==data['company']['id']
     assert data['job']['status']=='new' and data['job']['enriched'] is False
     assert data['job']['added']==date.today().isoformat()
-    assert data['company']['website'] is None
-    assert client.get('/api/jobs/'+data['job']['id']).json==data['job']
+    assert data['company']['website'] == 'https://fiction.example'
+    client.application.config['LLM_THREADS'][data['job']['id']].join(timeout=2)
+    assert client.get('/api/jobs/'+data['job']['id']).json == data['job'] | {'llm_pending': False}
     if html is None:
         assert data['job']['title']=='platform builder'
 
@@ -625,3 +626,62 @@ def test_job_detail_location_and_header(client, location, remote_ok, mentions, c
     title = vault.load_job(root, 'JOB-001')['title']
     assert f'<div class="page-header job-detail-header spaced"><h1>{title}</h1><small class="muted">JOB-001</small></div>' in html
     assert vault.load_job(root, 'JOB-001')['location'] == location
+
+
+def test_kanban_move_markup(client):
+    import re
+    from html import escape
+    html = client.get('/jobs').text
+    cards = re.findall(r'<article class="card job-card"(.*?)</article>', html, re.S)
+    records = client.get('/api/jobs').json
+    assert len(cards) == len(records)
+    for job in records:
+        card = next(card for card in cards if f'data-id="{job["id"]}"' in card)
+        assert 'draggable="true"' in card
+        assert 'tabindex="0"' not in card
+        assert f'data-status="{job["status"]}"' in card
+        assert f'aria-label="Move {escape(job["title"], quote=True)} to"' in card
+        for status in vault.STATUSES:
+            assert f'value="{status}"' in card
+        assert f'value="{job["status"]}" selected' in card
+    for event in ('dragstart', 'dragover', 'drop', 'dragend'):
+        assert f"cards.addEventListener('{event}'" in html
+    assert "moveJob(e.target.closest('.job-card'),e.target.value)" in html
+    assert "await api(url,'PUT',{status})" in html
+    assert "api(url,'GET')" not in html
+    assert 'origin.insertBefore(card,' in html
+    assert 'row.dataset.status=value' in html
+
+
+def test_kanban_refresh_hooks(client):
+    html = client.get('/jobs').text
+    assert "window.addEventListener('pageshow',e=>{if(e.persisted)refresh()" in html
+    assert "document.addEventListener('visibilitychange'" in html
+    assert 'elapsed>30000' in html
+    assert "fetch('/jobs',{cache:'no-store'})" in html
+    assert 'if(pendingMoves||dragged){refreshQueued=true;return;}' in html
+
+
+def test_kanban_rendered_styles(client):
+    import re
+    from careeros.web import theme
+    html = client.get('/jobs').text
+    styles = ''.join(re.findall(r'<style>(.*?)</style>', html, re.S))
+    assert theme.CSS_VARS in styles
+    assert not re.search(r'#[0-9a-fA-F]{3,8}\b', styles.replace(theme.CSS_VARS, ''))
+    assert '.kanban-column.drag-over {' in styles
+    assert '-webkit-line-clamp:2;line-clamp:2;' in styles
+    assert '.job-chips {display:flex;flex-wrap:wrap;gap:6px;}' in styles
+    assert '.kanban {flex-direction:column;}' in styles
+    assert 'button,.button,input,select {min-height:44px;}' in styles
+
+
+def test_full_record_status_update(client):
+    fields = {'notes':'Keep notes', 'custom':{'keep':['detail']}, 'description':'Keep description', 'keywords':['Python']}
+    assert client.put('/api/jobs/JOB-001', json=fields).status_code == 200
+    current = client.get('/api/jobs/JOB-001').json
+    updated = client.put('/api/jobs/JOB-001', json=current | {'status':'applied'})
+    assert updated.status_code == 200
+    for key, value in fields.items():
+        assert updated.json[key] == value
+    assert updated.json['status'] == 'applied'
