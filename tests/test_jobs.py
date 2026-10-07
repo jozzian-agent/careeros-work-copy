@@ -812,3 +812,62 @@ def test_full_record_status_update(client):
     for key, value in fields.items():
         assert updated.json[key] == value
     assert updated.json['status'] == 'applied'
+
+
+# --- Generic careers-page titles (JOB-023 regression, 2026-10-07) ----------
+
+def test_generic_meta_title_not_used_as_job_title():
+    # rivia.com/careers?ashby_jid=... had <title>Careers</title>; the URL
+    # fallback is 'careers' too, so the provisional company title must win.
+    result = intake.extract(
+        'https://www.rivia.com/careers?ashby_jid=0929307d',
+        '<title>Careers</title><meta property="og:title" content="Careers">')
+    assert result['title'] != 'Careers'
+    assert result['title'].endswith('opportunity')
+
+
+@pytest.mark.parametrize('meta', [
+    'Careers', 'careers', 'Jobs', 'Openings', 'Join Us', 'Work with us',
+    'Apply now', 'Careers at Rivia', 'Jobs | Fiction', 'We are hiring'])
+def test_generic_title_variants_rejected(meta):
+    result = intake.extract('https://fiction.example/role', f'<title>{meta}</title>')
+    assert not intake.GENERIC_TITLE_RE.match(result['title']) or result['title'].endswith('opportunity')
+
+
+def test_real_titles_untouched_by_generic_filter():
+    for meta, expected in [('Platform Lead | Careers', 'Platform Lead'),
+                           ('Senior Backend Engineer', 'Senior Backend Engineer'),
+                           ('Care Manager', 'Care Manager')]:
+        result = intake.extract('https://fiction.example/role', f'<title>{meta}</title>')
+        assert result['title'] == expected
+
+
+def test_llm_generic_title_does_not_overwrite_existing():
+    data = {'title': 'Rivia opportunity', 'company': 'Rivia'}
+    fields = {'title': 'Careers', 'company': 'Rivia', 'location': 'Zurich',
+              'employment_type': '', 'remote_ok': None, 'ingest_source': 'llm'}
+    merged = intake._merge_extracted(data, fields, {}, intake.Posting())
+    assert merged['title'] == 'Rivia opportunity'
+    assert merged['location'] == 'Zurich'
+
+
+def test_llm_real_title_still_overwrites():
+    data = {'title': 'Rivia opportunity', 'company': 'Rivia'}
+    fields = {'title': 'Senior Product Manager', 'company': 'Rivia', 'location': '',
+              'employment_type': '', 'remote_ok': None, 'ingest_source': 'llm'}
+    merged = intake._merge_extracted(data, fields, {}, intake.Posting())
+    assert merged['title'] == 'Senior Product Manager'
+
+
+def test_job_detail_has_editable_title(client):
+    html = client.get('/jobs/JOB-001').text
+    assert 'id="title"' in html
+    assert 'PUT' in html and 'title:document.getElementById(\'title\')' in html
+
+
+def test_job_title_editable_via_api(client):
+    root = client.application.config['VAULT_PATH']
+    response = client.put('/api/jobs/JOB-001', json={'title': 'Renamed Role'})
+    assert response.status_code == 200
+    assert response.json['title'] == 'Renamed Role'
+    assert vault.load_job(root, 'JOB-001')['title'] == 'Renamed Role'

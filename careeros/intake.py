@@ -284,6 +284,14 @@ def _strip_chrome_edges(lines):
     return lines[start:end]
 
 
+# Careers-page chrome that sites use as <title>/og:title on listing pages
+# (e.g. rivia.com/careers). Never a real posting title; fall back instead so
+# the LLM enrichment pass (or the owner) supplies the actual role name.
+GENERIC_TITLE_RE = re.compile(
+    r'^(?:careers?|jobs?|openings?|opportunities?|join (?:us|our team)|work (?:with|for) us|'
+    r'apply(?: now)?|current openings|we are hiring|hiring)(?:\s+(?:at|@|-|–|—|\|)\s+.*)?$', re.I)
+
+
 def _extract(url, parser, schema):
     platform, slug = ats(url)
     source = platform or domain(url)
@@ -311,11 +319,19 @@ def _extract(url, parser, schema):
             except ValueError:
                 pass
     fallback = unquote(urlsplit(url).path.rstrip('/').split('/')[-1]).replace('-', ' ').replace('_', ' ').strip() or (company or 'Job') + ' opportunity'
+    if GENERIC_TITLE_RE.match(fallback):
+        # The URL's last segment is careers-page chrome too (e.g.
+        # rivia.com/careers?ashby_jid=...): no role name anywhere on the page,
+        # so use a clearly provisional title for the owner/LLM to correct.
+        fallback = (company or 'Job') + ' opportunity'
     title = str(schema.get('title') or meta_title or fallback)
     if not schema.get('title'):
         title = re.split(r'\s+[|–—]\s+|\s+-\s+', title)[0].strip()
         if company:
             title = re.sub(r'\s+(?:at|@)\s+' + re.escape(company) + r'$', '', title, flags=re.I)
+    if not schema.get('title') and GENERIC_TITLE_RE.match(title or ''):
+        # <title>/og:title was careers-page chrome, not a posting title.
+        title = fallback
     schema_description = Posting()
     schema_description.feed(str(schema.get('description') or ''))
     text = re.sub(r'\s+', ' ', ' '.join(schema_description.text + parser.text))
@@ -386,6 +402,10 @@ def _merge_extracted(data, fields, schema, parser):
             if fields['ingest_source'] == 'heuristic' and protected.get(key) and data.get(key) not in (None, ''):
                 continue
             if value in (None, ''):
+                continue
+            # A model that echoes careers-page chrome ('Careers', 'Jobs',
+            # 'Join us') has not found the role title; keep what we have.
+            if key == 'title' and GENERIC_TITLE_RE.match(str(value)) and data.get('title'):
                 continue
         data[key] = value
     from careeros.ingest import redact
