@@ -12,7 +12,12 @@ DESCRIPTION_PREVIEW_CHARS = 1200
 
 def build_page():
     root = current_app.config['VAULT_PATH']
-    return page('Jobs', 'jobs', 'jobs.html', entries=vault.list_jobs(root), companies={c['id']: c for c in vault.list_companies(root) if 'id' in c}, statuses=vault.STATUSES, empty=EMPTY_STATE)
+    function_labels = vault.function_label_map(root)
+    function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
+                              key=lambda pair: pair[1].casefold())
+    return page('Jobs', 'jobs', 'jobs.html', entries=vault.list_jobs(root),
+                companies={c['id']: c for c in vault.list_companies(root) if 'id' in c},
+                statuses=vault.STATUSES, empty=EMPTY_STATE, function_options=function_options)
 
 def show_remote_chip(job):
     """Show the remote label only when the location does not already include it.
@@ -33,6 +38,7 @@ def detail(identifier):
     return page(job.get('title', 'Job'), 'jobs', 'job_detail.html', job=job, show_remote_chip=show_remote_chip(job),
                 watch_eligible=watcher.eligible(job), watch_reason=watcher.NOT_WATCHED_REASON,
                 company=vault.load_company(root, job.get('company_id')), statuses=vault.STATUSES,
+                function_labels=vault.function_label_map(root),
                 markdown=Markup(render_markdown(job.get('notes', ''))),
                 has_description=bool(description.strip()),
                 description_preview=preview, description_rest=description[len(preview):],

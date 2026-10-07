@@ -558,7 +558,7 @@ def test_shared_ats_tenant_keys(host):
 
 
 def test_ats_tenant_split_and_existing_path_match(tmp_path, monkeypatch):
-    monkeypatch.setattr(ingest, 'extract_async', lambda *args: Mock(is_alive=lambda: False))
+    monkeypatch.setattr(ingest, 'extract_async', lambda *args, **kwargs: Mock(is_alive=lambda: False))
     monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Engineer</title>')
     existing = vault.save_company(tmp_path, {'name': 'Existing tenant', 'website': 'https://jobs.lever.co/ALPHA'})
     api = create_app(tmp_path).test_client()
@@ -575,7 +575,7 @@ def capture_intake(tmp_path, monkeypatch):
     callbacks = []
     monkeypatch.setattr(intake, 'fetch_url', lambda url:
                         '<title>Engineer</title><main>Location: Basel\nCompany: Initial Labs</main>')
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         callbacks.append(callback)
         return Mock(is_alive=lambda: False)
     monkeypatch.setattr(ingest, 'extract_async', start)
@@ -770,7 +770,7 @@ def test_extract_endpoint_lifecycle(tmp_path, monkeypatch):
     job = vault.save_job(tmp_path, {'title': 'Owner title', 'url': 'https://posting.example/role',
                                     'description': 'Stored description text.'})
     callbacks = []
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         callbacks.append((description, callback))
         return Mock(is_alive=lambda: False)
     monkeypatch.setattr(ingest, 'extract_async', start)
@@ -806,7 +806,7 @@ def test_extract_endpoint_respects_owner_edit(tmp_path, monkeypatch):
     job = vault.save_job(tmp_path, {'title': 'Old Title', 'url': 'https://posting.example/role',
                                     'description': 'Stored description text.'})
     callbacks = []
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         callbacks.append(callback)
         return Mock(is_alive=lambda: False)
     monkeypatch.setattr(ingest, 'extract_async', start)
@@ -932,7 +932,7 @@ def test_concurrent_extract_calls_start_exactly_one_worker(tmp_path, monkeypatch
     starts = []
     starts_lock = Lock()
 
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         with starts_lock:
             starts.append(callback)
         return Mock(is_alive=lambda: True)
@@ -967,7 +967,7 @@ def test_stale_callback_cannot_clear_newer_runs_pending_state(tmp_path, monkeypa
                                     'description': 'Stored description text.'})
     callbacks = []
 
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         callbacks.append(callback)
         return Mock(is_alive=lambda: True)
 
@@ -1026,7 +1026,7 @@ def test_owner_edit_or_clear_survives_inflight_callback(tmp_path, monkeypatch, f
                                     'description': 'Stored description text.', field: baseline_value})
     callbacks = []
 
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         callbacks.append(callback)
         return Mock(is_alive=lambda: True)
 
@@ -1115,7 +1115,7 @@ def test_extract_endpoint_refetch_replaces_polluted_description_and_respects_own
     monkeypatch.setattr(intake, 'fetch_url', lambda url: html)
     callbacks = []
 
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         callbacks.append((description, callback))
         return Mock(is_alive=lambda: False)
 
@@ -1148,7 +1148,7 @@ def test_extract_endpoint_refetch_failure_falls_back_to_stored_description(tmp_p
     monkeypatch.setattr(intake, 'fetch_url', Mock(side_effect=RuntimeError('unreachable')))
     callbacks = []
 
-    def start(description, callback):
+    def start(description, callback, **kwargs):
         callbacks.append(description)
         return Mock(is_alive=lambda: False)
 

@@ -1,0 +1,89 @@
+# UN ISIC Rev.4 sections (21 top-level codes), with English/German labels and
+# a small keyword list for best-effort matching against free-text industry
+# strings. This is a static reference table, not a vault file: it does not
+# change per owner and ships with the application.
+sections:
+  - code: A
+    label: "Agriculture, forestry and fishing"
+    label_de: "Land- und Forstwirtschaft, Fischerei"
+    keywords: ["agriculture", "farming", "forestry", "fishing"]
+  - code: B
+    label: "Mining and quarrying"
+    label_de: "Bergbau und Gewinnung von Steinen und Erden"
+    keywords: ["mining", "quarrying", "extraction"]
+  - code: C
+    label: "Manufacturing"
+    label_de: "Verarbeitendes Gewerbe"
+    keywords: ["manufacturing", "factory", "industrial production"]
+  - code: D
+    label: "Electricity, gas, steam and air conditioning supply"
+    label_de: "Energieversorgung"
+    keywords: ["electricity", "power generation", "utilities", "energy supply"]
+  - code: E
+    label: "Water supply; sewerage, waste management and remediation activities"
+    label_de: "Wasserversorgung; Abwasser- und Abfallentsorgung"
+    keywords: ["water supply", "sewerage", "waste management", "recycling"]
+  - code: F
+    label: "Construction"
+    label_de: "Baugewerbe"
+    keywords: ["construction", "building contractor", "civil engineering works"]
+  - code: G
+    label: "Wholesale and retail trade; repair of motor vehicles and motorcycles"
+    label_de: "Handel; Instandhaltung und Reparatur von Kraftfahrzeugen"
+    keywords: ["retail", "wholesale", "e-commerce", "trade"]
+  - code: H
+    label: "Transportation and storage"
+    label_de: "Verkehr und Lagerei"
+    keywords: ["logistics", "transportation", "shipping", "warehousing", "freight"]
+  - code: I
+    label: "Accommodation and food service activities"
+    label_de: "Gastgewerbe/Beherbergung"
+    keywords: ["hospitality", "hotel", "restaurant", "catering"]
+  - code: J
+    label: "Information and communication"
+    label_de: "Information und Kommunikation"
+    keywords: ["software", "information technology", "telecommunications", "media", "publishing", "it services", "technology"]
+  - code: K
+    label: "Financial and insurance activities"
+    label_de: "Erbringung von Finanz- und Versicherungsdienstleistungen"
+    keywords: ["bank", "banking", "insurance", "finance", "financial services", "asset management"]
+  - code: L
+    label: "Real estate activities"
+    label_de: "Grundstücks- und Wohnungswesen"
+    keywords: ["real estate", "property management"]
+  - code: M
+    label: "Professional, scientific and technical activities"
+    label_de: "Erbringung von freiberuflichen, wissenschaftlichen und technischen Dienstleistungen"
+    keywords: ["consulting", "engineering services", "research", "legal services", "accounting", "architecture", "technology"]
+  - code: N
+    label: "Administrative and support service activities"
+    label_de: "Erbringung von sonstigen wirtschaftlichen Dienstleistungen"
+    keywords: ["staffing", "administrative support", "business process outsourcing", "facilities management"]
+  - code: O
+    label: "Public administration and defence; compulsory social security"
+    label_de: "Öffentliche Verwaltung, Verteidigung; Sozialversicherung"
+    keywords: ["public administration", "government agency", "defence", "social security"]
+  - code: P
+    label: "Education"
+    label_de: "Erziehung und Unterricht"
+    keywords: ["education", "university", "school", "training provider"]
+  - code: Q
+    label: "Human health and social work activities"
+    label_de: "Gesundheits- und Sozialwesen"
+    keywords: ["healthcare", "hospital", "social work", "medical services"]
+  - code: R
+    label: "Arts, entertainment and recreation"
+    label_de: "Kunst, Unterhaltung und Erholung"
+    keywords: ["arts", "entertainment", "recreation", "museum", "sports club"]
+  - code: S
+    label: "Other service activities"
+    label_de: "Erbringung von sonstigen Dienstleistungen"
+    keywords: ["membership organization", "repair services", "personal services"]
+  - code: T
+    label: "Activities of households as employers"
+    label_de: "Private Haushalte mit Hauspersonal"
+    keywords: ["domestic staff", "household employer"]
+  - code: U
+    label: "Activities of extraterritorial organizations and bodies"
+    label_de: "Extraterritoriale Organisationen und Körperschaften"
+    keywords: ["extraterritorial organization", "international body"]

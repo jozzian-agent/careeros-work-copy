@@ -107,10 +107,10 @@ def browser_checks():
             assert page.locator('strong').inner_text() == 'Host verified'
             visit('/companies', 'companies-list.png')
             visit('/companies/CO-001', 'company-detail.png')
-            page.locator('input[name="sector"]').fill('Synthetic verified sector')
+            page.locator('input[name="sectors"][value="J"]').check()
             page.get_by_role('button', name='Save profile', exact=True).click()
             page.wait_for_function("document.getElementById('toast').textContent === 'Profile saved'")
-            assert page.locator('input[name="sector"]').input_value() == 'Synthetic verified sector'
+            assert page.locator('input[name="sectors"][value="J"]').is_checked()
             # Real delete UI: cancel, linked guard, then job and company removal.
             disposable = curl('/api/jobs/intake', 'POST', {'url':'https://browser-disposable.example/job'}, 201)
             jid, cid = disposable['job']['id'], disposable['company']['id']

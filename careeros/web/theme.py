@@ -138,6 +138,37 @@ a:focus-visible { outline: 2px solid var(--accent-indigo); outline-offset: 5px; 
 }
 """.replace("__CONTENT_MAX_WIDTH__", str(CONTENT_MAX_WIDTH)).replace("__MOBILE_BREAKPOINT__", str(MOBILE_BREAKPOINT))
 
+#: Section 5: one shared, reusable scrollbar style used app-wide. Scoped to
+#: the selectors that already scroll (.kanban, the mobile table overflow
+#: rule) plus an opt-in .scroll-thin class for any future overflow surface,
+#: rather than a blanket "*" override that would block a later per-surface
+#: exception. Every color below reuses an existing CSS_VARS token.
+SCROLLBAR_CSS = """
+.scroll-thin, .kanban, table {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-standard) transparent;
+}
+.scroll-thin::-webkit-scrollbar, .kanban::-webkit-scrollbar, table::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-track, .kanban::-webkit-scrollbar-track, table::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-thin::-webkit-scrollbar-thumb, .kanban::-webkit-scrollbar-thumb, table::-webkit-scrollbar-thumb {
+  background-color: var(--border-standard);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover, .kanban::-webkit-scrollbar-thumb:hover, table::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-faint);
+}
+.scroll-thin::-webkit-scrollbar-thumb:active, .kanban::-webkit-scrollbar-thumb:active, table::-webkit-scrollbar-thumb:active {
+  background-color: var(--text-muted);
+}
+"""
+
 def fmt1(value: float) -> str:
     """Round a displayed float to at most one decimal without trailing zeros."""
     return f"{round(value, 1):g}"
@@ -163,7 +194,7 @@ def page_shell(title: str, current_page: str, body: str, extra_css: str = "") ->
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>{escape(title)} · CareerOS</title>"
         f"{FONT_LINKS}"
-        f"<style>{CSS_VARS}{BASE_CSS}{extra_css}</style>"
+        f"<style>{CSS_VARS}{BASE_CSS}{SCROLLBAR_CSS}{extra_css}</style>"
         "</head><body>"
         "<div class='page'><header class='app-header'>"
         "<a class='wordmark' href='/search'>CareerOS</a>"

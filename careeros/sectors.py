@@ -1,0 +1,137 @@
+"""ISIC Rev.4 section matching and EU-threshold company size derivation.
+
+Pure, offline, deterministic logic only; no network IO lives here. External
+fetching for the Section 3 enrichment pipeline lives in company_lookup.py.
+"""
+import re
+from pathlib import Path
+
+import yaml
+
+_DATA_DIR = Path(__file__).resolve().parent / 'data'
+
+# Same numeric buckets intake.py's posting extraction already used for
+# size_range, kept here so the atomic derivation function and the
+# posting-intake path agree on one scheme.
+SIZE_BUCKETS = ((10, '1-10'), (50, '11-50'), (200, '51-200'), (1000, '201-1000'))
+# EU Recommendation 2003/361/EC employee-count thresholds (an employee-count
+# proxy, not full SME qualification, which also needs turnover/balance-sheet
+# and independence data this vault never has).
+SIZE_CLASS_THRESHOLDS = ((10, 'micro'), (50, 'small'), (250, 'medium'))
+
+_SECTIONS = None
+
+
+def load_isic_sections():
+    data = yaml.safe_load((_DATA_DIR / 'isic_sections.yaml').read_text())
+    return data['sections']
+
+
+def _sections():
+    global _SECTIONS
+    if _SECTIONS is None:
+        _SECTIONS = load_isic_sections()
+    return _SECTIONS
+
+
+def known_section_codes():
+    return {section['code'] for section in _sections()}
+
+
+def all_matched_sections(text):
+    """Raw keyword matches before the single-match filter. Callers use the
+    distinction between zero matches (no signal) and two or more matches
+    (ambiguous signal, which decisions 20/21 require flagging for owner
+    review rather than guessing)."""
+    if not isinstance(text, str) or not text.strip():
+        return []
+    lowered = text.casefold()
+    return [section['code'] for section in _sections()
+            if any(re.search(r'\b' + re.escape(keyword) + r'\b', lowered)
+                   for keyword in section.get('keywords', []))]
+
+def match_sectors(text):
+    """Keyword-match one free-text industry signal to zero or more ISIC
+    section codes.
+
+    This answers "which single interpretation is right for one ambiguous
+    signal," not "how many sectors apply": a signal that matches more than
+    one section with comparable confidence is refused (empty result) rather
+    than guessed, the same as a signal matching no section at all.
+    """
+    matched = all_matched_sections(text)
+    return matched if len(matched) == 1 else []
+
+
+def size_range_bucket(count):
+    return next((label for limit, label in SIZE_BUCKETS if count <= limit), '1000+')
+
+
+def size_class_for(count):
+    return next((label for limit, label in SIZE_CLASS_THRESHOLDS if count < limit), 'large')
+
+
+def derive_size(employee_count):
+    """Compute size_range and size_class together from one raw employee
+    count, so the two fields can never desync by being derived separately."""
+    if isinstance(employee_count, bool) or not isinstance(employee_count, (int, float)):
+        return None
+    if employee_count < 1:
+        return None
+    count = int(employee_count)
+    return {'size_range': size_range_bucket(count), 'size_class': size_class_for(count)}
+
+
+def range_consistent_with_size_range(count, size_range):
+    return size_range_bucket(count) == size_range
+
+
+def range_consistent_with_size_class(count, size_class):
+    return size_class_for(count) == size_class
+
+
+def fill_size_updates(count, size_range, size_class):
+    """Fill-empty-only, consistency-checked derivation of whichever of
+    size_range/size_class is still missing, from one raw employee count.
+    Never overwrites an already-populated field; when the count contradicts
+    one that is already populated, nothing is filled, since writing the
+    missing field from it would produce an inconsistent pair."""
+    if not count:
+        return {}
+    derived = derive_size(count)
+    if not derived:
+        return {}
+    if size_range and not range_consistent_with_size_range(count, size_range):
+        return {}
+    if size_class and not range_consistent_with_size_class(count, size_class):
+        return {}
+    updates = {}
+    if not size_range:
+        updates['size_range'] = derived['size_range']
+    if not size_class:
+        updates['size_class'] = derived['size_class']
+    return updates
+
+
+def resolve_employee_count(value):
+    """Parse a point value or a range string ("50-100") to a single integer,
+    resolving an ambiguous range to its upper bound per the owner's default.
+    Returns None when the value cannot be read as a plausible positive count."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value) if value >= 1 else None
+    if isinstance(value, str):
+        match = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*[-–]\s*(\d+(?:[.,]\d+)?)\+?\s*", value)
+        if match:
+            try:
+                upper = float(match.group(2).replace(',', '.'))
+            except ValueError:
+                return None
+            return int(upper) if upper >= 1 else None
+        try:
+            count = float(value.replace(',', '.'))
+        except ValueError:
+            return None
+        return int(count) if count >= 1 else None
+    return None

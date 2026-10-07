@@ -10,6 +10,9 @@ from flask import Flask, request, jsonify
 from careeros import vault as storage
 from careeros import intake
 from careeros import ingest
+from careeros import sectors
+from careeros import company_lookup
+import difflib
 
 from careeros.web.pages import companies, experiences, interviews, jobs, search
 from careeros.web.theme import page_shell
@@ -80,8 +83,32 @@ def create_app(vault: str | Path | None = None) -> Flask:
     pending_lock = RLock()
 
     def fill_company_metadata(root, company, extracted):
-        changes = {key: extracted[key] for key in ('sector', 'size', 'locations')
-                   if not company.get(key) and extracted.get(key)}
+        """Section 1's field-group matrix applies at every enrichment entry
+        point: aggregates receive nothing here, institutions receive only
+        locations (name/website lookups happen at their own call sites), and
+        only employers receive sector and size derivation.
+
+        Fill eligibility consults the NEW-shape fields (sectors, size_range,
+        size_class), never the legacy sector/size strings alone, so an
+        owner-set sectors list or size pair is not clobbered by a posting
+        signal just because the legacy field happens to be empty.
+        employee_count is deliberately not in the generic passthrough: the
+        company schema has no raw employee_count field, only the derived
+        size_range/size_class, so it gets its own branch through the atomic,
+        consistency-checked derivation function instead."""
+        kind = company.get('kind', 'employer')
+        if kind == 'aggregate':
+            return company
+        changes = {}
+        if extracted.get('locations') and not company.get('locations'):
+            changes['locations'] = extracted['locations']
+        if kind == 'employer':
+            if extracted.get('sector') and not company.get('sector') and not company.get('sectors'):
+                changes['sector'] = extracted['sector']
+            if extracted.get('size') and not company.get('size') and not company.get('size_range'):
+                changes['size'] = extracted['size']
+            changes.update(sectors.fill_size_updates(
+                extracted.get('employee_count'), company.get('size_range'), company.get('size_class')))
         return storage.save_company(root, changes, company['id']) if changes else company
 
     def find_company(root, name, posting_url):
@@ -105,7 +132,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         snapshot, so an owner edit made while the LLM call is in flight sticks."""
         fillable = ('title', 'company', 'location', 'employment_type', 'seniority',
                     'remote_ok', 'keywords', 'contact_email',
-                    'background', 'skills', 'certifications', 'responsibilities')
+                    'background', 'skills', 'certifications', 'responsibilities', 'function')
         with write_lock, pending_lock:
             if llm_pending.get(baseline['id']) is not token:
                 return
@@ -116,6 +143,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
             fields = ingest.redact(fields)
             if not ingest.is_valid_contact_email(fields.get('contact_email')):
                 fields.pop('contact_email', None)
+            if 'function' in fields:
+                known = storage.known_function_ids(root)
+                fields['function'] = [value for value in fields['function'] if value in known]
             updates = {key: fields[key] for key in fillable
                        if fields.get(key) not in (None, '', [])
                        and job.get(key) == baseline.get(key)}
@@ -192,7 +222,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         llm_pending.pop(job_id, None)
 
         try:
-            thread = ingest.extract_async(description, on_result)
+            thread = ingest.extract_async(description, on_result,
+                                          function_options=storage.function_facet_options(root))
         except Exception as error:
             with pending_lock:
                 if llm_pending.get(job_id) is token:
@@ -215,19 +246,36 @@ def create_app(vault: str | Path | None = None) -> Flask:
         data = intake.heuristic_posting(url, html)
         name = data['company']
         website = _company_website(data.pop('website'))
-        metadata = {key: data.pop(key) for key in ('sector', 'size', 'locations')}
+        metadata = {key: data.pop(key) for key in ('sector', 'size', 'locations', 'employee_count')}
         posting_origin = _company_website(f'{urlsplit(url).scheme}://{_netloc(url)}')
         root = app.config['VAULT_PATH']
         with write_lock:
             company = find_company(root, name, url)
             if company is None and name:
-                company = storage.save_company(root, {'name': name, 'website': website or posting_origin,
-                                                       'name_source': 'auto'} | metadata)
+                # employee_count has no company-schema home of its own (the
+                # company only ever stores the derived size_range/size_class).
+                # When the posting supplied a raw count, derive the pair
+                # atomically from that same count and include it in the
+                # creation payload, dropping the bucket-only legacy size
+                # string so the two fields can never be written by separate
+                # passes from different inputs. Without a count, the legacy
+                # bucket string still yields size_range alone, which the
+                # document allows (a bucket never yields a confident class).
+                creation = {'name': name, 'website': website or posting_origin, 'name_source': 'auto'}
+                derived = sectors.derive_size(metadata.get('employee_count'))
+                if derived:
+                    creation |= derived
+                    creation |= {k: v for k, v in metadata.items() if k not in ('employee_count', 'size')}
+                else:
+                    creation |= {k: v for k, v in metadata.items() if k != 'employee_count'}
+                company = storage.save_company(root, creation)
+                company = fill_company_metadata(root, company, metadata)
             elif company:
                 company = fill_company_metadata(root, company, metadata)
-                if not company.get('website'):
+                if not company.get('website') and company.get('kind', 'employer') != 'aggregate':
                     company = storage.save_company(root, {'website': website or posting_origin}, company['id'])
-            job = storage.save_job(root, data | {'url': url, 'company_id': company['id'] if company else None, 'sector': metadata['sector']})
+            job = storage.save_job(root, data | {'url': url, 'company_id': company['id'] if company else None,
+                                                 'sector': metadata['sector'], 'employee_count': metadata['employee_count']})
         token = reserve_enrichment(job['id'])
         if token is not None:
             start_llm_enrichment(root, job, data['description'], token)
@@ -244,7 +292,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             html = intake.fetch_url(url)
             if not isinstance(html, str) or not html.strip():
                 raise ValueError('Posting returned no content.')
-            extracted = intake.ingest_posting(url, html)
+            extracted = intake.ingest_posting(url, html, function_options=storage.function_facet_options(root))
         except Exception:
             return jsonify(error='Unable to fetch and parse posting.'), 422
         with write_lock:
@@ -253,10 +301,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 return jsonify(error='Job not found.'), 404
             if job.get('url') != url:
                 return jsonify(error='Posting URL changed during enrichment. Try again.'), 409
+            if 'function' in extracted:
+                known = storage.known_function_ids(root)
+                extracted['function'] = [value for value in extracted['function'] if value in known]
             fill_fields = ('title', 'location', 'source', 'posted_date',
                            'employment_type', 'valid_through', 'description', 'company',
                            'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
-                           'background', 'skills', 'certifications', 'responsibilities')
+                           'background', 'skills', 'certifications', 'responsibilities',
+                           'employee_count', 'function')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
             updates = {key: extracted[key] for key in fill_fields
@@ -277,11 +329,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 shared = company and any(j.get('company_id') == company['id'] and j['id'] != identifier
                                          for j in storage.list_jobs(root))
                 if company and company.get('name_source', 'owner') != 'auto':
-                    if website and not company.get('website'):
+                    if website and not company.get('website') and company.get('kind', 'employer') != 'aggregate':
                         storage.save_company(root, {'website': website}, company['id'])
                 elif matching:
                     updates['company_id'] = matching['id']
-                    if website and not matching.get('website'):
+                    if website and not matching.get('website') and matching.get('kind', 'employer') != 'aggregate':
                         storage.save_company(root, {'website': website}, matching['id'])
                 elif company and not shared:
                     changes = {'name': name, 'website': website, 'name_source': 'auto'}
@@ -430,9 +482,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if request.method == 'GET':
                 return jsonify(data)
             if request.method == 'DELETE':
-                count = sum(job.get('company_id') == identifier for job in storage.list_jobs(root))
-                if count:
-                    return jsonify(error=f'Still linked to {count} jobs', count=count), 409
+                job_count = sum(job.get('company_id') == identifier for job in storage.list_jobs(root))
+                exp_count = sum(exp.get('company_id') == identifier for exp in storage.list_experiences(root))
+                if job_count or exp_count:
+                    pieces = [f'{job_count} jobs'] * bool(job_count) + [f'{exp_count} experiences'] * bool(exp_count)
+                    return jsonify(error='Still linked to ' + ' and '.join(pieces), count=job_count + exp_count), 409
                 storage.delete_company(root, identifier)
                 return jsonify(deleted=identifier)
             payload = request.get_json()
@@ -469,6 +523,50 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 storage.delete_experience(root, identifier)
                 return jsonify(deleted=identifier)
             return jsonify(storage.save_experience(root, request.get_json(), identifier))
+
+    @app.post('/api/experiences/<identifier>/link-company')
+    def link_experience_company(identifier):
+        root = app.config['VAULT_PATH']
+        with write_lock:
+            exp = storage.load_experience(root, identifier)
+            if exp is None:
+                return jsonify(error='Position not found.'), 404
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Record must be an object.')
+            if payload.get('unlink'):
+                # Freeze the currently resolved label into the free-text
+                # company field, so the experience keeps a readable label
+                # afterward instead of reverting to stale pre-link text.
+                company = storage.load_company(root, exp.get('company_id')) if exp.get('company_id') else None
+                label = company['name'] if company else exp.get('company')
+                return jsonify(storage.save_experience(root, {'company_id': None, 'company': label}, identifier))
+            if payload.get('company_id'):
+                if not storage.load_company(root, payload['company_id']):
+                    return jsonify(error='Company not found.'), 404
+                return jsonify(storage.save_experience(root, {'company_id': payload['company_id']}, identifier))
+            create = payload.get('create')
+            if not isinstance(create, dict) or not str(create.get('name') or '').strip():
+                raise ValueError('Provide company_id, create, or unlink.')
+            name = create['name'].strip()
+            candidates = storage.list_companies(root)
+            if not payload.get('confirm_create'):
+                casefolded = {c.get('name', '').strip().casefold(): c for c in candidates}
+                close = difflib.get_close_matches(name.casefold(), list(casefolded), n=1, cutoff=0.6)
+                if close:
+                    return jsonify(suggestion=casefolded[close[0]])
+            company = storage.save_company(root, {'name': name, 'kind': create.get('kind', 'employer'),
+                                                   'name_source': 'owner'})
+            return jsonify(storage.save_experience(root, {'company_id': company['id']}, identifier)), 201
+
+    @app.post('/api/companies/backfill-sector-size')
+    def backfill_sector_size():
+        """Decision 27: explicit, owner-triggered action only. Never wired to
+        run automatically; the external-fetch tier makes real network calls
+        that should not happen unannounced."""
+        root = app.config['VAULT_PATH']
+        with write_lock:
+            return jsonify(updated=company_lookup.backfill(root))
 
     @app.errorhandler(ValueError)
     def invalid_data(error):

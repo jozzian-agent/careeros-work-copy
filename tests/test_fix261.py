@@ -48,7 +48,7 @@ def setup_refresh(tmp_path, monkeypatch):
         'summary': 'Polluted summary.', 'summary_source': 'ai'})
     app = create_app(tmp_path)
     callbacks = []
-    monkeypatch.setattr(ingest, 'extract_async', lambda text, callback: callbacks.append((text, callback)) or Mock(is_alive=lambda: False))
+    monkeypatch.setattr(ingest, 'extract_async', lambda text, callback, **kwargs: callbacks.append((text, callback)) or Mock(is_alive=lambda: False))
     return job, app, app.test_client(), callbacks
 
 

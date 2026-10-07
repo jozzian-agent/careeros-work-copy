@@ -1,0 +1,30 @@
+# Curated bulk-export subset of ESCO occupation concepts (Section 4). This is
+# an import source used to seed or validate new tags.yaml function-facet
+# entries; it is not consulted directly at runtime. Re-confirm esco_uri values
+# against the live ESCO portal before relying on them; they are best-citation
+# placeholders, not verified facts.
+occupations:
+  - id: ict-product-manager
+    label: "ICT product manager"
+    label_de: "ICT-Produktmanager"
+    isco: "1330"
+    esco_uri: "http://data.europa.eu/esco/occupation/a79170ad-0b7b-4697-864f-1748359aa10a"
+    keywords: ["product manager", "ict product manager", "software product manager", "produktmanager"]
+  - id: software-developer
+    label: "Software developer"
+    label_de: "Softwareentwickler"
+    isco: "2512"
+    esco_uri: null
+    keywords: ["software developer", "software engineer", "softwareentwickler"]
+  - id: ict-service-manager
+    label: "ICT service manager"
+    label_de: "IT-Servicemanager"
+    isco: "1330"
+    esco_uri: null
+    keywords: ["ict service manager", "it service manager"]
+  - id: financial-investment-adviser
+    label: "Financial and investment adviser"
+    label_de: "Finanz- und Anlageberater"
+    isco: "2412"
+    esco_uri: null
+    keywords: ["investment adviser", "financial adviser"]

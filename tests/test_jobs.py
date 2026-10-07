@@ -562,7 +562,12 @@ def test_rich_company_intake(client, monkeypatch):
     monkeypatch.setattr(intake, 'fetch_url', lambda url: rich_schema())
     data = client.post('/api/jobs/intake', json={'url':'https://rich.example/job'}).json
     assert data['company']['sector'] == 'Software'
-    assert data['company']['size'] == '51-200'
+    # With a raw employee count present, the creation payload carries the
+    # atomically derived pair and drops the bucket-only legacy string, so
+    # size_range and size_class always come from the same count in one write.
+    assert data['company']['size'] is None
+    assert data['company']['size_range'] == '51-200'
+    assert data['company']['size_class'] == 'medium'  # 125 employees per EU thresholds
     assert data['company']['locations'] == ['Basel','BS','CH']
     assert data['job']['location'] == 'Basel, BS, CH'
 

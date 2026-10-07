@@ -21,6 +21,13 @@ def check_url_format(url):
         raise ValueError('Provide an HTTP or HTTPS posting URL.')
     return url
 
+def is_unsafe_ip(ip):
+    """A single place naming every non-public address category this project
+    refuses to fetch from: private, loopback, link-local, multicast,
+    reserved, or unspecified."""
+    return any((ip.is_private, ip.is_loopback, ip.is_link_local, ip.is_multicast, ip.is_reserved, ip.is_unspecified))
+
+
 def check_url(url):
     check_url_format(url)
     parsed = urlsplit(url)
@@ -31,8 +38,7 @@ def check_url(url):
     if not addresses:
         raise ValueError('Posting host must resolve to a public IP address.')
     for address in addresses:
-        ip = ipaddress.ip_address(address[4][0])
-        if any((ip.is_private, ip.is_loopback, ip.is_link_local, ip.is_multicast, ip.is_reserved, ip.is_unspecified)):
+        if is_unsafe_ip(ipaddress.ip_address(address[4][0])):
             raise ValueError('Posting host must resolve only to public IP addresses.')
     return url
 
@@ -347,14 +353,9 @@ def _extract(url, parser, schema):
     employees = org.get('numberOfEmployees')
     if isinstance(employees, dict):
         employees = employees.get('value')
-    size = None
-    try:
-        count = float(employees) if not isinstance(employees, bool) else 0
-        if count >= 1:
-            size = next((label for limit, label in ((10, '1-10'), (50, '11-50'),
-                        (200, '51-200'), (1000, '201-1000')) if count <= limit), '1000+')
-    except (TypeError, ValueError):
-        pass
+    from careeros.sectors import resolve_employee_count, size_range_bucket
+    employee_count = resolve_employee_count(employees)
+    size = size_range_bucket(employee_count) if employee_count else None
     sector = org.get('industry')
     sector = sector if isinstance(sector, str) else None
     visible = next((parser.regions[tag] for tag in ('main', 'article', 'body')
@@ -362,7 +363,7 @@ def _extract(url, parser, schema):
     schema_lines = _collapse_lines(schema_description.text)
     body_lines = schema_lines if schema_lines else _strip_chrome_edges(_collapse_lines(visible))
     return dict(description='\n'.join(body_lines).strip(),
-                sector=sector, size=size, locations=list(dict.fromkeys(locations)),
+                sector=sector, size=size, employee_count=employee_count, locations=list(dict.fromkeys(locations)),
                 title=title or fallback, company=company, website=website, source=source,
                 original_url=url if platform else None, salary_info=bool(salary), salary_note=salary,
                 location=', '.join(dict.fromkeys(locations)), remote_ok=remote, posted_date=posted,
@@ -411,14 +412,14 @@ def heuristic_posting(url, html):
     return redact(data)
 
 
-def ingest_posting(url, html):
+def ingest_posting(url, html, function_options=None):
     """Combine posting metadata with description extraction after a fetch."""
     from careeros import ingest
     parser = Posting()
     parser.feed(html)
     schema = job_schema(parser, url)
     data = _extract(url, parser, schema)
-    fields = ingest.extract(data['description'])
+    fields = ingest.extract(data['description'], function_options=function_options)
     data = _merge_extracted(data, fields, schema, parser)
     mailto = find_mailto(html)
     if mailto:

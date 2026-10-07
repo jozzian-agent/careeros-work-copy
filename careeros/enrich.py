@@ -49,7 +49,18 @@ def enrich_company(jobs):
 
 
 def regenerate_company(root, identifier):
-    """Merge derived facts through vault helpers; caller holds any write lock."""
+    """Merge derived facts through vault helpers; caller holds any write lock.
+
+    Sector aggregation is gated on kind == 'employer' (Section 1's behavior
+    matrix): sector/size are not concepts that apply cleanly to an
+    institution or an aggregate placeholder. Because block starts from a
+    *copy of the existing* enrichment before merging derived values in, a
+    company that was an employer at some earlier regeneration (so
+    enrichment.sectors got populated) and is later re-kinded away keeps
+    showing that stale data forever unless the gate actively deletes both
+    the top-level sectors field and the nested enrichment.sectors key,
+    rather than merely omitting sectors from what gets newly derived.
+    """
     from careeros import vault
     company = vault.load_company(root, identifier)
     if company is None:
@@ -58,8 +69,28 @@ def regenerate_company(root, identifier):
                              if job.get('company_id') == identifier)
     previous = company.get('enrichment')
     block = dict(previous) if isinstance(previous, dict) else {}
-    for key, value in derived.items():
-        if isinstance(value, dict) and isinstance(block.get(key), dict):
-            value = block[key] | value
-        block[key] = value
-    return vault.save_company(root, {'enrichment': block}, identifier)
+    updates = {}
+    if company.get('kind', 'employer') == 'employer':
+        for key, value in derived.items():
+            if isinstance(value, dict) and isinstance(block.get(key), dict):
+                value = block[key] | value
+            block[key] = value
+    else:
+        for key, value in derived.items():
+            if key == 'sectors':
+                continue
+            if isinstance(value, dict) and isinstance(block.get(key), dict):
+                value = block[key] | value
+            block[key] = value
+        block.pop('sectors', None)
+        # Section 1's matrix gives institutions and aggregates no sector and
+        # no size, so a company re-kinded away from employer must lose both,
+        # not just sectors: clear the top-level sectors list and every size
+        # representation (legacy string plus the derived pair), same
+        # active-deletion rule the sectors note above describes.
+        if company.get('sectors'):
+            updates['sectors'] = []
+        for key in ('size', 'size_range', 'size_class'):
+            if company.get(key) is not None:
+                updates[key] = None
+    return vault.save_company(root, {'enrichment': block} | updates, identifier)
