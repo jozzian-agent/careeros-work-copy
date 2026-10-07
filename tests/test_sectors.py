@@ -420,10 +420,53 @@ def test_companies_page_has_backfill_action(client, root):
 
 def test_backfill_endpoint_is_explicit_and_never_runs_automatically(client, root, monkeypatch):
     calls = []
-    monkeypatch.setattr(company_lookup, 'backfill', lambda root, **kw: calls.append(root) or [])
+    monkeypatch.setattr(company_lookup, 'plan_backfill', lambda root, **kw: calls.append(root) or ([], 3))
+    monkeypatch.setattr(company_lookup, 'apply_backfill', lambda root, plan: ['CO-001'])
     # Intake and enrich must never trigger the backfill path themselves.
     client.post('/api/jobs/intake', json={'url': 'https://fiction.example/job'})
     assert calls == []
     response = client.post('/api/companies/backfill-sector-size')
     assert response.status_code == 200
     assert calls == [root]
+    assert response.json == {'updated': ['CO-001'], 'scanned': 3}
+
+
+def test_backfill_network_sweep_does_not_hold_write_lock(client, root, monkeypatch):
+    """Regression (2026-10-07): the sweep held the vault write lock through
+    minutes of external fetches, starving the Enrich button and every other
+    writer — both UI buttons appeared dead. Planning must be lock-free;
+    a concurrent vault write during the sweep must succeed."""
+    from careeros import vault as vault_module
+    import threading
+
+    def slow_plan(vault_root, **kw):
+        # Simulate the multi-minute network phase; another writer proceeds
+        # concurrently — this would block forever if the endpoint held the
+        # lock across planning.
+        done = threading.Event()
+
+        def concurrent_write():
+            vault_module.save_company(vault_root, {'name': 'Concurrent Co'})
+            done.set()
+
+        thread = threading.Thread(target=concurrent_write, daemon=True)
+        thread.start()
+        assert done.wait(5), 'write lock held during network sweep'
+        thread.join(1)
+        return [], 0
+
+    monkeypatch.setattr(company_lookup, 'plan_backfill', slow_plan)
+    assert client.post('/api/companies/backfill-sector-size').status_code == 200
+
+
+def test_plan_and_apply_backfill_roundtrip(root, monkeypatch):
+    monkeypatch.setattr(company_lookup, 'sectors_cascade',
+                        lambda company, signals, fetch: (['J'], None) if not company.get('sectors') else (None, None))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda company, signals, fetch: (None, None))
+    company = vault.save_company(root, {'name': 'Planned Co'})
+    plan, scanned = company_lookup.plan_backfill(root)
+    assert scanned >= 1
+    assert any(c['id'] == company['id'] and ch['sectors'] == ['J'] for c, ch in plan)
+    updated = company_lookup.apply_backfill(root, plan)
+    assert company['id'] in updated
+    assert vault.load_company(root, company['id'])['sectors'] == ['J']

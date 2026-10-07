@@ -302,20 +302,19 @@ def _merge_flags(existing, new_flag):
 def _clear_flags(existing, resolved):
     return [f for f in existing or [] if isinstance(f, str) and f not in resolved]
 
-def backfill(root, sector_signals=SECTOR_SIGNALS, size_signals=SIZE_SIGNALS, fetch=None):
-    """Explicit, owner-triggered backfill (decision 27). Scoped to
-    kind == 'employer'; sectors and size run as independent per-field
-    cascades over the same company list, never as a single combined pass.
-    Every ambiguity refusal, source conflict, and size inconsistency the
-    cascades surface is persisted on review_flags, and a flag is removed
-    once its field resolves. Runs the one-time kind backfill first, so a
-    company record that predates the kind field is never skipped merely
-    because it has not been migrated yet."""
+def plan_backfill(root, sector_signals=SECTOR_SIGNALS, size_signals=SIZE_SIGNALS, fetch=None):
+    """Read-only planning phase: run both cascades over every employer and
+    collect (company, changes) pairs. All network I/O happens here, so the
+    caller must NOT hold the vault write lock while running this (a cold
+    pass over many companies can take minutes; holding the lock that long
+    deadlocks every other write in the app)."""
     vault.backfill_company_kind(root)
-    updated = []
+    plan = []
+    scanned = 0
     for company in vault.list_companies(root):
         if company.get('kind', 'employer') != 'employer':
             continue
+        scanned += 1
         changes = {}
         new_sectors, sector_flag = sectors_cascade(company, sector_signals, fetch)
         if new_sectors:
@@ -336,6 +335,28 @@ def backfill(root, sector_signals=SECTOR_SIGNALS, size_signals=SIZE_SIGNALS, fet
             changes['review_flags'] = _merge_flags(
                 changes.get('review_flags', company.get('review_flags')), size_flag)
         if changes:
-            vault.save_company(root, changes, company['id'])
-            updated.append(company['id'])
+            plan.append((company, changes))
+    return plan, scanned
+
+
+def apply_backfill(root, plan):
+    """Fast persistence phase for a plan_backfill result; safe under the
+    vault write lock because it only touches the local filesystem."""
+    updated = []
+    for company, changes in plan:
+        vault.save_company(root, changes, company['id'])
+        updated.append(company['id'])
     return updated
+
+
+def backfill(root, sector_signals=SECTOR_SIGNALS, size_signals=SIZE_SIGNALS, fetch=None):
+    """Explicit, owner-triggered backfill (decision 27). Scoped to
+    kind == 'employer'; sectors and size run as independent per-field
+    cascades over the same company list, never as a single combined pass.
+    Every ambiguity refusal, source conflict, and size inconsistency the
+    cascades surface is persisted on review_flags, and a flag is removed
+    once its field resolves. Runs the one-time kind backfill first, so a
+    company record that predates the kind field is never skipped merely
+    because it has not been migrated yet."""
+    plan, _scanned = plan_backfill(root, sector_signals, size_signals, fetch)
+    return apply_backfill(root, plan)

@@ -4,5 +4,5 @@
 <script>
 function filterCompanies(){const sector=document.getElementById('sector-filter').value,size=document.getElementById('size-filter').value;document.querySelectorAll('#company-grid [data-sectors]').forEach(card=>{const sectors=card.dataset.sectors.split(' ').filter(Boolean);const sectorOk=sector==='all'||sectors.includes(sector);const sizeOk=size==='all'||card.dataset.sizeClass===size;card.hidden=!(sectorOk&&sizeOk);});}
 document.getElementById('sector-filter').onchange=filterCompanies;document.getElementById('size-filter').onchange=filterCompanies;
-document.getElementById('backfill-sector-size').onclick=async e=>{const button=e.currentTarget;button.disabled=true;try{const result=await api('/api/companies/backfill-sector-size','POST');toast(result.updated.length+' companies updated');location.reload();}catch(err){toast(err.message,true);}finally{button.disabled=false;}};
+document.getElementById('backfill-sector-size').onclick=async e=>{const button=e.currentTarget,label=button.textContent;button.disabled=true;button.textContent='Backfilling… (can take minutes)';try{const result=await api('/api/companies/backfill-sector-size','POST');toast(result.updated.length+' of '+result.scanned+' companies updated');location.reload();}catch(err){toast(err.message,true);button.textContent=label;}finally{button.disabled=false;}};
 </script>

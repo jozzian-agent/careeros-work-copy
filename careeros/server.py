@@ -565,10 +565,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def backfill_sector_size():
         """Decision 27: explicit, owner-triggered action only. Never wired to
         run automatically; the external-fetch tier makes real network calls
-        that should not happen unannounced."""
+        that should not happen unannounced.
+
+        The network sweep runs WITHOUT the write lock: a cold pass over many
+        employers can take minutes, and holding the vault lock that long
+        starves every other writer (the Enrich button, intake, etc.) behind
+        it, which reads as 'both buttons do nothing'. Planning is read-only;
+        only the fast local-filesystem apply phase takes the lock."""
         root = app.config['VAULT_PATH']
+        plan, scanned = company_lookup.plan_backfill(root)
         with write_lock:
-            return jsonify(updated=company_lookup.backfill(root))
+            updated = company_lookup.apply_backfill(root, plan)
+        return jsonify(updated=updated, scanned=scanned)
 
     @app.errorhandler(ValueError)
     def invalid_data(error):
