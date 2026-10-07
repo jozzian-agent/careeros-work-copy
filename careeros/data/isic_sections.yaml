@@ -19,8 +19,14 @@ sections:
     # 29, e.g. a carmaker) is also Section C; Section G only covers
     # wholesale/retail trade and repair of motor vehicles, a distinct
     # activity from making them, so "automotive industry" as a general
-    # Wikidata industry string maps here rather than to G.
-    keywords: ["manufacturing", "factory", "industrial production", "pharmaceutical", "automotive"]
+    # Wikidata industry string maps here rather than to G. electrical
+    # engineering: ISIC division 27 (manufacture of electrical equipment),
+    # a Wikidata industry label actually returned for manufacturers such as
+    # Siemens (JOZ-261 live sweep) -- the generic "engineering services" (M)
+    # and bare "technology" (J/M) keywords do not overlap this longer,
+    # specific phrase, so it resolves confidently to C alone.
+    keywords: ["manufacturing", "factory", "industrial production", "pharmaceutical", "automotive",
+               "electrical engineering"]
   - code: D
     label: "Electricity, gas, steam and air conditioning supply"
     label_de: "Energieversorgung"
@@ -54,7 +60,10 @@ sections:
     # when a signal matches more than one section, so this phrase resolves
     # confidently to J instead of being refused as J-vs-M ambiguous. Bare
     # "technology" alone still ties with M and stays refused, unchanged.
-    keywords: ["software", "information technology", "telecommunications", "media", "publishing", "it services", "technology", "technology industry"]
+    # cloud computing: another Wikidata industry label actually returned in
+    # the wild (JOZ-261 live sweep); unambiguous J, no overlap with any
+    # other section's keywords.
+    keywords: ["software", "information technology", "telecommunications", "media", "publishing", "it services", "technology", "technology industry", "cloud computing"]
   - code: K
     label: "Financial and insurance activities"
     label_de: "Erbringung von Finanz- und Versicherungsdienstleistungen"

@@ -20,16 +20,50 @@ class NoRedirect(request.HTTPRedirectHandler):
 
 
 class LLMClient:
-    def __init__(self, base_url, api_key):
+    """OpenAI-compatible chat client. With native=True the same call
+    signature is served by Ollama's native /api/chat endpoint instead of
+    /v1/chat/completions: the OpenAI-compat layer of Ollama (verified on
+    0.34.4) silently ignores the `think` parameter and reasoning-capable
+    models keep emitting chain-of-thought tokens on every call (~20s for a
+    trivial reply vs ~1s natively with think off). The payload keys used
+    by callers (model, messages, temperature, response_format json_object,
+    think) are translated; anything else is dropped rather than guessed
+    at. Enable with LLM_NATIVE=1 when LLM_BASE_URL points at Ollama."""
+
+    def __init__(self, base_url, api_key, native=False):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
+        self.native = native
         # Credentials must never follow a redirect to another endpoint.
         self.opener = request.build_opener(NoRedirect())
         self.chat = SimpleNamespace(completions=self)
 
+    def _native_payload(self, payload):
+        body = {'model': payload.get('model'), 'stream': False,
+                'think': bool(payload.get('think'))}
+        if payload.get('messages') is not None:
+            body['messages'] = payload['messages']
+        response_format = payload.get('response_format') or {}
+        if isinstance(response_format, dict) and response_format.get('type') == 'json_object':
+            body['format'] = 'json'
+        options = {}
+        if payload.get('temperature') is not None:
+            options['temperature'] = payload['temperature']
+        if options:
+            body['options'] = options
+        return body
+
+    def _endpoint(self):
+        if not self.native:
+            return self.base_url + '/chat/completions'
+        root = self.base_url[:-3] if self.base_url.endswith('/v1') else self.base_url
+        return root + '/api/chat'
+
     def create(self, *, timeout=TIMEOUT, **payload):
+        if self.native:
+            payload = self._native_payload(payload)
         req = request.Request(
-            self.base_url + '/chat/completions',
+            self._endpoint(),
             data=json.dumps(payload).encode('utf-8'),
             headers={'Content-Type': 'application/json',
                      'Authorization': 'Bearer ' + self.api_key},
@@ -37,8 +71,12 @@ class LLMClient:
         )
         with self.opener.open(req, timeout=timeout) as response:
             data = json.loads(response.read(2_000_000))
+        if self.native:
+            content = data['message']['content']
+        else:
+            content = data['choices'][0]['message']['content']
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-            content=data['choices'][0]['message']['content']))])
+            content=content))])
 
 
 def get_llm_client():
@@ -46,4 +84,5 @@ def get_llm_client():
     if not base_url:
         raise RuntimeError('LLM_BASE_URL is not set.')
     get_llm_model()
-    return LLMClient(base_url, os.environ.get('LLM_API_KEY') or 'not-needed')
+    return LLMClient(base_url, os.environ.get('LLM_API_KEY') or 'not-needed',
+                     native=os.environ.get('LLM_NATIVE') == '1')

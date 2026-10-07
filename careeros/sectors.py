@@ -120,6 +120,44 @@ def range_consistent_with_size_class(count, size_class):
     return size_class_for(count) == size_class
 
 
+_SIZE_RANGE_RE = re.compile(r'^(\d+)(?:-(\d+)|\+)$')
+
+
+def _size_range_bounds(size_range):
+    """Parse one of SIZE_BUCKETS' own label strings ('1-10', ..., '1000+')
+    back into (lower, upper) integers, upper None for the open-ended
+    '1000+' bucket. None for anything that doesn't read as a bucket label at
+    all, so a caller can treat an unrecognized value as "can't rule
+    anything out" rather than guessing."""
+    if not isinstance(size_range, str):
+        return None
+    match = _SIZE_RANGE_RE.match(size_range.strip())
+    if not match:
+        return None
+    lower = int(match.group(1))
+    upper = int(match.group(2)) if match.group(2) else None
+    return lower, upper
+
+
+def size_class_hint_consistent_with_range(size_hint, size_range):
+    """Whether an EU size-class hint (e.g. the LLM world-knowledge signal's
+    size_hint) is plausible for a company whose count falls somewhere in
+    size_range. The class thresholds don't align with the range buckets'
+    own edges, so a bucket can straddle two adjacent classes right at its
+    boundary (count==50 within the '11-50' bucket is already 'medium', not
+    'small') -- such a bucket is compatible with either adjacent class, since
+    the range alone can't rule out the narrower one sitting at that boundary.
+    An unrecognized size_range string can't rule anything out either, so it
+    is treated as compatible rather than blocking the fill."""
+    bounds = _size_range_bounds(size_range)
+    if bounds is None:
+        return True
+    lower, upper = bounds
+    implied = {size_class_for(lower)}
+    implied.add(size_class_for(upper) if upper is not None else 'large')
+    return size_hint in implied
+
+
 def fill_size_updates(count, size_range, size_class):
     """Fill-empty-only, consistency-checked derivation of whichever of
     size_range/size_class is still missing, from one raw employee count.
