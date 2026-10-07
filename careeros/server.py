@@ -573,10 +573,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
         it, which reads as 'both buttons do nothing'. Planning is read-only;
         only the fast local-filesystem apply phase takes the lock."""
         root = app.config['VAULT_PATH']
-        plan, scanned = company_lookup.plan_backfill(root)
+        collector = company_lookup.BackfillAccounting()
+        plan, scanned = company_lookup.plan_backfill(root, collector=collector)
         with write_lock:
             updated = company_lookup.apply_backfill(root, plan)
-        return jsonify(updated=updated, scanned=scanned)
+        return jsonify(updated=updated, scanned=scanned, signal_summary=collector.summary())
 
     @app.errorhandler(ValueError)
     def invalid_data(error):

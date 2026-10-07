@@ -42,13 +42,43 @@ def all_matched_sections(text):
     """Raw keyword matches before the single-match filter. Callers use the
     distinction between zero matches (no signal) and two or more matches
     (ambiguous signal, which decisions 20/21 require flagging for owner
-    review rather than guessing)."""
+    review rather than guessing).
+
+    A section is only resolved away in favor of another when its best
+    matching keyword is a strict substring of the other section's best
+    matching keyword -- i.e. the two matches are a generic/specific
+    restatement of the *same* phrase, such as the generic "technology" word
+    M matches also being present inside J's longer "technology industry" or
+    "information technology" keywords. That is specialization, not
+    independent evidence, so the more specific section wins and the generic
+    one is dropped.
+
+    When the competing sections matched via keywords that are NOT
+    substrings of one another -- e.g. "software and retail" matching J via
+    "software" and G via "retail", two unrelated activities that merely
+    happen to share no textual relationship -- neither keyword specializes
+    the other, so this is genuine multi-activity ambiguity: every originally
+    matched section is returned, unresolved, exactly as decisions 20/21
+    require. The same applies when the longest keyword is itself tied
+    between two or more sections (e.g. bare "technology", matched by J and M
+    at equal length): there is no specialization relationship to resolve."""
     if not isinstance(text, str) or not text.strip():
         return []
     lowered = text.casefold()
-    return [section['code'] for section in _sections()
-            if any(re.search(r'\b' + re.escape(keyword) + r'\b', lowered)
-                   for keyword in section.get('keywords', []))]
+    matches = []
+    for section in _sections():
+        matched_keywords = [keyword for keyword in section.get('keywords', [])
+                             if re.search(r'\b' + re.escape(keyword) + r'\b', lowered)]
+        if matched_keywords:
+            matches.append((section['code'], max(matched_keywords, key=len)))
+    if len(matches) <= 1:
+        return [code for code, _ in matches]
+    survivors = [code for i, (code, keyword) in enumerate(matches)
+                 if not any(i != j and len(other_keyword) > len(keyword) and keyword in other_keyword
+                            for j, (_, other_keyword) in enumerate(matches))]
+    if len(survivors) == 1:
+        return survivors
+    return [code for code, _ in matches]
 
 def match_sectors(text):
     """Keyword-match one free-text industry signal to zero or more ISIC

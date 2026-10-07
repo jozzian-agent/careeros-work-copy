@@ -38,6 +38,40 @@ def test_match_sectors_confidence_and_ambiguity(text, expected):
     assert sectors.match_sectors(text) == expected
 
 
+# --- JOZ-260c: widened ISIC vocabulary, real-world Wikidata industry strings
+@pytest.mark.parametrize('text,expected', [
+    ('technology industry', ['J']),  # longer, specific keyword outranks the
+    ('information technology', ['J']),  # generic "technology" word M also has
+    ('pharmaceutical industry', ['C']),
+    ('automotive industry', ['C']),  # manufacturing (ISIC div. 29), not G
+    ('cryptocurrency', ['K']),
+    ('fintech', ['K']),
+])
+def test_match_sectors_widened_vocabulary_classes(text, expected):
+    assert sectors.match_sectors(text) == expected
+
+
+def test_match_sectors_bare_technology_still_ambiguous_after_vocabulary_widening():
+    # The new "technology industry" J keyword must not accidentally make
+    # bare "Technology" resolve too: it still ties with M at equal length.
+    assert sectors.match_sectors('Technology') == []
+    assert sectors.all_matched_sections('Technology') == ['J', 'M']
+
+
+# --- Regression (code review): the specificity tie-break must only resolve
+# generic-vs-specific restatements of the SAME phrase (e.g. "technology" vs
+# "technology industry"), never independent keywords from unrelated
+# activities that merely happen to co-occur in one text.
+@pytest.mark.parametrize('text', ['software and retail', 'mining and manufacturing'])
+def test_match_sectors_independent_keywords_stay_ambiguous(text):
+    assert sectors.match_sectors(text) == []
+
+
+def test_all_matched_sections_independent_keywords_returns_both_unresolved():
+    assert sectors.all_matched_sections('software and retail') == ['G', 'J']
+    assert sectors.all_matched_sections('mining and manufacturing') == ['B', 'C']
+
+
 def test_match_sectors_known_codes_are_isic_sections():
     assert sectors.known_section_codes() == {s['code'] for s in sectors.load_isic_sections()}
     assert len(sectors.known_section_codes()) == 21
@@ -270,6 +304,102 @@ def test_fetch_wikidata_refuses_undated_statement():
     assert result.get('employee_count') is None
 
 
+# --- JOZ-260b: Wikidata 429 retry/backoff -----------------------------------
+
+def test_fetch_wikidata_retries_429_then_succeeds():
+    import json
+    import urllib.error
+    calls = {'n': 0}
+    sleeps = []
+
+    def fetch(url):
+        if 'wbsearchentities' in url:
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise urllib.error.HTTPError(url, 429, 'Too Many Requests', {}, None)
+            return json.dumps({'search': [{'id': 'Q1'}]})
+        return json.dumps({'entities': {'Q1': {'claims': {}}}})
+
+    result = company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=sleeps.append)
+    assert calls['n'] == 2  # one failed attempt, one retry that succeeded
+    assert sleeps == [company_lookup.WIKIDATA_BACKOFF_SECONDS]
+    assert 'status' not in result  # a 429 that resolves on retry is never reported as an error
+
+
+def test_fetch_wikidata_honors_retry_after_header():
+    import json
+    import urllib.error
+    calls = {'n': 0}
+    sleeps = []
+
+    def fetch(url):
+        if 'wbsearchentities' in url:
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise urllib.error.HTTPError(url, 429, 'Too Many Requests', {'Retry-After': '5'}, None)
+            return json.dumps({'search': [{'id': 'Q1'}]})
+        return json.dumps({'entities': {'Q1': {'claims': {}}}})
+
+    company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=sleeps.append)
+    assert sleeps == [5.0]
+
+
+def test_fetch_wikidata_rate_limited_after_retries_exhausted():
+    import urllib.error
+    calls = {'n': 0}
+
+    def fetch(url):
+        calls['n'] += 1
+        raise urllib.error.HTTPError(url, 429, 'Too Many Requests', {}, None)
+
+    result = company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=lambda s: None)
+    assert calls['n'] == company_lookup.WIKIDATA_MAX_RETRIES + 1
+    assert result == {'industry': None, 'employee_count': None,
+                       'industry_status': 'rate_limited', 'size_status': 'rate_limited'}
+
+
+def test_fetch_wikidata_non_429_http_error_is_fetch_error_not_rate_limited():
+    import urllib.error
+    def fetch(url):
+        raise urllib.error.HTTPError(url, 500, 'Server Error', {}, None)
+    result = company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=lambda s: None)
+    assert result == {'industry': None, 'employee_count': None,
+                       'industry_status': 'error', 'size_status': 'error'}
+
+
+def test_fetch_wikidata_generic_exception_is_fetch_error():
+    def fetch(url):
+        raise ValueError('boom')
+    result = company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=lambda s: None)
+    assert result == {'industry': None, 'employee_count': None,
+                       'industry_status': 'error', 'size_status': 'error'}
+
+
+# --- Regression (code review): a partial Wikidata failure (industry-label
+# HTTP error) must not discard an employee_count that was already read from
+# the claims payload the earlier, successful fetch returned.
+def test_fetch_wikidata_industry_label_failure_preserves_employee_count():
+    import json
+    import urllib.error
+
+    def fetch(url):
+        if 'wbsearchentities' in url:
+            return json.dumps({'search': [{'id': 'Q1'}]})
+        if 'Q1.json' in url:
+            return json.dumps({'entities': {'Q1': {'claims': {
+                'P452': [{'mainsnak': {'datavalue': {'value': {'id': 'Q_SOFTWARE'}}}}],
+                'P1128': [{'mainsnak': {'datavalue': {'value': {'amount': '+250'}}},
+                           'qualifiers': {'P585': [{'datavalue': {'value': {'time': '+2024-00-00T00:00:00Z'}}}]}}],
+            }}}})
+        raise urllib.error.HTTPError(url, 500, 'Server Error', {}, None)  # Q_SOFTWARE.json label lookup
+
+    result = company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=lambda s: None)
+    assert result['employee_count'] == 250
+    assert result['industry'] is None
+    assert result['industry_status'] == 'error'
+    assert 'size_status' not in result
+
+
 def test_fetch_osm_matches_shop_only_result():
     # office=* is not the only occupied-building tag; a shop=* result with
     # no office tag at all must not be excluded.
@@ -384,6 +514,262 @@ def test_backfill_wires_kind_migration_for_records_missing_kind(root):
         assert company['kind'] == 'employer'
 
 
+# --- Regression (code review): a signal reporting a status for ONE field
+# must not discard a valid value already present for the OTHER field.
+def test_size_cascade_industry_status_failure_preserves_employee_count(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Partial Labs'})
+
+    def signal(c, fetch=None):
+        return {'industry': None, 'employee_count': 100, 'industry_status': 'error'}
+
+    updates, flag = company_lookup.size_cascade(company, signals=(signal,))
+    assert updates == {'size_range': '51-200', 'size_class': 'medium'}
+    assert flag is None
+
+
+def test_external_sectors_size_status_failure_preserves_industry(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Partial Labs 2'})
+
+    def signal(c, fetch=None):
+        return {'industry': 'Banking and insurance', 'employee_count': None, 'size_status': 'error'}
+
+    codes, flag = company_lookup.external_sectors(company, signals=(signal,))
+    assert codes == ['K']
+    assert flag is None
+
+
+def test_plan_backfill_accounting_partial_wikidata_failure_preserves_valid_field(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Partial Fetch Labs'})
+
+    def signal(c, fetch=None):
+        return {'industry': None, 'employee_count': 100, 'industry_status': 'error'}
+
+    collector = company_lookup.BackfillAccounting()
+    plan, _ = company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,),
+                                            collector=collector)
+    changes = next(ch for co, ch in plan if co['id'] == company['id'])
+    assert changes['size_range'] == '51-200' and changes['size_class'] == 'medium'
+    assert collector.summary()['fetch-error'] == 1  # sectors: industry_status
+    assert collector.summary()['matched'] == 1  # size: employee_count present despite industry_status
+
+
+# --- JOZ-260 code review: full-coverage accounting (every skipped signal is
+# recorded as 'not-attempted' rather than simply absent from the summary).
+
+def test_sectors_cascade_already_populated_records_not_attempted_for_all_considered_signals(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Populated Labs', 'sectors': ['K']})
+    collector = company_lookup.BackfillAccounting()
+    result, flag = company_lookup.sectors_cascade(
+        company, signals=(company_lookup._jsonld_signal, company_lookup._wikidata_signal), collector=collector)
+    assert result is None and flag is None
+    assert collector.summary()['not-attempted'] == 3  # promotion + 2 external signals
+    names = {e['signal'] for e in collector.events}
+    assert names == {'promotion', 'jsonld', 'wikidata'}
+
+
+def test_sectors_cascade_promotion_success_records_matched_and_skips_external_signals(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Promoted Labs'})
+    vault.save_job(tmp_path, {'title': 'Role', 'url': 'https://fiction.example/promoted',
+                              'company_id': company['id'], 'sector': 'Banking and insurance'})
+    company = vault.load_company(tmp_path, company['id'])
+    collector = company_lookup.BackfillAccounting()
+    codes, flag = company_lookup.sectors_cascade(company, signals=(company_lookup._jsonld_signal,),
+                                                  collector=collector)
+    assert codes == ['K'] and flag is None
+    assert collector.summary() == {'matched': 1, 'ambiguous': 0, 'rate-limited': 0,
+                                    'fetch-error': 0, 'empty': 0, 'not-attempted': 1}
+    events = {(e['signal'], e['outcome']) for e in collector.events}
+    assert ('promotion', 'matched') in events
+    assert ('jsonld', 'not-attempted') in events
+
+
+def test_sectors_cascade_promotion_conflict_records_ambiguous_and_skips_external_signals():
+    # Two distinct codes whose underlying raw strings share a >3-char word
+    # ("enterprise"), so promote_aggregated_sectors' distinct-activity check
+    # refuses rather than promoting both.
+    company = {'id': 'CO-CONFLICT', 'enrichment': {'sectors': ['Enterprise software', 'Enterprise consulting']}}
+    collector = company_lookup.BackfillAccounting()
+    codes, flag = company_lookup.sectors_cascade(company, signals=(company_lookup._jsonld_signal,),
+                                                  collector=collector)
+    assert codes is None and flag == company_lookup.FLAG_SECTOR_CONFLICT
+    assert collector.summary() == {'matched': 0, 'ambiguous': 1, 'rate-limited': 0,
+                                    'fetch-error': 0, 'empty': 0, 'not-attempted': 1}
+    events = {(e['signal'], e['outcome']) for e in collector.events}
+    assert ('promotion', 'ambiguous') in events
+    assert ('jsonld', 'not-attempted') in events
+
+
+def test_size_cascade_already_populated_records_not_attempted(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Sized Labs', 'size_range': '1-10', 'size_class': 'micro'})
+    collector = company_lookup.BackfillAccounting()
+    updates, flag = company_lookup.size_cascade(
+        company, signals=(company_lookup._jsonld_signal, company_lookup._wikidata_signal), collector=collector)
+    assert updates is None and flag is None
+    assert collector.summary()['not-attempted'] == 2
+
+
+def test_size_cascade_break_on_first_match_records_not_attempted_for_remaining_signals(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Break Labs'})
+
+    def first(c, fetch=None):
+        return {'employee_count': 42}
+
+    def second(c, fetch=None):
+        raise AssertionError('must not be called once an earlier signal already matched')
+
+    collector = company_lookup.BackfillAccounting()
+    updates, flag = company_lookup.size_cascade(company, signals=(first, second), collector=collector)
+    assert updates == {'size_range': '11-50', 'size_class': 'small'}
+    assert collector.summary() == {'matched': 1, 'ambiguous': 0, 'rate-limited': 0,
+                                    'fetch-error': 0, 'empty': 0, 'not-attempted': 1}
+    events = {(e['signal'], e['outcome']) for e in collector.events}
+    assert ('second', 'not-attempted') in events
+
+
+# --- JOZ-260 code review: JSON-LD production fetch errors must not be
+# accounted as 'empty' (fetched-but-no-data) -- they never fetched at all.
+
+def test_fetch_company_jsonld_reports_fetch_error_on_exception():
+    def fetch(url):
+        raise ValueError('boom')
+
+    result = company_lookup.fetch_company_jsonld('https://fiction.example', fetch=fetch)
+    assert result == {'industry_status': 'error', 'size_status': 'error'}
+
+
+def test_jsonld_production_fetch_error_is_not_counted_as_empty(tmp_path):
+    import urllib.error
+    vault.save_company(tmp_path, {'name': 'Site Down Labs', 'website': 'https://down.example'})
+
+    def fetch(url):
+        raise urllib.error.HTTPError(url, 500, 'Server Error', {}, None)
+
+    collector = company_lookup.BackfillAccounting()
+    company_lookup.plan_backfill(tmp_path, sector_signals=(company_lookup._jsonld_signal,), size_signals=(),
+                                  fetch=fetch, collector=collector)
+    assert collector.summary()['fetch-error'] == 1
+    assert collector.summary()['empty'] == 1  # promotion-empty only; the 500 is NOT empty
+
+
+# --- JOZ-260 code review: _last_wikidata_call pacing must survive concurrent
+# callers (Flask serves requests on multiple threads).
+
+def test_wikidata_pace_is_thread_safe_under_concurrent_calls():
+    import threading
+    errors = []
+
+    def hit():
+        try:
+            company_lookup._wikidata_pace()
+        except Exception as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=hit) for _ in range(20)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert errors == []
+
+
+# --- JOZ-260 code review: Retry-After parsing (numeric + HTTP-date forms,
+# clamped, with a safe fallback for garbage values).
+
+def test_wikidata_retry_after_http_date_form_honored():
+    import json
+    import urllib.error
+    import email.utils
+    from datetime import datetime, timedelta, timezone
+    calls = {'n': 0}
+    sleeps = []
+    future = email.utils.format_datetime(datetime.now(timezone.utc) + timedelta(seconds=5))
+
+    def fetch(url):
+        if 'wbsearchentities' in url:
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise urllib.error.HTTPError(url, 429, 'Too Many Requests', {'Retry-After': future}, None)
+            return json.dumps({'search': [{'id': 'Q1'}]})
+        return json.dumps({'entities': {'Q1': {'claims': {}}}})
+
+    company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=sleeps.append)
+    assert len(sleeps) == 1
+    assert 0 <= sleeps[0] <= 6  # ~5s, small slack for test runtime
+
+
+def test_wikidata_retry_after_huge_value_clamped():
+    import json
+    import urllib.error
+    calls = {'n': 0}
+    sleeps = []
+
+    def fetch(url):
+        if 'wbsearchentities' in url:
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise urllib.error.HTTPError(url, 429, 'Too Many Requests', {'Retry-After': '999999'}, None)
+            return json.dumps({'search': [{'id': 'Q1'}]})
+        return json.dumps({'entities': {'Q1': {'claims': {}}}})
+
+    company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=sleeps.append)
+    assert sleeps == [company_lookup.RETRY_AFTER_MAX_SECONDS]
+
+
+def test_wikidata_retry_after_garbage_value_falls_back_to_exponential_delay():
+    import json
+    import urllib.error
+    calls = {'n': 0}
+    sleeps = []
+
+    def fetch(url):
+        if 'wbsearchentities' in url:
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise urllib.error.HTTPError(url, 429, 'Too Many Requests', {'Retry-After': 'garbage'}, None)
+            return json.dumps({'search': [{'id': 'Q1'}]})
+        return json.dumps({'entities': {'Q1': {'claims': {}}}})
+
+    company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=sleeps.append)
+    assert sleeps == [company_lookup.WIKIDATA_BACKOFF_SECONDS]
+
+
+def test_wikidata_retry_after_nan_value_falls_back_to_exponential_delay():
+    # float() accepts 'NaN'/'inf'; a non-finite parse must count as garbage,
+    # not clamp to a degenerate 0.0 wait (JOZ-260 review round 2).
+    import json
+    import urllib.error
+    calls = {'n': 0}
+    sleeps = []
+
+    def fetch(url):
+        if 'wbsearchentities' in url:
+            calls['n'] += 1
+            if calls['n'] == 1:
+                raise urllib.error.HTTPError(url, 429, 'Too Many Requests', {'Retry-After': 'NaN'}, None)
+            return json.dumps({'search': [{'id': 'Q1'}]})
+        return json.dumps({'entities': {'Q1': {'claims': {}}}})
+
+    company_lookup.fetch_wikidata('Fiction Co', fetch=fetch, sleep=sleeps.append)
+    assert sleeps == [company_lookup.WIKIDATA_BACKOFF_SECONDS]
+
+
+def test_sectors_cascade_promotion_empty_records_empty_event():
+    # Promotion ran but had no aggregated data to offer ([]): the promotion
+    # step itself must still appear in the accounting before falling through
+    # to external signals (JOZ-260 review round 2).
+    company = {'id': 'CO-NOPROMO'}  # no enrichment -> promotion returns []
+
+    def fake_signal(c, fetch=None):
+        return {'industry': 'banking'}
+
+    collector = company_lookup.BackfillAccounting()
+    codes, flag = company_lookup.sectors_cascade(company, signals=(fake_signal,), collector=collector)
+    assert codes == ['K'] and flag is None
+    events = {(e['signal'], e['outcome']) for e in collector.events}
+    assert ('promotion', 'empty') in events
+    assert ('fake_signal', 'matched') in events
+
+
 def test_backfill_sectors_and_size_are_independent_cascades(root):
     company = vault.save_company(root, {'name': 'Independent Labs', 'sectors': ['K']})
 
@@ -428,7 +814,8 @@ def test_backfill_endpoint_is_explicit_and_never_runs_automatically(client, root
     response = client.post('/api/companies/backfill-sector-size')
     assert response.status_code == 200
     assert calls == [root]
-    assert response.json == {'updated': ['CO-001'], 'scanned': 3}
+    assert response.json == {'updated': ['CO-001'], 'scanned': 3, 'signal_summary': {
+        'matched': 0, 'ambiguous': 0, 'rate-limited': 0, 'fetch-error': 0, 'empty': 0, 'not-attempted': 0}}
 
 
 def test_backfill_network_sweep_does_not_hold_write_lock(client, root, monkeypatch):
@@ -461,8 +848,8 @@ def test_backfill_network_sweep_does_not_hold_write_lock(client, root, monkeypat
 
 def test_plan_and_apply_backfill_roundtrip(root, monkeypatch):
     monkeypatch.setattr(company_lookup, 'sectors_cascade',
-                        lambda company, signals, fetch: (['J'], None) if not company.get('sectors') else (None, None))
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda company, signals, fetch: (None, None))
+                        lambda company, signals, fetch, collector=None: (['J'], None) if not company.get('sectors') else (None, None))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda company, signals, fetch, collector=None: (None, None))
     company = vault.save_company(root, {'name': 'Planned Co'})
     plan, scanned = company_lookup.plan_backfill(root)
     assert scanned >= 1
@@ -470,3 +857,87 @@ def test_plan_and_apply_backfill_roundtrip(root, monkeypatch):
     updated = company_lookup.apply_backfill(root, plan)
     assert company['id'] in updated
     assert vault.load_company(root, company['id'])['sectors'] == ['J']
+
+
+# --- JOZ-260a: per-signal outcome accounting --------------------------------
+# Each test uses an isolated tmp_path vault with exactly one company and one
+# custom signal, so the resulting counts are exact rather than merely >= 1.
+
+def test_plan_backfill_accounting_records_matched(tmp_path):
+    company = vault.save_company(tmp_path, {'name': 'Matched Labs'})
+
+    def signal(c, fetch=None):
+        return {'industry': 'Banking and insurance'}
+
+    collector = company_lookup.BackfillAccounting()
+    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
+    # 'promotion'/'empty' is the zero-network promotion step accounting itself
+    # (no aggregated data), required for full (signal, field) coverage.
+    assert collector.summary() == {'matched': 1, 'ambiguous': 0, 'rate-limited': 0,
+                                    'fetch-error': 0, 'empty': 1, 'not-attempted': 0}
+    assert {'company_id': company['id'], 'signal': 'promotion',
+            'field': 'sectors', 'outcome': 'empty'} in collector.events
+    assert {'company_id': company['id'], 'signal': 'signal',
+            'field': 'sectors', 'outcome': 'matched'} in collector.events
+
+
+def test_plan_backfill_accounting_records_ambiguous(tmp_path):
+    vault.save_company(tmp_path, {'name': 'Ambiguous Labs'})
+
+    def signal(c, fetch=None):
+        return {'industry': 'Technology'}  # matches both J and M
+
+    collector = company_lookup.BackfillAccounting()
+    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
+    assert collector.summary()['ambiguous'] == 1
+    assert collector.summary()['matched'] == 0
+
+
+def test_plan_backfill_accounting_records_rate_limited(tmp_path):
+    vault.save_company(tmp_path, {'name': 'RateLimited Labs'})
+
+    def signal(c, fetch=None):
+        return {'industry_status': 'rate_limited', 'size_status': 'rate_limited'}
+
+    collector = company_lookup.BackfillAccounting()
+    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,), collector=collector)
+    assert collector.summary()['rate-limited'] == 2  # once for sectors, once for size
+
+
+def test_plan_backfill_accounting_records_fetch_error(tmp_path):
+    vault.save_company(tmp_path, {'name': 'FetchError Labs'})
+
+    def signal(c, fetch=None):
+        return {'industry_status': 'error'}
+
+    collector = company_lookup.BackfillAccounting()
+    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
+    assert collector.summary()['fetch-error'] == 1
+
+
+def test_plan_backfill_accounting_records_empty(tmp_path):
+    vault.save_company(tmp_path, {'name': 'Empty Labs'})
+
+    def signal(c, fetch=None):
+        return {}
+
+    collector = company_lookup.BackfillAccounting()
+    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,), collector=collector)
+    assert collector.summary()['empty'] == 3  # promotion-empty + one per signal field
+    assert collector.summary()['fetch-error'] == 0
+
+
+def test_plan_backfill_accounting_records_not_attempted_for_missing_website(tmp_path):
+    vault.save_company(tmp_path, {'name': 'No Website Labs'})  # no website set
+
+    collector = company_lookup.BackfillAccounting()
+    company_lookup.plan_backfill(tmp_path, sector_signals=(company_lookup._jsonld_signal,),
+                                  size_signals=(), collector=collector)
+    assert collector.summary()['not-attempted'] == 1
+
+
+def test_plan_backfill_accounting_disabled_by_default_has_no_cost(tmp_path):
+    # collector=None (the default) must not raise or require any caller change.
+    vault.save_company(tmp_path, {'name': 'Uncollected Labs'})
+    plan, scanned = company_lookup.plan_backfill(tmp_path, sector_signals=(), size_signals=())
+    assert scanned == 1

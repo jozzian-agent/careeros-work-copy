@@ -14,7 +14,13 @@ sections:
   - code: C
     label: "Manufacturing"
     label_de: "Verarbeitendes Gewerbe"
-    keywords: ["manufacturing", "factory", "industrial production"]
+    # pharmaceutical: ISIC division 21 (manufacture of pharmaceuticals) sits
+    # under Section C. automotive: motor vehicle *manufacturing* (division
+    # 29, e.g. a carmaker) is also Section C; Section G only covers
+    # wholesale/retail trade and repair of motor vehicles, a distinct
+    # activity from making them, so "automotive industry" as a general
+    # Wikidata industry string maps here rather than to G.
+    keywords: ["manufacturing", "factory", "industrial production", "pharmaceutical", "automotive"]
   - code: D
     label: "Electricity, gas, steam and air conditioning supply"
     label_de: "Energieversorgung"
@@ -42,11 +48,17 @@ sections:
   - code: J
     label: "Information and communication"
     label_de: "Information und Kommunikation"
-    keywords: ["software", "information technology", "telecommunications", "media", "publishing", "it services", "technology"]
+    # "technology industry" is an explicit, longer keyword (not just relying
+    # on the bare "technology" word also present in M's list below): the
+    # matcher's specificity tie-break prefers the longest matching keyword
+    # when a signal matches more than one section, so this phrase resolves
+    # confidently to J instead of being refused as J-vs-M ambiguous. Bare
+    # "technology" alone still ties with M and stays refused, unchanged.
+    keywords: ["software", "information technology", "telecommunications", "media", "publishing", "it services", "technology", "technology industry"]
   - code: K
     label: "Financial and insurance activities"
     label_de: "Erbringung von Finanz- und Versicherungsdienstleistungen"
-    keywords: ["bank", "banking", "insurance", "finance", "financial services", "asset management"]
+    keywords: ["bank", "banking", "insurance", "finance", "financial services", "asset management", "cryptocurrency", "fintech"]
   - code: L
     label: "Real estate activities"
     label_de: "Grundstücks- und Wohnungswesen"
