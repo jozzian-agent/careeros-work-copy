@@ -44,11 +44,13 @@ def test_invalid_kind_rejected(tmp_path):
         vault.save_company(tmp_path, {'name': 'Fiction Co', 'kind': 'bogus'})
 
 
-def test_institution_and_aggregate_kinds_accepted(tmp_path):
+def test_institution_kind_accepted_and_aggregate_removed(tmp_path):
+    # Owner decision 2026-10-07: the aggregate kind never applied to a real
+    # record and was removed from the vocabulary.
     institution = vault.save_company(tmp_path, {'name': 'Fiction University', 'kind': 'institution'})
-    aggregate = vault.save_company(tmp_path, {'name': 'Early Career', 'kind': 'aggregate'})
     assert institution['kind'] == 'institution'
-    assert aggregate['kind'] == 'aggregate'
+    with pytest.raises(ValueError, match='kind'):
+        vault.save_company(tmp_path, {'name': 'Early Career', 'kind': 'aggregate'})
 
 
 # --- Engineering item 2: company_id on experiences + existence check ------

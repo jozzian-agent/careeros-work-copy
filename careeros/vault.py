@@ -9,7 +9,7 @@ import yaml
 from careeros.sectors import known_section_codes, match_sectors
 
 LISTS = ('roles', 'must_haves', 'nice_to_haves', 'avoid')
-KINDS = ('employer', 'institution', 'aggregate')
+KINDS = ('employer', 'institution')
 SIZE_CLASSES = ('micro', 'small', 'medium', 'large')
 TAG_FACETS = ('skill/capability', 'skill/domain', 'function', 'experience-type', 'tool')
 TAG_TOKEN_RE = re.compile(r'([a-z0-9/_-]+):([a-z0-9-]+)')
@@ -414,7 +414,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                      description='', company='', seniority='', keywords=[], summary='', contact_email='',
                      ingest_source='', sector=None, sectors=[], industry=None, industries=[],
                      background='', skills=[], certifications=[], responsibilities=[], summary_source='', refresh='skipped',
-                     employee_count=None, function=[]) if job else
+                     employee_count=None, function=[], tags=[]) if job else
                 dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                      contact_email='', notes='', custom={}, enrichment={},
                      kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[]))
@@ -460,6 +460,13 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         unknown = [value for value in result['function'] if value not in known_functions]
         if unknown:
             raise ValueError(f'Unknown function id(s): {", ".join(unknown)}')
+        # Job tags use the same controlled-vocabulary flow as experiences
+        # (Section 2): closed registry, new values only via an explicit
+        # proposal payload in the same request.
+        proposed = data.get('proposed_tags') or []
+        if not isinstance(proposed, list) or any(not isinstance(t, str) for t in proposed):
+            raise ValueError('proposed_tags must be a list of facet:id values.')
+        result['tags'] = validate_tags(root, result['tags'], proposed=proposed)
         if result['status'] not in STATUSES:
             raise ValueError('Invalid job status.')
         for key in ('salary_info', 'enriched', 'remote_ok'):

@@ -1,0 +1,29 @@
+<a href="/companies/{{ company.id|urlencode }}">← {{ company.name }}</a><div class="page-header spaced"><h1>Classification</h1><span class="muted">{{ company.id }}</span></div>
+<form id="taxonomy-form" class="card stack">
+  <fieldset><legend>Kind</legend>
+    <label>Company kind<select name="kind">{% for k in kinds %}<option value="{{ k }}" {% if company.kind==k %}selected{% endif %}>{{ k|title }}</option>{% endfor %}</select></label>
+  </fieldset>
+  <fieldset><legend>Sectors (ISIC Rev.4)</legend><p class="muted">What industry the company operates in. Multi-select.</p>
+    <div class="stack">{% for section in isic_sections %}<label class="row"><input type="checkbox" name="sectors" value="{{ section.code }}" {% if section.code in company.sectors %}checked{% endif %}> {{ section.code }} — {{ section.label }}</label>{% endfor %}</div>
+  </fieldset>
+  <fieldset><legend>Size</legend>
+    <label>Size class (EU definition)<select name="size_class"><option value="">Unknown</option>{% for sc in size_classes %}<option value="{{ sc }}" {% if company.size_class==sc %}selected{% endif %}>{{ sc|title }}</option>{% endfor %}</select></label>
+    <label class="spaced">Size range (read-only; derived from employee count)<input value="{{ company.size_range or 'Unknown' }}" readonly></label>
+  </fieldset>
+  {% if company.review_flags %}<fieldset><legend>Review flags</legend><p class="muted">⚑ {{ company.review_flags|length }} open — {% for flag in company.review_flags %}<span class="chip">{{ flag }}</span> {% endfor %}</p></fieldset>{% endif %}
+  <div class="row"><button class="primary">Save changes</button><span id="save-status" class="muted" role="status" aria-live="polite"></span></div>
+</form>
+<script>
+document.getElementById('taxonomy-form').onsubmit=async e=>{e.preventDefault();
+  const status=document.getElementById('save-status');
+  const data=Object.fromEntries(new FormData(e.target));
+  data.sectors=Array.from(document.querySelectorAll('input[name="sectors"]:checked')).map(i=>i.value);
+  data.size_class=data.size_class||null;
+  status.textContent='Saving…';
+  try{
+    await api('/api/companies/'+{{ company.id|tojson }},'PUT',data);
+    sessionStorage.setItem('careerNotice','Classification saved');location.reload();
+  }catch(err){status.textContent='';toast(err.message,true);}
+};
+const notice=sessionStorage.getItem('careerNotice');if(notice){sessionStorage.removeItem('careerNotice');toast(notice);}
+</script>

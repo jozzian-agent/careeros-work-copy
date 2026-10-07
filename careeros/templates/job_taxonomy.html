@@ -1,0 +1,50 @@
+<a href="/jobs/{{ job.id|urlencode }}">← {{ job.title }}</a><div class="page-header spaced"><h1>Classification</h1><span class="muted">{{ job.id }}</span></div>
+<form id="taxonomy-form" class="card stack">
+  <fieldset><legend>Function (ESCO)</legend><p class="muted">What the role actually does. Pick one or more.</p>
+    <div class="stack">{% for fid, label in function_options %}<label class="row"><input type="checkbox" name="function" value="{{ fid }}" {% if fid in job.function %}checked{% endif %}> {{ label }}{% if function_labels.get(fid, {}).get('local') %} <span class="chip" title="Local extension, not mapped to an ISCO group">local</span>{% endif %}</label>{% else %}<p class="muted">No function registry entries yet.</p>{% endfor %}</div>
+  </fieldset>
+  <fieldset><legend>Sector</legend><p class="muted">Sector belongs to the company, not the job. {% if company %}Shown from <a href="/companies/{{ company.id|urlencode }}/taxonomy">{{ company.name }}</a> — edit it there.{% else %}This job has no linked company.{% endif %}</p>
+    <div class="row">{% if company and company.sectors %}{% for code in company.sectors %}<span class="chip">{{ code }} · {{ isic_labels.get(code, code) }}</span>{% endfor %}{% else %}<span class="muted">(not set)</span>{% endif %}</div>
+  </fieldset>
+  <fieldset><legend>Tags</legend><p class="muted">Controlled vocabulary — pick from the registry, or propose a new value.</p>
+    <div class="row spaced" id="tag-chips">{% for token in tags %}<label class="row chip"><input type="checkbox" name="tag" value="{{ token }}" checked> {{ tag_labels.get(token, {}).get('label') or token }}</label>{% endfor %}</div>
+    <div class="row spaced"><label class="row">Add from registry<select id="tag-select" style="max-width:320px"><option value="">— select a tag —</option>{% for facet, info in tag_registry.facets.items() %}{% if facet != 'function' %}<optgroup label="{{ info.label }}">{% for v in info.get('values', []) %}<option value="{{ facet }}:{{ v.id }}" {% if facet + ':' + v.id in tags %}disabled{% endif %}>{{ v.get('label') or v.id }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}</select></label>
+    <label class="row">Facet<select id="new-tag-facet">{% for facet, info in tag_registry.facets.items() %}{% if facet != 'function' %}<option value="{{ facet }}">{{ info.label }}</option>{% endif %}{% endfor %}</select></label>
+    <label class="row" style="flex:1">New tag id<input id="new-tag-input" placeholder="e.g. machine-learning"></label>
+    <button type="button" id="add-tag">+ Add tag</button></div>
+  </fieldset>
+  <div class="row"><button class="primary">Save changes</button><span id="save-status" class="muted" role="status" aria-live="polite"></span></div>
+</form>
+<script>
+const form=document.getElementById('taxonomy-form');
+const proposed=new Set({{ tags|tojson }});
+const chips=document.getElementById('tag-chips');
+document.getElementById('add-tag').onclick=()=>{
+  const input=document.getElementById('new-tag-input');
+  const select=document.getElementById('tag-select');
+  let token, label;
+  if(select.value){token=select.value;label=select.selectedOptions[0].textContent;select.value='';}
+  else{
+    const raw=input.value.trim().toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'');
+    if(!raw){toast('Enter a tag id or pick one from the registry.',true);return;}
+    token=document.getElementById('new-tag-facet').value+':'+raw;label=raw.replace(/-/g,' ');input.value='';
+  }
+  if(document.querySelector(`input[name="tag"][value="${token}"]`)){toast('Tag already added.',true);return;}
+  proposed.add(token);
+  const l=document.createElement('label');l.className='row chip';
+  l.innerHTML=`<input type="checkbox" name="tag" value="${token}" checked> ${label}`;
+  chips.appendChild(l);
+};
+form.onsubmit=async e=>{e.preventDefault();
+  const status=document.getElementById('save-status');
+  const functions=Array.from(document.querySelectorAll('input[name="function"]:checked')).map(i=>i.value);
+  const tags=Array.from(document.querySelectorAll('input[name="tag"]:checked')).map(i=>i.value);
+  const known={{ tags|tojson }};
+  status.textContent='Saving…';
+  try{
+    await api('/api/jobs/'+{{ job.id|tojson }},'PUT',{function:functions,tags:tags,proposed_tags:tags.filter(t=>!known.includes(t))});
+    sessionStorage.setItem('careerNotice','Classification saved');location.reload();
+  }catch(err){status.textContent='';toast(err.message,true);}
+};
+const notice=sessionStorage.getItem('careerNotice');if(notice){sessionStorage.removeItem('careerNotice');toast(notice);}
+</script>

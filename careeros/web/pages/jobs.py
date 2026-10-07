@@ -3,7 +3,7 @@ import re
 
 from flask import abort, current_app
 from markupsafe import Markup
-from careeros import vault, watcher
+from careeros import sectors, vault, watcher
 from careeros.web.ui import page
 from careeros.web.markdown import render_markdown
 
@@ -43,3 +43,22 @@ def detail(identifier):
                 has_description=bool(description.strip()),
                 description_preview=preview, description_rest=description[len(preview):],
                 llm_pending=identifier in current_app.config.get('LLM_PENDING', {}))
+
+def taxonomy(identifier):
+    """Taxonomy sub-page (approved wireframe 2026-10-07): function (ESCO),
+    the company's ISIC sectors read-only, and controlled-vocabulary tags.
+    No provenance display per the owner's decision."""
+    root = current_app.config['VAULT_PATH']
+    job = vault.load_job(root, identifier)
+    if job is None:
+        abort(404)
+    company = vault.load_company(root, job.get('company_id'))
+    function_labels = vault.function_label_map(root)
+    function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
+                              key=lambda pair: pair[1].casefold())
+    isic_labels = {s['code']: s['label'] for s in sectors.load_isic_sections()}
+    tag_labels = vault.tag_label_map(root)
+    return page(f"Classification · {job.get('title', 'Job')}", 'jobs', 'job_taxonomy.html', job=job,
+                company=company, function_options=function_options, function_labels=function_labels,
+                isic_labels=isic_labels, tags=job.get('tags') or [], tag_labels=tag_labels,
+                tag_registry=vault.load_tags(root))

@@ -6,6 +6,7 @@
 {% if job.background %}<section class="card"><h2>Background required</h2><p class="preserve">{{ job.background }}</p></section>{% endif %}
 {% if job.skills %}<section class="card"><h2>Skills</h2><div class="job-chips">{% for skill in job.skills %}<span class="chip">{{ skill }}</span>{% endfor %}</div></section>{% endif %}
 {% if job.function %}<section class="card"><h2>Function</h2><div class="job-chips">{% for value in job.function %}<span class="chip">{{ function_labels.get(value, {}).get('label') or (value.replace('-',' ')|title) }}{% if function_labels.get(value, {}).get('local') %} <span class="chip-local" title="Local extension, not mapped to an ISCO group">local</span>{% endif %}</span>{% endfor %}</div></section>{% endif %}
+<a class="card position" href="/jobs/{{ job.id|urlencode }}/taxonomy"><h2>Classification</h2><p class="muted">Function · sector · tags — open the taxonomy sub-page</p></a>
 {% if job.certifications %}<section class="card"><h2>Certifications</h2><ul>{% for item in job.certifications %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
 {% if job.responsibilities %}<section class="card"><h2>Responsibilities</h2><ul>{% for item in job.responsibilities %}<li>{{ item }}</li>{% endfor %}</ul></section>{% endif %}
 {% if has_description %}<section class="card"><h2>Original description</h2><p class="preserve">{{ description_preview }}</p>{% if description_rest %}<details><summary>Show full description</summary><p class="preserve">{{ description_rest }}</p></details>{% endif %}</section>{% endif %}

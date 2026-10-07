@@ -67,7 +67,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
     app.add_url_rule('/experiences/<identifier>', 'experience_detail', experiences.detail)
     app.add_url_rule('/experiences/<identifier>/edit', 'experience_edit', experiences.form)
     app.add_url_rule('/jobs/<identifier>', 'job_detail', jobs.detail)
+    app.add_url_rule('/jobs/<identifier>/taxonomy', 'job_taxonomy', jobs.taxonomy)
     app.add_url_rule('/companies/<identifier>', 'company_detail', companies.detail)
+    app.add_url_rule('/companies/<identifier>/taxonomy', 'company_taxonomy', companies.taxonomy)
     write_lock = storage.WriteLock(app.config['VAULT_PATH'], RLock())
 
     # Worker-local pending assumes a single-process deployment.
@@ -84,9 +86,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     def fill_company_metadata(root, company, extracted):
         """Section 1's field-group matrix applies at every enrichment entry
-        point: aggregates receive nothing here, institutions receive only
-        locations (name/website lookups happen at their own call sites), and
-        only employers receive sector and size derivation.
+        point: institutions receive only locations (name/website lookups
+        happen at their own call sites), and only employers receive sector
+        and size derivation. (The former third kind, 'aggregate', was
+        removed by owner decision on 2026-10-07: it never applied to a
+        real record.)
 
         Fill eligibility consults the NEW-shape fields (sectors, size_range,
         size_class), never the legacy sector/size strings alone, so an
@@ -97,8 +101,6 @@ def create_app(vault: str | Path | None = None) -> Flask:
         size_range/size_class, so it gets its own branch through the atomic,
         consistency-checked derivation function instead."""
         kind = company.get('kind', 'employer')
-        if kind == 'aggregate':
-            return company
         changes = {}
         if extracted.get('locations') and not company.get('locations'):
             changes['locations'] = extracted['locations']
@@ -272,7 +274,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 company = fill_company_metadata(root, company, metadata)
             elif company:
                 company = fill_company_metadata(root, company, metadata)
-                if not company.get('website') and company.get('kind', 'employer') != 'aggregate':
+                if not company.get('website'):
                     company = storage.save_company(root, {'website': website or posting_origin}, company['id'])
             job = storage.save_job(root, data | {'url': url, 'company_id': company['id'] if company else None,
                                                  'sector': metadata['sector'], 'employee_count': metadata['employee_count']})
@@ -329,11 +331,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 shared = company and any(j.get('company_id') == company['id'] and j['id'] != identifier
                                          for j in storage.list_jobs(root))
                 if company and company.get('name_source', 'owner') != 'auto':
-                    if website and not company.get('website') and company.get('kind', 'employer') != 'aggregate':
+                    if website and not company.get('website'):
                         storage.save_company(root, {'website': website}, company['id'])
                 elif matching:
                     updates['company_id'] = matching['id']
-                    if website and not matching.get('website') and matching.get('kind', 'employer') != 'aggregate':
+                    if website and not matching.get('website'):
                         storage.save_company(root, {'website': website}, matching['id'])
                 elif company and not shared:
                     changes = {'name': name, 'website': website, 'name_source': 'auto'}
