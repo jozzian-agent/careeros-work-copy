@@ -72,6 +72,17 @@ def detect_ats(url):
     segments = _segments(parts.path)
     query = dict(parse_qsl(parts.query))
 
+    if host == 'refline.ch' or host.endswith('.refline.ch'):
+        # Numeric tenant, then posting path with /pub/ and a publication
+        # suffix. Keep the whole posting path, excluding terminal index.html.
+        posting = segments[1:]
+        if posting and posting[-1] == 'index.html':
+            posting = posting[:-1]
+        if segments and re.fullmatch(r'[0-9]+', segments[0]) \
+                and 'pub' in posting[1:-1] \
+                and all('/' not in segment for segment in segments):
+            return AtsMatch('refline', segments[0], '/'.join(posting))
+
     if host in ('boards.greenhouse.io', 'job-boards.greenhouse.io') \
             and len(segments) >= 3 and segments[1] == 'jobs':
         return AtsMatch('greenhouse', segments[0], segments[2])

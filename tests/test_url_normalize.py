@@ -115,3 +115,96 @@ def test_ats_detection_query_forms_do_not_misfire_on_unrelated_params(url):
     # Only the documented, known provider ID query params are recognized;
     # an unrelated query param (or a missing/malformed id) must not guess.
     assert url_normalize.detect_ats(url) is None
+
+
+@pytest.mark.parametrize('url', [
+    'https://m.refline.ch/792841/11410/pub/1/index.html',
+    'https://apply.refline.ch/792841/11410/pub/1',
+    'https://www.refline.ch/792841/11410/pub/1/',
+    'https://refline.ch/792841/11410/pub/1',
+    'https://careers.refline.ch/792841/11410/pub/1/index.html/',
+])
+def test_refline_detection_acceptance_and_host_variants(url):
+    assert url_normalize.detect_ats(url) == url_normalize.AtsMatch(
+        'refline', '792841', '11410/pub/1')
+
+
+@pytest.mark.parametrize('url', [
+    'https://refline.ch.attacker.example/792841/11410/pub/1',
+    'https://notrefline.ch/792841/11410/pub/1',
+    'https://m.refline.ch.attacker.example/792841/11410/pub/1',
+])
+def test_refline_rejects_lookalike_hosts(url):
+    assert url_normalize.detect_ats(url) is None
+
+
+@pytest.mark.parametrize('path', [
+    '/', '/about', '/about/product/pub/1', '/792841',
+    '/792841/11410', '/792841/pub/1', '/792841/11410/pub',
+    '/792841/11410/pub/index.html',
+])
+def test_refline_unrelated_paths_have_no_identity(path):
+    assert url_normalize.detect_ats('https://refline.ch' + path) is None
+
+
+def test_refline_cross_subdomain_hard_duplicate(tmp_path):
+    from careeros import vault
+    from careeros.server import create_app
+
+    client = create_app(tmp_path).test_client()
+    first = client.post('/api/jobs/intake', json={
+        'url': 'https://m.refline.ch/792841/11410/pub/1/index.html'})
+    assert first.status_code == 201
+    second = client.post('/api/jobs/intake', json={
+        'url': 'https://apply.refline.ch/792841/11410/pub/1'})
+    assert second.status_code == 200
+    assert second.json['duplicate'] is True
+    assert second.json['basis'] == 'same_ats_posting_id'
+    assert second.json['existing']['id'] == first.json['job']['id']
+    assert second.json['actions'] == ['open_existing', 'add_anyway']
+    assert len(vault.list_jobs(tmp_path)) == 1
+
+
+def test_refline_same_posting_different_tenant_is_not_duplicate(tmp_path):
+    from careeros import vault
+    from careeros.server import create_app
+
+    client = create_app(tmp_path).test_client()
+    first = client.post('/api/jobs/intake', json={
+        'url': 'https://m.refline.ch/792841/11410/pub/1/index.html'})
+    second = client.post('/api/jobs/intake', json={
+        'url': 'https://apply.refline.ch/792842/11410/pub/1'})
+    assert first.status_code == second.status_code == 201
+    assert second.json.get('duplicate') is not True
+    assert second.json['job']['id'] != first.json['job']['id']
+    assert len(vault.list_jobs(tmp_path)) == 2
+
+
+@pytest.mark.parametrize('missing_fields', [False, True])
+def test_refline_startup_migration_backfills_identity(tmp_path, missing_fields):
+    import yaml
+    from careeros import dedupe, vault
+    from careeros.server import create_app
+
+    job = vault.save_job(tmp_path, {
+        'title': 'Fixture role',
+        'url': 'https://m.refline.ch/792841/11410/pub/1/index.html',
+    })
+    keys = ('ats_provider', 'ats_tenant', 'ats_posting_id')
+    assert all(job[key] is None for key in keys)
+    if missing_fields:
+        path = next((tmp_path / 'jobs').glob('*.yaml'))
+        data = yaml.safe_load(path.read_text())
+        for key in keys:
+            data.pop(key)
+        path.write_text(yaml.safe_dump(data))
+
+    create_app(tmp_path)
+    migrated = vault.load_job(tmp_path, job['id'])
+    assert tuple(migrated[key] for key in keys) == ('refline', '792841', '11410/pub/1')
+    alternate = 'https://apply.refline.ch/792841/11410/pub/1'
+    existing, basis = dedupe.find_duplicate(
+        tmp_path, url_normalize.normalize(alternate), url_normalize.detect_ats(alternate))
+    assert existing['id'] == job['id']
+    assert basis == 'same_ats_posting_id'
+    assert vault.migrate_job_fields(tmp_path) == []

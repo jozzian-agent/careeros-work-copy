@@ -1389,3 +1389,22 @@ git diff --check passes. No commit or push was performed. All fixture
 writes were temporary; the owner vault was never accessed. Network and
 LLM calls remain outside the vault write-lock. Schema changes are
 additive. Closed round 1 findings were not reopened for unrelated churn.
+
+## REFLINE AMENDMENT
+
+The owner ruling extends the approved ATS providers from nine to ten by
+adding Refline. Detection accepts refline.ch and any dot-bounded subdomain.
+The path requires a numeric tenant followed by posting segments containing
+/pub/ with at least one segment before and after it. The posting_id retains
+all segments after the tenant, including pub and its publication suffix,
+and excludes a terminal index.html. Thus the identity is provider refline,
+tenant 792841, posting_id 11410/pub/1 for both owner acceptance fixtures:
+
+- https://m.refline.ch/792841/11410/pub/1/index.html
+- https://apply.refline.ch/792841/11410/pub/1
+
+These URLs came from owner testing of the same ZKB posting. Subdomains do
+not contribute to identity. Existing tenant-aware dedupe and startup
+migration consume the new detector without changes. Temporary vault tests
+cover the duplicate warning, tenant isolation, and startup backfill for
+both missing and present-but-null ATS fields. The owner vault was not used.
