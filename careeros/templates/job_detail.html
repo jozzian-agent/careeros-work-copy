@@ -2,6 +2,9 @@
 <div class="row spaced"><button type="button" id="extract-job"{% if llm_pending %} disabled{% endif %}>Enrich with AI</button>{% if llm_pending %}<span class="muted" id="extract-pending-chip">Enrichment pending</span>{% endif %}</div>
 <div class="stack">
 {% if job.refresh == 'failed' %}<p class="muted">Live page unavailable — enriched stored text</p>{% endif %}
+{% if job.ingest_state == 'fetch_failed' %}<p class="muted">Fetching the posting failed{% if job.ingest_error %} ({{ job.ingest_error.reason }}){% endif %}. <button type="button" id="retry-ingest">Retry</button></p>
+{% elif job.ingest_state == 'extract_failed' %}<p class="muted">Extraction failed{% if job.ingest_error %} ({{ job.ingest_error.reason }}){% endif %}. <button type="button" id="retry-ingest">Retry</button></p>
+{% elif job.ingest_state in ('stub', 'fetched') %}<p class="muted">Details filling in…</p>{% endif %}
 {% if job.summary %}<section class="card ai-summary">{% if job.summary_source == 'ai' %}<span class="chip ai-badge">AI-generated</span>{% endif %}<p>{{ job.summary }}</p></section>{% endif %}
 {% if job.background %}<section class="card"><h2>Background required</h2><p class="preserve">{{ job.background }}</p></section>{% endif %}
 {% if job.skills %}<section class="card"><h2>Skills</h2><div class="job-chips">{% for skill in job.skills %}<span class="chip">{{ skill }}</span>{% endfor %}</div></section>{% endif %}
@@ -14,6 +17,7 @@
 <form id="job-form" class="card stack"><label>Title <input id="title" value="{{ job.title }}" required></label><label>Status <select id="status">{% for status in statuses %}<option value="{{ status }}" {% if status==job.status %}selected{% endif %}>{{ status|title }}</option>{% endfor %}</select></label><label>Notes<textarea id="notes">{{ job.notes }}</textarea></label><button class="primary">Save job</button></form><section class="card"><h2>Notes</h2>{{ markdown }}</section></div>
 <script>document.getElementById('job-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/jobs/'+{{ job.id|tojson }},'PUT',{title:document.getElementById('title').value.trim(),status:document.getElementById('status').value,notes:document.getElementById('notes').value});sessionStorage.setItem('careerNotice','Job saved');location.reload();}catch(err){toast(err.message,true);}};const notice=sessionStorage.getItem('careerNotice');if(notice){sessionStorage.removeItem('careerNotice');toast(notice);}</script>
 
+<script>const retryIngestButton=document.getElementById('retry-ingest');if(retryIngestButton)retryIngestButton.onclick=async()=>{retryIngestButton.disabled=true;try{await api('/api/jobs/'+{{ job.id|tojson }}+'/extract','POST');sessionStorage.setItem('careerNotice','Retry started');location.reload();}catch(err){toast(err.message,true);retryIngestButton.disabled=false;}};</script>
 <script>const enrichButton=document.getElementById('enrich-job');if(enrichButton)enrichButton.onclick=async()=>{enrichButton.disabled=true;try{await api('/api/jobs/'+{{ job.id|tojson }}+'/enrich','POST');sessionStorage.setItem('careerNotice','Job enriched');location.reload();}catch(err){toast(err.message,true);enrichButton.disabled=false;}};</script>
 <script>
 const extractButton=document.getElementById('extract-job');

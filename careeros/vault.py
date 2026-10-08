@@ -2,11 +2,13 @@
 from datetime import date, datetime, timezone
 from pathlib import Path
 import re
+import sys
 import tempfile
 import os
 import yaml
 
 from careeros.sectors import known_section_codes, match_sectors
+from careeros import url_normalize
 
 LISTS = ('roles', 'must_haves', 'nice_to_haves', 'avoid')
 KINDS = ('employer', 'institution')
@@ -414,7 +416,10 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                      description='', company='', seniority='', keywords=[], summary='', contact_email='',
                      ingest_source='', sector=None, sectors=[], industry=None, industries=[],
                      background='', skills=[], certifications=[], responsibilities=[], summary_source='', refresh='skipped',
-                     employee_count=None, function=[], tags=[]) if job else
+                     employee_count=None, function=[], tags=[],
+                     normalized_url=None, in_pipeline=True, origin='manual', source_id=None,
+                     ingest_state='complete', ingest_error=None, field_provenance={},
+                     ats_provider=None, ats_tenant=None, ats_posting_id=None) if job else
                 dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                      contact_email='', notes='', custom={}, enrichment={},
                      kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[]))
@@ -469,6 +474,39 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         result['tags'] = validate_tags(root, result['tags'], proposed=proposed)
         if result['status'] not in STATUSES:
             raise ValueError('Invalid job status.')
+        if result['ingest_state'] not in ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed'):
+            raise ValueError('Invalid ingest_state.')
+        if result['origin'] not in ('manual', 'discovered'):
+            raise ValueError('Invalid job origin.')
+        if type(result['in_pipeline']) is not bool:
+            raise ValueError('in_pipeline must be boolean.')
+        for key in ('normalized_url', 'source_id', 'ats_provider', 'ats_tenant', 'ats_posting_id'):
+            if result[key] is not None and not isinstance(result[key], str):
+                raise ValueError(f'{key} must be text or null.')
+        if not isinstance(result['field_provenance'], dict) or any(
+                not isinstance(k, str) or not isinstance(v, str) for k, v in result['field_provenance'].items()):
+            raise ValueError('field_provenance must be an object mapping field names to text.')
+        if result['ingest_error'] is not None:
+            error = result['ingest_error']
+            if (not isinstance(error, dict) or set(error) != {'stage', 'reason', 'at'}
+                    or any(not isinstance(v, str) for v in error.values())):
+                raise ValueError('ingest_error must be an object with stage, reason, at text fields.')
+            if error['stage'] not in ('fetch', 'extract'):
+                raise ValueError('ingest_error.stage must be fetch or extract.')
+            # N3: a failure stage that contradicts the failure state it is
+            # attached to (e.g. fetch_failed carrying stage: extract) is as
+            # dishonest as having no stage vocabulary check at all.
+            expected_stage = {'fetch_failed': 'fetch', 'extract_failed': 'extract'}.get(result['ingest_state'])
+            if expected_stage and error['stage'] != expected_stage:
+                raise ValueError(f'ingest_error.stage must be {expected_stage} when ingest_state is '
+                                 f'{result["ingest_state"]}.')
+        # A failure state is meaningless without a reason, and a reason left
+        # over from a past failure must never linger once the state no
+        # longer says failed (e.g. a retry that reaches fetched/complete).
+        if result['ingest_state'] in ('fetch_failed', 'extract_failed') and result['ingest_error'] is None:
+            raise ValueError('ingest_error is required when ingest_state is a failure state.')
+        if result['ingest_state'] not in ('fetch_failed', 'extract_failed') and result['ingest_error'] is not None:
+            raise ValueError('ingest_error must be null unless ingest_state is a failure state.')
         for key in ('salary_info', 'enriched', 'remote_ok'):
             if type(result[key]) is not bool and not (key == 'remote_ok' and result[key] is None):
                 raise ValueError(f'{key} must be boolean' + (' or null.' if key == 'remote_ok' else '.'))
@@ -571,6 +609,82 @@ def save_company(root, data, identifier=None):
     data = _translate_legacy_company_fields(root, data, identifier)
     result, _ = _save_record(root, 'companies', data, identifier)
     return result
+
+def _migrate_one_job(data):
+    """Backfill every Journey 1 field this record is still missing,
+    independently of the others, so a record that already has some of them
+    (e.g. one touched by an unrelated save_job call, which always writes
+    the full schema, present-but-null) still gets the rest. normalized_url
+    and the ats_* fields are purely derived, never owner-set through any
+    API, so a falsy stored value is treated the same as an absent key for
+    those; in_pipeline/origin/source_id/ingest_state/ingest_error can carry
+    a real, final, possibly falsy value (in_pipeline: false), so those use
+    setdefault semantics (only a genuinely absent key is filled)."""
+    changed = False
+    if not data.get('normalized_url'):
+        normalized = url_normalize.normalize(data.get('url') or '')
+        if normalized != data.get('normalized_url'):
+            data['normalized_url'] = normalized
+            changed = True
+    for key, default in (('in_pipeline', True), ('origin', 'manual'), ('source_id', None),
+                         ('ingest_state', 'complete'), ('ingest_error', None), ('field_provenance', {})):
+        if key not in data:
+            data[key] = default
+            changed = True
+    # O3 (round 2): save_job always writes the full schema, so an
+    # unrelated save on a legacy record can leave these three present but
+    # null -- a shape identical, for this gate's purposes, to never having
+    # run detection at all. `key not in data` alone missed that case and
+    # left the record permanently undetected; a null value is "unknown,
+    # backfill it" exactly like a missing key, while an explicit non-null
+    # value (a real previous detection, never owner-set through any API)
+    # is still left untouched.
+    if any(data.get(key) is None for key in ('ats_provider', 'ats_tenant', 'ats_posting_id')):
+        ats_match = url_normalize.detect_ats(data.get('url') or '')
+        for key, value in (('ats_provider', ats_match.provider if ats_match else None),
+                           ('ats_tenant', ats_match.tenant if ats_match else None),
+                           ('ats_posting_id', ats_match.posting_id if ats_match else None)):
+            if data.get(key) is None:
+                # Still register a real change even when the detector also
+                # comes back empty: a record where the key was genuinely
+                # absent must end up with it present (null is itself the
+                # schema-complete, "nothing detected" answer); a record
+                # where it was already present-and-null stays a no-op, so a
+                # second migration pass never reports spurious churn.
+                if key not in data or data[key] != value:
+                    changed = True
+                data[key] = value
+    return changed
+
+
+def migrate_job_fields(root):
+    """One-time idempotent migration (JOZ-265): every job gains normalized_url
+    plus the Journey 1 two-phase ingest fields. Reads and writes the YAML
+    directly, like save_watch_result, instead of going through save_job's
+    full validation: a legacy record may have a shape (e.g. an empty url)
+    that predates validation rules introduced since it was written, and
+    this migration must not refuse to backfill additive fields just because
+    an unrelated existing field would fail today's stricter checks.
+
+    Each record is isolated: one record whose url cannot be normalized (a
+    malformed legacy value) is left completely untouched on disk and
+    reported to stderr with its id and the reason, instead of taking down
+    the whole sweep (and, since this runs at app startup, the whole app)."""
+    migrated = []
+    for path in sorted((Path(root) / 'jobs').glob('*.yaml')):
+        data = _read(path)
+        if not data:
+            continue
+        try:
+            changed = _migrate_one_job(data)
+        except Exception as error:
+            print(f'migrate_job_fields: skipped {data.get("id", path.name)} '
+                  f'({type(error).__name__}: {error})', file=sys.stderr)
+            continue
+        if changed:
+            _write(path, data)
+            migrated.append(data.get('id'))
+    return migrated
 
 def backfill_company_kind(root):
     """One-time migration (Section 1): every company record gains

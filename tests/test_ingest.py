@@ -662,7 +662,8 @@ def test_thread_start_failure_clears_pending(tmp_path, monkeypatch, capsys):
     app = create_app(tmp_path)
     api = app.test_client()
     response = api.post('/api/jobs/intake', json={'url': 'https://posting.example/role'})
-    assert response.status_code == 201
+    assert response.status_code == 503
+    assert response.json['error']
     assert api.get('/api/jobs/' + response.json['job']['id']).json['llm_pending'] is False
     assert app.config['LLM_THREADS'] == {}
     assert set(capsys.readouterr().err.splitlines()) == {'ingest: RuntimeError'}
@@ -682,6 +683,59 @@ def test_entire_async_callback_contained(capsys):
     thread = ingest.extract_async('', callback)
     thread.join(1)
     assert set(capsys.readouterr().err.splitlines()) == {'ingest: RuntimeError'}
+
+
+# --- JOZ-265 fix round: R2, the extract_failed reason distinguishes why --
+
+def test_extract_async_reason_not_configured(monkeypatch):
+    monkeypatch.delenv('LLM_BASE_URL', raising=False)
+    received = []
+    def callback(fields, reason=None):
+        received.append((fields, reason))
+    thread = ingest.extract_async('Role: Engineer. Python skills.', callback)
+    thread.join(2)
+    assert received == [(None, 'not_configured')]
+
+
+def test_extract_async_reason_transport_error():
+    received = []
+    def callback(fields, reason=None):
+        received.append((fields, reason))
+    client = client_for(error=TimeoutError('boom'))
+    thread = ingest.extract_async('Role: Engineer. Python skills.', callback, client=client, model=object())
+    thread.join(2)
+    assert received == [(None, 'transport_error')]
+
+
+def test_extract_async_reason_unusable_output():
+    received = []
+    def callback(fields, reason=None):
+        received.append((fields, reason))
+    client = client_for('null')
+    thread = ingest.extract_async('Role: Engineer. Python skills.', callback, client=client, model=object())
+    thread.join(2)
+    assert received == [(None, 'unusable_output')]
+
+
+def test_extract_async_reason_none_on_success():
+    received = []
+    def callback(fields, reason=None):
+        received.append((fields, reason))
+    client = client_for('{"title":"Senior Engineer"}')
+    thread = ingest.extract_async('Role: Engineer. Python skills.', callback, client=client, model=object())
+    thread.join(2)
+    assert len(received) == 1 and received[0][0] is not None and received[0][1] is None
+
+
+def test_extract_async_single_argument_callback_still_works(monkeypatch):
+    # Backward compatibility: a callback declaring only `fields` (the
+    # pre-R2 contract) must still be called correctly, not break with a
+    # TypeError from an unexpected second argument.
+    monkeypatch.delenv('LLM_BASE_URL', raising=False)
+    received = []
+    thread = ingest.extract_async('Role: Engineer. Python skills.', received.append)
+    thread.join(2)
+    assert received == [None]
 
 
 def test_auto_website_redaction(tmp_path, monkeypatch):
