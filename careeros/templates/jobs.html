@@ -1,5 +1,11 @@
 <div class="page-header"><h1>Jobs</h1><div class="row"><div class="row" aria-label="Job view" id="view-toggle"><button data-view="board" aria-pressed="true">Board</button><button data-view="list" aria-pressed="false">List</button></div><button id="enrich-pending">Enrich pending</button></div></div>
 <form novalidate id="intake" class="card row"><label for="posting">Posting URL</label><input id="posting" type="url" placeholder="https://company.example/careers/role" required><button class="primary">Add</button></form>
+<dialog id="duplicate-warning"><h2>Possible duplicate</h2><p id="duplicate-message"></p><div class="row">
+<button id="duplicate-open-existing" hidden>Open existing</button>
+<button id="duplicate-promote" hidden>Promote to pipeline</button>
+<button id="duplicate-add-anyway">Add anyway</button>
+<button id="duplicate-cancel" autofocus>Cancel</button>
+</div></dialog>
 <div class="row spaced" aria-label="Filter jobs"><button class="filter-btn active" data-filter="all" aria-pressed="true">All</button>{% for status in statuses %}<button class="filter-btn" data-filter="{{ status }}" aria-pressed="false">{{ status|title }}</button>{% endfor %}<label for="function-filter">Function<select id="function-filter"><option value="all">All functions</option>{% for fid, label in function_options %}<option value="{{ fid }}">{{ label }}</option>{% endfor %}</select></label></div>
 <div id="cards" class="spaced">{% include 'job_cards.html' %}</div><p id="empty" class="muted" {% if entries %}hidden{% endif %}>{{ empty }}</p><p id="filter-empty" class="muted" hidden>No jobs in this status.</p>
 <script>
@@ -51,6 +57,50 @@ async function refresh(){
 window.addEventListener('pageshow',e=>{if(e.persisted)refresh().catch(err=>toast(err.message,true));});
 let hiddenAt=document.hidden?Date.now():null;
 document.addEventListener('visibilitychange',()=>{if(document.hidden){hiddenAt=Date.now();}else{const elapsed=hiddenAt===null?0:Date.now()-hiddenAt;hiddenAt=null;if(elapsed>30000)refresh().catch(err=>toast(err.message,true));}});
-document.getElementById('intake').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button'),input=document.getElementById('posting');button.disabled=true;try{await api('/api/jobs/intake','POST',{url:input.value});await refresh();input.value='';toast('Job added');}catch(err){toast(err.message,true);}finally{button.disabled=false;}};
+async function submitIntake(url,force){return api('/api/jobs/intake','POST',force?{url,force:true}:{url});}
+const dupDialog=document.getElementById('duplicate-warning'),dupMessage=document.getElementById('duplicate-message'),
+      dupOpenExisting=document.getElementById('duplicate-open-existing'),dupPromote=document.getElementById('duplicate-promote'),
+      dupAddAnyway=document.getElementById('duplicate-add-anyway'),dupCancel=document.getElementById('duplicate-cancel');
+function showDuplicateWarning(result){
+  return new Promise(resolve=>{
+    const basis=result.basis==='same_ats_posting_id'?'the same posting ID':'the same URL';
+    dupMessage.textContent='"'+result.existing.title+'" looks like a job you already have (matched by '+basis+'). Nothing is created until you choose.';
+    dupOpenExisting.hidden=!result.actions.includes('open_existing');
+    dupPromote.hidden=!result.actions.includes('promote');
+    dupAddAnyway.hidden=!result.actions.includes('add_anyway');
+    let settled=false;
+    function finish(action){
+      if(settled)return;settled=true;
+      dupOpenExisting.onclick=dupPromote.onclick=dupAddAnyway.onclick=dupCancel.onclick=null;dupDialog.onclose=null;
+      if(dupDialog.open)dupDialog.close();
+      resolve(action);
+    }
+    dupOpenExisting.onclick=()=>finish('open_existing');
+    dupPromote.onclick=()=>finish('promote');
+    dupAddAnyway.onclick=()=>finish('add_anyway');
+    dupCancel.onclick=()=>finish('cancel');
+    dupDialog.onclose=()=>finish('cancel');
+    dupDialog.showModal();
+  });
+}
+document.getElementById('intake').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button'),input=document.getElementById('posting'),url=input.value;button.disabled=true;
+try{
+  let result=await submitIntake(url,false);
+  if(result.duplicate){
+    // Explicit warning panel (JOZ-265 fix round, m8): Cancel/Escape is a
+    // genuine dismissal that creates nothing; it never falls through to
+    // adding a duplicate anyway.
+    const action=await showDuplicateWarning(result);
+    if(action==='cancel'){return;}
+    if(action==='open_existing'){location.href='/jobs/'+encodeURIComponent(result.existing.id);return;}
+    if(action==='promote'){
+      await api('/api/jobs/'+encodeURIComponent(result.existing.id)+'/promote','POST');
+      await refresh();toast('Promoted to pipeline');input.value='';return;
+    }
+    result=await submitIntake(url,true);
+  }
+  await refresh();input.value='';toast('Job added');
+}catch(err){toast(err.message,true);}finally{button.disabled=false;}};
+document.getElementById('cards').addEventListener('click',e=>{const b=e.target.closest('.retry-ingest');if(!b)return;b.disabled=true;api('/api/jobs/'+encodeURIComponent(b.dataset.id)+'/extract','POST').then(()=>refresh()).catch(err=>toast(err.message,true)).finally(()=>b.disabled=false);});
 document.getElementById('enrich-pending').onclick=async e=>{const button=e.currentTarget,ids=Array.from(document.querySelectorAll((activeView==='board'?'.job-card':'.job-row')+'[data-pending="true"]')).filter(c=>!c.hidden).map(c=>c.dataset.id);button.disabled=true;let updated=0,failed=0;try{for(const id of ids){try{await api('/api/jobs/'+encodeURIComponent(id)+'/enrich','POST');updated++;}catch{failed++;}}await refresh();toast(updated+' updated, '+failed+' failed',failed>0);}catch(err){toast(updated+' updated, '+failed+' failed. '+err.message,true);}finally{button.disabled=false;}};
 </script>

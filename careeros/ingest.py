@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+from inspect import signature
 from queue import Empty, Queue
 from threading import Thread
 
@@ -206,22 +207,39 @@ def heuristic_extract(description):
 
 
 def _call_llm(description, client, model, timeout=None, function_options=None):
-    """Return parsed fields, or None on any failure.
+    """Return (parsed fields or None, failure reason or None).
 
+    reason is only set when the fields are None, and distinguishes R2's
+    three cases: 'not_configured' (no LLM_BASE_URL/LLM_MODEL in this
+    environment, resolved before any call is attempted), 'transport_error'
+    (the call itself failed: network, timeout, bad response), or
+    'unusable_output' (a response came back but parsed to nothing usable).
     Never persist exception messages, URLs, or hosts: only the exception
     class name is logged, so infra details cannot leak into logs or the vault.
     """
     try:
         active = client if client is not None else get_llm_client()
+        resolved_model = model if model is not None else get_llm_model()
+    except Exception as error:
+        warn(error)
+        return None, 'not_configured'
+    try:
         response = active.chat.completions.create(
-            model=model if model is not None else get_llm_model(),
+            model=resolved_model,
             messages=build_prompt(description[:MAX_DESCRIPTION_CHARS], function_options), temperature=0,
             response_format={'type': 'json_object'}, think=False, timeout=get_timeout() if timeout is None else timeout,
         )
-        return parse_response(response.choices[0].message.content)
     except Exception as error:
         warn(error)
-        return None
+        return None, 'transport_error'
+    try:
+        parsed = parse_response(response.choices[0].message.content)
+    except Exception as error:
+        # The call itself succeeded; the response just did not parse into
+        # anything usable (malformed JSON, no recognizable fields).
+        warn(error)
+        return None, 'unusable_output'
+    return (parsed, None) if parsed else (None, 'unusable_output')
 
 
 def _within_deadline(description, client, model, function_options=None):
@@ -232,19 +250,31 @@ def _within_deadline(description, client, model, function_options=None):
         return result.get(timeout=timeout)
     except Empty:
         warn(TimeoutError())
-        return None
+        return None, 'transport_error'
 
 
 def extract_async(description, on_result, client=None, model=None, function_options=None):
-    """Contain extraction and callback failures within the background worker."""
+    """Contain extraction and callback failures within the background worker.
+
+    on_result is called with (fields, reason); reason is None whenever
+    fields is truthy. Callers that only declare one parameter (the
+    pre-existing, single-argument contract) are still called with just
+    fields, so this stays backward compatible with every caller that does
+    not care why an extraction failed.
+    """
     def run():
         try:
-            fields = _within_deadline(description, client, model, function_options) if description.strip() else None
+            fields, reason = (_within_deadline(description, client, model, function_options)
+                              if description.strip() else (None, None))
         except Exception as error:
             warn(error)
-            fields = None
+            fields, reason = None, 'transport_error'
         try:
-            on_result(fields)
+            accepts_reason = len(signature(on_result).parameters) >= 2
+        except (TypeError, ValueError):
+            accepts_reason = False
+        try:
+            on_result(fields, reason) if accepts_reason else on_result(fields)
         except Exception as error:
             warn(error)
     thread = Thread(target=run, daemon=True)
@@ -256,7 +286,7 @@ def extract(description, client=None, model=None, function_options=None):
     fallback = heuristic_extract(description)
     if not description.strip():
         return fallback | {'ingest_source': 'heuristic', 'summary_source': ''}
-    parsed = _within_deadline(description, client, model, function_options)
+    parsed, _reason = _within_deadline(description, client, model, function_options)
     if parsed is None:
         return fallback | {'ingest_source': 'heuristic', 'summary_source': ''}
     # The merge below can retain the heuristic summary even when other LLM

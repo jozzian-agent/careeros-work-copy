@@ -1,12 +1,27 @@
 """Chunk 3 contracts; no intake test is allowed to reach the network."""
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+import json
+import re
 import shutil
+import subprocess
+import tempfile
+import threading
+import time
 import pytest
-from careeros import intake, vault
+from careeros import ingest, intake, vault
 from careeros.server import create_app
+from careeros.web.ui import JS as UI_JS
 
 ROOT = Path(__file__).resolve().parents[1]
+
+def llm_client_for(content):
+    """Minimal stand-in LLM client, same shape as test_ingest.py's client_for."""
+    create = Mock(return_value=SimpleNamespace(choices=[
+        SimpleNamespace(message=SimpleNamespace(content=content))]))
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
 @pytest.fixture
 def client(tmp_path):
@@ -53,8 +68,25 @@ def test_salary(text,disclosed):
 def test_dates(meta,expected):
     assert intake.extract('https://fiction.example/job',meta)['posted_date']==expected
 
-@pytest.mark.parametrize('html', ['<meta property="og:title" content="Builder | Careers"><meta property="og:site_name" content="Moonbutton">','<title>Builder</title><p>Remote London</p>',None])
-def test_intake(client,monkeypatch,html):
+# m10: expected final ingest_state is chosen from the input fixture (what
+# body text, if any, the fetch yields), never read back off the response
+# under test. Real body text is attempted and, since no LLM is configured
+# in this test environment, fails visibly ('extract_failed', settling only
+# after the background worker runs); a fetch that raises never gets to
+# extraction at all ('fetch_failed'). Meta-only html (O2, fix round 2: the
+# verification round's probe found this settling at 'fetched'/error None
+# forever, a dead pipeline that looked healthy) has no body text at all, so
+# Phase B itself now recognizes "fetched but nothing extractable" as a
+# failure and settles there synchronously, before the response is even
+# returned -- not via the async worker's callback, which never gets real
+# text to fail over in the first place.
+@pytest.mark.parametrize('html,expected_final_state,expected_reason,settles_synchronously', [
+    ('<meta property="og:title" content="Builder | Careers"><meta property="og:site_name" content="Moonbutton">',
+     'extract_failed', 'empty_content', True),
+    ('<title>Builder</title><p>Remote London</p>', 'extract_failed', 'not_configured', False),
+    (None, 'fetch_failed', None, True),
+])
+def test_intake(client,monkeypatch,html,expected_final_state,expected_reason,settles_synchronously):
     calls=[]
     def fetch(url):
         calls.append(url)
@@ -71,7 +103,30 @@ def test_intake(client,monkeypatch,html):
     assert data['job']['added']==date.today().isoformat()
     assert data['company']['website'] == 'https://fiction.example'
     client.application.config['LLM_THREADS'][data['job']['id']].join(timeout=2)
-    assert client.get('/api/jobs/'+data['job']['id']).json == data['job'] | {'llm_pending': False}
+    after = client.get('/api/jobs/'+data['job']['id']).json
+    assert after['llm_pending'] is False
+    assert after['ingest_state'] == expected_final_state
+    if settles_synchronously:
+        # Already final in the very first response; the background worker
+        # (still started, per the LLM_THREADS contract above) is a no-op.
+        assert data['job']['ingest_state'] == expected_final_state
+        assert after == data['job'] | {'llm_pending': False}
+        if expected_reason:
+            assert data['job']['ingest_error']['reason'] == expected_reason
+    else:
+        # A real attempt was made over real text and found nothing usable;
+        # the failure must be visible (JOZ-265 global rule 2), not silent.
+        assert data['job']['ingest_state'] == 'fetched' and data['job']['ingest_error'] is None
+        # R2: no LLM_BASE_URL is set in this test environment, so the
+        # specific reason is 'not_configured', not a generic catch-all.
+        assert after['ingest_error'] == {'stage': 'extract', 'reason': expected_reason, 'at': after['ingest_error']['at']}
+        before_events = [event['event'] for event in data['job']['history']]
+        after_events = [event['event'] for event in after['history']]
+        assert after_events[:len(before_events)] == before_events
+        assert after_events[len(before_events):] == ['extract_failed']
+        ignore = {'ingest_state', 'ingest_error', 'history', 'llm_pending'}
+        assert {k: v for k, v in after.items() if k not in ignore} == \
+               {k: v for k, v in data['job'].items() if k not in ignore}
     if html is None:
         assert data['job']['title']=='platform builder'
 
@@ -284,7 +339,8 @@ def test_unknown_company_intake(client, monkeypatch):
 
 
 def test_enrich_merge(client,monkeypatch):
-    client.put('/api/jobs/JOB-001',json={'title':'Owner title','notes':'Owner notes','custom':{'keep':1},'status':'applied','source':'','location':'','posted_date':None,'salary_info':False,'salary_note':''})
+    vault.save_job(client.application.config['VAULT_PATH'], {'source':'','location':'','posted_date':None,'salary_info':False,'salary_note':''}, 'JOB-001')
+    client.put('/api/jobs/JOB-001',json={'title':'Owner title','notes':'Owner notes','custom':{'keep':1},'status':'applied'})
     monkeypatch.setattr(intake,'fetch_url',lambda url:schema_html(description="CHF 95'000 - 110'000"))
     response=client.post('/api/jobs/JOB-001/enrich')
     assert response.status_code == 200
@@ -388,13 +444,14 @@ def test_enrich_owner_company(client, monkeypatch, matching, website):
 
 def test_enrich_salary_only_first_time(client, monkeypatch):
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(description='Salary CHF 120000'))
-    client.put('/api/jobs/JOB-001', json={'salary_info':False, 'salary_note':''})
+    vault.save_job(client.application.config['VAULT_PATH'], {'salary_info':False, 'salary_note':''}, 'JOB-001')
     first = client.post('/api/jobs/JOB-001/enrich').json
     assert first['salary_info'] and first['salary_note']
     client.put('/api/jobs/JOB-001', json={'salary_info':False, 'salary_note':'', 'location':''})
     second = client.post('/api/jobs/JOB-001/enrich').json
     assert second['salary_info'] is False and second['salary_note'] == ''
-    assert second['location'] == 'Basel, CH'
+    assert second['location'] == ''
+    assert second['field_provenance']['location'] == 'user'
 
 
 def test_enrich_fetch_outside_save_inside_lock(tmp_path, monkeypatch):
@@ -871,3 +928,906 @@ def test_job_title_editable_via_api(client):
     assert response.status_code == 200
     assert response.json['title'] == 'Renamed Role'
     assert vault.load_job(root, 'JOB-001')['title'] == 'Renamed Role'
+
+
+# --- JOZ-265: hard duplicate check, two-phase stub, promote -----------------
+
+def test_stub_is_visible_before_fetch_completes(client, monkeypatch):
+    root = client.application.config['VAULT_PATH']
+    release = threading.Event()
+
+    def slow_fetch(url):
+        release.wait(timeout=5)
+        return '<title>Slow Role</title><p>Remote. Build things.</p>'
+    monkeypatch.setattr(intake, 'fetch_url', slow_fetch)
+
+    outcome = {}
+    def run():
+        outcome['response'] = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/slow-role'})
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 5
+        stub = None
+        while time.monotonic() < deadline and stub is None:
+            stub = next((j for j in vault.list_jobs(root) if j.get('url') == 'https://fiction.example/slow-role'), None)
+            if stub is None:
+                time.sleep(0.01)
+        assert stub is not None, 'stub was not visible while the fetch was still in flight'
+        assert stub['ingest_state'] == 'stub'
+        assert stub['in_pipeline'] is True
+        assert stub['origin'] == 'manual'
+        assert stub['source_id'] is None
+        assert stub['status'] == 'new'
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    data = outcome['response'].json
+    assert data['job']['ingest_state'] == 'fetched'
+    assert data['job']['id'] == stub['id']
+
+
+def test_fetch_failure_sets_ingest_state_and_keeps_stub(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', Mock(side_effect=TimeoutError()))
+    data = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/unreachable-role'}).json
+    job = data['job']
+    assert job['ingest_state'] == 'fetch_failed'
+    assert job['ingest_error'] == {'stage': 'fetch', 'reason': 'TimeoutError', 'at': job['ingest_error']['at']}
+    assert job['in_pipeline'] is True
+    assert vault.load_job(client.application.config['VAULT_PATH'], job['id']) is not None
+    client.application.config['LLM_THREADS'][job['id']].join(timeout=2)
+    assert client.get('/api/jobs/' + job['id']).json['ingest_state'] == 'fetch_failed'
+
+
+def test_retry_from_fetch_failed_reaches_complete(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', Mock(side_effect=TimeoutError()))
+    job = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/retry-role'}).json['job']
+    client.application.config['LLM_THREADS'][job['id']].join(timeout=2)
+    assert vault.load_job(client.application.config['VAULT_PATH'], job['id'])['ingest_state'] == 'fetch_failed'
+
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Retry Role</title><p>Remote. Build Python services.</p>')
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: llm_client_for(json.dumps({'title': 'Retry Role'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    retry = client.post('/api/jobs/' + job['id'] + '/extract')
+    assert retry.status_code == 202
+    app = client.application
+    app.config['REFRESH_THREADS'][job['id']].join(timeout=2)
+    app.config['LLM_THREADS'][job['id']].join(timeout=2)
+    final = client.get('/api/jobs/' + job['id']).json
+    assert final['ingest_state'] == 'complete'
+    assert final['ingest_error'] is None
+    assert 'Build Python services' in final['description']
+
+
+def test_hard_duplicate_same_url_warns_without_creating(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Role</title><p>Remote. Python.</p>')
+    before = len(client.get('/api/jobs').json)
+    first = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/dup-role?utm_source=linkedin'}).json
+    client.application.config['LLM_THREADS'][first['job']['id']].join(timeout=2)
+    assert len(client.get('/api/jobs').json) == before + 1
+
+    second = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/dup-role?utm_campaign=newsletter'})
+    assert second.status_code == 200
+    body = second.json
+    assert body['duplicate'] is True
+    assert body['basis'] == 'same_url'
+    assert body['existing']['id'] == first['job']['id']
+    assert body['actions'] == ['open_existing', 'add_anyway']
+    assert len(client.get('/api/jobs').json) == before + 1
+
+
+def test_hard_duplicate_same_ats_posting_id_with_different_tracking_params(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Role</title><p>Remote. Python.</p>')
+    first = client.post('/api/jobs/intake', json={
+        'url': 'https://boards.greenhouse.io/acme/jobs/555111'}).json
+    client.application.config['LLM_THREADS'][first['job']['id']].join(timeout=2)
+
+    # Different host form of the same Greenhouse posting: normalized_url
+    # differs, but provider/tenant/posting id are the same.
+    second = client.post('/api/jobs/intake', json={
+        'url': 'https://job-boards.greenhouse.io/acme/jobs/555111?utm_source=twitter&ref=newsletter'})
+    assert second.status_code == 200
+    assert second.json['basis'] == 'same_ats_posting_id'
+    assert second.json['existing']['id'] == first['job']['id']
+
+
+def test_hard_duplicate_add_anyway_force_creates_second_record(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Role</title><p>Remote.</p>')
+    first = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/force-role'}).json
+    client.application.config['LLM_THREADS'][first['job']['id']].join(timeout=2)
+
+    forced = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/force-role', 'force': True})
+    assert forced.status_code == 201
+    second_job = forced.json['job']
+    assert second_job['id'] != first['job']['id']
+    assert any(entry['event'] == 'duplicate_override' for entry in second_job['history'])
+    client.application.config['LLM_THREADS'][second_job['id']].join(timeout=2)
+
+
+def test_hard_duplicate_promote_action_for_universe_record(client):
+    root = client.application.config['VAULT_PATH']
+    universe_job = vault.save_job(root, {'title': 'Universe role', 'url': 'https://fiction.example/universe-role',
+                                         'normalized_url': 'https://fiction.example/universe-role',
+                                         'in_pipeline': False, 'origin': 'discovered'})
+    assert universe_job['normalized_url'] == 'https://fiction.example/universe-role'
+
+    response = client.post('/api/jobs/intake', json={'url': 'https://fiction.example/universe-role?utm_source=x'})
+    assert response.status_code == 200
+    body = response.json
+    assert body['duplicate'] is True
+    assert body['basis'] == 'same_url'
+    assert body['existing']['id'] == universe_job['id']
+    assert body['actions'][0] == 'promote'
+
+
+def test_promote_flips_in_pipeline(client):
+    root = client.application.config['VAULT_PATH']
+    job = vault.save_job(root, {'title': 'Universe role', 'url': 'https://fiction.example/universe2',
+                                'in_pipeline': False, 'origin': 'discovered'})
+    assert job['in_pipeline'] is False
+
+    result = client.post('/api/jobs/' + job['id'] + '/promote')
+    assert result.status_code == 200
+    assert result.json['in_pipeline'] is True
+    assert any(entry['event'] == 'promoted' for entry in result.json['history'])
+
+    # Idempotent: promoting an already-piped job is a no-op, not an error.
+    again = client.post('/api/jobs/' + job['id'] + '/promote')
+    assert again.status_code == 200
+    assert again.json['in_pipeline'] is True
+
+
+def test_promote_missing_job_404(client):
+    assert client.post('/api/jobs/JOB-999/promote').status_code == 404
+
+
+# --- JOZ-265 fix round: M1, DNS/SSRF must run after the stub is saved -----
+
+def test_dns_failure_creates_fetch_failed_stub_not_400(client, monkeypatch):
+    import socket as socket_module
+    monkeypatch.setattr(socket_module, 'getaddrinfo',
+                        Mock(side_effect=socket_module.gaierror('simulated DNS failure')))
+    # The suite-wide offline fixture replaces intake.fetch_url outright;
+    # restore the real implementation so its internal check_url (DNS) runs.
+    monkeypatch.setattr(intake, 'fetch_url', REAL_FETCH)
+    before = len(client.get('/api/jobs').json)
+    response = client.post('/api/jobs/intake', json={'url': 'https://unresolvable.example/role'})
+    assert response.status_code == 201
+    job = response.json['job']
+    assert job['ingest_state'] == 'fetch_failed'
+    assert job['ingest_error']['stage'] == 'fetch'
+    assert len(client.get('/api/jobs').json) == before + 1
+    # Retryable: the stub survives and the /extract retry path accepts it.
+    assert client.post('/api/jobs/' + job['id'] + '/extract').status_code == 202
+
+
+def test_dns_resolved_only_after_stub_persisted(client, monkeypatch):
+    # Real check_url (and therefore real DNS resolution via
+    # socket.getaddrinfo) must run; only the actual HTTP fetch underneath
+    # it is faked, same pattern as test_fetch_deadline_fallback.
+    import socket as socket_module
+    root = client.application.config['VAULT_PATH']
+    calls = []
+
+    def recording_getaddrinfo(*args, **kwargs):
+        stub = next((j for j in vault.list_jobs(root) if j.get('url') == 'https://call-order.example/role'), None)
+        calls.append(stub is not None)
+        return [(2, 1, 6, '', ('93.184.216.34', 443))]
+    monkeypatch.setattr(socket_module, 'getaddrinfo', recording_getaddrinfo)
+    # The suite-wide offline fixture replaces intake.fetch_url outright;
+    # restore the real implementation so its internal check_url actually
+    # runs (and calls the patched getaddrinfo above).
+    monkeypatch.setattr(intake, 'fetch_url', REAL_FETCH)
+
+    response_mock = Mock()
+    response_mock.__enter__ = Mock(return_value=response_mock)
+    response_mock.__exit__ = Mock(return_value=False)
+    response_mock.read1 = Mock(side_effect=[b'<title>Role</title>', b''])
+    opener = Mock()
+    opener.open.return_value = response_mock
+    monkeypatch.setattr('urllib.request.build_opener', lambda *a: opener)
+
+    response = client.post('/api/jobs/intake', json={'url': 'https://call-order.example/role'})
+    assert response.status_code == 201
+    assert calls, 'DNS resolution never happened'
+    assert all(calls), 'DNS was resolved before the stub was persisted'
+
+
+def test_ssrf_blocked_address_creates_fetch_failed_stub_not_400(client, monkeypatch):
+    import socket as socket_module
+    monkeypatch.setattr(socket_module, 'getaddrinfo',
+                        lambda *a, **kw: [(2, 1, 6, '', ('127.0.0.1', 80))])
+    monkeypatch.setattr(intake, 'fetch_url', REAL_FETCH)
+    before = len(client.get('/api/jobs').json)
+    response = client.post('/api/jobs/intake', json={'url': 'https://ssrf-probe.example/role'})
+    assert response.status_code == 201
+    job = response.json['job']
+    assert job['ingest_state'] == 'fetch_failed'
+    assert len(client.get('/api/jobs').json) == before + 1
+
+
+# --- JOZ-265 fix round: M2, Phase B must not clobber a concurrent owner edit
+
+@pytest.mark.parametrize('field,owner_value', [('title', 'Owner Title'), ('description', 'Owner wrote this.'),
+                                               ('location', 'Owner Location')])
+def test_concurrent_owner_edit_during_fetch_survives(client, monkeypatch, field, owner_value):
+    root = client.application.config['VAULT_PATH']
+    release = threading.Event()
+
+    def slow_fetch(url):
+        release.wait(timeout=5)
+        return '<title>Scraped Title</title><p>Remote. Build things in Zurich.</p>'
+    monkeypatch.setattr(intake, 'fetch_url', slow_fetch)
+
+    outcome = {}
+    def run():
+        outcome['response'] = client.post('/api/jobs/intake', json={'url': 'https://m2-probe.example/' + field})
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 5
+        stub = None
+        while stub is None and time.monotonic() < deadline:
+            stub = next((j for j in vault.list_jobs(root)
+                        if j.get('url') == 'https://m2-probe.example/' + field), None)
+            if stub is None:
+                time.sleep(0.01)
+        assert stub is not None
+        vault.save_job(root, {field: owner_value}, stub['id'])
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    final = vault.load_job(root, stub['id'])
+    assert final[field] == owner_value
+
+
+# NOTE on the brief's "owner clears a field to empty during fetch -> stays
+# empty" regression: at Phase A, 'title' is the only stub field with a
+# non-blank baseline (stub_title(url)) an owner edit could clear in a way
+# snapshot-equality could even observe, and vault.save_job rejects a blank
+# title outright (title is required), so there is no way to construct this
+# case against Phase B's heuristic merge specifically. description/location
+# both start at '' in the stub, so clearing them to '' is observationally
+# identical to "never touched" at this phase; there is nothing yet to
+# protect. The same snapshot-equality mechanism IS exercised against a real,
+# non-blank-baseline clear-to-empty during the LLM callback phase (baseline
+# is the heuristic-filled value, not the stub default) by the pre-existing
+# test_async_owner_clear_and_success_flag in test_ingest.py, which clears
+# 'location' to '' while an LLM callback is in flight and asserts it stays
+# ''. See the fix-round report (M2) for this call.
+
+
+def test_automated_fill_lands_when_field_still_at_baseline(client, monkeypatch):
+    # Control case: with no concurrent edit, the scraped value lands.
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Scraped Title</title><p>Remote. Zurich.</p>')
+    data = client.post('/api/jobs/intake', json={'url': 'https://m2-control.example/role'}).json
+    assert data['job']['title'] == 'Scraped Title'
+
+
+# --- JOZ-265 fix round 2: O1 (was M2), field_provenance must survive BOTH
+# the Phase B merge AND the later LLM callback, not just the first one. ---
+
+def _wait_for_stub(root, url, timeout=5):
+    deadline = time.monotonic() + timeout
+    stub = None
+    while stub is None and time.monotonic() < deadline:
+        stub = next((j for j in vault.list_jobs(root) if j.get('url') == url), None)
+        if stub is None:
+            time.sleep(0.01)
+    assert stub is not None, 'stub never appeared'
+    return stub
+
+
+@pytest.mark.parametrize('field,owner_value,llm_value', [
+    ('title', 'Owner Title', 'LLM Title'),
+    ('location', 'Owner Location', 'LLM Location'),
+])
+def test_owner_edit_during_fetch_survives_llm_callback_too(client, monkeypatch, field, owner_value, llm_value):
+    # Probe evidence from the verification round: Phase B's own protection
+    # (M2) let the owner's edit survive the fetch merge, but the saved
+    # result then became the LLM phase's baseline -- so apply_llm_update's
+    # job.get(key)==baseline.get(key) check trivially matched (baseline WAS
+    # the owner's value) and the LLM callback clobbered it right back.
+    root = client.application.config['VAULT_PATH']
+    release = threading.Event()
+
+    def slow_fetch(url):
+        release.wait(timeout=5)
+        return '<title>Scraped Title</title><p>Remote. Build things in Zurich.</p>'
+    monkeypatch.setattr(intake, 'fetch_url', slow_fetch)
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: llm_client_for(json.dumps({field: llm_value})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+
+    outcome = {}
+    def run():
+        outcome['response'] = client.post('/api/jobs/intake', json={'url': 'https://o1-probe.example/' + field})
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        stub = _wait_for_stub(root, 'https://o1-probe.example/' + field)
+        edited = client.put('/api/jobs/' + stub['id'], json={field: owner_value})
+        assert edited.status_code == 200
+        assert edited.json['field_provenance'][field] == 'user'
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    client.application.config['LLM_THREADS'][stub['id']].join(timeout=2)
+    final = vault.load_job(root, stub['id'])
+    assert final[field] == owner_value, 'owner edit must survive the LLM callback, not just the fetch merge'
+    assert final['field_provenance'][field] == 'user'
+
+
+def test_owner_clears_field_during_fetch_stays_empty_through_callback(client, monkeypatch):
+    # The brief's "owner clears a field to empty" case, previously
+    # unconstructible against Phase B (round 1's limitation: baseline
+    # equality can't observe a blank-to-blank clear). field_provenance
+    # gates on ownership, not value equality, so this is now directly
+    # testable, through BOTH the fetch merge and the LLM callback.
+    root = client.application.config['VAULT_PATH']
+    release = threading.Event()
+
+    def slow_fetch(url):
+        release.wait(timeout=5)
+        return '<title>Scraped Title</title><p>Remote. Build things in Zurich.</p>'
+    monkeypatch.setattr(intake, 'fetch_url', slow_fetch)
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: llm_client_for(json.dumps({'location': 'LLM Location'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+
+    outcome = {}
+    def run():
+        outcome['response'] = client.post('/api/jobs/intake', json={'url': 'https://o1-clear-probe.example/role'})
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        stub = _wait_for_stub(root, 'https://o1-clear-probe.example/role')
+        assert client.put('/api/jobs/' + stub['id'], json={'location': 'Temporary'}).status_code == 200
+        cleared = client.put('/api/jobs/' + stub['id'], json={'location': ''})
+        assert cleared.status_code == 200
+        assert cleared.json['location'] == ''
+        assert cleared.json['field_provenance']['location'] == 'user'
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    assert outcome['response'].json['job']['location'] == ''
+    client.application.config['LLM_THREADS'][stub['id']].join(timeout=2)
+    final = vault.load_job(root, stub['id'])
+    assert final['location'] == '', 'a deliberate clear-to-empty must stay empty through fetch AND the LLM callback'
+    assert final['field_provenance']['location'] == 'user'
+
+
+def test_automation_fills_untouched_fields_and_marks_provenance(client, monkeypatch):
+    # The other half of O1: automation must still fill whatever the owner
+    # never touched, and now also leaves a provenance trail for it.
+    monkeypatch.setattr(intake, 'fetch_url',
+                        lambda url: '<title>Scraped Title</title><p>Remote. Build things in Zurich.</p>')
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: llm_client_for(json.dumps({'seniority': 'senior'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    data = client.post('/api/jobs/intake', json={'url': 'https://o1-control.example/role'}).json
+    assert data['job']['title'] == 'Scraped Title'
+    assert data['job']['field_provenance']['title'] == 'scrape'
+    client.application.config['LLM_THREADS'][data['job']['id']].join(timeout=2)
+    final = client.get('/api/jobs/' + data['job']['id']).json
+    assert final['seniority'] == 'senior'
+    assert final['field_provenance']['seniority'] == 'llm'
+
+
+# --- JOZ-265 fix round: M3, every failure must be visible, never silent ---
+
+def test_parse_failure_after_fetch_sets_failed_state_not_500(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Ok</title>')
+    def boom(url, html):
+        raise RuntimeError('parser exploded')
+    monkeypatch.setattr(intake, 'heuristic_posting', boom)
+    before = len(client.get('/api/jobs').json)
+    response = client.post('/api/jobs/intake', json={'url': 'https://m3-parse.example/role'})
+    assert response.status_code == 201
+    job = response.json['job']
+    assert job['ingest_state'] in ('fetch_failed', 'extract_failed')
+    assert job['ingest_error']['reason'] == 'RuntimeError'
+    assert job['history'][-1]['event'] in ('fetch_failed', 'extract_failed')
+    assert len(client.get('/api/jobs').json) == before + 1
+
+
+def test_empty_fetch_result_sets_fetch_failed_with_reason(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '   ')
+    response = client.post('/api/jobs/intake', json={'url': 'https://m3-empty.example/role'})
+    assert response.status_code == 201
+    job = response.json['job']
+    assert job['ingest_state'] == 'fetch_failed'
+    assert job['ingest_error']['stage'] == 'fetch'
+    assert job['ingest_error']['reason']
+    assert job['history'][-1]['event'] == 'fetch_failed'
+
+
+def test_worker_start_failure_sets_extract_failed(client, monkeypatch):
+    # O2 (fix round 2): a worker that never started must not be reported
+    # with the same 201 this route uses when extraction actually gets
+    # underway -- that is indistinguishable from success to a caller that
+    # only checks response.ok, even though the body happens to carry the
+    # failure too. Confirmed via vault reload: the failure state, error,
+    # and history are durably persisted, not just reflected in this one
+    # response body.
+    monkeypatch.setattr(intake, 'fetch_url',
+                        lambda url: '<title>Ok</title><p>Remote. Python engineer role with real text.</p>')
+    monkeypatch.setattr(ingest, 'extract_async', Mock(side_effect=RuntimeError('worker boom')))
+    before = len(client.get('/api/jobs').json)
+    response = client.post('/api/jobs/intake', json={'url': 'https://m3-worker.example/role'})
+    assert response.status_code == 503
+    assert response.json['error']
+    job = response.json['job']
+    assert job['ingest_state'] == 'extract_failed'
+    assert job['ingest_error']['stage'] == 'extract'
+    assert job['history'][-1]['event'] == 'extract_failed'
+    assert job['id'] not in client.application.config['LLM_PENDING']
+    assert len(client.get('/api/jobs').json) == before + 1
+    persisted = client.get('/api/jobs/' + job['id']).json
+    assert persisted['ingest_state'] == 'extract_failed'
+    assert persisted['ingest_error'] == job['ingest_error']
+    assert persisted['llm_pending'] is False
+
+
+def test_callback_exception_persists_failure_state(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url',
+                        lambda url: '<title>Ok</title><p>Remote. Python engineer role with real text.</p>')
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: llm_client_for(json.dumps({'title': 'New Title'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    root = client.application.config['VAULT_PATH']
+    orig_save_job = vault.save_job
+    def flaky_save_job(root_, data, identifier=None, **kwargs):
+        if 'enriched' in data:
+            raise RuntimeError('callback save boom')
+        return orig_save_job(root_, data, identifier, **kwargs)
+    monkeypatch.setattr(vault, 'save_job', flaky_save_job)
+    response = client.post('/api/jobs/intake', json={'url': 'https://m3-callback.example/role'})
+    job = response.json['job']
+    client.application.config['LLM_THREADS'][job['id']].join(timeout=2)
+    monkeypatch.setattr(vault, 'save_job', orig_save_job)
+    final = vault.load_job(root, job['id'])
+    assert final['ingest_state'] == 'extract_failed'
+    assert final['ingest_error']['reason'] == 'RuntimeError'
+    assert final['history'][-1]['event'] == 'extract_failed'
+
+
+# --- JOZ-265 fix round: M4, ATS dedupe must respect tenant boundaries -----
+
+def test_hard_duplicate_same_posting_id_different_tenant_is_not_a_duplicate(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Role</title><p>Remote. Python.</p>')
+    before = len(client.get('/api/jobs').json)
+    first = client.post('/api/jobs/intake', json={'url': 'https://a.recruitee.com/o/software-engineer'}).json
+    client.application.config['LLM_THREADS'][first['job']['id']].join(timeout=2)
+    assert len(client.get('/api/jobs').json) == before + 1
+
+    second = client.post('/api/jobs/intake', json={'url': 'https://b.recruitee.com/o/software-engineer'})
+    assert second.status_code == 201
+    assert len(client.get('/api/jobs').json) == before + 2
+
+
+# --- JOZ-265 fix round: m11, ingest_state/ingest_error consistency --------
+
+@pytest.mark.parametrize('payload', [
+    {'ingest_state': 'complete', 'ingest_error': {'stage': 'fetch', 'reason': 'x', 'at': '2026-01-01T00:00:00Z'}},
+    {'ingest_state': 'fetch_failed', 'ingest_error': None},
+    {'ingest_state': 'fetch_failed', 'ingest_error': {'stage': 'bogus', 'reason': 'x', 'at': '2026-01-01T00:00:00Z'}},
+])
+def test_inconsistent_ingest_state_error_pairs_rejected(client, payload):
+    assert client.put('/api/jobs/JOB-001', json=payload).status_code == 400
+
+
+def test_duplicate_warning_panel_markup_no_native_confirm(client):
+    html = client.get('/jobs').text
+    assert '<dialog id="duplicate-warning">' in html
+    assert 'id="duplicate-open-existing"' in html
+    assert 'id="duplicate-promote"' in html
+    assert 'id="duplicate-add-anyway"' in html
+    assert 'id="duplicate-cancel"' in html
+    assert 'confirm(' not in html
+
+
+
+def test_duplicate_warning_payload_always_includes_add_anyway(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Role</title><p>Remote. Python.</p>')
+    first = client.post('/api/jobs/intake', json={'url': 'https://m8-probe.example/role'}).json
+    client.application.config['LLM_THREADS'][first['job']['id']].join(timeout=2)
+    dup = client.post('/api/jobs/intake', json={'url': 'https://m8-probe.example/role'}).json
+    assert 'add_anyway' in dup['actions']
+
+    root = client.application.config['VAULT_PATH']
+    universe = vault.save_job(root, {'title': 'Universe role', 'url': 'https://m8-universe.example/role',
+                                     'normalized_url': 'https://m8-universe.example/role',
+                                     'in_pipeline': False, 'origin': 'discovered'})
+    dup_universe = client.post('/api/jobs/intake', json={'url': 'https://m8-universe.example/role'}).json
+    assert dup_universe['actions'] == ['promote', 'open_existing', 'add_anyway']
+
+
+def test_retry_from_extract_failed_clears_prior_error(client, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url',
+                        lambda url: '<title>Role</title><p>Remote. Python engineer role with real text.</p>')
+    data = client.post('/api/jobs/intake', json={'url': 'https://m11-retry.example/role'}).json
+    job_id = data['job']['id']
+    client.application.config['LLM_THREADS'][job_id].join(timeout=2)
+    assert vault.load_job(client.application.config['VAULT_PATH'], job_id)['ingest_state'] == 'extract_failed'
+
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<title>Retry Role</title><p>Remote. Build Python services.</p>')
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: llm_client_for(json.dumps({'title': 'Retry Role'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    retry = client.post('/api/jobs/' + job_id + '/extract')
+    assert retry.status_code == 202
+    app = client.application
+    app.config['REFRESH_THREADS'][job_id].join(timeout=2)
+    app.config['LLM_THREADS'][job_id].join(timeout=2)
+    final = client.get('/api/jobs/' + job_id).json
+    assert final['ingest_state'] == 'complete'
+    assert final['ingest_error'] is None
+
+
+# =====================================================================
+# JOZ-265 fix round 2: N1, N2, N3 (new findings from the verification
+# round) and O4 (behavioral coverage for the already-closed m8 dialog fix)
+# =====================================================================
+
+# --- N1: retry must not leave 'fetched'/error-None when the worker fails
+# to even start; the error-clearing has to be atomic with a successful
+# handoff, not with the attempt. ---
+
+def test_retry_worker_start_failure_does_not_leave_fetched_with_no_error(client, monkeypatch):
+    # The initial intake already hits this same worker-start failure (O2);
+    # confirm that starting point, then exercise the identical failure a
+    # second time through the /extract RETRY path specifically, which has
+    # its own, separate code path for clearing a prior error.
+    monkeypatch.setattr(intake, 'fetch_url',
+                        lambda url: '<title>Ok</title><p>Remote. Python engineer role with real text.</p>')
+    monkeypatch.setattr(ingest, 'extract_async', Mock(side_effect=RuntimeError('worker boom')))
+    data = client.post('/api/jobs/intake', json={'url': 'https://n1-retry.example/role'}).json
+    job_id = data['job']['id']
+    assert vault.load_job(client.application.config['VAULT_PATH'], job_id)['ingest_state'] == 'extract_failed'
+
+    retry = client.post('/api/jobs/' + job_id + '/extract')
+    assert retry.status_code == 202
+    client.application.config['REFRESH_THREADS'][job_id].join(timeout=2)
+    final = client.get('/api/jobs/' + job_id).json
+    assert final['ingest_state'] == 'extract_failed'
+    assert final['ingest_error'] == {'stage': 'extract', 'reason': 'worker_start_failed', 'at': final['ingest_error']['at']}
+    assert final['history'][-1]['event'] == 'extract_failed'
+    assert final['llm_pending'] is False
+
+
+# --- N2: a url change mid-fetch must discard the whole stale result, and
+# the generic PUT path must recompute normalized_url/ats_* atomically. ---
+
+def test_url_change_during_fetch_discards_stale_result(client, monkeypatch):
+    root = client.application.config['VAULT_PATH']
+    release = threading.Event()
+
+    def slow_fetch(url):
+        release.wait(timeout=5)
+        return '<title>Tenant A Title</title><p>Remote. Tenant A describes this role in great detail.</p>'
+    monkeypatch.setattr(intake, 'fetch_url', slow_fetch)
+
+    outcome = {}
+    def run():
+        outcome['response'] = client.post('/api/jobs/intake', json={'url': 'https://a.recruitee.com/o/role'})
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        stub = _wait_for_stub(root, 'https://a.recruitee.com/o/role')
+        edited = client.put('/api/jobs/' + stub['id'], json={'url': 'https://b.recruitee.com/o/other-role'})
+        assert edited.status_code == 200
+        assert edited.json['normalized_url'] == 'https://b.recruitee.com/o/other-role'
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    assert outcome['response'].status_code == 201
+    assert outcome['response'].json.get('company') is None
+
+    final = vault.load_job(root, stub['id'])
+    # None of tenant A's stale fetch result landed on the edited record.
+    assert final['title'] != 'Tenant A Title'
+    assert 'Tenant A' not in (final.get('description') or '')
+    assert final['url'] == 'https://b.recruitee.com/o/other-role'
+    assert final['normalized_url'] == 'https://b.recruitee.com/o/other-role'
+    assert final['ats_tenant'] == 'b'
+    assert final['ats_posting_id'] == 'other-role'
+    assert stub['id'] not in client.application.config['LLM_THREADS']
+    assert final['ingest_state'] == 'extract_failed'
+    assert final['ingest_error']['reason'] == 'source_url_changed'
+
+    # Re-adding the OLD url must not falsely report a duplicate: its
+    # identity was discarded, not resurrected onto the edited record.
+    again = client.post('/api/jobs/intake', json={'url': 'https://a.recruitee.com/o/role'})
+    assert again.status_code == 201
+    assert 'duplicate' not in again.json
+
+
+def test_put_url_change_recomputes_normalized_url_and_ats_atomically(client):
+    root = client.application.config['VAULT_PATH']
+    job = vault.save_job(root, {'title': 'Role', 'url': 'https://fiction.example/old',
+                                'normalized_url': 'https://fiction.example/old'})
+    updated = client.put('/api/jobs/' + job['id'], json={'url': 'https://b.recruitee.com/o/some-role'})
+    assert updated.status_code == 200
+    assert updated.json['normalized_url'] == 'https://b.recruitee.com/o/some-role'
+    assert updated.json['ats_provider'] == 'recruitee'
+    assert updated.json['ats_tenant'] == 'b'
+    assert updated.json['ats_posting_id'] == 'some-role'
+    assert updated.json['field_provenance']['url'] == 'user'
+
+
+# --- N3: a failure stage must not contradict the failure state it rides
+# alongside. ---
+
+@pytest.mark.parametrize('payload', [
+    {'ingest_state': 'fetch_failed', 'ingest_error': {'stage': 'extract', 'reason': 'x', 'at': '2026-01-01T00:00:00Z'}},
+    {'ingest_state': 'extract_failed', 'ingest_error': {'stage': 'fetch', 'reason': 'x', 'at': '2026-01-01T00:00:00Z'}},
+])
+def test_ingest_error_stage_must_match_failure_state(client, payload):
+    assert client.put('/api/jobs/JOB-001', json=payload).status_code == 400
+
+
+# --- O4: the m8 dismissal fix is behaviorally correct but was only tested
+# via source-string assertions; drive the real extracted JS instead. The
+# test gracefully skips where Node is unavailable rather than faking a
+# server-level substitute for a client-only control-flow guarantee. ------
+
+NODE = shutil.which('node')
+
+_DUP_RESPONSE = {
+    'duplicate': True, 'basis': 'same_url',
+    'existing': {'id': 'JOB-EXISTING', 'title': 'Existing Role', 'in_pipeline': False},
+    'actions': ['promote', 'open_existing', 'add_anyway'],
+}
+
+_DIALOG_HARNESS = r"""
+'use strict';
+const calls = [];
+const location = { href: '' };
+const elements = new Map();
+function makeGeneric(id){
+  return {
+    id, dataset: {}, classList: { toggle(){}, add(){}, contains(){ return false; } },
+    style: {}, children: [], hidden: false, textContent: '', value: '',
+    onclick: null, onclose: null, onchange: null, onsubmit: null,
+    addEventListener(){}, removeEventListener(){},
+    querySelector(){ return null; }, querySelectorAll(){ return []; },
+    setAttribute(){}, getAttribute(){ return null; }, append(){}, replaceChildren(){},
+  };
+}
+function byId(id){
+  if (!elements.has(id)) elements.set(id, makeGeneric(id));
+  return elements.get(id);
+}
+const document = {
+  getElementById: byId,
+  querySelector(){ return null; },
+  querySelectorAll(){ return []; },
+  addEventListener(){},
+  hidden: false,
+  activeElement: null,
+};
+const window = { addEventListener(){} };
+const localStorage = { getItem(){ return null; }, setItem(){} };
+class DOMParser { parseFromString(){ return { getElementById(){ return { children: [] }; } }; } }
+
+const DUP_RESPONSE = __DUP_RESPONSE__;
+async function fetch(url, opts) {
+  calls.push({ url, method: opts && opts.method, body: opts && opts.body });
+  if (url === '/jobs') return { ok: true, text: async () => '<div id="cards"></div>' };
+  if (/\/promote$/.test(url)) return { ok: true, json: async () => ({ id: 'JOB-EXISTING', in_pipeline: true }) };
+  if (url === '/api/jobs/intake') {
+    const body = JSON.parse((opts && opts.body) || '{}');
+    if (!body.force) return { ok: true, json: async () => DUP_RESPONSE };
+    return { ok: true, json: async () => ({ job: { id: 'JOB-NEW' }, company: null }) };
+  }
+  return { ok: true, json: async () => ({}) };
+}
+
+__UI_JS__
+
+__JOBS_JS__
+
+{
+const postingInput = byId('posting');
+postingInput.value = 'https://example.test/role';
+const intakeButton = makeGeneric('intake-button');
+const intakeForm = byId('intake');
+intakeForm.querySelector = (sel) => (sel === 'button' ? intakeButton : null);
+
+const dupDialog = byId('duplicate-warning');
+dupDialog.open = false;
+dupDialog.showModal = function(){ dupDialog.open = true; };
+dupDialog.close = function(){ dupDialog.open = false; };
+const dupOpenExisting = byId('duplicate-open-existing');
+const dupPromote = byId('duplicate-promote');
+const dupAddAnyway = byId('duplicate-add-anyway');
+const dupCancel = byId('duplicate-cancel');
+
+(async () => {
+  const fakeEvent = { preventDefault(){}, target: intakeForm };
+  const formPromise = intakeForm.onsubmit(fakeEvent);
+  for (let i = 0; i < 200 && dupCancel.onclick === null; i++) {
+    await new Promise(r => setTimeout(r, 0));
+  }
+  if (dupCancel.onclick === null) throw new Error('dialog never opened');
+  const scenario = __SCENARIO__;
+  if (scenario === 'cancel') dupCancel.onclick();
+  else if (scenario === 'escape') dupDialog.onclose();
+  else if (scenario === 'add_anyway') dupAddAnyway.onclick();
+  else if (scenario === 'open_existing') dupOpenExisting.onclick();
+  else if (scenario === 'promote') dupPromote.onclick();
+  else throw new Error('unknown scenario: ' + scenario);
+  await formPromise;
+  console.log(JSON.stringify({ calls, locationHref: location.href }));
+})().then(() => process.exit(0)).catch(e => { console.error((e && e.stack) || e); process.exit(1); });
+}
+"""
+
+
+def _inline_script(html):
+    match = re.search(r'<script>(.*?)</script>', html, re.S)
+    assert match, 'no inline <script> block found'
+    return match.group(1)
+
+
+def _run_dialog_scenario(jobs_js, scenario):
+    harness = (_DIALOG_HARNESS
+               .replace('__DUP_RESPONSE__', json.dumps(_DUP_RESPONSE))
+               .replace('__UI_JS__', _inline_script(UI_JS))
+               .replace('__JOBS_JS__', jobs_js)
+               .replace('__SCENARIO__', json.dumps(scenario)))
+    with tempfile.NamedTemporaryFile('w', suffix='.js', delete=False) as handle:
+        handle.write(harness)
+        path = handle.name
+    try:
+        result = subprocess.run([NODE, path], capture_output=True, text=True, timeout=10)
+    finally:
+        Path(path).unlink(missing_ok=True)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)
+
+
+def _assert_dialog_record_count(client, result, expected_delta):
+    url = 'https://example.test/role'
+    root = client.application.config['VAULT_PATH']
+    if not any(j.get('url') == url for j in vault.list_jobs(root)):
+        vault.save_job(root, {'title': 'Existing Role', 'url': url, 'normalized_url': url})
+    before = len(vault.list_jobs(root))
+    for call in result['calls']:
+        if call['url'] == '/api/jobs/intake':
+            response = client.post(call['url'], json=json.loads(call['body']))
+            assert response.status_code in (200, 201)
+    assert len(vault.list_jobs(root)) == before + expected_delta
+
+
+@pytest.mark.skipif(NODE is None, reason='Node is required to execute the real dialog JS.')
+def test_duplicate_dialog_cancel_and_escape_create_nothing(client):
+    jobs_js = re.findall(r'<script>(.*?)</script>', client.get('/jobs').text, re.S)[-1]
+    for scenario in ('cancel', 'escape'):
+        result = _run_dialog_scenario(jobs_js, scenario)
+        intake_calls = [c for c in result['calls'] if c['url'] == '/api/jobs/intake']
+        assert len(intake_calls) == 1, f'{scenario}: must not re-call intake'
+        assert all(not json.loads(c['body'] or '{}').get('force') for c in intake_calls)
+        assert result['locationHref'] == ''
+        _assert_dialog_record_count(client, result, 0)
+
+
+@pytest.mark.skipif(NODE is None, reason='Node is required to execute the real dialog JS.')
+def test_duplicate_dialog_add_anyway_creates_second_record(client):
+    jobs_js = re.findall(r'<script>(.*?)</script>', client.get('/jobs').text, re.S)[-1]
+    result = _run_dialog_scenario(jobs_js, 'add_anyway')
+    intake_calls = [c for c in result['calls'] if c['url'] == '/api/jobs/intake']
+    assert len(intake_calls) == 2
+    forced = [c for c in intake_calls if json.loads(c['body'] or '{}').get('force')]
+    assert len(forced) == 1, 'add_anyway must send exactly one force:true creation request'
+    _assert_dialog_record_count(client, result, 1)
+
+
+@pytest.mark.skipif(NODE is None, reason='Node is required to execute the real dialog JS.')
+def test_duplicate_dialog_open_existing_navigates_and_creates_nothing(client):
+    jobs_js = re.findall(r'<script>(.*?)</script>', client.get('/jobs').text, re.S)[-1]
+    result = _run_dialog_scenario(jobs_js, 'open_existing')
+    intake_calls = [c for c in result['calls'] if c['url'] == '/api/jobs/intake']
+    assert len(intake_calls) == 1, 'open_existing must not create anything'
+    assert result['locationHref'] == '/jobs/JOB-EXISTING'
+    _assert_dialog_record_count(client, result, 0)
+
+
+@pytest.mark.skipif(NODE is None, reason='Node is required to execute the real dialog JS.')
+def test_duplicate_dialog_promote_creates_nothing(client):
+    jobs_js = re.findall(r'<script>(.*?)</script>', client.get('/jobs').text, re.S)[-1]
+    result = _run_dialog_scenario(jobs_js, 'promote')
+    intake_calls = [c for c in result['calls'] if c['url'] == '/api/jobs/intake']
+    assert len(intake_calls) == 1, 'promote must not create a second job'
+    assert any(c['url'] == '/api/jobs/JOB-EXISTING/promote' for c in result['calls'])
+
+
+def test_saved_owner_provenance_blocks_fetch_and_callback(client, monkeypatch):
+    root = client.application.config['VAULT_PATH']
+    callbacks = []
+    def fetch(url):
+        stub = next(j for j in vault.list_jobs(root) if j['url'] == url)
+        saved = vault.save_job(root, {'location': '', 'field_provenance': {'location': 'user'}}, stub['id'])
+        assert saved['field_provenance'] == {'location': 'user'}
+        return '<title>Role</title><p>Location: London</p>'
+    monkeypatch.setattr(intake, 'fetch_url', fetch)
+    monkeypatch.setattr(ingest, 'extract_async', lambda text, callback, **kw: callbacks.append(callback) or Mock(is_alive=lambda: True))
+    job = client.post('/api/jobs/intake', json={'url': 'https://saved.example/role'}).json['job']
+    assert job['location'] == ''
+    callbacks[0]({'location': 'LLM Location', 'seniority': 'senior'})
+    final = vault.load_job(root, job['id'])
+    assert final['location'] == ''
+    assert final['field_provenance']['location'] == 'user'
+    assert final['seniority'] == 'senior'
+
+
+def test_metadata_only_none_callback_is_terminal(client, monkeypatch):
+    callbacks = []
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<meta property="og:title" content="Role">')
+    monkeypatch.setattr(ingest, 'extract_async', lambda text, callback, **kw: callbacks.append(callback) or Mock(is_alive=lambda: True))
+    job = client.post('/api/jobs/intake', json={'url': 'https://meta.example/role'}).json['job']
+    callbacks[0](None)
+    final = client.get('/api/jobs/' + job['id']).json
+    assert final['ingest_state'] == 'extract_failed'
+    assert final['ingest_error']['reason'] == 'empty_content'
+    assert final['history'][-1]['event'] == 'extract_failed'
+    assert final['llm_pending'] is False
+
+
+def test_retry_error_retained_until_successful_handoff(client, monkeypatch):
+    root = client.application.config['VAULT_PATH']
+    job = vault.save_job(root, {'title': 'Role', 'url': 'https://handoff.example/role',
+        'ingest_state': 'extract_failed', 'ingest_error': {'stage': 'extract', 'reason': 'previous', 'at': vault.timestamp()}})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Build things.</main>')
+    def start(text, callback, **kwargs):
+        current = vault.load_job(root, job['id'])
+        assert current['ingest_state'] == 'extract_failed'
+        assert current['ingest_error']['reason'] == 'previous'
+        return Mock(is_alive=lambda: True)
+    monkeypatch.setattr(ingest, 'extract_async', start)
+    response = client.post('/api/jobs/' + job['id'] + '/extract')
+    assert response.status_code == 202 and response.json['accepted'] is True
+    client.application.config['REFRESH_THREADS'][job['id']].join(2)
+    final = vault.load_job(root, job['id'])
+    assert final['ingest_state'] == 'fetched' and final['ingest_error'] is None
+
+
+def test_refresh_worker_start_failure_is_terminal(client, monkeypatch):
+    from careeros import server
+    monkeypatch.setattr(server.Thread, 'start', Mock(side_effect=RuntimeError('start failed')))
+    response = client.post('/api/jobs/JOB-001/extract')
+    assert response.status_code == 503 and response.json['error']
+    final = client.get('/api/jobs/JOB-001').json
+    assert final['ingest_state'] == 'extract_failed'
+    assert final['ingest_error']['reason'] == 'refresh_worker_start_failed'
+    assert final['history'][-1]['event'] == 'extract_failed'
+    assert final['llm_pending'] is False
+
+
+def test_url_change_before_callback_discards_completion(client, monkeypatch):
+    callbacks = []
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Old page content.</main>')
+    monkeypatch.setattr(ingest, 'extract_async', lambda text, callback, **kw: callbacks.append(callback) or Mock(is_alive=lambda: True))
+    job = client.post('/api/jobs/intake', json={'url': 'https://a.recruitee.com/o/role'}).json['job']
+    edited = client.put('/api/jobs/' + job['id'], json={'url': 'https://b.recruitee.com/o/other'}).json
+    callbacks[0]({'title': 'Stale LLM Title'})
+    final = client.get('/api/jobs/' + job['id']).json
+    assert final['title'] == edited['title']
+    assert final['ingest_state'] == 'extract_failed'
+    assert final['ats_tenant'] == 'b'
+    assert final['ingest_error']['reason'] == 'source_url_changed'
+
+
+def test_refresh_worker_exception_persists_failure(client, monkeypatch):
+    root = client.application.config['VAULT_PATH']
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Build things.</main>')
+    save = vault.save_job
+    def fail_refresh(root, data, *args, **kwargs):
+        if 'refresh' in data:
+            raise RuntimeError('refresh save failed')
+        return save(root, data, *args, **kwargs)
+    monkeypatch.setattr(vault, 'save_job', fail_refresh)
+    response = client.post('/api/jobs/JOB-001/extract')
+    assert response.status_code == 202 and response.json['accepted'] is True
+    client.application.config['REFRESH_THREADS']['JOB-001'].join(2)
+    final = vault.load_job(root, 'JOB-001')
+    assert final['ingest_state'] == 'extract_failed'
+    assert final['ingest_error']['reason'] == 'RuntimeError'
+    assert final['history'][-1]['event'] == 'extract_failed'
+    assert not client.application.config['LLM_PENDING']
