@@ -348,7 +348,13 @@ def test_enrich_merge(client,monkeypatch):
     assert (job['title'],job['notes'],job['status'],job['custom']) == ('Owner title','Owner notes','applied',{'keep':1})
     assert job['location'] == 'Basel, CH' and job['posted_date'] == '2026-09-20'
     assert job['salary_info'] and job['enriched']
-    assert client.get('/api/companies/'+job['company_id']).json['name'] == 'Lanternpeak Labs'
+    # M3: the shared ladder never silently renames or relinks an already
+    # (weakly) linked company just because the posting's employer text
+    # differs -- it stays on the job's existing company and flags review.
+    assert job['company_id'] == 'CO-001'
+    assert client.get('/api/companies/CO-001').json['name'] == 'Pebbleorbit Studio'
+    assert job['company_link_state'] == 'needs_review'
+    assert job['employer_named_in_posting'] == 'Lanternpeak Labs'
     assert 'id="enrich-job"' not in client.get('/jobs/JOB-001').text
 
 
@@ -384,16 +390,29 @@ def test_job_views(client):
 
 
 def test_enrich_company_dedupe_and_exclusive_rename(client,monkeypatch):
+    # M3 (JOZ-266 fix round): /enrich now routes company linking through
+    # the shared ladder. A conflicting employer name no longer silently
+    # renames the auto-created company in place, and an exact match
+    # elsewhere no longer silently steals the job away from its existing
+    # link -- both surface for owner review instead (never silently keep
+    # a provisional guess uncontested, never silently relink).
     monkeypatch.setattr(intake,'fetch_url',lambda url:schema_html(hiringOrganization={'name':'Exclusive Test Labs'}))
     created=client.post('/api/jobs/intake',json={'url':'https://jobs.personio.de/lanternpeak/123'}).json
     identifier=created['job']['id']
     company_id=created['company']['id']
     assert created['company']['name_source'] == 'auto'
     monkeypatch.setattr(intake,'fetch_url',lambda url:schema_html(hiringOrganization={'name':'Renamed Labs','url':'https://renamed.example'}))
-    assert client.post('/api/jobs/'+identifier+'/enrich').json['company_id'] == company_id
-    assert client.get('/api/companies/'+company_id).json['name'] == 'Renamed Labs'
+    first=client.post('/api/jobs/'+identifier+'/enrich').json
+    assert first['company_id'] == company_id
+    assert first['company_link_state'] == 'needs_review'
+    assert client.get('/api/companies/'+company_id).json['name'] == 'Exclusive Test Labs'
     monkeypatch.setattr(intake,'fetch_url',lambda url:schema_html(hiringOrganization={'name':'pEbBlEoRbIt StUdIo'}))
-    assert client.post('/api/jobs/'+identifier+'/enrich').json['company_id'] == 'CO-001'
+    second=client.post('/api/jobs/'+identifier+'/enrich').json
+    assert second['company_id'] == company_id
+    assert second['company_link_state'] == 'needs_review'
+    candidates = second['company_review']['candidates']
+    assert candidates and candidates[0]['company_id'] == 'CO-001'
+    assert len(client.get('/api/companies').json) == 5
 
 
 def test_invalid_schema_and_website():
@@ -402,19 +421,20 @@ def test_invalid_schema_and_website():
 
 
 def test_enrich_preserves_shared_company(client, monkeypatch):
+    # M3: a shared company (more than one job linked) is never forked into
+    # a second, duplicate company just because one of its jobs' posting
+    # text no longer matches exactly -- the ladder flags review and keeps
+    # the existing link instead (no duplicate company without identifiers).
+    before_count = len(client.get('/api/companies').json)
     assert client.post('/api/companies/CO-001/enrich').status_code == 200
     before = client.get('/api/companies/CO-001').json
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name':'Different Test Labs'}))
     result = client.post('/api/jobs/JOB-001/enrich')
     assert result.status_code == 200
-    assert result.json['company_id'] != 'CO-001'
-    after = client.get('/api/companies/CO-001').json
-    assert after['enrichment'] != before['enrichment']
-    # Owner fields must survive enrichment regeneration untouched; only the
-    # derived enrichment block may change when a job is reassigned away.
-    for key, value in before.items():
-        if key != 'enrichment':
-            assert after[key] == value
+    assert result.json['company_id'] == 'CO-001'
+    assert result.json['company_link_state'] == 'needs_review'
+    assert len(client.get('/api/companies').json) == before_count
+    assert client.get('/api/companies/CO-001').json == before
 
 
 @pytest.mark.parametrize('wrapper', ['array', 'object'])
@@ -519,13 +539,20 @@ def test_unknown_company_provenance(client, monkeypatch):
 
 
 @pytest.mark.parametrize('website', [None, 'https://kept.example'])
-def test_matching_auto_company_website_fill_only(client, monkeypatch, website):
+def test_matching_auto_company_offers_exact_match_as_review_candidate(client, monkeypatch, website):
+    # M3: an exact name match to a DIFFERENT, auto-named company than the
+    # one already (weakly) linked is surfaced as a review candidate --
+    # never a silent switch (JOB-001 stays on CO-001; the unrelated
+    # "Matching Auto Labs" company it exactly matches is untouched).
     root = client.application.config['VAULT_PATH']
     company = vault.save_company(root, {'name':'Matching Auto Labs', 'name_source':'auto', 'website':website})
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name':'Matching Auto Labs', 'url':'https://lanternpeak.example'}))
     result = client.post('/api/jobs/JOB-001/enrich').json
-    assert result['company_id'] == company['id']
-    assert vault.load_company(root, company['id'])['website'] == (website or 'https://lanternpeak.example')
+    assert result['company_id'] == 'CO-001'
+    assert result['company_link_state'] == 'needs_review'
+    candidates = result['company_review']['candidates']
+    assert candidates and candidates[0]['company_id'] == company['id']
+    assert vault.load_company(root, company['id'])['website'] == website
 
 
 def test_company_any_put_marks_owner(client):
@@ -1293,6 +1320,96 @@ def test_owner_clears_field_during_fetch_stays_empty_through_callback(client, mo
     final = vault.load_job(root, stub['id'])
     assert final['location'] == '', 'a deliberate clear-to-empty must stay empty through fetch AND the LLM callback'
     assert final['field_provenance']['location'] == 'user'
+
+
+# --- m10 (JOZ-266 fix round): list view parity with kanban's review chip --
+
+def test_list_view_shows_review_indicator_for_linked_company(client):
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'company_link_state': 'needs_review', 'company_link_reason': 'fuzzy_name'}, 'JOB-001')
+    html = client.get('/jobs').text
+    list_view = html.split('id="list-view"', 1)[1]
+    assert 'company-review-chip' in list_view
+
+
+# --- M1 (JOZ-266 fix round): owner link decision protected as a group --
+
+def test_owner_link_decision_survives_concurrent_phase_b_resolution(client, monkeypatch):
+    """The owner's link decision (company_id, company_link_state,
+    company_link_reason) is a coherent group; automation must never flip
+    any of the three once the owner has set them, even when a field's new
+    value happens to coincide with whatever Phase B's own baseline
+    already had (company_link_state: 'linked' both before and after, for
+    entirely different reasons)."""
+    root = client.application.config['VAULT_PATH']
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name': 'Acme Robotics'}))
+    first = client.post('/api/jobs/intake', json={
+        'url': 'https://boards.greenhouse.io/m1acme/jobs/111'}).json
+    tenant_company_id = first['job']['company_id']
+    assert first['job']['company_link_state'] == 'linked'
+    other = vault.save_company(root, {'name': 'Totally Other Staffing'})
+
+    release = threading.Event()
+
+    def slow_fetch(url):
+        release.wait(timeout=5)
+        return schema_html(hiringOrganization={'name': 'Totally Other Staffing'})
+    monkeypatch.setattr(intake, 'fetch_url', slow_fetch)
+
+    outcome = {}
+    def run():
+        outcome['response'] = client.post('/api/jobs/intake', json={
+            'url': 'https://boards.greenhouse.io/m1acme/jobs/222'})
+    worker = threading.Thread(target=run)
+    worker.start()
+    try:
+        stub = _wait_for_stub(root, 'https://boards.greenhouse.io/m1acme/jobs/222')
+        # Rung 1 already linked the stub to the tenant owner, at stub time.
+        assert stub['company_id'] == tenant_company_id
+        assert stub['company_link_state'] == 'linked'
+        edited = client.put('/api/jobs/' + stub['id'], json={'company_id': other['id']})
+        assert edited.status_code == 200
+        assert edited.json['company_id'] == other['id']
+        assert edited.json['company_link_state'] == 'linked'
+        assert edited.json['company_link_reason'] == 'manual'
+        for key in ('company_id', 'company_link_state', 'company_link_reason'):
+            assert edited.json['field_provenance'][key] == 'user'
+    finally:
+        release.set()
+        worker.join(timeout=5)
+    client.application.config['LLM_THREADS'][stub['id']].join(timeout=2)
+    final = vault.load_job(root, stub['id'])
+    # The fetch resolved the SAME posting to the tenant owner again (still
+    # 'linked', coincidentally -- for a completely different reason) --
+    # that coincidence must never let automation clobber the owner's
+    # explicit, different choice.
+    assert final['company_id'] == other['id']
+    assert final['company_link_state'] == 'linked'
+    assert final['company_link_reason'] == 'manual'
+
+
+def test_put_company_link_state_equal_to_baseline_takes_user_provenance(client, monkeypatch):
+    """A bare PUT of company_link_state alone (no company_id in the same
+    payload) must still be marked owner-provenance, even when its new
+    value is identical to whatever automation already had -- otherwise a
+    later automation run can silently re-decide it since nothing ever
+    marked it as the owner's."""
+    root = client.application.config['VAULT_PATH']
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name': 'Acme Robotics'}))
+    data = client.post('/api/jobs/intake', json={
+        'url': 'https://boards.greenhouse.io/m1equalbaseline/jobs/111'}).json
+    job_id = data['job']['id']
+    assert data['job']['company_link_state'] == 'linked'
+    client.application.config['LLM_THREADS'][job_id].join(timeout=2)
+
+    edited = client.put('/api/jobs/' + job_id, json={'company_link_state': 'linked'})
+    assert edited.status_code == 200
+    assert edited.json['company_link_state'] == 'linked'
+    assert edited.json['field_provenance']['company_link_state'] == 'user'
+
+    rerun = client.post('/api/jobs/' + job_id + '/resolve')
+    assert rerun.status_code == 200
+    assert rerun.json['company_link_state'] == 'linked'
 
 
 def test_automation_fills_untouched_fields_and_marks_provenance(client, monkeypatch):

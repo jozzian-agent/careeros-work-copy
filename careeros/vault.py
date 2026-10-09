@@ -6,6 +6,7 @@ import sys
 import tempfile
 import os
 import yaml
+import uuid
 
 from careeros.sectors import known_section_codes, match_sectors
 from careeros import url_normalize
@@ -13,6 +14,11 @@ from careeros import url_normalize
 LISTS = ('roles', 'must_haves', 'nice_to_haves', 'avoid')
 KINDS = ('employer', 'institution')
 SIZE_CLASSES = ('micro', 'small', 'medium', 'large')
+COMPANY_LINK_REASONS = ('ats_tenant', 'domain', 'name_exact', 'fuzzy_name',
+                        'employer_differs_from_tenant', 'shared_tenant', 'new_company', 'manual',
+                        'ambiguous_exact')
+IDENTIFIER_TYPES = ('domain', 'ats_tenant', 'wikidata', 'name_variant')
+SOURCE_KINDS = ('careers_page', 'ats_feed')
 TAG_FACETS = ('skill/capability', 'skill/domain', 'function', 'experience-type', 'tool')
 TAG_TOKEN_RE = re.compile(r'([a-z0-9/_-]+):([a-z0-9-]+)')
 
@@ -372,7 +378,7 @@ def _records(root, kind):
                     if data.get(key) is None:
                         data[key] = []
             if kind == 'companies':
-                for key in ('sectors', 'review_flags'):
+                for key in ('sectors', 'review_flags', 'identifiers', 'sources'):
                     if data.get(key) is None:
                         data[key] = []
             yield path, data
@@ -419,12 +425,18 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                      employee_count=None, function=[], tags=[],
                      normalized_url=None, in_pipeline=True, origin='manual', source_id=None,
                      ingest_state='complete', ingest_error=None, field_provenance={},
-                     ats_provider=None, ats_tenant=None, ats_posting_id=None) if job else
+                     ats_provider=None, ats_tenant=None, ats_posting_id=None,
+                     company_link_state='pending', company_link_reason=None,
+                     employer_named_in_posting=None, company_review=None) if job else
                 dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                      contact_email='', notes='', custom={}, enrichment={},
-                     kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[]))
+                     kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
+                     identifiers=[], sources=[], field_provenance={}))
     result = defaults | (existing[1] if existing else {})
     result.update({k:v for k,v in data.items() if k in defaults})
+    if not isinstance(result['field_provenance'], dict) or any(
+            not isinstance(k, str) or not isinstance(v, str) for k, v in result['field_provenance'].items()):
+        raise ValueError('field_provenance must be an object mapping field names to text.')
     required = 'title' if job else 'name'
     for key, default in defaults.items():
         value = result[key]
@@ -483,9 +495,6 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         for key in ('normalized_url', 'source_id', 'ats_provider', 'ats_tenant', 'ats_posting_id'):
             if result[key] is not None and not isinstance(result[key], str):
                 raise ValueError(f'{key} must be text or null.')
-        if not isinstance(result['field_provenance'], dict) or any(
-                not isinstance(k, str) or not isinstance(v, str) for k, v in result['field_provenance'].items()):
-            raise ValueError('field_provenance must be an object mapping field names to text.')
         if result['ingest_error'] is not None:
             error = result['ingest_error']
             if (not isinstance(error, dict) or set(error) != {'stage', 'reason', 'at'}
@@ -507,6 +516,32 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
             raise ValueError('ingest_error is required when ingest_state is a failure state.')
         if result['ingest_state'] not in ('fetch_failed', 'extract_failed') and result['ingest_error'] is not None:
             raise ValueError('ingest_error must be null unless ingest_state is a failure state.')
+        if result['company_link_state'] not in ('linked', 'pending', 'needs_review'):
+            raise ValueError('Invalid company_link_state.')
+        if result['company_link_reason'] is not None and result['company_link_reason'] not in COMPANY_LINK_REASONS:
+            raise ValueError('Invalid company_link_reason.')
+        if result['employer_named_in_posting'] is not None and not isinstance(result['employer_named_in_posting'], str):
+            raise ValueError('employer_named_in_posting must be text or null.')
+        if result['company_review'] is not None:
+            review = result['company_review']
+            if not isinstance(review, dict) or set(review) != {'candidates', 'at', 'token'}:
+                raise ValueError('company_review must be an object with candidates, at, token.')
+            if not isinstance(review['at'], str):
+                raise ValueError('company_review.at must be text.')
+            if not isinstance(review['token'], str) or not review['token']:
+                raise ValueError('company_review.token must be text.')
+            candidates = review['candidates']
+            if not isinstance(candidates, list):
+                raise ValueError('company_review.candidates must be a list.')
+            for candidate in candidates:
+                if (not isinstance(candidate, dict) or not {'company_id', 'name', 'score', 'basis'} <= set(candidate)
+                        or set(candidate) - {'company_id', 'name', 'score', 'basis', 'current'}
+                        or ('current' in candidate and type(candidate['current']) is not bool)
+                        or not isinstance(candidate['company_id'], str)
+                        or not isinstance(candidate['name'], (str, type(None)))
+                        or not isinstance(candidate['score'], (int, float))
+                        or not isinstance(candidate['basis'], (str, type(None)))):
+                    raise ValueError('Each company_review candidate must have company_id, name, score, basis.')
         for key in ('salary_info', 'enriched', 'remote_ok'):
             if type(result[key]) is not bool and not (key == 'remote_ok' and result[key] is None):
                 raise ValueError(f'{key} must be boolean' + (' or null.' if key == 'remote_ok' else '.'))
@@ -553,6 +588,29 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
             raise ValueError(f'Unknown ISIC section code(s): {", ".join(unknown_sections)}')
         if result['size_class'] is not None and result['size_class'] not in SIZE_CLASSES:
             raise ValueError('Invalid company size_class.')
+        if result['identifiers'] is None:
+            result['identifiers'] = []
+        if not isinstance(result['identifiers'], list):
+            raise ValueError('identifiers must be a list.')
+        for ident in result['identifiers']:
+            if (not isinstance(ident, dict) or set(ident) != {'type', 'value', 'provenance'}
+                    or ident['type'] not in IDENTIFIER_TYPES
+                    or not isinstance(ident['value'], str) or not ident['value']
+                    or not isinstance(ident['provenance'], str)):
+                raise ValueError('Each identifier must have type, value, provenance.')
+        if result['sources'] is None:
+            result['sources'] = []
+        if not isinstance(result['sources'], list):
+            raise ValueError('sources must be a list.')
+        for source in result['sources']:
+            if (not isinstance(source, dict) or set(source) != {'id', 'kind', 'url', 'ats_provider', 'active', 'last_polled'}
+                    or not isinstance(source['id'], str)
+                    or source['kind'] not in SOURCE_KINDS
+                    or not isinstance(source['url'], str) or not source['url']
+                    or not isinstance(source['ats_provider'], (str, type(None)))
+                    or type(source['active']) is not bool
+                    or not isinstance(source['last_polled'], (str, type(None)))):
+                raise ValueError('Each source must have id, kind, url, ats_provider, active, last_polled.')
     if not job and 'enrichment' in data:
         validate_enrichment(data['enrichment'])
     if not job and result['name_source'] not in ('auto', 'owner'):
@@ -569,7 +627,9 @@ def save_job(root, data, identifier=None, *, correction_detail=None, history_eve
     result, previous = _save_record(root, 'jobs', data, identifier, correction_detail=correction_detail,
                                      history_event=history_event)
     from careeros.ingest import is_valid_contact_email
-    if is_valid_contact_email(result.get('contact_email')) and result.get('company_id'):
+    # Unresolved employer corrections retain email on the job until review links it.
+    if (result.get('company_link_state') != 'needs_review'
+            and is_valid_contact_email(result.get('contact_email')) and result.get('company_id')):
         company = load_company(root, result['company_id'])
         if company and not company.get('contact_email'):
             save_company(root, {'contact_email': result['contact_email']}, company['id'])
@@ -654,7 +714,82 @@ def _migrate_one_job(data):
                 if key not in data or data[key] != value:
                     changed = True
                 data[key] = value
+    # JOZ-266: company_link_state derives from whatever company_id this
+    # legacy record already carries (linked when set, else pending);
+    # company_link_reason/employer_named_in_posting/company_review have no
+    # derivable value for a pre-ladder record, so they backfill to null,
+    # exactly like the other Journey 1 additive fields above.
+    if 'company_link_state' not in data:
+        data['company_link_state'] = 'linked' if data.get('company_id') else 'pending'
+        changed = True
+    for key in ('company_link_reason', 'employer_named_in_posting', 'company_review'):
+        if key not in data:
+            data[key] = None
+            changed = True
+    review = data.get('company_review')
+    if review is None and data.get('company_link_state') == 'needs_review':
+        review = data['company_review'] = {'candidates': [], 'at': timestamp()}
+        changed = True
+    if isinstance(review, dict) and not review.get('token'):
+        review['token'] = uuid.uuid4().hex
+        changed = True
     return changed
+
+
+def _migrate_one_company(data):
+    """Backfill JOZ-266's additive company fields: identifiers derives one
+    domain identifier from the stored website, when present (provenance
+    'derived', since it predates any ladder match); sources backfills to an
+    empty list, since a pre-ladder company never recorded a careers-page or
+    ATS-feed source. Both use setdefault semantics (a genuinely absent key
+    only), matching _migrate_one_job's treatment of in_pipeline/origin/etc:
+    an empty list is itself a valid, final, previously-derived answer."""
+    changed = False
+    if 'identifiers' not in data:
+        identifiers = []
+        website = data.get('website')
+        if website:
+            from careeros import intake
+            try:
+                domain = intake.domain(website)
+            except Exception:
+                domain = ''
+            if domain:
+                identifiers.append({'type': 'domain', 'value': domain, 'provenance': 'derived'})
+        data['identifiers'] = identifiers
+        changed = True
+    if 'sources' not in data:
+        data['sources'] = []
+        changed = True
+    return changed
+
+
+def migrate_company_fields(root):
+    """One-time idempotent migration (JOZ-266), the company-side counterpart
+    of migrate_job_fields: every company gains identifiers and sources.
+    Reads and writes the YAML directly, isolating one malformed record from
+    the rest of the sweep, for the same reasons migrate_job_fields does."""
+    migrated = []
+    for path in sorted((Path(root) / 'companies').glob('*.yaml')):
+        # m9: read, transform, AND write all sit inside one isolation
+        # boundary per record -- a write failure (e.g. a transient OSError)
+        # must report to stderr and let the sweep continue onto the next
+        # record, not abort every record after it.
+        data = None
+        try:
+            data = _read(path)
+            if not data:
+                continue
+            changed = _migrate_one_company(data)
+            if changed:
+                _write(path, data)
+                migrated.append(data.get('id'))
+        except Exception as error:
+            label = data.get('id', path.name) if isinstance(data, dict) else path.name
+            print(f'migrate_company_fields: skipped {label} '
+                  f'({type(error).__name__}: {error})', file=sys.stderr)
+            continue
+    return migrated
 
 
 def migrate_job_fields(root):
@@ -672,18 +807,22 @@ def migrate_job_fields(root):
     the whole sweep (and, since this runs at app startup, the whole app)."""
     migrated = []
     for path in sorted((Path(root) / 'jobs').glob('*.yaml')):
-        data = _read(path)
-        if not data:
-            continue
+        # m9: see migrate_company_fields -- read, transform, and write all
+        # sit inside the same per-record isolation boundary now.
+        data = None
         try:
+            data = _read(path)
+            if not data:
+                continue
             changed = _migrate_one_job(data)
+            if changed:
+                _write(path, data)
+                migrated.append(data.get('id'))
         except Exception as error:
-            print(f'migrate_job_fields: skipped {data.get("id", path.name)} '
+            label = data.get('id', path.name) if isinstance(data, dict) else path.name
+            print(f'migrate_job_fields: skipped {label} '
                   f'({type(error).__name__}: {error})', file=sys.stderr)
             continue
-        if changed:
-            _write(path, data)
-            migrated.append(data.get('id'))
     return migrated
 
 def backfill_company_kind(root):

@@ -307,6 +307,13 @@ def _extract(url, parser, schema):
         if not match:
             match = re.search(r'(?:Company|Employer|Firma|Unternehmen)(?:\s*:\s*|\s*\n\s*)([^\n]+)', '\n'.join(parser.text), re.I)
         company = match.group(1).strip() if match else ''
+    # JOZ-266: the employer name a job actually links against must never be
+    # a guess (spec global rule 2). company itself keeps its pre-existing
+    # slug/domain fallback below for the unrelated company-text display
+    # field; employer_named_in_posting captures only the evidenced value,
+    # before that fallback runs, staying null when the posting offered
+    # nothing (not_evidenced, not a guess).
+    employer_named_in_posting = company or None
     if not company:
         company = slug.replace('-', ' ').replace('_', ' ').title() if platform else source.split('.')[0].replace('-', ' ').title()
     website = None
@@ -383,7 +390,8 @@ def _extract(url, parser, schema):
                 title=title or fallback, company=company, website=website, source=source,
                 original_url=url if platform else None, salary_info=bool(salary), salary_note=salary,
                 location=', '.join(dict.fromkeys(locations)), remote_ok=remote, posted_date=posted,
-                employment_type=str(employment), valid_through=str(schema.get('validThrough') or ''))
+                employment_type=str(employment), valid_through=str(schema.get('validThrough') or ''),
+                employer_named_in_posting=employer_named_in_posting)
 
 
 def _merge_extracted(data, fields, schema, parser):
@@ -408,6 +416,10 @@ def _merge_extracted(data, fields, schema, parser):
             if key == 'title' and GENERIC_TITLE_RE.match(str(value)) and data.get('title'):
                 continue
         data[key] = value
+        if key == 'company' and value and fields.get('ingest_source') == 'llm':
+            data['employer_named_in_posting'] = value
+            data['field_provenance'] = {**data.get('field_provenance', {}),
+                                        'employer_named_in_posting': 'llm'}
     from careeros.ingest import redact
     return redact(data)
 

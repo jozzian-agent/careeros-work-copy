@@ -549,12 +549,16 @@ def test_netloc_normalization(url):
 
 
 @pytest.mark.parametrize('host', SHARED_ATS_HOSTS)
-def test_shared_ats_tenant_keys(host):
-    from careeros.server import _company_url_key, _company_website
-    first = 'https://jobs.' + host + '/Alpha/role'
-    assert _company_url_key(first) == _company_url_key('https://jobs.' + host + '/alpha/other')
-    assert _company_url_key(first) != _company_url_key('https://jobs.' + host + '/beta/role')
-    assert _company_website(first) is None
+def test_shared_ats_website_never_recorded(host):
+    # M4 (JOZ-266 fix round): the old _company_url_key classifier this
+    # test exercised was removed (it could promote a provider-host match
+    # into tenant ownership without checking the tenant itself -- see
+    # test_cross_tenant_refline_website_is_not_promoted_to_ats_link in
+    # test_company_resolve.py). _company_website's unrelated "never record
+    # an ATS platform's own host as the employer's website" behavior is
+    # untouched and still covered here.
+    from careeros.server import _company_website
+    assert _company_website('https://jobs.' + host + '/Alpha/role') is None
 
 
 def test_ats_tenant_split_and_existing_path_match(tmp_path, monkeypatch):
@@ -613,16 +617,35 @@ def test_async_url_change_discards_entire_result(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('matched', [False, True])
 def test_async_company_correction_and_email(tmp_path, monkeypatch, matched):
+    # M2 (JOZ-266 fix round): the extraction callback's 'company' field now
+    # feeds the shared resolution ladder (employer_named_in_posting) instead
+    # of an ad-hoc exact-name-only match. The job's existing (auto-created,
+    # guessed-name) company link is never silently swapped for a different,
+    # exactly-matching company without a review step -- "matched" now means
+    # that other company surfaces as a candidate, not a silent switch.
     target = vault.save_company(tmp_path, {'name': 'Correct Labs'}) if matched else None
     app, api, baseline, callback = capture_intake(tmp_path, monkeypatch)
     callback({'company': 'Correct Labs', 'contact_email': 'jobs@correct.example'})
     job = api.get('/api/jobs/' + baseline['id']).json
     assert job['company'] == 'Correct Labs'
-    assert job['company_id'] == (target['id'] if matched else baseline['company_id'])
+    assert job['employer_named_in_posting'] == 'Correct Labs'
+    assert job['company_id'] == baseline['company_id']
     assert any(event['event'] == 'company_correction' for event in job['history'])
     if matched:
-        assert vault.load_company(tmp_path, target['id'])['contact_email'] == 'jobs@correct.example'
-        assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
+        assert job['company_link_state'] == 'needs_review'
+        candidates = job['company_review']['candidates']
+        assert candidates and candidates[0]['company_id'] == target['id']
+        assert vault.load_company(tmp_path, target['id'])['contact_email'] == ''
+    assert job['company_link_state'] == 'needs_review'
+    assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
+    choice = {'company_id': target['id']} if matched else {'create': {'name': 'Correct Labs'}}
+    resolved = api.post('/api/jobs/' + job['id'] + '/resolve-review',
+                        json=choice | {'review_token': job['company_review']['token']})
+    assert resolved.status_code == 200
+    recipient = vault.load_company(tmp_path, resolved.json['company_id'])
+    assert recipient['name'] == 'Correct Labs'
+    assert recipient['contact_email'] == 'jobs@correct.example'
+    assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
 
 
 def test_async_total_deadline_clears_pending(tmp_path, monkeypatch, capsys):
@@ -773,13 +796,24 @@ def test_redaction_retains_normal_content():
 
 
 def test_company_email_fill_migrates_existing_job_email(tmp_path, monkeypatch):
+    # An existing job email is held through review, then promoted to the chosen employer.
     target = vault.save_company(tmp_path, {'name': 'Correct Labs'})
     app, api, baseline, callback = capture_intake(tmp_path, monkeypatch)
+    # The saved email predates this extraction and belongs to an unresolved job.
+    vault.save_job(tmp_path, {'company_link_state': 'needs_review',
+        'company_review': {'candidates': [], 'at': vault.timestamp(), 'token': 'existing-review'}}, baseline['id'])
     api.put('/api/jobs/' + baseline['id'], json={'contact_email': 'owner@safe.example'})
     callback({'company': 'Correct Labs', 'contact_email': 'extracted@safe.example'})
     job = api.get('/api/jobs/' + baseline['id']).json
+    assert job['company_link_state'] == 'needs_review'
     assert job['contact_email'] == 'owner@safe.example'
+    assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
+    assert vault.load_company(tmp_path, target['id'])['contact_email'] == ''
+    response = api.post('/api/jobs/' + job['id'] + '/resolve-review', json={
+        'company_id': target['id'], 'review_token': job['company_review']['token']})
+    assert response.status_code == 200
     assert vault.load_company(tmp_path, target['id'])['contact_email'] == 'owner@safe.example'
+    assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
 
 
 def test_async_summary_provenance_marker(tmp_path, monkeypatch):
