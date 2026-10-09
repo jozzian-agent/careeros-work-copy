@@ -1718,6 +1718,29 @@ def test_company_detail_hides_retry_when_fields_are_filled(client, root):
     assert 'id="retry-company"' not in html
 
 
+# --- Owner click-test follow-up 2026-10-09: sector label on detail page -----
+# The directory card showed the resolved sector but the detail page did not.
+# Same read-time label mapping, never bare codes, 'Sector unknown' fallback.
+
+def test_company_detail_shows_sector_label_not_code(client, root):
+    company = vault.save_company(root, {'name': 'Label Detail Labs', 'sectors': ['D'],
+                                        'size_class': 'large'})
+    html = client.get('/companies/' + company['id']).text
+    label = next(s['label'] for s in sectors.load_isic_sections() if s['code'] == 'D')
+    assert label in html
+    # The Classification card line must carry the label, never the bare
+    # code (Section 3 display rule, same as the directory card).
+    classification = html.split('<h2>Classification</h2>')[1].split('</a>')[0]
+    assert label in classification
+    assert 'D ·' not in classification and 'D</p' not in classification
+
+
+def test_company_detail_shows_sector_unknown_when_unclassified(client, root):
+    company = vault.save_company(root, {'name': 'Unknown Detail Labs'})
+    html = client.get('/companies/' + company['id']).text
+    assert 'Sector unknown' in html
+
+
 def test_company_detail_hides_retry_for_an_untouched_company(client, root):
     company = vault.save_company(root, {'name': 'Untouched Labs'})
     html = client.get('/companies/' + company['id']).text
