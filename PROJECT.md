@@ -131,10 +131,10 @@ Gestalt, React, with blue and purple replacing the default red. Component invent
 |---|---|
 | Enrich with AI, Enrich pending, Backfill sector/size | One Retry, owner only. Enrichment already starts on ingest. Retry scheduling stays out of scope. DONE 2026-10-09 (visible to everyone until M2 roles). |
 | Status shown as filter pills, columns, card dropdown and a Board and List switch | Columns are the filter. One control per card. Keep Function and add Needs attention. |
-| Notes appear twice on the company page | One notes field |
+| Notes appear twice on the company page | One notes field. DONE 2026-10-09 (read-only markdown card removed; the editable textarea is the one field). |
 | Opportunities, Experience, Posting URL | Jobs, Experiences, Add a job by link or title |
-| Custom fields JSON on the company | Check what reads it, then delete if nothing does |
-| Interviews tab, the taxonomy sub-page text, an empty Updated line | Delete until the feature exists |
+| Custom fields JSON on the company | Check what reads it, then delete if nothing does. DONE 2026-10-09 (nothing rendered it; form control removed, stored data preserved on every company write path). |
+| Interviews tab, the taxonomy sub-page text, an empty Updated line | Delete until the feature exists. Interviews tab and the empty Updated line DONE 2026-10-09 (nav entry, route, and page deleted; Updated span removed from Search). The taxonomy sub-page text stays: those pages exist. |
 | Five Edit buttons on Search | One edit mode |
 | AI summary, AI responsibilities and original description on a job | Show the AI version, collapse the original under the source |
 | Chunk 4, JOB and CO identifiers | Delete from the interface |

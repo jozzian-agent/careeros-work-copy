@@ -1,9 +1,7 @@
 """Company directory and editable profiles."""
 from flask import abort, current_app
-from markupsafe import Markup
 from careeros import sectors, vault
 from careeros.web.ui import page
-from careeros.web.markdown import render_markdown
 
 EMPTY_STATE = 'No companies yet — add a job to start your directory.'
 
@@ -36,8 +34,7 @@ def detail(identifier):
                 entries=[j for j in vault.list_jobs(root) if j.get('company_id') == identifier],
                 experiences=[e for e in vault.list_experiences(root) if e.get('company_id') == identifier],
                 companies={identifier: company}, isic_sections=sectors.load_isic_sections(),
-                size_classes=vault.SIZE_CLASSES, kinds=vault.KINDS,
-                markdown=Markup(render_markdown(company.get('notes', ''))))
+                size_classes=vault.SIZE_CLASSES, kinds=vault.KINDS)
 
 def taxonomy(identifier):
     """Taxonomy sub-page (approved wireframe 2026-10-07): kind, ISIC

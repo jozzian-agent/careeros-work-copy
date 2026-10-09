@@ -8,10 +8,10 @@ import yaml
 
 from careeros.server import create_app
 from careeros.web import theme, ui
-from careeros.web.pages import companies, experiences, interviews, jobs, search
+from careeros.web.pages import companies, experiences, jobs, search
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGES = (search, experiences, jobs, companies, interviews)
+PAGES = (search, experiences, jobs, companies)
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def test_empty_or_missing_vault(tmp_path, exists):
     if exists:
         vault.mkdir()
     app = create_app(vault)
-    for route in ['/', '/search', '/experiences', '/jobs', '/companies', '/interviews']:
+    for route in ['/', '/search', '/experiences', '/jobs', '/companies']:
         assert app.test_client().get(route).status_code == 200
     assert list(vault.iterdir()) == [] if exists else not vault.exists()
     assert app.config['VAULT_PATH'] == vault

@@ -18,7 +18,7 @@ from careeros import url_normalize
 from careeros import dedupe
 import difflib
 
-from careeros.web.pages import companies, experiences, interviews, jobs, search
+from careeros.web.pages import companies, experiences, jobs, search
 from careeros.web.theme import page_shell
 
 DEFAULT_VAULT = Path('/root/career-os')
@@ -92,7 +92,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
     app = Flask(__name__)
     app.config['VAULT_PATH'] = Path(vault if vault is not None else os.environ.get('CAREEROS_VAULT', DEFAULT_VAULT)).expanduser()
     app.add_url_rule('/', 'index', search.build_page)
-    for module in (search, experiences, jobs, companies, interviews):
+    for module in (search, experiences, jobs, companies):
         slug = module.__name__.rsplit('.', 1)[-1]
         app.add_url_rule(f'/{slug}', slug, module.build_page)
 
