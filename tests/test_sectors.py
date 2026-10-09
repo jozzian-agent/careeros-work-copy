@@ -1612,6 +1612,63 @@ def test_llm_signal_prompt_contains_only_identifying_fields_never_job_data(tmp_p
     assert 'Berlin' in content and 'Owner note.' in content
 
 
+def test_llm_system_prompt_inlines_the_isic_letter_table(tmp_path, monkeypatch):
+    """The system prompt must carry every ISIC letter + label from
+    isic_sections.yaml so the model looks the mapping up instead of
+    recalling it (live defect 2026-10-09: the local LLM answered letter C
+    with the section-D label 'Electricity, gas, steam...' and the
+    consistency check correctly refused -- Retry could never resolve a
+    real grid operator until the table shipped)."""
+    import json
+    prompt = company_lookup._llm_system_prompt()
+    loaded = sectors.load_isic_sections()
+    assert len(loaded) == 21  # A-U ISIC Rev.4 sections
+    for section in loaded:
+        assert f"{section['code']} = {section['label']}" in prompt
+    # Cache discipline (Codex review 2026-10-09): with sectors._SECTIONS
+    # warm, building the prompt again must not re-read the YAML file.
+    sectors._sections()  # warm the cache
+    read_calls = []
+    real_read_text = Path.read_text
+
+    def counting_read_text(self, *args, **kwargs):
+        read_calls.append(str(self))
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', counting_read_text)
+    company_lookup._llm_system_prompt()
+    assert not any('isic_sections' in path for path in read_calls)
+    # The two letters that were confused live must both be present with
+    # their correct labels, so a lookup cannot return C for electricity.
+    assert 'D = Electricity, gas, steam and air conditioning supply' in prompt
+    assert 'C = Manufacturing' in prompt
+    # The table is in the SYSTEM message, and identifying fields remain
+    # the only user content.
+    monkeypatch.setenv('BACKFILL_USE_LLM', '1')
+    captured = {}
+
+    def fake_client():
+        client = client_for(json.dumps({'sector': None, 'sector_label': None,
+                                        'confidence': 'low', 'size_hint': None}))
+        real_create = client.chat.completions.create
+
+        def capturing_create(**kwargs):
+            captured['messages'] = kwargs['messages']
+            return real_create(**kwargs)
+        client.chat.completions.create = capturing_create
+        return client
+
+    monkeypatch.setattr(company_lookup, 'get_llm_client', fake_client)
+    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    vault.save_company(tmp_path, {'name': 'Table Co', 'website': 'https://table.example'})
+    company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    system = [m for m in captured['messages'] if m['role'] == 'system']
+    assert len(system) == 1
+    assert 'D = Electricity, gas, steam and air conditioning supply' in system[0]['content']
+    user = [m for m in captured['messages'] if m['role'] == 'user'][0]['content']
+    assert 'ISIC' not in user  # table never leaks into user content
+
+
 def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')

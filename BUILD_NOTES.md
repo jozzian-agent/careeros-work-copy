@@ -302,7 +302,8 @@ website/name to query." This means:
 
 ## (b) Decision-20 gating, in code
 
-The prompt (`LLM_SYSTEM_PROMPT`) asks for strict JSON:
+The prompt (`_llm_system_prompt()`, with the ISIC letter table inlined
+from isic_sections.yaml) asks for strict JSON:
 `{"sector": <ISIC letter A-U or null>, "sector_label": <short rationale or
 null>, "confidence": "high"|"low", "size_hint": <EU size class or null>}`.
 The model's own confidence claim is never trusted blindly; `_llm_signal`
