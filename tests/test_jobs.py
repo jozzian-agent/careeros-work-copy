@@ -381,12 +381,26 @@ def test_enrich_private_guard(client,monkeypatch):
 
 def test_job_views(client):
     html=client.get('/jobs').text
-    assert 'id="view-toggle"' in html and 'id="enrich-pending"' in html
+    assert 'id="view-toggle"' in html
     for status in vault.STATUSES:
         assert 'data-column="'+status+'"' in html
     for label in ['Title','Company','Source','Status','Location','Posted','Added']:
         assert '>'+label+'</button></th>' in html
-    assert 'id="enrich-job"' in client.get('/jobs/JOB-001').text
+
+
+def test_m1_audit_removed_enrichment_buttons_do_not_render(client):
+    # M1 audit: Enrich pending (jobs toolbar), Enrich with AI and per-job
+    # Enrich (job detail) are merged into the existing retry-ingest Retry
+    # chip; enrichment already starts on ingest, so none of these manual
+    # triggers should ever render again, on any job in any state.
+    jobs_html = client.get('/jobs').text
+    assert 'id="enrich-pending"' not in jobs_html
+    assert 'Enrich pending' not in jobs_html
+    for job_id in ('JOB-001', 'JOB-002'):
+        detail_html = client.get('/jobs/' + job_id).text
+        assert 'id="extract-job"' not in detail_html and 'Enrich with AI' not in detail_html
+        assert 'id="enrich-job"' not in detail_html
+        assert 'aria-label="Enrich"' not in detail_html
 
 
 def test_enrich_company_dedupe_and_exclusive_rename(client,monkeypatch):
@@ -813,21 +827,34 @@ def test_job_detail_short_description_not_collapsible(client):
     assert '<details>' not in html
 
 
-def test_job_detail_reenrich_button_present(client):
+def test_job_detail_no_reenrich_button_when_idle(client):
+    # M1 audit: "Enrich with AI" is removed; enrichment already starts on
+    # ingest, and a failed/exhausted job retries via the existing
+    # retry-ingest Retry chip instead of a dedicated enrich button.
     html = client.get('/jobs/JOB-001').text
-    assert 'id="extract-job"' in html and 'Enrich with AI' in html
+    assert 'id="extract-job"' not in html and 'Enrich with AI' not in html
     assert 'id="extract-pending-chip"' not in html
 
 
 def test_job_detail_shows_pending_ai_state(client, monkeypatch):
-    import re
     from careeros import ingest
     from unittest.mock import Mock
-    monkeypatch.setattr(ingest, 'extract_async', lambda description, callback: Mock(is_alive=lambda: True))
+    started = threading.Event()
+
+    def extract_async(description, callback, *, function_options):
+        started.set()
+        return Mock(is_alive=lambda: True)
+
+    monkeypatch.setattr(ingest, 'extract_async', extract_async)
     assert client.post('/api/jobs/JOB-001/extract').status_code == 202
+    assert started.wait(5)
+    worker = client.application.config['REFRESH_THREADS']['JOB-001']
+    worker.join(5)
+    assert not worker.is_alive()
     html = client.get('/jobs/JOB-001').text
+    # The pending STATUS chip is a fact and stays; the manual trigger button does not.
     assert 'id="extract-pending-chip"' in html
-    assert re.search(r'id="extract-job"[^>]*\bdisabled\b', html)
+    assert 'id="extract-job"' not in html
 
 
 def test_job_detail_polls_only_while_pending(client, monkeypatch):
@@ -837,8 +864,18 @@ def test_job_detail_polls_only_while_pending(client, monkeypatch):
     from unittest.mock import Mock
     html = client.get('/jobs/JOB-001').text
     assert 'if(false)pollTimer=setInterval(checkEnrichment,4000)' in html
-    monkeypatch.setattr(ingest, 'extract_async', lambda description, callback: Mock(is_alive=lambda: True))
+    started = threading.Event()
+
+    def extract_async(description, callback, *, function_options):
+        started.set()
+        return Mock(is_alive=lambda: True)
+
+    monkeypatch.setattr(ingest, 'extract_async', extract_async)
     assert client.post('/api/jobs/JOB-001/extract').status_code == 202
+    assert started.wait(5)
+    worker = client.application.config['REFRESH_THREADS']['JOB-001']
+    worker.join(5)
+    assert not worker.is_alive()
     html = client.get('/jobs/JOB-001').text
     assert 'if(true)pollTimer=setInterval(checkEnrichment,4000)' in html
     assert 'data.llm_pending' in html

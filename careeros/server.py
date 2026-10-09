@@ -140,62 +140,76 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def teardown_cascades(error=None):
         prune_cascade_threads()
 
+    def run_company_cascade(root, company_id):
+        """Shared cascade body for the automatic new-company path
+        (schedule_company_cascade) and the owner-triggered company Retry
+        (POST /api/companies/<id>/retry, M1 audit: replaces the Backfill
+        sector/size button, scoped to one company instead of sweeping all
+        of them). Same sectors_cascade/size_cascade entry points
+        backfill_sector_size uses; company_lookup.py itself stays
+        unmodified. Runs the network phase outside the write lock -- a
+        caller holding it across network I/O would starve every other
+        writer -- and applies any eligible result under the lock
+        afterward, with the same Decision-20 review-flag accounting
+        plan_backfill uses. Returns the saved company (or the unmodified
+        record, possibly None, when there is nothing eligible to run)."""
+        company = storage.load_company(root, company_id)
+        if company is None or company.get('kind', 'employer') != 'employer':
+            return company
+        collector = company_lookup.BackfillAccounting()
+        new_sectors, sector_flag = company_lookup.sectors_cascade(company, collector=collector)
+        size_changes, size_flag = company_lookup.size_cascade(company, collector=collector)
+        with write_lock:
+            current = storage.load_company(root, company_id)
+            if current is None or current.get('kind', 'employer') != 'employer':
+                return current
+            # A completed cascade invalidates older results, including state and accounting.
+            if current.get('enrichment', {}).get('attempted_at') != company.get('enrichment', {}).get('attempted_at'):
+                return current
+            provenance = current.get('field_provenance', {})
+            changes = {}
+            flags = current.get('review_flags', [])
+            states = dict(current.get('enrichment', {}).get('field_states', {}))
+            for field, keys, proposed, flag, resolved in (
+                ('sectors', ('sectors',), {'sectors': new_sectors} if new_sectors else {},
+                 sector_flag, (company_lookup.FLAG_SECTOR_AMBIGUOUS, company_lookup.FLAG_SECTOR_CONFLICT)),
+                ('size', ('size_range', 'size_class'), size_changes or {}, size_flag,
+                 (company_lookup.FLAG_SIZE_INCONSISTENT,)),
+            ):
+                # Size is a consistency-checked pair: discard stale evidence if either changed.
+                if any(current.get(k) != company.get(k) or provenance.get(k) == 'user' for k in keys):
+                    continue
+                eligible = {k: v for k, v in proposed.items() if not current.get(k)}
+                changes.update(eligible)
+                if eligible:
+                    flags = company_lookup._clear_flags(flags, resolved)
+                elif flag:
+                    flags = company_lookup._merge_flags(flags, flag)
+                states[field] = {
+                    'state': 'filled' if eligible or all(current.get(k) for k in keys)
+                             else 'flagged' if flag else 'exhausted',
+                    'attempted_at': storage.timestamp(),
+                    # Preserve BackfillAccounting's event/summary shape, including empty outcomes.
+                    'events': [e for e in collector.events if e['field'] == field],
+                    'applied_fields': list(eligible),
+                }
+            changes['review_flags'] = flags
+            changes['enrichment'] = {**current.get('enrichment', {}), 'field_states': states,
+                                    'attempted_at': storage.timestamp(),
+                                    'events': collector.events, 'summary': collector.summary()}
+            return storage.save_company(root, changes, company_id)
+
     def schedule_company_cascade(root, company_id):
-        """M7: a rung-4 new company gets the same sector/size enrichment
-        cascade an owner-triggered backfill would give it (the same
-        sectors_cascade/size_cascade entry points backfill_sector_size
-        uses; company_lookup.py itself stays unmodified). Runs the network
-        phase in a background thread -- outside the caller's write lock --
-        and applies any eligible result under the lock afterward, with the
-        same Decision-20 review-flag accounting plan_backfill uses."""
+        """M7: a rung-4 new company gets the same cascade run_company_cascade
+        runs for an owner-triggered company Retry. Runs in a background
+        thread since this path fires unannounced right after intake
+        creates the company. Tests disable AUTO_CASCADE_ENABLED to avoid
+        network calls. Explicit Retry bypasses this switch and always
+        runs the cascade; see the /retry route below."""
         if not AUTO_CASCADE_ENABLED:
             return None
-
-        def worker():
-            company = storage.load_company(root, company_id)
-            if company is None or company.get('kind', 'employer') != 'employer':
-                return
-            collector = company_lookup.BackfillAccounting()
-            new_sectors, sector_flag = company_lookup.sectors_cascade(company, collector=collector)
-            size_changes, size_flag = company_lookup.size_cascade(company, collector=collector)
-            with write_lock:
-                current = storage.load_company(root, company_id)
-                if current is None or current.get('kind', 'employer') != 'employer':
-                    return
-                provenance = current.get('field_provenance', {})
-                changes = {}
-                flags = current.get('review_flags', [])
-                states = dict(current.get('enrichment', {}).get('field_states', {}))
-                for field, keys, proposed, flag, resolved in (
-                    ('sectors', ('sectors',), {'sectors': new_sectors} if new_sectors else {},
-                     sector_flag, (company_lookup.FLAG_SECTOR_AMBIGUOUS, company_lookup.FLAG_SECTOR_CONFLICT)),
-                    ('size', ('size_range', 'size_class'), size_changes or {}, size_flag,
-                     (company_lookup.FLAG_SIZE_INCONSISTENT,)),
-                ):
-                    # Size is a consistency-checked pair: discard stale evidence if either changed.
-                    if any(current.get(k) != company.get(k) or provenance.get(k) == 'user' for k in keys):
-                        continue
-                    eligible = {k: v for k, v in proposed.items() if not current.get(k)}
-                    changes.update(eligible)
-                    if eligible:
-                        flags = company_lookup._clear_flags(flags, resolved)
-                    elif flag:
-                        flags = company_lookup._merge_flags(flags, flag)
-                    states[field] = {
-                        'state': 'filled' if eligible or all(current.get(k) for k in keys)
-                                 else 'flagged' if flag else 'exhausted',
-                        'attempted_at': storage.timestamp(),
-                        # Preserve BackfillAccounting's event/summary shape, including empty outcomes.
-                        'events': [e for e in collector.events if e['field'] == field],
-                        'applied_fields': list(eligible),
-                    }
-                changes['review_flags'] = flags
-                changes['enrichment'] = {**current.get('enrichment', {}), 'field_states': states,
-                                        'attempted_at': storage.timestamp(),
-                                        'events': collector.events, 'summary': collector.summary()}
-                storage.save_company(root, changes, company_id)
         prune_cascade_threads()
-        thread = Thread(target=worker, daemon=True)
+        thread = Thread(target=lambda: run_company_cascade(root, company_id), daemon=True)
         with pending_lock:
             app.config['CASCADE_THREADS'][company_id] = thread
             thread.start()
@@ -1159,6 +1173,28 @@ def create_app(vault: str | Path | None = None) -> Flask:
         with write_lock:
             updated = company_lookup.apply_backfill(root, plan)
         return jsonify(updated=updated, scanned=scanned, signal_summary=collector.summary())
+
+    @app.post('/api/companies/<identifier>/retry')
+    def retry_company(identifier):
+        """M1 audit: the per-company Retry that replaces the Backfill
+        sector/size button -- same explicit, owner-triggered rule as
+        backfill_sector_size (decision 27), reusing run_company_cascade
+        (the same sectors_cascade/size_cascade entry points) scoped to one
+        company instead of sweeping all of them. Never gated on
+        AUTO_CASCADE_ENABLED: a deliberate Retry click must never appear
+        to do nothing."""
+        root = app.config['VAULT_PATH']
+        company = storage.load_company(root, identifier)
+        if company is None:
+            return jsonify(error='Company not found.'), 404
+        if company.get('kind', 'employer') != 'employer':
+            return jsonify(error='Only employers have sector and size enrichment.'), 400
+        result = run_company_cascade(root, identifier)
+        if result is None:
+            return jsonify(error='Company not found.'), 404
+        if result.get('kind', 'employer') != 'employer':
+            return jsonify(error='Only employers have sector and size enrichment.'), 400
+        return jsonify(result)
 
     @app.errorhandler(ValueError)
     def invalid_data(error):

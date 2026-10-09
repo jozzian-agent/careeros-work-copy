@@ -1079,9 +1079,13 @@ def test_companies_page_card_shows_sector_label_not_bare_code(client, root):
     assert 'Information and communication' in html  # the ISIC label for J, not the bare code "J"
 
 
-def test_companies_page_has_backfill_action(client, root):
+def test_companies_page_has_no_backfill_action(client, root):
+    # M1 audit: the sweep-all-companies Backfill button is removed; retrying
+    # one company's sector/size enrichment now happens on that company's own
+    # page via the Retry control (see test_company_detail_shows_retry_*).
     html = client.get('/companies').text
-    assert 'id="backfill-sector-size"' in html
+    assert 'id="backfill-sector-size"' not in html
+    assert 'Backfill sector/size' not in html
 
 
 def test_backfill_endpoint_is_explicit_and_never_runs_automatically(client, root, monkeypatch):
@@ -1617,3 +1621,164 @@ def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
     summary = collector.summary()
     assert summary['matched'] == 2  # one for sectors, one for size
     assert summary['fetch-error'] == 0 and summary['ambiguous'] == 0
+
+
+# --- M1 audit: per-company Retry replaces the sweep-all Backfill button ----
+# Visibility follows the states rule exactly: 'exhausted' or 'flagged' on
+# any field_state, OR a non-empty review_flags list. A company with
+# everything filled (or simply untouched) shows no Retry -- nothing to retry.
+
+def test_company_detail_shows_retry_when_a_field_is_exhausted(client, root):
+    company = vault.save_company(root, {'name': 'Exhausted Labs', 'enrichment': {
+        'field_states': {'sectors': {'state': 'exhausted'}, 'size': {'state': 'exhausted'}}}})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' in html
+
+
+def test_company_detail_shows_retry_when_a_field_is_flagged(client, root):
+    company = vault.save_company(root, {'name': 'Flagged Labs', 'enrichment': {
+        'field_states': {'sectors': {'state': 'flagged'}}}})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' in html
+
+
+def test_company_detail_shows_retry_when_review_flags_present(client, root):
+    company = vault.save_company(root, {'name': 'Review Flagged Labs',
+                                        'review_flags': [company_lookup.FLAG_SECTOR_AMBIGUOUS]})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' in html
+
+
+def test_company_detail_hides_retry_when_fields_are_filled(client, root):
+    company = vault.save_company(root, {'name': 'Filled Labs', 'sectors': ['J'],
+                                        'size_range': '1-10', 'size_class': 'micro', 'enrichment': {
+        'field_states': {'sectors': {'state': 'filled'}, 'size': {'state': 'filled'}}}})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' not in html
+
+
+def test_company_detail_hides_retry_for_an_untouched_company(client, root):
+    company = vault.save_company(root, {'name': 'Untouched Labs'})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' not in html
+
+
+def test_retry_company_endpoint_happy_path_reuses_sector_size_cascade(client, root, monkeypatch):
+    company = vault.save_company(root, {'name': 'Retry Me Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade',
+                        lambda c, **kw: ({'size_range': '1-10', 'size_class': 'micro'}, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert response.json['sectors'] == ['J']
+    assert response.json['size_class'] == 'micro'
+    saved = vault.load_company(root, company['id'])
+    assert saved['sectors'] == ['J'] and saved['size_class'] == 'micro'
+    assert saved['enrichment']['field_states']['sectors']['state'] == 'filled'
+
+
+def test_retry_company_endpoint_404_for_missing_company(client, root):
+    assert client.post('/api/companies/missing-co/retry').status_code == 404
+
+
+def test_retry_company_endpoint_rejects_non_employer_kind(client, root):
+    institution = vault.save_company(root, {'name': 'Fiction University', 'kind': 'institution'})
+    response = client.post('/api/companies/' + institution['id'] + '/retry')
+    assert response.status_code == 400
+    # Rejected before any cascade work, and the record itself is untouched.
+    assert vault.load_company(root, institution['id']) == institution
+
+
+def test_retry_company_endpoint_never_gated_on_auto_cascade_enabled(client, root, monkeypatch):
+    # Decision 27's "explicit, owner-triggered, never silent" rule applies
+    # here too: a Retry click must always run, unlike the automatic
+    # new-company cascade which is off whenever AUTO_CASCADE_ENABLED is False
+    # (the suite-wide default, see conftest.offline).
+    from careeros import server
+    assert server.AUTO_CASCADE_ENABLED is False
+    company = vault.save_company(root, {'name': 'Always Runs Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['K'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda c, **kw: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert vault.load_company(root, company['id'])['sectors'] == ['K']
+
+
+def test_older_auto_cascade_cannot_overwrite_completed_retry(client, root, monkeypatch):
+    from threading import Event
+    from careeros import server
+
+    entered, release = Event(), Event()
+    monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
+
+    def older_empty(company, collector):
+        entered.set()
+        assert release.wait(5)
+        collector.record(company['id'], older_empty, 'sectors', 'empty')
+        return None, None
+
+    def newer_conflict(company, collector):
+        collector.record(company['id'], newer_conflict, 'sectors', 'ambiguous')
+        return None, company_lookup.FLAG_SECTOR_CONFLICT
+
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', older_empty)
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    monkeypatch.setattr(intake, 'fetch_url', lambda url:
+                        '<script type="application/ld+json">{"@type":"JobPosting",'
+                        '"title":"Role","hiringOrganization":{"name":"Retry Race Labs"}}'
+                        '</script><p>Build useful things.</p>')
+    response = client.post('/api/jobs/intake', json={'url': 'https://retry-race.example/job'})
+    company_id = response.json['job']['company_id']
+    worker = client.application.config['CASCADE_THREADS'][company_id]
+    try:
+        assert entered.wait(5)
+        monkeypatch.setattr(company_lookup, 'sectors_cascade', newer_conflict)
+        response = client.post('/api/companies/' + company_id + '/retry')
+        assert response.status_code == 200
+        completed = response.json
+        assert completed['enrichment']['field_states']['sectors']['state'] == 'flagged'
+        assert company_lookup.FLAG_SECTOR_CONFLICT in completed['review_flags']
+        assert completed['enrichment']['summary']['ambiguous'] == 1
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    assert vault.load_company(root, company_id) == completed
+
+
+@pytest.mark.parametrize('change,status', [('delete', 404), ('kind', 400)])
+def test_retry_company_rejects_mid_run_disappearance_or_kind_change(client, root, monkeypatch, change, status):
+    company = vault.save_company(root, {'name': 'Changed During Retry'})
+
+    def change_during_cascade(snapshot, **kwargs):
+        if change == 'delete':
+            assert client.delete('/api/companies/' + company['id']).status_code == 200
+        else:
+            assert client.put('/api/companies/' + company['id'], json={'kind': 'institution'}).status_code == 200
+        return ['J'], None
+
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', change_during_cascade)
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == status
+    assert response.json['error'] == ('Company not found.' if change == 'delete'
+                                      else 'Only employers have sector and size enrichment.')
+    saved = vault.load_company(root, company['id'])
+    if change == 'delete':
+        assert saved is None
+    else:
+        assert saved['kind'] == 'institution'
+        assert not saved['sectors']
+        assert not saved.get('enrichment')
+
+
+@pytest.mark.parametrize('flag,state', [(None, 'exhausted'), (company_lookup.FLAG_SECTOR_CONFLICT, 'flagged')])
+def test_retry_company_response_reports_completed_empty_or_flagged_outcome(client, root, monkeypatch, flag, state):
+    company = vault.save_company(root, {'name': 'Outcome Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda *a, **k: (None, flag))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert response.json['enrichment']['field_states']['sectors']['state'] == state
+    assert response.json['enrichment']['field_states']['size']['state'] == 'exhausted'
+    assert response.json['review_flags'] == ([flag] if flag else [])

@@ -129,7 +129,7 @@ Gestalt, React, with blue and purple replacing the default red. Component invent
 
 | Found in the prototype | Do this |
 |---|---|
-| Enrich with AI, Enrich pending, Backfill sector/size | One Retry, owner only. Enrichment already starts on ingest. Retry scheduling stays out of scope. |
+| Enrich with AI, Enrich pending, Backfill sector/size | One Retry, owner only. Enrichment already starts on ingest. Retry scheduling stays out of scope. DONE 2026-10-09 (visible to everyone until M2 roles). |
 | Status shown as filter pills, columns, card dropdown and a Board and List switch | Columns are the filter. One control per card. Keep Function and add Needs attention. |
 | Notes appear twice on the company page | One notes field |
 | Opportunities, Experience, Posting URL | Jobs, Experiences, Add a job by link or title |
@@ -200,6 +200,13 @@ Each milestone is accepted when the owner clicks through a running instance. Tas
 | M7 Friends can try it | The privacy note, the feedback link and five invitations exist. | Anything beyond the five friends |
 
 ## First task brief
+
+Status: BUILT 2026-10-09 on branch jozzian/m1-retry-merge. Owner
+decision (2026-10-09): option A, the Retry control is visible to
+everyone for now; owner-only gating waits for roles in M2. All three
+buttons removed; company Retry added via a per-company retry endpoint
+that reuses the sector and size cascades. Codex cross-review round 1
+(2 MAJOR, 2 MINOR) fixed and re-verified; suite 873 passed.
 
 ```
 ## Intent anchor

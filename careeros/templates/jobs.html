@@ -1,4 +1,4 @@
-<div class="page-header"><h1>Jobs</h1><div class="row"><div class="row" aria-label="Job view" id="view-toggle"><button data-view="board" aria-pressed="true">Board</button><button data-view="list" aria-pressed="false">List</button></div><button id="enrich-pending">Enrich pending</button></div></div>
+<div class="page-header"><h1>Jobs</h1><div class="row"><div class="row" aria-label="Job view" id="view-toggle"><button data-view="board" aria-pressed="true">Board</button><button data-view="list" aria-pressed="false">List</button></div></div></div>
 <form novalidate id="intake" class="card row"><label for="posting">Posting URL</label><input id="posting" type="url" placeholder="https://company.example/careers/role" required><button class="primary">Add</button></form>
 <dialog id="duplicate-warning"><h2>Possible duplicate</h2><p id="duplicate-message"></p><div class="row">
 <button id="duplicate-open-existing" hidden>Open existing</button>
@@ -102,5 +102,4 @@ try{
   await refresh();input.value='';toast('Job added');
 }catch(err){toast(err.message,true);}finally{button.disabled=false;}};
 document.getElementById('cards').addEventListener('click',e=>{const b=e.target.closest('.retry-ingest');if(!b)return;b.disabled=true;api('/api/jobs/'+encodeURIComponent(b.dataset.id)+'/extract','POST').then(()=>refresh()).catch(err=>toast(err.message,true)).finally(()=>b.disabled=false);});
-document.getElementById('enrich-pending').onclick=async e=>{const button=e.currentTarget,ids=Array.from(document.querySelectorAll((activeView==='board'?'.job-card':'.job-row')+'[data-pending="true"]')).filter(c=>!c.hidden).map(c=>c.dataset.id);button.disabled=true;let updated=0,failed=0;try{for(const id of ids){try{await api('/api/jobs/'+encodeURIComponent(id)+'/enrich','POST');updated++;}catch{failed++;}}await refresh();toast(updated+' updated, '+failed+' failed',failed>0);}catch(err){toast(updated+' updated, '+failed+' failed. '+err.message,true);}finally{button.disabled=false;}};
 </script>
