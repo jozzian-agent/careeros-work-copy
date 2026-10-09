@@ -13,6 +13,7 @@ from careeros import intake
 from careeros import ingest
 from careeros import sectors
 from careeros import company_lookup
+from careeros import company_resolve
 from careeros import url_normalize
 from careeros import dedupe
 import difflib
@@ -21,6 +22,18 @@ from careeros.web.pages import companies, experiences, interviews, jobs, search
 from careeros.web.theme import page_shell
 
 DEFAULT_VAULT = Path('/root/career-os')
+
+# M7 (JOZ-266 fix round): the new-company enrichment cascade (see
+# schedule_company_cascade) is on by default -- a fresh company created by
+# rung 4 gets the same sector/size enrichment an owner-triggered backfill
+# would give it. A module-level switch (rather than a parameter threaded
+# through create_app, which every test call site would need to learn
+# about) lets the test suite's own offline network guard
+# (tests/conftest.py) turn this off process-wide, since the cascade's
+# default fetcher is intake.fetch_url -- the exact function most tests
+# monkeypatch for their own posting-fetch mocking, with no relation to
+# this feature at all.
+AUTO_CASCADE_ENABLED = True
 
 
 SHARED_ATS_HOSTS = (
@@ -34,10 +47,17 @@ SHARED_ATS_HOSTS = (
 # overwrites it -- except these, which are either not content fields worth
 # protecting, already have their own dedicated handling, or would make the
 # marking meaningless (field_provenance itself).
+# M1 (JOZ-266 fix round): company_link_state and company_link_reason are
+# NOT excluded -- they are owner-editable, and must get the same
+# user-provenance protection as company_id itself, as a coherent group,
+# whether the owner sets them directly or (via the company_id branch
+# below) implicitly. company_review stays excluded: it is not itself a
+# decision field, only automation-managed review metadata.
 _PROVENANCE_EXCLUDED_FIELDS = frozenset({
     'field_provenance', 'history', 'id', 'added', 'status_changed',
     'summary_source', 'ingest_state', 'ingest_error', 'proposed_tags',
     'normalized_url', 'ats_provider', 'ats_tenant', 'ats_posting_id',
+    'company_review',
 })
 
 
@@ -55,12 +75,11 @@ def _shared_ats(value):
     return any(host == suffix or host.endswith('.' + suffix) for suffix in SHARED_ATS_HOSTS)
 
 
-def _company_url_key(value):
-    host = _netloc(value)
-    if _shared_ats(value):
-        segments = urlsplit(value).path.strip('/').split('/')
-        return (host, segments[0].casefold()) if segments[0] else None
-    return (host,) if host else None
+def _domain_of(value):
+    try:
+        return intake.domain(value)
+    except Exception:
+        return ''
 
 
 def _company_website(value):
@@ -92,6 +111,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
     try:
         with write_lock:
             storage.migrate_job_fields(app.config['VAULT_PATH'])
+            storage.migrate_company_fields(app.config['VAULT_PATH'])
     except OSError:
         pass
 
@@ -102,10 +122,84 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # Exposed so tests can join a background extraction deterministically.
     app.config['LLM_THREADS'] = {}
     app.config['REFRESH_THREADS'] = {}
+    # Exposed so tests can join a background cascade (M7) deterministically.
+    app.config['CASCADE_THREADS'] = {}
     # Guards llm_pending reservation so intake and /extract can never both
     # win a worker slot for the same job, and so a stale callback can never
     # clear a slot a newer run holds.
     pending_lock = RLock()
+
+    def prune_cascade_threads():
+        with pending_lock:
+            threads = app.config['CASCADE_THREADS']
+            for identifier, thread in list(threads.items()):
+                if thread.ident is not None and not thread.is_alive():
+                    threads.pop(identifier, None)
+
+    @app.teardown_appcontext
+    def teardown_cascades(error=None):
+        prune_cascade_threads()
+
+    def schedule_company_cascade(root, company_id):
+        """M7: a rung-4 new company gets the same sector/size enrichment
+        cascade an owner-triggered backfill would give it (the same
+        sectors_cascade/size_cascade entry points backfill_sector_size
+        uses; company_lookup.py itself stays unmodified). Runs the network
+        phase in a background thread -- outside the caller's write lock --
+        and applies any eligible result under the lock afterward, with the
+        same Decision-20 review-flag accounting plan_backfill uses."""
+        if not AUTO_CASCADE_ENABLED:
+            return None
+
+        def worker():
+            company = storage.load_company(root, company_id)
+            if company is None or company.get('kind', 'employer') != 'employer':
+                return
+            collector = company_lookup.BackfillAccounting()
+            new_sectors, sector_flag = company_lookup.sectors_cascade(company, collector=collector)
+            size_changes, size_flag = company_lookup.size_cascade(company, collector=collector)
+            with write_lock:
+                current = storage.load_company(root, company_id)
+                if current is None or current.get('kind', 'employer') != 'employer':
+                    return
+                provenance = current.get('field_provenance', {})
+                changes = {}
+                flags = current.get('review_flags', [])
+                states = dict(current.get('enrichment', {}).get('field_states', {}))
+                for field, keys, proposed, flag, resolved in (
+                    ('sectors', ('sectors',), {'sectors': new_sectors} if new_sectors else {},
+                     sector_flag, (company_lookup.FLAG_SECTOR_AMBIGUOUS, company_lookup.FLAG_SECTOR_CONFLICT)),
+                    ('size', ('size_range', 'size_class'), size_changes or {}, size_flag,
+                     (company_lookup.FLAG_SIZE_INCONSISTENT,)),
+                ):
+                    # Size is a consistency-checked pair: discard stale evidence if either changed.
+                    if any(current.get(k) != company.get(k) or provenance.get(k) == 'user' for k in keys):
+                        continue
+                    eligible = {k: v for k, v in proposed.items() if not current.get(k)}
+                    changes.update(eligible)
+                    if eligible:
+                        flags = company_lookup._clear_flags(flags, resolved)
+                    elif flag:
+                        flags = company_lookup._merge_flags(flags, flag)
+                    states[field] = {
+                        'state': 'filled' if eligible or all(current.get(k) for k in keys)
+                                 else 'flagged' if flag else 'exhausted',
+                        'attempted_at': storage.timestamp(),
+                        # Preserve BackfillAccounting's event/summary shape, including empty outcomes.
+                        'events': [e for e in collector.events if e['field'] == field],
+                        'applied_fields': list(eligible),
+                    }
+                changes['review_flags'] = flags
+                changes['enrichment'] = {**current.get('enrichment', {}), 'field_states': states,
+                                        'attempted_at': storage.timestamp(),
+                                        'events': collector.events, 'summary': collector.summary()}
+                storage.save_company(root, changes, company_id)
+        prune_cascade_threads()
+        thread = Thread(target=worker, daemon=True)
+        with pending_lock:
+            app.config['CASCADE_THREADS'][company_id] = thread
+            thread.start()
+        return thread
 
     def fill_company_metadata(root, company, extracted):
         """Section 1's field-group matrix applies at every enrichment entry
@@ -136,20 +230,91 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 extracted.get('employee_count'), company.get('size_range'), company.get('size_class')))
         return storage.save_company(root, changes, company['id']) if changes else company
 
+    # M4 (JOZ-266 fix round): hosts where the tenant lives in the URL PATH
+    # (first segment), used only to parse a company's bare board-root
+    # *website* (no posting id, so detect_ats itself can't recognize it)
+    # leniently enough to compare against a POSTING's own, fully
+    # detect_ats-verified tenant -- never to derive a tenant identity on
+    # its own. A provider missing here (personio/workday/teamtailor/
+    # recruitee/join) encodes its tenant in the HOST/subdomain instead, so
+    # an exact netloc match against the posting's own host already proves
+    # the same tenant, with no separate path parse needed.
+    _PATH_TENANT_HOSTS = {
+        'lever': ('jobs.lever.co',),
+        'greenhouse': ('boards.greenhouse.io', 'job-boards.greenhouse.io'),
+        'ashby': ('jobs.ashbyhq.com',),
+        'smartrecruiters': ('jobs.smartrecruiters.com',),
+        'refline': ('refline.ch',),
+    }
+
+    def _lenient_website_tenant_match(website, ats_match):
+        hosts = _PATH_TENANT_HOSTS.get(ats_match.provider)
+        if not website or hosts is None:
+            return False
+        host = (urlsplit(website).hostname or '').rstrip('.').casefold()
+        if not any(host == h or host.endswith('.' + h) for h in hosts):
+            return False
+        segments = [s for s in urlsplit(website).path.split('/') if s]
+        return bool(segments) and segments[0].casefold() == ats_match.tenant.casefold()
+
     def find_company(root, name, posting_url):
+        """Pre-JOZ-266 matching, kept as company_resolve's legacy_hint: a
+        company predates the identifiers table whenever it was created
+        before this ladder existed (its ATS tenant/domain lives only in its
+        free-text name or website field, or in another job's url on the
+        same tenant), so this stays the fallback the ladder consults once
+        its own identifier-based rungs find nothing. Any match made here is
+        taught into a real identifier by the ladder (see
+        company_resolve._record_link_evidence), so later lookups for the
+        same tenant/domain no longer need this fallback at all.
+
+        M4 (JOZ-266 fix round): matching for an ATS-hosted posting URL is
+        decided ONLY by the posting's own detect_ats provider+tenant
+        identity, confirmed exactly (never a bare "known shared-ATS host"
+        classifier matching on host alone, and never a different tenant
+        under the same provider). A provider-host match WITHOUT an
+        identical tenant slug (two different Refline tenants, say) is
+        never promoted to ats_tenant ownership; it is simply not a match."""
         companies_ = storage.list_companies(root)
         if name:
-            match = next((c for c in companies_
-                         if str(c.get('name', '')).strip().casefold() == name.strip().casefold()), None)
-            if match:
-                return match
-        key = _company_url_key(posting_url)
-        if key:
-            linked = {j.get('company_id') for j in storage.list_jobs(root)
-                      if _shared_ats(posting_url) and _company_url_key(j.get('url')) == key}
-            return next((c for c in companies_
-                         if _company_url_key(c.get('website')) == key or c['id'] in linked), None)
-        return None
+            matches = [c for c in companies_
+                      if str(c.get('name', '')).strip().casefold() == name.strip().casefold()]
+            if len(matches) == 1:
+                return matches[0]
+            # Zero or multiple name matches: fall through to the
+            # identifier-based checks below. An ambiguous name match is
+            # never resolved here -- that is Decision-20's
+            # company_resolve.resolve_rungs_3_5 territory, not this
+            # legacy, pre-identifiers fallback.
+        ats_match = url_normalize.detect_ats(posting_url)
+        if ats_match is not None:
+            posting_host = (urlsplit(posting_url).hostname or '').rstrip('.').casefold()
+            for company in companies_:
+                website = company.get('website') or ''
+                website_host = (urlsplit(website).hostname or '').rstrip('.').casefold()
+                if website and (
+                    (ats_match.provider not in _PATH_TENANT_HOSTS and website_host == posting_host)
+                    or _lenient_website_tenant_match(website, ats_match)
+                ):
+                    return company
+            for job in storage.list_jobs(root):
+                if not job.get('company_id'):
+                    continue
+                job_match = url_normalize.detect_ats(job.get('url') or '')
+                if (job_match is not None and job_match.provider == ats_match.provider
+                        and job_match.tenant == ats_match.tenant):
+                    return next((c for c in companies_ if c['id'] == job['company_id']), None)
+            return None
+        domain = _domain_of(posting_url)
+        if not domain:
+            return None
+        return next((c for c in companies_ if c.get('website') and _domain_of(c['website']) == domain), None)
+
+    def legacy_hint(root, name, posting_url):
+        company = find_company(root, name, posting_url)
+        if company is None:
+            return None
+        return (company, 'ats_tenant' if url_normalize.detect_ats(posting_url) is not None else 'domain')
 
     def apply_llm_update(root, baseline, fields, token):
         """Apply under the caller-held write lock. The baseline contains only
@@ -190,21 +355,40 @@ def create_app(vault: str | Path | None = None) -> Flask:
             updates['ingest_source'] = 'llm'
         correction = updates.get('company')
         changed_company = correction and correction != job.get('company')
-        if (changed_company and job.get('company_id') == baseline.get('company_id')
-                and provenance.get('company_id') != 'user'):
-            matching = next((c for c in storage.list_companies(root)
-                             if c.get('name', '').strip().casefold() == correction.strip().casefold()), None)
-            if matching:
-                updates['company_id'] = matching['id']
-                new_provenance['company_id'] = 'llm'
+        new_company_id = None
+        # M2: the extraction callback's 'company' field IS the spec's
+        # post-fetch employer-name signal (employer_named_in_posting),
+        # not just free display text -- persist it with provenance and
+        # re-run the shared ladder under this same lock, with the same
+        # owner-link-group protection every other ladder entry point
+        # honors (M1), instead of the old ad-hoc exact-name-only match
+        # that bypassed the fuzzy check and any staffing/shared-tenant
+        # flag entirely.
+        if (correction and correction != job.get('employer_named_in_posting')
+                and provenance.get('employer_named_in_posting') != 'user'):
+            updates['employer_named_in_posting'] = correction
+            new_provenance['employer_named_in_posting'] = 'llm'
+            owner_locked = any(provenance.get(key) == 'user'
+                               for key in ('company_id', 'company_link_state', 'company_link_reason'))
+            if not owner_locked:
+                resolution = company_resolve.resolve_and_link(
+                    root, url=job.get('url') or '', employer_name=correction,
+                    fallback_name=updates.get('company', job.get('company')),
+                    existing=(job.get('company_id'), job.get('company_link_reason')))
+                updates.update(resolution)
+                if resolution.get('company_id'):
+                    new_provenance['company_id'] = 'llm'
+                if resolution.get('company_link_reason') == 'new_company':
+                    new_company_id = resolution['company_id']
         updates['enriched'] = True
         detail = None
         if changed_company:
             detail = ('Extraction corrected company text; ' +
-                      ('linked company matched.' if 'company_id' in updates
+                      ('linked company matched.' if updates.get('company_id')
                        else 'existing company link retained for review.'))
         storage.save_job(root, updates | {'field_provenance': new_provenance},
                          baseline['id'], correction_detail=detail)
+        return new_company_id
 
     # Prune on the next request, retaining joinable handles for active work.
     def prune_threads():
@@ -216,6 +400,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
     @app.before_request
     def prune_completed_enrichment():
         prune_threads()
+        prune_cascade_threads()
 
     def mark_ingest_state(root, job_id, state, *, stage=None, reason=None, history=None, locked=False):
         """Re-read current state under the write lock and apply the ingest
@@ -252,6 +437,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         job_id = baseline['id']
 
         def on_result(fields, reason=None):
+            new_company_id = None
             try:
                 with write_lock:
                     with pending_lock:
@@ -262,7 +448,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         return
 
                     if fields:
-                        apply_llm_update(root, baseline, fields, token)
+                        new_company_id = apply_llm_update(root, baseline, fields, token)
                         mark_ingest_state(root, job_id, 'complete', history=('extracted', 'Extraction completed.'), locked=True)
                     elif (current.get('ingest_state') != 'fetch_failed'
                           and (current.get('ingest_error') or {}).get('reason') != 'empty_content'):
@@ -271,6 +457,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         mark_ingest_state(root, job_id, 'extract_failed', stage='extract',
                                           reason=reason or 'no_usable_fields',
                                           history=('extract_failed', 'Extraction failed.'), locked=True)
+                if new_company_id is not None:
+                    schedule_company_cascade(root, new_company_id)
             except Exception as error:
                 # M3: applying a successful result (or recording its own
                 # failure above) must never just get logged and leave the
@@ -353,6 +541,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
             existing, basis = dedupe.find_duplicate(root, normalized, ats_match)
             if existing and not force:
                 return jsonify(dedupe.duplicate_payload(existing, basis))
+            # Resolution ladder rungs 1-2 (JOZ-266): pure local identifier
+            # lookups, no network I/O, safe to run synchronously here
+            # before the fetch below. Rungs 3-5 need the posting text and
+            # run after fetch, in Phase B.
+            pre_link = company_resolve.resolve_and_link(root, url=url, legacy_hint=legacy_hint(root, '', url))
             stub_fields = {
                 'url': url, 'normalized_url': normalized, 'title': stub_title(url),
                 'status': 'new', 'ingest_state': 'stub', 'in_pipeline': True,
@@ -360,6 +553,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 'ats_provider': ats_match.provider if ats_match else None,
                 'ats_tenant': ats_match.tenant if ats_match else None,
                 'ats_posting_id': ats_match.posting_id if ats_match else None,
+                **pre_link,
             }
             history = (('duplicate_override', f'Added despite matching {existing["id"]} ({basis}).')
                        if existing else None)
@@ -417,6 +611,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 ingest_fields = {'ingest_state': 'fetched', 'ingest_error': None}
                 history = ('fetched', 'Posting fetched.')
             discarded = False
+            new_company_id = None
             with write_lock:
                 current = storage.load_job(root, job['id'])
                 if current is None:
@@ -441,32 +636,39 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     }, current['id'], history_event=('extract_failed', 'Posting URL changed; stale result discarded.'))
                 else:
                     provenance = current.get('field_provenance', {})
-                    company = find_company(root, name, url)
-                    if company is None and name:
+                    # Resolution ladder rungs 1-5 (JOZ-266): employer_name is
+                    # the strict, never-guessed signal (spec global rule 2),
+                    # used for name matching and the staffing/shared-tenant
+                    # flags; name (data['company'], possibly slug/domain-
+                    # guessed) is the pre-existing permissive fallback,
+                    # consulted only once the strict signal has nothing to
+                    # offer, so a company is still always created when any
+                    # name signal at all is available (unchanged from
+                    # JOZ-265), without ever basing a review question or a
+                    # flag on a guess.
+                    resolution = company_resolve.resolve_and_link(
+                        root, url=url, employer_name=data.get('employer_named_in_posting'), fallback_name=name,
+                        legacy_hint=legacy_hint(root, name, url),
+                        existing=(current.get('company_id'), current.get('company_link_reason')))
+                    if resolution.get('company_link_reason') == 'new_company' and resolution.get('company_id'):
+                        new_company_id = resolution['company_id']
+                    company = storage.load_company(root, resolution['company_id']) if resolution['company_id'] else None
+                    if company is not None:
                         # employee_count has no company-schema home of its own (the
                         # company only ever stores the derived size_range/size_class).
-                        # When the posting supplied a raw count, derive the pair
-                        # atomically from that same count and include it in the
-                        # creation payload, dropping the bucket-only legacy size
-                        # string so the two fields can never be written by separate
-                        # passes from different inputs. Without a count, the legacy
-                        # bucket string still yields size_range alone, which the
-                        # document allows (a bucket never yields a confident class).
-                        creation = {'name': name, 'website': website or posting_origin, 'name_source': 'auto'}
-                        derived = sectors.derive_size(metadata.get('employee_count'))
-                        if derived:
-                            creation |= derived
-                            creation |= {k: v for k, v in metadata.items() if k not in ('employee_count', 'size')}
-                        else:
-                            creation |= {k: v for k, v in metadata.items() if k != 'employee_count'}
-                        company = storage.save_company(root, creation)
-                        company = fill_company_metadata(root, company, metadata)
-                    elif company:
+                        # A freshly created company (no website/metadata yet) gets the
+                        # same size derivation JOZ-265 always applied at creation time;
+                        # an already-existing company only gets its metadata filled in
+                        # (fill_company_metadata already fills-empty-only).
+                        if resolution['company_link_reason'] == 'new_company' and not company.get('size_range'):
+                            derived = sectors.derive_size(metadata.get('employee_count'))
+                            if derived:
+                                company = storage.save_company(root, derived, company['id'])
                         company = fill_company_metadata(root, company, metadata)
                         if not company.get('website'):
                             company = storage.save_company(root, {'website': website or posting_origin}, company['id'])
-                    candidate = data | {'url': url, 'company_id': company['id'] if company else None,
-                                        'sector': metadata['sector'], 'employee_count': metadata['employee_count']}
+                    candidate = data | {'url': url, 'sector': metadata['sector'],
+                                        'employee_count': metadata['employee_count'], **resolution}
                     # M2: a concurrent owner edit made to the stub while the
                     # fetch was in flight must survive. Re-read the current
                     # record and only let an automated field land if it still
@@ -494,6 +696,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if discarded:
             return jsonify(job=job, company=None), 201
 
+        if new_company_id is not None:
+            schedule_company_cascade(root, new_company_id)
+
         token = reserve_enrichment(job['id'])
         if token is not None:
             started = start_llm_enrichment(root, automation_baseline, data['description'], token)
@@ -508,6 +713,52 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 # that only checks response.ok.
                 return jsonify(job=job, company=company, error='Could not start extraction.'), 503
         return jsonify(job=job, company=company), 201
+
+    @app.post('/api/jobs/<identifier>/resolve-review')
+    def resolve_review(identifier):
+        """Owner resolves a needs_review company link (JOZ-266 §6): pick an
+        existing candidate (company_id) or create a new company
+        (create={'name': ...}). Writes the posting's employer name as a
+        user name_variant identifier on the chosen company (owner decision
+        3.A), so the same fuzzy case never asks twice, then links the job
+        and clears the review state -- the same invariant the generic PUT
+        bypass fix enforces."""
+        root = app.config['VAULT_PATH']
+        with write_lock:
+            job = storage.load_job(root, identifier)
+            if job is None:
+                return jsonify(error='Job not found.'), 404
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Record must be an object.')
+            # Every choice consumes one active review revision, including empty candidate lists.
+            review = job.get('company_review')
+            submitted_token = payload.get('review_token')
+            if not submitted_token or review is None or review.get('token') != submitted_token:
+                return jsonify(error='This review is out of date. Reload and try again.'), 409
+            company = company_resolve.apply_review(
+                root, job, company_id=payload.get('company_id'), create=payload.get('create'))
+            provenance = {**job.get('field_provenance', {}), 'company_id': 'user',
+                         'company_link_state': 'user', 'company_link_reason': 'user'}
+            return jsonify(storage.save_job(root, {
+                'company_id': company['id'], 'company_link_state': 'linked',
+                'company_link_reason': 'manual', 'company_review': None,
+                'field_provenance': provenance,
+            }, identifier))
+
+    @app.post('/api/jobs/<identifier>/resolve')
+    def rerun_resolution(identifier):
+        """Re-run the resolution ladder for an existing job (JOZ-266 §6),
+        using its stored url and employer_named_in_posting; no network
+        fetch. A no-op when company_id already carries owner provenance
+        (global rule 1: human edits always win)."""
+        root = app.config['VAULT_PATH']
+        with write_lock:
+            job = storage.load_job(root, identifier)
+            if job is None:
+                return jsonify(error='Job not found.'), 404
+            resolution = company_resolve.rerun(root, job)
+            return jsonify(storage.save_job(root, resolution, identifier))
 
     @app.post('/api/jobs/<identifier>/promote')
     def promote_job(identifier):
@@ -565,32 +816,47 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates['summary_source'] = extracted.get('summary_source', '')
             # A nonempty title is always treated as owner-set; no heuristic replacement.
             name, website = extracted['company'], _company_website(extracted['website'])
-            company = storage.load_company(root, job.get('company_id'))
-            if name:
-                matching = next((c for c in storage.list_companies(root)
-                                 if c.get('name', '').strip().casefold() == name.strip().casefold()), None)
-                shared = company and any(j.get('company_id') == company['id'] and j['id'] != identifier
-                                         for j in storage.list_jobs(root))
-                if company and company.get('name_source', 'owner') != 'auto':
-                    if website and not company.get('website'):
-                        storage.save_company(root, {'website': website}, company['id'])
-                elif matching:
-                    updates['company_id'] = matching['id']
-                    if website and not matching.get('website'):
-                        storage.save_company(root, {'website': website}, matching['id'])
-                elif company and not shared:
-                    changes = {'name': name, 'website': website, 'name_source': 'auto'}
-                    storage.save_company(root, changes, company['id'])
-                else:
-                    company = storage.save_company(root, {'name': name, 'website': website, 'name_source': 'auto'})
-                    updates['company_id'] = company['id']
-            target = storage.load_company(root, updates.get('company_id', job.get('company_id')))
+            provenance = job.get('field_provenance', {})
+            employer_evidence = extracted.get('employer_named_in_posting')
+            if employer_evidence and employer_evidence != job.get('employer_named_in_posting') \
+                    and provenance.get('employer_named_in_posting') != 'user':
+                updates['employer_named_in_posting'] = employer_evidence
+                updates['field_provenance'] = {**provenance, 'employer_named_in_posting':
+                    extracted.get('field_provenance', {}).get('employer_named_in_posting', 'scrape')}
+            # M3: route through the SAME shared ladder every other
+            # resolution entry point uses -- same owner-link-group
+            # protection (M1), same fuzzy/ambiguity/shared-tenant
+            # treatment, never a duplicate company without identifiers.
+            # existing= anchors on the job's current link (however it was
+            # established) so a confirmed link is never silently abandoned
+            # just because this URL's own identifiers don't happen to
+            # match it; this is the entry point for a never-yet-linked job
+            # too (existing[0] falsy there), which still gets full rungs
+            # 1-5 treatment via resolve_and_link.
+            new_company_id = None
+            owner_locked = any(provenance.get(key) == 'user'
+                               for key in ('company_id', 'company_link_state', 'company_link_reason'))
+            if not owner_locked:
+                resolution = company_resolve.resolve_and_link(
+                    root, url=url, employer_name=employer_evidence, fallback_name=name,
+                    legacy_hint=legacy_hint(root, name, url),
+                    existing=(job.get('company_id'), job.get('company_link_reason')))
+                updates.update(resolution)
+                if resolution.get('company_link_reason') == 'new_company':
+                    new_company_id = resolution['company_id']
+            target_id = updates.get('company_id', job.get('company_id'))
+            target = storage.load_company(root, target_id) if target_id else None
             if target:
                 fill_company_metadata(root, target, extracted)
-            if job.get('field_provenance', {}).get('company_id') == 'user':
+                if website and not target.get('website'):
+                    storage.save_company(root, {'website': website}, target['id'])
+            if provenance.get('company_id') == 'user':
                 updates.pop('company_id', None)
             updates['enriched'] = True
-            return jsonify(storage.save_job(root, updates, identifier))
+            result = storage.save_job(root, updates, identifier)
+            if new_company_id is not None:
+                schedule_company_cascade(root, new_company_id)
+            return jsonify(result)
 
     @app.post('/api/jobs/<identifier>/extract')
     def extract_job(identifier):
@@ -764,6 +1030,20 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 payload['original_url'] = None
                 payload['ingest_state'] = 'extract_failed'
                 payload['ingest_error'] = {'stage': 'extract', 'reason': 'source_url_changed', 'at': storage.timestamp()}
+            # Bug class 9 (JOZ-266): no bypass -- a PUT that sets company_id
+            # outside the dedicated resolve-review flow is itself the owner's
+            # link decision, and must carry the same invariant that flow
+            # keeps: linked state, a manual reason, and no leftover review
+            # candidates. Clearing company_id (null) is the converse owner
+            # decision -- unlink -- and reverts to pending with no reason.
+            if 'company_id' in payload:
+                if payload['company_id']:
+                    payload['company_link_state'] = 'linked'
+                    payload['company_link_reason'] = 'manual'
+                else:
+                    payload['company_link_state'] = 'pending'
+                    payload['company_link_reason'] = None
+                payload['company_review'] = None
             # O1 (fix round 2): mark every field this owner edit actually
             # sets as owner-provenance, so Phase B and the LLM callback
             # never overwrite it later, regardless of whether it happens to
@@ -793,6 +1073,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Record must be an object.')
+            payload['field_provenance'] = {**data.get('field_provenance', {}),
+                **{key: 'user' for key in payload if key != 'field_provenance'}}
             return jsonify(storage.save_company(root, payload | {'name_source': 'owner'}, identifier))
 
     @app.route('/api/search', methods=['GET', 'POST'])

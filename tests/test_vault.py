@@ -279,6 +279,57 @@ def test_migrate_job_fields_isolates_one_malformed_url_record(root, capsys):
     assert 'JOB-999' in capsys.readouterr().err
 
 
+def test_migrate_job_fields_write_failure_does_not_abort_sweep(tmp_path, capsys, monkeypatch):
+    # m9 (JOZ-266 fix round): read, transform, AND write must all sit
+    # inside the SAME per-record isolation boundary -- a write failure on
+    # one record (e.g. a transient OSError) must report to stderr and let
+    # the sweep continue onto the next record, not abort everything after.
+    (tmp_path / 'jobs').mkdir(parents=True)
+    (tmp_path / 'jobs' / 'first-job-001.yaml').write_text('id: JOB-001\ntitle: First\nurl: https://a.example/role\n')
+    (tmp_path / 'jobs' / 'second-job-002.yaml').write_text('id: JOB-002\ntitle: Second\nurl: https://b.example/role\n')
+
+    real_write = vault._write
+    calls = []
+    def flaky_write(path, data):
+        calls.append(path)
+        if len(calls) == 1:
+            raise OSError('simulated unwritable record')
+        return real_write(path, data)
+    monkeypatch.setattr(vault, '_write', flaky_write)
+
+    migrated = vault.migrate_job_fields(tmp_path)
+
+    assert migrated == ['JOB-002']
+    assert vault.load_job(tmp_path, 'JOB-002')['normalized_url'] == 'https://b.example/role'
+    assert vault.load_job(tmp_path, 'JOB-001').get('normalized_url') is None
+    assert 'JOB-001' in capsys.readouterr().err
+
+
+def test_migrate_company_fields_write_failure_does_not_abort_sweep(tmp_path, capsys, monkeypatch):
+    # m9's company-side counterpart.
+    (tmp_path / 'companies').mkdir(parents=True)
+    (tmp_path / 'companies' / 'first-co-001.yaml').write_text('id: CO-001\nname: First Co\n')
+    (tmp_path / 'companies' / 'second-co-002.yaml').write_text(
+        'id: CO-002\nname: Second Co\nwebsite: https://second.example\n')
+
+    real_write = vault._write
+    calls = []
+    def flaky_write(path, data):
+        calls.append(path)
+        if len(calls) == 1:
+            raise OSError('simulated unwritable record')
+        return real_write(path, data)
+    monkeypatch.setattr(vault, '_write', flaky_write)
+
+    migrated = vault.migrate_company_fields(tmp_path)
+
+    assert migrated == ['CO-002']
+    assert vault.load_company(tmp_path, 'CO-002')['identifiers'] == [
+        {'type': 'domain', 'value': 'second.example', 'provenance': 'derived'}]
+    assert 'identifiers' not in yaml.safe_load((tmp_path / 'companies' / 'first-co-001.yaml').read_text())
+    assert 'CO-001' in capsys.readouterr().err
+
+
 def test_app_startup_survives_one_malformed_url_record(root):
     # The migration runs under the write lock at create_app startup
     # (server.py); one bad legacy record must not take the whole app down.

@@ -5,6 +5,14 @@
 {% if job.ingest_state == 'fetch_failed' %}<p class="muted">Fetching the posting failed{% if job.ingest_error %} ({{ job.ingest_error.reason }}){% endif %}. <button type="button" id="retry-ingest">Retry</button></p>
 {% elif job.ingest_state == 'extract_failed' %}<p class="muted">Extraction failed{% if job.ingest_error %} ({{ job.ingest_error.reason }}){% endif %}. <button type="button" id="retry-ingest">Retry</button></p>
 {% elif job.ingest_state in ('stub', 'fetched') %}<p class="muted">Details filling in…</p>{% endif %}
+{% if job.company_link_state == 'needs_review' %}<section class="card company-review" id="company-review"><h2>Company needs your input</h2>
+<p class="muted">{{ {'fuzzy_name': 'This looks similar to an existing company on file.',
+   'employer_differs_from_tenant': 'The employer named in this posting differs from the owner of the application system it was found on.',
+   'shared_tenant': 'This application system has posted jobs for more than one employer.'}.get(job.company_link_reason, 'Confirm which company this job belongs to.') }}</p>
+{% if job.company_review and job.company_review.candidates %}<ul class="stack company-review-candidates">{% for candidate in job.company_review.candidates %}<li class="row"><span>{{ candidate.name }}{% if candidate.get("current") %} (current company){% endif %} ({{ (candidate.score * 100)|round|int }} percent match)</span><button type="button" class="pick-company" data-id="{{ candidate.company_id }}">Use this company</button></li>{% endfor %}</ul>{% endif %}
+<form id="create-company-form" class="row"><input id="new-company-name" placeholder="Company name" value="{{ job.employer_named_in_posting or '' }}" required><button type="button" id="create-company">None of these, create new</button></form>
+</section>
+{% elif job.company_link_state == 'pending' %}<p class="muted" id="company-pending">Company: pending</p>{% endif %}
 {% if job.summary %}<section class="card ai-summary">{% if job.summary_source == 'ai' %}<span class="chip ai-badge">AI-generated</span>{% endif %}<p>{{ job.summary }}</p></section>{% endif %}
 {% if job.background %}<section class="card"><h2>Background required</h2><p class="preserve">{{ job.background }}</p></section>{% endif %}
 {% if job.skills %}<section class="card"><h2>Skills</h2><div class="job-chips">{% for skill in job.skills %}<span class="chip">{{ skill }}</span>{% endfor %}</div></section>{% endif %}
@@ -18,6 +26,12 @@
 <script>document.getElementById('job-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/jobs/'+{{ job.id|tojson }},'PUT',{title:document.getElementById('title').value.trim(),status:document.getElementById('status').value,notes:document.getElementById('notes').value});sessionStorage.setItem('careerNotice','Job saved');location.reload();}catch(err){toast(err.message,true);}};const notice=sessionStorage.getItem('careerNotice');if(notice){sessionStorage.removeItem('careerNotice');toast(notice);}</script>
 
 <script>const retryIngestButton=document.getElementById('retry-ingest');if(retryIngestButton)retryIngestButton.onclick=async()=>{retryIngestButton.disabled=true;try{await api('/api/jobs/'+{{ job.id|tojson }}+'/extract','POST');sessionStorage.setItem('careerNotice','Retry started');location.reload();}catch(err){toast(err.message,true);retryIngestButton.disabled=false;}};</script>
+<script>
+const reviewToken={{ (job.company_review.get('token') if job.company_review else none)|tojson }};
+document.querySelectorAll('.pick-company').forEach(button=>{button.onclick=async()=>{button.disabled=true;try{await api('/api/jobs/'+{{ job.id|tojson }}+'/resolve-review','POST',{company_id:button.dataset.id,review_token:reviewToken});sessionStorage.setItem('careerNotice','Company linked');location.reload();}catch(err){toast(err.message,true);button.disabled=false;}};});
+const createCompanyButton=document.getElementById('create-company');
+if(createCompanyButton)createCompanyButton.onclick=async()=>{const name=document.getElementById('new-company-name').value.trim();if(!name){toast('Provide a company name.',true);return;}createCompanyButton.disabled=true;try{await api('/api/jobs/'+{{ job.id|tojson }}+'/resolve-review','POST',{create:{name:name},review_token:reviewToken});sessionStorage.setItem('careerNotice','Company created and linked');location.reload();}catch(err){toast(err.message,true);createCompanyButton.disabled=false;}};
+</script>
 <script>const enrichButton=document.getElementById('enrich-job');if(enrichButton)enrichButton.onclick=async()=>{enrichButton.disabled=true;try{await api('/api/jobs/'+{{ job.id|tojson }}+'/enrich','POST');sessionStorage.setItem('careerNotice','Job enriched');location.reload();}catch(err){toast(err.message,true);enrichButton.disabled=false;}};</script>
 <script>
 const extractButton=document.getElementById('extract-job');
