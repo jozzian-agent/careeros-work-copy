@@ -201,12 +201,14 @@ Each milestone is accepted when the owner clicks through a running instance. Tas
 
 ## First task brief
 
-Status: BUILT 2026-10-09 on branch jozzian/m1-retry-merge. Owner
-decision (2026-10-09): option A, the Retry control is visible to
-everyone for now; owner-only gating waits for roles in M2. All three
-buttons removed; company Retry added via a per-company retry endpoint
-that reuses the sector and size cascades. Codex cross-review round 1
-(2 MAJOR, 2 MINOR) fixed and re-verified; suite 873 passed.
+Status: SHIPPED 2026-10-09, merged to main via PR #4 (main 5d238b0).
+Option A: Retry visible to everyone until roles land in M2. All three
+buttons removed; company Retry via per-company endpoint reusing the
+sector and size cascades. Two follow-up fixes rode the same branch:
+LLM sector recall (ISIC letter table inlined in the prompt, model is
+now qwen3:30b-a3b with native think:false) and the resolved sector
+label on the company detail page (same mapping as the directory card).
+Owner click-tested live; dual cross-review READY; suite 889 passed.
 
 ```
 ## Intent anchor
