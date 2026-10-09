@@ -151,23 +151,31 @@ def create_app(vault: str | Path | None = None) -> Flask:
         caller holding it across network I/O would starve every other
         writer -- and applies any eligible result under the lock
         afterward, with the same Decision-20 review-flag accounting
-        plan_backfill uses. Returns the saved company (or the unmodified
-        record, possibly None, when there is nothing eligible to run)."""
+        plan_backfill runs. Returns (company, applied) where company is
+        the saved record (or the unmodified record, possibly None, when
+        there is nothing eligible to run) and applied lists the cascade
+        field names ('sectors'/'size') this invocation actually wrote.
+        applied is call-fresh by construction: stored field_states can
+        carry an older run's applied_fields when a concurrent edit or an
+        owner-set value makes this invocation skip a field, so UI code
+        must use this list, never the stored states, to decide whether
+        the retry changed anything."""
         company = storage.load_company(root, company_id)
         if company is None or company.get('kind', 'employer') != 'employer':
-            return company
+            return company, []
         collector = company_lookup.BackfillAccounting()
         new_sectors, sector_flag = company_lookup.sectors_cascade(company, collector=collector)
         size_changes, size_flag = company_lookup.size_cascade(company, collector=collector)
         with write_lock:
             current = storage.load_company(root, company_id)
             if current is None or current.get('kind', 'employer') != 'employer':
-                return current
+                return current, []
             # A completed cascade invalidates older results, including state and accounting.
             if current.get('enrichment', {}).get('attempted_at') != company.get('enrichment', {}).get('attempted_at'):
-                return current
+                return current, []
             provenance = current.get('field_provenance', {})
             changes = {}
+            applied = []
             flags = current.get('review_flags', [])
             states = dict(current.get('enrichment', {}).get('field_states', {}))
             for field, keys, proposed, flag, resolved in (
@@ -182,6 +190,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 eligible = {k: v for k, v in proposed.items() if not current.get(k)}
                 changes.update(eligible)
                 if eligible:
+                    applied.append(field)
                     flags = company_lookup._clear_flags(flags, resolved)
                 elif flag:
                     flags = company_lookup._merge_flags(flags, flag)
@@ -197,7 +206,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             changes['enrichment'] = {**current.get('enrichment', {}), 'field_states': states,
                                     'attempted_at': storage.timestamp(),
                                     'events': collector.events, 'summary': collector.summary()}
-            return storage.save_company(root, changes, company_id)
+            return storage.save_company(root, changes, company_id), applied
 
     def schedule_company_cascade(root, company_id):
         """M7: a rung-4 new company gets the same cascade run_company_cascade
@@ -209,7 +218,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if not AUTO_CASCADE_ENABLED:
             return None
         prune_cascade_threads()
-        thread = Thread(target=lambda: run_company_cascade(root, company_id), daemon=True)
+        thread = Thread(target=lambda: run_company_cascade(root, company_id)[0], daemon=True)
         with pending_lock:
             app.config['CASCADE_THREADS'][company_id] = thread
             thread.start()
@@ -1189,12 +1198,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
             return jsonify(error='Company not found.'), 404
         if company.get('kind', 'employer') != 'employer':
             return jsonify(error='Only employers have sector and size enrichment.'), 400
-        result = run_company_cascade(root, identifier)
+        result, applied = run_company_cascade(root, identifier)
         if result is None:
             return jsonify(error='Company not found.'), 404
         if result.get('kind', 'employer') != 'employer':
             return jsonify(error='Only employers have sector and size enrichment.'), 400
-        return jsonify(result)
+        # retry_applied is response-only metadata: which cascade fields THIS
+        # invocation actually wrote. The frontend must use it (never stored
+        # field_states, which can carry an older run's outcome when this
+        # invocation skipped a field) to say whether the retry changed
+        # anything. Deliberately not saved into the vault record.
+        return jsonify({**result, 'retry_applied': applied})
 
     @app.errorhandler(ValueError)
     def invalid_data(error):

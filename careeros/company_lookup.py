@@ -3,8 +3,12 @@
 Distinct from careeros.enrich, which only re-summarizes fields the vault
 already has from linked jobs and performs no network IO. Everything in this
 module reaches an external host, so every fetch is routed through
-intake.check_url/fetch_url's redirect-free, public-IP-only, bounded-size
-guard before any response body is read.
+intake.check_url/fetch_url's public-IP-only, bounded-size guard before any
+response body is read. The company-website signal (fetch_company_jsonld)
+uses intake.fetch_url_follow, which additionally allows redirects but
+re-runs the same public-IP safety check on every hop, because company
+homepages commonly 301 to a localized landing page. Posting intake itself
+remains redirect-free.
 
 This pipeline only ever runs from an explicit, owner-triggered backfill
 action (see backfill()); it never runs automatically.
@@ -180,7 +184,7 @@ def fetch_company_jsonld(website, fetch=None):
     'size_status' together -- it is a genuine, total failure for both
     fields, not a partial one. A safety-rejected destination or a page that
     simply has no JSON-LD is reported as empty, not a failure."""
-    fetch = fetch or intake.fetch_url
+    fetch = fetch or intake.fetch_url_follow
     if not website:
         return {}
     html, status = _safe_fetch_status(website, fetch)

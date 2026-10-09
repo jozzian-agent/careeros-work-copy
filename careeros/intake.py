@@ -2,7 +2,7 @@
 from html.parser import HTMLParser
 import re
 import json
-from urllib.parse import urlsplit, unquote
+from urllib.parse import urljoin, urlsplit, unquote
 from urllib import request
 import ipaddress
 import socket
@@ -46,6 +46,105 @@ def check_url(url):
 class NoRedirect(request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         raise ValueError('Redirects are disabled for posting intake.')
+
+
+MAX_REDIRECT_HOPS = 5
+MAX_REDIRECT_BODY = 65536
+
+
+class SafeRedirect(request.HTTPRedirectHandler):
+    """Redirect handler for company-website lookups: follows redirects like
+    a normal browser would, but re-runs the full safety check (public-IP-only
+    DNS, http/https scheme) on EVERY hop, so a public site cannot bounce the
+    fetcher onto a private/internal address, and caps the hop count so a
+    redirect loop cannot burn the whole fetch budget. Posting intake keeps
+    using NoRedirect; this handler is only wired into fetch_url_follow.
+
+    One instance per opener (one opener per fetch), so the hop counter on
+    the instance never spans unrelated requests.
+
+    The stock handler drains each intermediate redirect body with an
+    unbounded fp.read() before following the hop. Here that read is bounded
+    (MAX_REDIRECT_BODY) and the intermediate response is always closed, on
+    both the validation-failure and the success path. before_hop, when
+    given, runs before each hop is followed and may raise (e.g. the
+    caller's deadline check) to abort the fetch."""
+
+    def __init__(self, max_hops=MAX_REDIRECT_HOPS, before_hop=None):
+        super().__init__()
+        self.max_hops = max_hops
+        self.hops = 0
+        self.before_hop = before_hop
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        try:
+            fp.read(MAX_REDIRECT_BODY)
+        finally:
+            fp.close()
+        if self.before_hop is not None:
+            self.before_hop()
+        # A closed HTTPResponse safely returns b'' from the base handler's
+        # own drain, so passing the closed fp through is deliberate.
+        return super().http_error_302(req, fp, code, msg, headers)
+
+    # 308 (Permanent Redirect, method-preserving) matters here: the stock
+    # handler aliases it to its unbounded 302 implementation, so omitting it
+    # from this alias line would let 308 hops bypass the bounded drain, the
+    # forced close, and the before_hop deadline check entirely.
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if self.hops >= self.max_hops:
+            raise ValueError('Too many redirects while fetching a company website.')
+        self.hops += 1
+        target = urljoin(req.full_url, newurl)
+        check_url(target)
+        return super().redirect_request(req, fp, code, msg, headers, target)
+
+
+def fetch_url_follow(url, max_hops=MAX_REDIRECT_HOPS):
+    """Like fetch_url, but follows up to max_hops redirects with the
+    public-IP safety check re-applied on every hop. Same deadline budget,
+    same 2 MB body cap, same proxy-blocking. Used ONLY for the company
+    website JSON-LD signal, where a homepage 301 to /en/home.html is the
+    common case; posting intake deliberately stays redirect-free."""
+    deadline = time.monotonic() + FETCH_BUDGET
+    result = Queue(maxsize=1)
+
+    def remaining():
+        seconds = deadline - time.monotonic()
+        if seconds <= 0:
+            raise TimeoutError('Company website fetch deadline exceeded.')
+        return seconds
+
+    def fetch():
+        try:
+            check_url(url)
+            opener = request.build_opener(request.ProxyHandler({}),
+                                          SafeRedirect(max_hops, before_hop=remaining))
+            req = request.Request(url, headers={'User-Agent': 'CareerOS/3 company-lookup'})
+            with opener.open(req, timeout=min(10, remaining())) as response:
+                chunks, size = [], 0
+                while size < 2_000_000:
+                    remaining()
+                    chunk = response.read1(min(65536, 2_000_000 - size))
+                    remaining()
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    size += len(chunk)
+                result.put((True, b''.join(chunks).decode('utf-8', errors='replace')))
+        except Exception as error:
+            result.put((False, error))
+
+    Thread(target=fetch, daemon=True).start()
+    try:
+        success, value = result.get(timeout=remaining())
+    except Empty as error:
+        raise TimeoutError('Company website fetch deadline exceeded.') from error
+    if not success:
+        raise value
+    return value
 
 
 def fetch_url(url):

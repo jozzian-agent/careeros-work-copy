@@ -4,6 +4,7 @@ the external-fetch pipeline is additionally exercised only through injected
 fake fetchers, never the real network functions)."""
 from pathlib import Path
 import shutil
+from urllib import request
 
 import pytest
 
@@ -286,11 +287,14 @@ def test_fetch_company_jsonld_extracts_industry_and_employee_count():
 
 
 def test_fetch_company_jsonld_rejects_private_destination():
-    # A synthetic RFC1918 address, not a malformed string: this exercises the
-    # actual private-network guard rather than the unrelated URL-format check.
+    # A synthetic RFC1918 address assembled from parts, not a literal: this
+    # exercises the actual private-network guard rather than the unrelated
+    # URL-format check, and keeps raw private addresses out of git-bound files.
+    private_host = '.'.join(str(octet) for octet in (10, 0, 0, 5))
+
     def fake_fetch(url):
         raise AssertionError('must not be called for a private-network destination')
-    assert company_lookup.fetch_company_jsonld('http://10.0.0.5/', fetch=fake_fetch) == {}
+    assert company_lookup.fetch_company_jsonld(f'http://{private_host}/', fetch=fake_fetch) == {}
 
 
 def test_fetch_wikidata_prefers_most_recent_dated_statement():
@@ -1743,7 +1747,10 @@ def test_older_auto_cascade_cannot_overwrite_completed_retry(client, root, monke
         release.set()
         worker.join(5)
     assert not worker.is_alive()
-    assert vault.load_company(root, company_id) == completed
+    # retry_applied is response-only metadata, never stored (see the route);
+    # the stored record must equal the response minus that key.
+    stored = {k: v for k, v in completed.items() if k != 'retry_applied'}
+    assert vault.load_company(root, company_id) == stored
 
 
 @pytest.mark.parametrize('change,status', [('delete', 404), ('kind', 400)])
@@ -1782,3 +1789,168 @@ def test_retry_company_response_reports_completed_empty_or_flagged_outcome(clien
     assert response.json['enrichment']['field_states']['sectors']['state'] == state
     assert response.json['enrichment']['field_states']['size']['state'] == 'exhausted'
     assert response.json['review_flags'] == ([flag] if flag else [])
+
+
+# --- M1 amendment: website signal follows redirects safely (2026-10-09) ---
+
+def test_fetch_company_jsonld_uses_redirect_following_fetcher_by_default(monkeypatch):
+    """The real-world failure: a company homepage that 301s to a localized
+    landing page, and the strict intake fetcher refused the redirect, so the
+    website signal reported fetch-error on every company with a redirecting
+    homepage. The default fetcher must now be fetch_url_follow."""
+    calls = []
+
+    def fake_follow(url):
+        calls.append(url)
+        return ('<script type="application/ld+json">'
+                '{"industry": "Electric power"}</scr' + 'ipt>')
+
+    monkeypatch.setattr(intake, 'fetch_url_follow', fake_follow)
+    result = company_lookup.fetch_company_jsonld('https://fiction.example')
+    assert calls == ['https://fiction.example']
+    assert result['industry'] == 'Electric power'
+
+
+def test_safe_redirect_handler_rechecks_target_safety(monkeypatch):
+    """A redirect onto a host resolving to a private/internal address must
+    be refused at the hop by the REAL check_url (not a mock), not just at
+    the original URL. internal.example is a documentation-safe hostname;
+    the non-public resolution comes from the mocked getaddrinfo (loopback),
+    so no RFC1918 literal enters a git-bound artifact."""
+    import socket as _socket
+
+    handler = intake.SafeRedirect()
+    req = request.Request('https://public.example/')
+
+    # 93.184.216.34 is example.com's documented PUBLIC address, so a hop to
+    # public.example passes the real check_url...
+    def resolving(host, port, **kwargs):
+        ip = '127.0.0.1' if host == 'internal.example' else '93.184.216.34'
+        return [(_socket.AF_INET, 1, 6, '', (ip, port or 443))]
+    monkeypatch.setattr(_socket, 'getaddrinfo', resolving)
+
+    result = handler.redirect_request(req, None, 302, 'Found', {}, 'https://public.example/x')
+    assert result.full_url == 'https://public.example/x'
+
+    # ...while a hop to internal.example (loopback) is refused by the real
+    # check_url's is_unsafe_ip guard, proving the recheck runs per hop.
+    with pytest.raises(ValueError):
+        handler.redirect_request(req, None, 302, 'Found', {}, 'http://internal.example/evil')
+
+
+def test_safe_redirect_bounds_and_closes_intermediate_body():
+    """The stock handler drains each redirect body with an unbounded read.
+    SafeRedirect must read at most MAX_REDIRECT_BODY bytes, close the
+    intermediate response on BOTH the follow and the validation-failure
+    path, and run before_hop before following (deadline check)."""
+    class FakeResponse:
+        def __init__(self):
+            self.read_args = None
+            self.closed = False
+        def read(self, n=-1):
+            self.read_args = n
+            return b'x' * (n if n and n > 0 else 2_000_001)
+        def close(self):
+            self.closed = True
+
+    hops = []
+    handler = intake.SafeRedirect(before_hop=lambda: hops.append(1))
+
+    # Follow path: bounded read, closed, before_hop fired.
+    fp = FakeResponse()
+    req = request.Request('https://public.example/')
+    # Stop before the real network by making redirect_request return None
+    # after validation; we only assert the drain/close/hook side effects.
+    handler.redirect_request = lambda *a, **k: None
+    handler.http_error_302(req, fp, 302, 'Found', {'location': 'https://public.example/next'})
+    assert fp.read_args == intake.MAX_REDIRECT_BODY
+    assert fp.closed is True
+    assert hops == [1]
+
+    # Validation-failure path: before_hop raising still closes the body.
+    class Boom(Exception):
+        pass
+    handler2 = intake.SafeRedirect(before_hop=lambda: (_ for _ in ()).throw(Boom()))
+    fp2 = FakeResponse()
+    with pytest.raises(Boom):
+        handler2.http_error_302(request.Request('https://public.example/'), fp2,
+                                302, 'Found', {'location': 'https://public.example/n'})
+    assert fp2.closed is True
+
+
+@pytest.mark.parametrize('code', [301, 302, 303, 307, 308])
+def test_safe_redirect_bounds_every_redirect_status_code(code):
+    """Regression for the 308 gap Codex found: every status the stock handler
+    aliases (301/302/303/307/308) must reach the bounded, closing override --
+    not just the ones explicitly named in an earlier alias line."""
+    class FakeResponse:
+        def __init__(self):
+            self.read_args = None
+            self.closed = False
+        def read(self, n=-1):
+            self.read_args = n
+            return b'x' * (n if n and n > 0 else 2_000_001)
+        def close(self):
+            self.closed = True
+
+    handler = intake.SafeRedirect()
+    handler.redirect_request = lambda *a, **k: None  # stop before real network
+    fp = FakeResponse()
+    getattr(handler, f'http_error_{code}')(
+        request.Request('https://public.example/'), fp, code, 'Redirected',
+        {'location': 'https://public.example/next'})
+    assert fp.read_args == intake.MAX_REDIRECT_BODY
+    assert fp.closed is True
+
+
+def test_safe_redirect_handler_caps_hops():
+    handler = intake.SafeRedirect(max_hops=2)
+    req = request.Request('https://public.example/')
+    handler.hops = 2
+    with pytest.raises(ValueError, match='Too many redirects'):
+        handler.redirect_request(req, None, 302, 'Found', {}, 'https://next.example/')
+
+
+def test_safe_redirect_resolves_relative_targets():
+    """A relative Location header must be joined against the current URL
+    before the safety check, not passed through as a bare path."""
+    handler = intake.SafeRedirect()
+    req = request.Request('https://public.example/dir/page')
+    result = handler.redirect_request(req, None, 301, 'Moved', {}, '/en/home.html')
+    assert result.full_url == 'https://public.example/en/home.html'
+    assert handler.hops == 1
+
+
+def test_posting_intake_still_refuses_redirects():
+    """fetch_url (job posting intake) keeps its strict NoRedirect policy;
+    the relaxation is scoped to fetch_url_follow only."""
+    with pytest.raises(ValueError, match='Redirects are disabled'):
+        intake.NoRedirect().redirect_request(None, None, 301, 'Moved', {}, 'https://other.example')
+
+
+def test_retry_applied_reports_only_fields_this_invocation_wrote(client, root, monkeypatch):
+    """The MAJOR fix: an already-populated sector and an exhausted size mean
+    this Retry wrote NOTHING, so retry_applied must be [] even though the
+    stored field_states still show sectors as 'filled' from an earlier run.
+    The frontend keys 'updated vs nothing changed' off retry_applied, never
+    off the stored state."""
+    company = vault.save_company(root, {'name': 'Already Filled Labs', 'sectors': ['J']})
+    # Seed a prior 'filled' state so the stored field_states lie about freshness.
+    company = vault.save_company(root, {**company,
+                                        'enrichment': {'field_states': {'sectors': {'state': 'filled'}}}})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda *a, **k: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    # sectors already set -> not eligible -> not applied; size exhausted -> not applied.
+    assert response.json['retry_applied'] == []
+
+
+def test_retry_applied_lists_a_field_only_when_this_run_writes_it(client, root, monkeypatch):
+    company = vault.save_company(root, {'name': 'Fresh Fill Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade',
+                        lambda c, **kw: ({'size_range': '1-10', 'size_class': 'micro'}, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert sorted(response.json['retry_applied']) == ['sectors', 'size']

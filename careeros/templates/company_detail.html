@@ -18,11 +18,35 @@ if(retryCompanyButton)retryCompanyButton.onclick=async()=>{
     try{
         const result=await api('/api/companies/'+{{ company.id|tojson }}+'/retry','POST');
         const states=result.enrichment?.field_states||{};
-        const outcomes={filled:'filled',exhausted:'no result',flagged:'needs review'};
-        const reasons={'sector-ambiguous':'Several sectors matched','sector-source-conflict':'Sector sources disagree','size-inconsistent':'Size sources disagree'};
-        const messages=Object.entries(states).map(([field,value])=>(field==='sectors'?'Sector':'Size')+': '+(outcomes[value.state]||'not tried'));
-        for(const flag of result.review_flags||[])messages.push('Needs review: '+(reasons[flag]||'Check company classification'));
-        sessionStorage.setItem('careerNotice','Retry completed. '+(messages.join('. ')||'No eligible fields to retry.'));
+        const prov=result.field_provenance||{};
+        const outcomes={filled:'filled',exhausted:'nothing found',flagged:'needs review'};
+        const reasons={'sector-ambiguous':'several sectors matched','sector-source-conflict':'sector sources disagree','size-inconsistent':'size sources disagree'};
+        const messages=[];
+        // changed comes ONLY from retry_applied (what THIS invocation wrote);
+        // stored field_states can carry an older run's outcome when this
+        // invocation skipped a field, so they must not drive this verdict.
+        const applied=result.retry_applied||[];
+        const changed=applied.length>0;
+        for(const [field,value] of Object.entries(states)){
+            const isSectors=field==='sectors';
+            const label=isSectors?'Sector':'Size';
+            const outcome=outcomes[value.state]||'not tried';
+            let message=label+': '+outcome;
+            if(value.state==='flagged'){
+                const flag=(result.review_flags||[]).find(f=>reasons[f]&&f.startsWith(isSectors?'sector':'size'));
+                if(flag)message+=' ('+reasons[flag]+')';
+            }
+            // Owner-kept: mirror the backend's protection exactly -- sectors
+            // is protected by field_provenance.sectors, size by EITHER
+            // size_range or size_class provenance being 'user'. Shown for
+            // any state, including a preserved 'filled' from an older run.
+            const ownerSet=isSectors?prov.sectors==='user':(prov.size_range==='user'||prov.size_class==='user');
+            if(ownerSet)message+=' (kept: you set it)';
+            messages.push(message);
+        }
+        if(!changed&&!result.website&&!(result.identifiers||[]).length&&!(result.sources||[]).length)
+            messages.push('This company has no website; add one so Retry has something to search');
+        sessionStorage.setItem('careerNotice',(changed?'Retry updated the company. ':'Retry ran; nothing changed. ')+(messages.join('. ')||'No eligible fields to retry.'));
         location.reload();
     }catch(err){toast(err.message,true);retryCompanyButton.disabled=false;}
 };
