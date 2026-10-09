@@ -4,6 +4,7 @@ the external-fetch pipeline is additionally exercised only through injected
 fake fetchers, never the real network functions)."""
 from pathlib import Path
 import shutil
+from urllib import request
 
 import pytest
 
@@ -286,11 +287,14 @@ def test_fetch_company_jsonld_extracts_industry_and_employee_count():
 
 
 def test_fetch_company_jsonld_rejects_private_destination():
-    # A synthetic RFC1918 address, not a malformed string: this exercises the
-    # actual private-network guard rather than the unrelated URL-format check.
+    # A synthetic RFC1918 address assembled from parts, not a literal: this
+    # exercises the actual private-network guard rather than the unrelated
+    # URL-format check, and keeps raw private addresses out of git-bound files.
+    private_host = '.'.join(str(octet) for octet in (10, 0, 0, 5))
+
     def fake_fetch(url):
         raise AssertionError('must not be called for a private-network destination')
-    assert company_lookup.fetch_company_jsonld('http://10.0.0.5/', fetch=fake_fetch) == {}
+    assert company_lookup.fetch_company_jsonld(f'http://{private_host}/', fetch=fake_fetch) == {}
 
 
 def test_fetch_wikidata_prefers_most_recent_dated_statement():
@@ -1079,9 +1083,13 @@ def test_companies_page_card_shows_sector_label_not_bare_code(client, root):
     assert 'Information and communication' in html  # the ISIC label for J, not the bare code "J"
 
 
-def test_companies_page_has_backfill_action(client, root):
+def test_companies_page_has_no_backfill_action(client, root):
+    # M1 audit: the sweep-all-companies Backfill button is removed; retrying
+    # one company's sector/size enrichment now happens on that company's own
+    # page via the Retry control (see test_company_detail_shows_retry_*).
     html = client.get('/companies').text
-    assert 'id="backfill-sector-size"' in html
+    assert 'id="backfill-sector-size"' not in html
+    assert 'Backfill sector/size' not in html
 
 
 def test_backfill_endpoint_is_explicit_and_never_runs_automatically(client, root, monkeypatch):
@@ -1604,6 +1612,63 @@ def test_llm_signal_prompt_contains_only_identifying_fields_never_job_data(tmp_p
     assert 'Berlin' in content and 'Owner note.' in content
 
 
+def test_llm_system_prompt_inlines_the_isic_letter_table(tmp_path, monkeypatch):
+    """The system prompt must carry every ISIC letter + label from
+    isic_sections.yaml so the model looks the mapping up instead of
+    recalling it (live defect 2026-10-09: the local LLM answered letter C
+    with the section-D label 'Electricity, gas, steam...' and the
+    consistency check correctly refused -- Retry could never resolve a
+    real grid operator until the table shipped)."""
+    import json
+    prompt = company_lookup._llm_system_prompt()
+    loaded = sectors.load_isic_sections()
+    assert len(loaded) == 21  # A-U ISIC Rev.4 sections
+    for section in loaded:
+        assert f"{section['code']} = {section['label']}" in prompt
+    # Cache discipline (Codex review 2026-10-09): with sectors._SECTIONS
+    # warm, building the prompt again must not re-read the YAML file.
+    sectors._sections()  # warm the cache
+    read_calls = []
+    real_read_text = Path.read_text
+
+    def counting_read_text(self, *args, **kwargs):
+        read_calls.append(str(self))
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, 'read_text', counting_read_text)
+    company_lookup._llm_system_prompt()
+    assert not any('isic_sections' in path for path in read_calls)
+    # The two letters that were confused live must both be present with
+    # their correct labels, so a lookup cannot return C for electricity.
+    assert 'D = Electricity, gas, steam and air conditioning supply' in prompt
+    assert 'C = Manufacturing' in prompt
+    # The table is in the SYSTEM message, and identifying fields remain
+    # the only user content.
+    monkeypatch.setenv('BACKFILL_USE_LLM', '1')
+    captured = {}
+
+    def fake_client():
+        client = client_for(json.dumps({'sector': None, 'sector_label': None,
+                                        'confidence': 'low', 'size_hint': None}))
+        real_create = client.chat.completions.create
+
+        def capturing_create(**kwargs):
+            captured['messages'] = kwargs['messages']
+            return real_create(**kwargs)
+        client.chat.completions.create = capturing_create
+        return client
+
+    monkeypatch.setattr(company_lookup, 'get_llm_client', fake_client)
+    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    vault.save_company(tmp_path, {'name': 'Table Co', 'website': 'https://table.example'})
+    company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    system = [m for m in captured['messages'] if m['role'] == 'system']
+    assert len(system) == 1
+    assert 'D = Electricity, gas, steam and air conditioning supply' in system[0]['content']
+    user = [m for m in captured['messages'] if m['role'] == 'user'][0]['content']
+    assert 'ISIC' not in user  # table never leaks into user content
+
+
 def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
@@ -1617,3 +1682,355 @@ def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
     summary = collector.summary()
     assert summary['matched'] == 2  # one for sectors, one for size
     assert summary['fetch-error'] == 0 and summary['ambiguous'] == 0
+
+
+# --- M1 audit: per-company Retry replaces the sweep-all Backfill button ----
+# Visibility follows the states rule exactly: 'exhausted' or 'flagged' on
+# any field_state, OR a non-empty review_flags list. A company with
+# everything filled (or simply untouched) shows no Retry -- nothing to retry.
+
+def test_company_detail_shows_retry_when_a_field_is_exhausted(client, root):
+    company = vault.save_company(root, {'name': 'Exhausted Labs', 'enrichment': {
+        'field_states': {'sectors': {'state': 'exhausted'}, 'size': {'state': 'exhausted'}}}})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' in html
+
+
+def test_company_detail_shows_retry_when_a_field_is_flagged(client, root):
+    company = vault.save_company(root, {'name': 'Flagged Labs', 'enrichment': {
+        'field_states': {'sectors': {'state': 'flagged'}}}})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' in html
+
+
+def test_company_detail_shows_retry_when_review_flags_present(client, root):
+    company = vault.save_company(root, {'name': 'Review Flagged Labs',
+                                        'review_flags': [company_lookup.FLAG_SECTOR_AMBIGUOUS]})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' in html
+
+
+def test_company_detail_hides_retry_when_fields_are_filled(client, root):
+    company = vault.save_company(root, {'name': 'Filled Labs', 'sectors': ['J'],
+                                        'size_range': '1-10', 'size_class': 'micro', 'enrichment': {
+        'field_states': {'sectors': {'state': 'filled'}, 'size': {'state': 'filled'}}}})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' not in html
+
+
+# --- Owner click-test follow-up 2026-10-09: sector label on detail page -----
+# The directory card showed the resolved sector but the detail page did not.
+# Same read-time label mapping, never bare codes, 'Sector unknown' fallback.
+
+def test_company_detail_shows_sector_label_not_code(client, root):
+    company = vault.save_company(root, {'name': 'Label Detail Labs', 'sectors': ['D'],
+                                        'size_class': 'large'})
+    html = client.get('/companies/' + company['id']).text
+    label = next(s['label'] for s in sectors.load_isic_sections() if s['code'] == 'D')
+    assert label in html
+    # The Classification card line must carry the label, never the bare
+    # code (Section 3 display rule, same as the directory card).
+    classification = html.split('<h2>Classification</h2>')[1].split('</a>')[0]
+    assert label in classification
+    assert 'D ·' not in classification and 'D</p' not in classification
+
+
+def test_company_detail_shows_sector_unknown_when_unclassified(client, root):
+    company = vault.save_company(root, {'name': 'Unknown Detail Labs'})
+    html = client.get('/companies/' + company['id']).text
+    assert 'Sector unknown' in html
+
+
+def test_company_detail_hides_retry_for_an_untouched_company(client, root):
+    company = vault.save_company(root, {'name': 'Untouched Labs'})
+    html = client.get('/companies/' + company['id']).text
+    assert 'id="retry-company"' not in html
+
+
+def test_retry_company_endpoint_happy_path_reuses_sector_size_cascade(client, root, monkeypatch):
+    company = vault.save_company(root, {'name': 'Retry Me Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade',
+                        lambda c, **kw: ({'size_range': '1-10', 'size_class': 'micro'}, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert response.json['sectors'] == ['J']
+    assert response.json['size_class'] == 'micro'
+    saved = vault.load_company(root, company['id'])
+    assert saved['sectors'] == ['J'] and saved['size_class'] == 'micro'
+    assert saved['enrichment']['field_states']['sectors']['state'] == 'filled'
+
+
+def test_retry_company_endpoint_404_for_missing_company(client, root):
+    assert client.post('/api/companies/missing-co/retry').status_code == 404
+
+
+def test_retry_company_endpoint_rejects_non_employer_kind(client, root):
+    institution = vault.save_company(root, {'name': 'Fiction University', 'kind': 'institution'})
+    response = client.post('/api/companies/' + institution['id'] + '/retry')
+    assert response.status_code == 400
+    # Rejected before any cascade work, and the record itself is untouched.
+    assert vault.load_company(root, institution['id']) == institution
+
+
+def test_retry_company_endpoint_never_gated_on_auto_cascade_enabled(client, root, monkeypatch):
+    # Decision 27's "explicit, owner-triggered, never silent" rule applies
+    # here too: a Retry click must always run, unlike the automatic
+    # new-company cascade which is off whenever AUTO_CASCADE_ENABLED is False
+    # (the suite-wide default, see conftest.offline).
+    from careeros import server
+    assert server.AUTO_CASCADE_ENABLED is False
+    company = vault.save_company(root, {'name': 'Always Runs Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['K'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda c, **kw: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert vault.load_company(root, company['id'])['sectors'] == ['K']
+
+
+def test_older_auto_cascade_cannot_overwrite_completed_retry(client, root, monkeypatch):
+    from threading import Event
+    from careeros import server
+
+    entered, release = Event(), Event()
+    monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
+
+    def older_empty(company, collector):
+        entered.set()
+        assert release.wait(5)
+        collector.record(company['id'], older_empty, 'sectors', 'empty')
+        return None, None
+
+    def newer_conflict(company, collector):
+        collector.record(company['id'], newer_conflict, 'sectors', 'ambiguous')
+        return None, company_lookup.FLAG_SECTOR_CONFLICT
+
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', older_empty)
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    monkeypatch.setattr(intake, 'fetch_url', lambda url:
+                        '<script type="application/ld+json">{"@type":"JobPosting",'
+                        '"title":"Role","hiringOrganization":{"name":"Retry Race Labs"}}'
+                        '</script><p>Build useful things.</p>')
+    response = client.post('/api/jobs/intake', json={'url': 'https://retry-race.example/job'})
+    company_id = response.json['job']['company_id']
+    worker = client.application.config['CASCADE_THREADS'][company_id]
+    try:
+        assert entered.wait(5)
+        monkeypatch.setattr(company_lookup, 'sectors_cascade', newer_conflict)
+        response = client.post('/api/companies/' + company_id + '/retry')
+        assert response.status_code == 200
+        completed = response.json
+        assert completed['enrichment']['field_states']['sectors']['state'] == 'flagged'
+        assert company_lookup.FLAG_SECTOR_CONFLICT in completed['review_flags']
+        assert completed['enrichment']['summary']['ambiguous'] == 1
+    finally:
+        release.set()
+        worker.join(5)
+    assert not worker.is_alive()
+    # retry_applied is response-only metadata, never stored (see the route);
+    # the stored record must equal the response minus that key.
+    stored = {k: v for k, v in completed.items() if k != 'retry_applied'}
+    assert vault.load_company(root, company_id) == stored
+
+
+@pytest.mark.parametrize('change,status', [('delete', 404), ('kind', 400)])
+def test_retry_company_rejects_mid_run_disappearance_or_kind_change(client, root, monkeypatch, change, status):
+    company = vault.save_company(root, {'name': 'Changed During Retry'})
+
+    def change_during_cascade(snapshot, **kwargs):
+        if change == 'delete':
+            assert client.delete('/api/companies/' + company['id']).status_code == 200
+        else:
+            assert client.put('/api/companies/' + company['id'], json={'kind': 'institution'}).status_code == 200
+        return ['J'], None
+
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', change_during_cascade)
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == status
+    assert response.json['error'] == ('Company not found.' if change == 'delete'
+                                      else 'Only employers have sector and size enrichment.')
+    saved = vault.load_company(root, company['id'])
+    if change == 'delete':
+        assert saved is None
+    else:
+        assert saved['kind'] == 'institution'
+        assert not saved['sectors']
+        assert not saved.get('enrichment')
+
+
+@pytest.mark.parametrize('flag,state', [(None, 'exhausted'), (company_lookup.FLAG_SECTOR_CONFLICT, 'flagged')])
+def test_retry_company_response_reports_completed_empty_or_flagged_outcome(client, root, monkeypatch, flag, state):
+    company = vault.save_company(root, {'name': 'Outcome Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda *a, **k: (None, flag))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert response.json['enrichment']['field_states']['sectors']['state'] == state
+    assert response.json['enrichment']['field_states']['size']['state'] == 'exhausted'
+    assert response.json['review_flags'] == ([flag] if flag else [])
+
+
+# --- M1 amendment: website signal follows redirects safely (2026-10-09) ---
+
+def test_fetch_company_jsonld_uses_redirect_following_fetcher_by_default(monkeypatch):
+    """The real-world failure: a company homepage that 301s to a localized
+    landing page, and the strict intake fetcher refused the redirect, so the
+    website signal reported fetch-error on every company with a redirecting
+    homepage. The default fetcher must now be fetch_url_follow."""
+    calls = []
+
+    def fake_follow(url):
+        calls.append(url)
+        return ('<script type="application/ld+json">'
+                '{"industry": "Electric power"}</scr' + 'ipt>')
+
+    monkeypatch.setattr(intake, 'fetch_url_follow', fake_follow)
+    result = company_lookup.fetch_company_jsonld('https://fiction.example')
+    assert calls == ['https://fiction.example']
+    assert result['industry'] == 'Electric power'
+
+
+def test_safe_redirect_handler_rechecks_target_safety(monkeypatch):
+    """A redirect onto a host resolving to a private/internal address must
+    be refused at the hop by the REAL check_url (not a mock), not just at
+    the original URL. internal.example is a documentation-safe hostname;
+    the non-public resolution comes from the mocked getaddrinfo (loopback),
+    so no RFC1918 literal enters a git-bound artifact."""
+    import socket as _socket
+
+    handler = intake.SafeRedirect()
+    req = request.Request('https://public.example/')
+
+    # 93.184.216.34 is example.com's documented PUBLIC address, so a hop to
+    # public.example passes the real check_url...
+    def resolving(host, port, **kwargs):
+        ip = '127.0.0.1' if host == 'internal.example' else '93.184.216.34'
+        return [(_socket.AF_INET, 1, 6, '', (ip, port or 443))]
+    monkeypatch.setattr(_socket, 'getaddrinfo', resolving)
+
+    result = handler.redirect_request(req, None, 302, 'Found', {}, 'https://public.example/x')
+    assert result.full_url == 'https://public.example/x'
+
+    # ...while a hop to internal.example (loopback) is refused by the real
+    # check_url's is_unsafe_ip guard, proving the recheck runs per hop.
+    with pytest.raises(ValueError):
+        handler.redirect_request(req, None, 302, 'Found', {}, 'http://internal.example/evil')
+
+
+def test_safe_redirect_bounds_and_closes_intermediate_body():
+    """The stock handler drains each redirect body with an unbounded read.
+    SafeRedirect must read at most MAX_REDIRECT_BODY bytes, close the
+    intermediate response on BOTH the follow and the validation-failure
+    path, and run before_hop before following (deadline check)."""
+    class FakeResponse:
+        def __init__(self):
+            self.read_args = None
+            self.closed = False
+        def read(self, n=-1):
+            self.read_args = n
+            return b'x' * (n if n and n > 0 else 2_000_001)
+        def close(self):
+            self.closed = True
+
+    hops = []
+    handler = intake.SafeRedirect(before_hop=lambda: hops.append(1))
+
+    # Follow path: bounded read, closed, before_hop fired.
+    fp = FakeResponse()
+    req = request.Request('https://public.example/')
+    # Stop before the real network by making redirect_request return None
+    # after validation; we only assert the drain/close/hook side effects.
+    handler.redirect_request = lambda *a, **k: None
+    handler.http_error_302(req, fp, 302, 'Found', {'location': 'https://public.example/next'})
+    assert fp.read_args == intake.MAX_REDIRECT_BODY
+    assert fp.closed is True
+    assert hops == [1]
+
+    # Validation-failure path: before_hop raising still closes the body.
+    class Boom(Exception):
+        pass
+    handler2 = intake.SafeRedirect(before_hop=lambda: (_ for _ in ()).throw(Boom()))
+    fp2 = FakeResponse()
+    with pytest.raises(Boom):
+        handler2.http_error_302(request.Request('https://public.example/'), fp2,
+                                302, 'Found', {'location': 'https://public.example/n'})
+    assert fp2.closed is True
+
+
+@pytest.mark.parametrize('code', [301, 302, 303, 307, 308])
+def test_safe_redirect_bounds_every_redirect_status_code(code):
+    """Regression for the 308 gap Codex found: every status the stock handler
+    aliases (301/302/303/307/308) must reach the bounded, closing override --
+    not just the ones explicitly named in an earlier alias line."""
+    class FakeResponse:
+        def __init__(self):
+            self.read_args = None
+            self.closed = False
+        def read(self, n=-1):
+            self.read_args = n
+            return b'x' * (n if n and n > 0 else 2_000_001)
+        def close(self):
+            self.closed = True
+
+    handler = intake.SafeRedirect()
+    handler.redirect_request = lambda *a, **k: None  # stop before real network
+    fp = FakeResponse()
+    getattr(handler, f'http_error_{code}')(
+        request.Request('https://public.example/'), fp, code, 'Redirected',
+        {'location': 'https://public.example/next'})
+    assert fp.read_args == intake.MAX_REDIRECT_BODY
+    assert fp.closed is True
+
+
+def test_safe_redirect_handler_caps_hops():
+    handler = intake.SafeRedirect(max_hops=2)
+    req = request.Request('https://public.example/')
+    handler.hops = 2
+    with pytest.raises(ValueError, match='Too many redirects'):
+        handler.redirect_request(req, None, 302, 'Found', {}, 'https://next.example/')
+
+
+def test_safe_redirect_resolves_relative_targets():
+    """A relative Location header must be joined against the current URL
+    before the safety check, not passed through as a bare path."""
+    handler = intake.SafeRedirect()
+    req = request.Request('https://public.example/dir/page')
+    result = handler.redirect_request(req, None, 301, 'Moved', {}, '/en/home.html')
+    assert result.full_url == 'https://public.example/en/home.html'
+    assert handler.hops == 1
+
+
+def test_posting_intake_still_refuses_redirects():
+    """fetch_url (job posting intake) keeps its strict NoRedirect policy;
+    the relaxation is scoped to fetch_url_follow only."""
+    with pytest.raises(ValueError, match='Redirects are disabled'):
+        intake.NoRedirect().redirect_request(None, None, 301, 'Moved', {}, 'https://other.example')
+
+
+def test_retry_applied_reports_only_fields_this_invocation_wrote(client, root, monkeypatch):
+    """The MAJOR fix: an already-populated sector and an exhausted size mean
+    this Retry wrote NOTHING, so retry_applied must be [] even though the
+    stored field_states still show sectors as 'filled' from an earlier run.
+    The frontend keys 'updated vs nothing changed' off retry_applied, never
+    off the stored state."""
+    company = vault.save_company(root, {'name': 'Already Filled Labs', 'sectors': ['J']})
+    # Seed a prior 'filled' state so the stored field_states lie about freshness.
+    company = vault.save_company(root, {**company,
+                                        'enrichment': {'field_states': {'sectors': {'state': 'filled'}}}})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda *a, **k: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    # sectors already set -> not eligible -> not applied; size exhausted -> not applied.
+    assert response.json['retry_applied'] == []
+
+
+def test_retry_applied_lists_a_field_only_when_this_run_writes_it(client, root, monkeypatch):
+    company = vault.save_company(root, {'name': 'Fresh Fill Labs'})
+    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'size_cascade',
+                        lambda c, **kw: ({'size_range': '1-10', 'size_class': 'micro'}, None))
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert sorted(response.json['retry_applied']) == ['sectors', 'size']

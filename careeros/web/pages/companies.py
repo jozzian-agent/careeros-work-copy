@@ -27,7 +27,12 @@ def detail(identifier):
     company = vault.load_company(root, identifier)
     if company is None:
         abort(404)
+    isic_labels = {s['code']: s['label'] for s in sectors.load_isic_sections()}
+    # Same read-time label mapping as the directory card (build_page):
+    # the detail page shows human labels, never bare section codes.
+    sector_labels = [isic_labels.get(code, code) for code in company.get('sectors', [])]
     return page(company.get('name', 'Company'), 'companies', 'company_detail.html', company=company,
+                sector_labels=sector_labels,
                 entries=[j for j in vault.list_jobs(root) if j.get('company_id') == identifier],
                 experiences=[e for e in vault.list_experiences(root) if e.get('company_id') == identifier],
                 companies={identifier: company}, isic_sections=sectors.load_isic_sections(),
