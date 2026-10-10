@@ -130,7 +130,7 @@ Gestalt, React, with blue and purple replacing the default red. Component invent
 | Found in the prototype | Do this |
 |---|---|
 | Enrich with AI, Enrich pending, Backfill sector/size | One Retry, owner only. Enrichment already starts on ingest. Retry scheduling stays out of scope. DONE 2026-10-09 (visible to everyone until M2 roles). |
-| Status shown as filter pills, columns, card dropdown and a Board and List switch | Columns are the filter. One control per card. Keep Function and add Needs attention. |
+| Status shown as filter pills, columns, card dropdown and a Board and List switch | Columns are the filter. One control per card. Keep Function and add Needs attention. DONE 2026-10-09 (pills removed; Needs attention toggle added; Function kept; Board/List switch kept per owner decision A). |
 | Notes appear twice on the company page | One notes field. DONE 2026-10-09 (read-only markdown card removed; the editable textarea is the one field). |
 | Opportunities, Experience, Posting URL | Jobs, Experiences, Add a job by link or title |
 | Custom fields JSON on the company | Check what reads it, then delete if nothing does. DONE 2026-10-09 (nothing rendered it; form control removed, stored data preserved on every company write path). |
