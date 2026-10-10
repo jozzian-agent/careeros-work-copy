@@ -250,10 +250,10 @@ def test_ineligible_scan_and_button(tmp_path, job, updates, monkeypatch):
     assert 'disabled' in button and button['title'] == data['reason']
 
 
-def test_check_posting_summary_placement_and_chunk(tmp_path, job):
+def test_check_posting_summary_placement(tmp_path, job):
     html = create_app(tmp_path).test_client().get('/jobs/' + job['id']).text
     assert html.index('id="check-posting"') < html.index('id="job-form"')
-    assert 'Chunk 4' in html and 'Chunk 3' not in html
+    assert 'Chunk' not in html
 
 
 @pytest.mark.parametrize('data, reloads, message', [

@@ -17,11 +17,6 @@ CONTENT_MAX_WIDTH = 1180
 #: still expect two.
 MOBILE_BREAKPOINT = 640
 
-#: Muted tag next to the wordmark, bump when a chunk is accepted.
-from careeros import CHUNK
-
-SHELL_TAG = CHUNK
-
 #: Navigation order shared by every CareerOS page.
 NAV_PAGES = (
     ("search", "Search"),
@@ -120,7 +115,6 @@ a.external::after { content: ' \\2197'; display: inline-block; }
 .chart-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .app-header { display: flex; align-items: center; gap: 14px; margin-bottom: 32px; }
 .wordmark { color: var(--text-primary); font-size: 20px; font-weight: 590; text-decoration: none; letter-spacing: -0.02em; }
-.shell-tag { font-size: 12px; }
 .page-nav { flex-wrap: wrap; gap: 12px 24px; border-bottom: 1px solid var(--border-standard); padding-bottom: 16px; }
 .page-nav a.active { text-decoration: underline; text-decoration-color: var(--accent-indigo); text-underline-offset: 17px; }
 a:focus-visible { outline: 2px solid var(--accent-indigo); outline-offset: 5px; border-radius: 2px; }
@@ -196,8 +190,7 @@ def page_shell(title: str, current_page: str, body: str, extra_css: str = "") ->
         f"<style>{CSS_VARS}{BASE_CSS}{SCROLLBAR_CSS}{extra_css}</style>"
         "</head><body>"
         "<div class='page'><header class='app-header'>"
-        "<a class='wordmark' href='/search'>CareerOS</a>"
-        f"<span class='muted shell-tag'>{escape(SHELL_TAG)}</span></header>"
+        "<a class='wordmark' href='/search'>CareerOS</a></header>"
         f"{nav_html(current_page)}<main>{body}</main></div>"
         "</body></html>"
     )

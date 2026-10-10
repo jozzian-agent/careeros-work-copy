@@ -1,4 +1,4 @@
-<a href="/jobs">← Jobs</a><div class="page-header job-detail-header spaced"><h1>{{ job.title }}</h1><small class="muted">{{ job.id }}</small></div>
+<a href="/jobs">← Jobs</a><div class="page-header job-detail-header spaced"><h1>{{ job.title }}</h1></div>
 {% if llm_pending %}<div class="row spaced"><span class="muted" id="extract-pending-chip">Enrichment pending</span></div>{% endif %}
 <div class="stack">
 {% if job.refresh == 'failed' %}<p class="muted">Live page unavailable — enriched stored text</p>{% endif %}

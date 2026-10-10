@@ -1,4 +1,4 @@
-<a href="/jobs/{{ job.id|urlencode }}">← {{ job.title }}</a><div class="page-header spaced"><h1>Classification</h1><span class="muted">{{ job.id }}</span></div>
+<a href="/jobs/{{ job.id|urlencode }}">← {{ job.title }}</a><div class="page-header spaced"><h1>Classification</h1></div>
 <form id="taxonomy-form" class="card stack">
   <fieldset><legend>Function (ESCO)</legend><p class="muted">What the role actually does. Pick one or more.</p>
     <div class="stack">{% for fid, label in function_options %}<label class="row"><input type="checkbox" name="function" value="{{ fid }}" {% if fid in job.function %}checked{% endif %}> {{ label }}{% if function_labels.get(fid, {}).get('local') %} <span class="chip" title="Local extension, not mapped to an ISCO group">local</span>{% endif %}</label>{% else %}<p class="muted">No function registry entries yet.</p>{% endfor %}</div>
