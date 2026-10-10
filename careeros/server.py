@@ -7,7 +7,7 @@ from threading import RLock, Thread
 from pathlib import Path
 from urllib.parse import urlsplit, unquote
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from careeros import vault as storage
 from careeros import intake
 from careeros import ingest
@@ -92,9 +92,22 @@ def create_app(vault: str | Path | None = None) -> Flask:
     app = Flask(__name__)
     app.config['VAULT_PATH'] = Path(vault if vault is not None else os.environ.get('CAREEROS_VAULT', DEFAULT_VAULT)).expanduser()
     app.add_url_rule('/', 'index', search.build_page)
+    # M0 migration (JOZ-273): with CAREEROS_REACT_UI=1 the Jobs page is
+    # served by the built React/Gestalt front end instead of the Jinja
+    # template. The SPA fetches the same JSON API either way, so flipping
+    # the flag changes only which renderer answers GET /jobs. The Jinja
+    # page stays reachable whenever the flag is off or the build output
+    # is missing (a fresh clone has no dist/ until `npm run build`).
+    react_dist = Path(os.environ.get('CAREEROS_REACT_DIST') or Path(__file__).resolve().parent.parent / 'frontend' / 'dist')
+    react_ui = os.environ.get('CAREEROS_REACT_UI') == '1' and (react_dist / 'index.html').is_file()
     for module in (search, experiences, jobs, companies):
         slug = module.__name__.rsplit('.', 1)[-1]
+        if react_ui and slug == 'jobs':
+            continue
         app.add_url_rule(f'/{slug}', slug, module.build_page)
+    if react_ui:
+        app.add_url_rule('/jobs', 'react_jobs', lambda: send_from_directory(react_dist, 'index.html'))
+        app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
     app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
     app.add_url_rule('/experiences/<identifier>', 'experience_detail', experiences.detail)
