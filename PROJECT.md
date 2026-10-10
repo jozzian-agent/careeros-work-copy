@@ -35,7 +35,7 @@ The six owner rules live in the Journey 1 spec. These are the ones the flows bel
 | Out of scope | Regions outside Zurich, the vault, CV generation, Glassdoor data, interview preparation, the company-page watcher |
 | Smallest version as value | In one session you leave with three jobs you chose on a board, and you are told when one closes or changes. |
 | Dependencies | Hosting that friends can reach. A per-user board on top of shared jobs and companies. A universe of at least 50 companies and 50 jobs in Zurich, built by hand. Pick rounds cannot run without the universe. JOZ-267 and JOZ-268 are not required for the first test, because the owner simulates what they would automate, see M4. |
-| Expensive decisions | Gestalt as design system with blue and purple. Companies stay a top-level tab. Universe is a backend word and never appears in the interface. The edit model is per-user boards with the owner editing shared records. Proposed. |
+| Expensive decisions | Gestalt as design system with blue and purple. Companies stay a top-level tab. Universe is a backend word and never appears in the interface. The edit model is per-user boards with the owner editing shared records. Gestalt integration mode: full React front end. Owner decision 2026-10-10 (JOZ-273, option C; see docs/joz-273-gestalt-decision.md). |
 | Success signal | Proposed. Four of five friends put at least three jobs on their board and return within a week. |
 | Evidence | The owner's own frustration. Open. |
 | Risks | The universe has nothing for a friend outside product and business roles. The local model is CPU-only and takes up to a minute per call, so reading a job or a CV is slow. Enrichment signals are weak, so many companies end up exhausted. The single YAML vault is untested beyond about 24 jobs. Friends upload personal data. A simulated M4 tests whether the experience is useful, and says nothing about whether the automation is fast or accurate enough. |
@@ -125,7 +125,7 @@ Friends never delete jobs or companies. Only the owner edits shared records.
 
 ### Design system
 
-Gestalt, React, with blue and purple replacing the default red. Component inventory to record before the first polish round.
+Gestalt, React, with blue and purple replacing the default red. Full React front end decided by the owner 2026-10-10 (JOZ-273 option C, docs/joz-273-gestalt-decision.md). Component inventory to record before the first polish round.
 
 ## What the audit says to remove or merge
 
