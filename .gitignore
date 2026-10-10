@@ -7,3 +7,6 @@ __pycache__/
 tmp-brief*.md
 /tmp/
 .hermes-handover.md
+
+frontend/node_modules/
+frontend/dist/
