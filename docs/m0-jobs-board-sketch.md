@@ -1,7 +1,7 @@
 # M0 sketch — Jobs board on Gestalt
 
 Surface: /jobs (React rewrite of jobs.html + job_cards.html).
-Status: awaiting owner approval. Approval line: "Approved YYYY-MM-DD".
+Status: Approved 2026-10-10 (owner: "Go" on plan defaults + sketch).
 
 ## What must survive (behavior contract, batches A–D)
 
