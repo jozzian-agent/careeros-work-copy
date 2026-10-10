@@ -110,7 +110,7 @@ Interviews is removed from the navigation until it exists. Tab order is Jobs, Co
 | Retry | On the card or company, visible after a failed or exhausted step | Owner |
 | Resolve a company match | The review card | Owner |
 | Remove from my board | On the card | Everyone |
-| Edit preferences | One edit mode on Preferences | Everyone |
+| Edit preferences | One edit mode on Search (proposed name: Preferences); Edit criteria → Done / Cancel, batch D | Everyone |
 | Add an experience | Experiences | Everyone |
 | Send feedback | One link in the footer | Everyone |
 
@@ -137,8 +137,8 @@ Gestalt, React, with blue and purple replacing the default red. Component invent
 | Opportunities, Experience, Posting URL | Jobs, Experiences, Add a job by link or title |
 | Custom fields JSON on the company | Check what reads it, then delete if nothing does. DONE 2026-10-09 (nothing rendered it; form control removed, stored data preserved on every company write path). |
 | Interviews tab, the taxonomy sub-page text, an empty Updated line | Delete until the feature exists. Interviews tab and the empty Updated line DONE 2026-10-09 (nav entry, route, and page deleted; Updated span removed from Search). The taxonomy sub-page text stays: those pages exist. |
-| Five Edit buttons on Search | One edit mode |
-| AI summary, AI responsibilities and original description on a job | Show the AI version, collapse the original under the source |
+| Five Edit buttons on Search | One edit mode — batch D (JOZ-270), implemented; [approved sketches and live checks](docs/batch-d-sketches.md). Owner implementation click-test pending. |
+| AI summary, AI responsibilities and original description on a job | Summary first, collapsed original directly below — batch D (JOZ-271); [approved sketches and live checks](docs/batch-d-sketches.md). Owner implementation click-test pending. |
 | Chunk 4, JOB and CO identifiers | Delete from the interface |
 | Delete company | Friends see Remove from my board. Deleting stays with the owner. |
 

@@ -822,7 +822,7 @@ def test_job_detail_extracted_sections(client):
 def test_job_detail_hides_empty_extracted_sections(client):
     html = client.get('/jobs/JOB-001').text
     for label in ['Background required', '<h2>Skills</h2>', 'Certifications', 'Responsibilities',
-                 'Original description', 'AI-generated']:
+                 'Original posting text (from source)', 'AI-generated']:
         assert label not in html
 
 
@@ -831,17 +831,17 @@ def test_job_detail_original_description_collapsible(client):
     long_text = 'Paragraph one.\n\n' + ('Filler sentence. ' * 100)
     vault.save_job(root, {'description': long_text}, 'JOB-001')
     html = client.get('/jobs/JOB-001').text
-    assert 'Original description' in html
-    assert '<details>' in html and '<summary>Show full description</summary>' in html
+    assert 'Original posting text (from source)' in html
+    assert '<details class="original-desc"><summary>Original posting text (from source)</summary>' in html
     assert 'Paragraph one.' in html
 
 
-def test_job_detail_short_description_not_collapsible(client):
+def test_job_detail_short_description_collapsible(client):
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'description': 'Short description.'}, 'JOB-001')
     html = client.get('/jobs/JOB-001').text
     assert 'Short description.' in html
-    assert '<details>' not in html
+    assert '<details class="original-desc">' in html
 
 
 def test_job_detail_no_reenrich_button_when_idle(client):
@@ -904,15 +904,15 @@ def test_job_detail_whitespace_only_description_hides_section(client):
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'description': ' ' * 1201}, 'JOB-001')
     html = client.get('/jobs/JOB-001').text
-    assert 'Original description' not in html
+    assert 'Original posting text (from source)' not in html
 
 
-def test_job_detail_description_boundary_1200_not_collapsible(client):
+def test_job_detail_description_boundary_1200_collapsible(client):
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'description': 'a' * 1200}, 'JOB-001')
     html = client.get('/jobs/JOB-001').text
-    assert 'Original description' in html
-    assert '<details>' not in html
+    assert 'Original posting text (from source)' in html
+    assert '<details class="original-desc">' in html
 
 
 def test_job_detail_description_boundary_1201_reconstructs_exactly(client):
@@ -921,15 +921,11 @@ def test_job_detail_description_boundary_1201_reconstructs_exactly(client):
     text = 'a' * 1200 + 'b'
     vault.save_job(root, {'description': text}, 'JOB-001')
     html = client.get('/jobs/JOB-001').text
-    assert '<details>' in html
-    preview = re.search(r'<p class="preserve">(a+)</p>', html).group(1)
-    rest = re.search(r'<summary>Show full description</summary><p class="preserve">(.*?)</p>', html, re.S).group(1)
-    assert len(preview) == 1200
-    assert len(rest) == 1
-    assert preview + rest == text
+    description = re.search(r'<details class="original-desc"><summary>Original posting text \(from source\)</summary><p class="preserve"[^>]*>(.*?)</p></details>', html, re.S).group(1)
+    assert description == text
 
 
-def test_job_detail_description_escapes_html_in_both_halves(client):
+def test_job_detail_description_escapes_html(client):
     root = client.application.config['VAULT_PATH']
     text = '<script>evil()</script>' * 60 + '<b>tail</b>'
     assert len(text) > 1200
@@ -2039,3 +2035,117 @@ def test_refresh_worker_exception_persists_failure(client, monkeypatch):
     assert final['ingest_error']['reason'] == 'RuntimeError'
     assert final['history'][-1]['event'] == 'extract_failed'
     assert not client.application.config['LLM_PENDING']
+
+
+def test_batch_d_job_card_order(client):
+    root = client.application.config['VAULT_PATH']
+    vault.seed_function_facet(root)
+    vault.save_job(root, {'summary': 'Overview', 'summary_source': 'ai',
+                         'description': 'Original text', 'skills': ['Python'],
+                         'responsibilities': ['Build things'], 'background': 'Experience',
+                         'function': [sorted(vault.known_function_ids(root))[0]], 'certifications': ['PMP']}, 'JOB-001')
+    html = client.get('/jobs/JOB-001').text
+    markers = ['<h2>Summary <span class="chip ai-badge">AI-generated</span></h2>',
+               '<details class="original-desc">', '<h2>Skills</h2>',
+               '<h2>Responsibilities</h2>', '<h2>Background required</h2>',
+               '<h2>Function</h2>', '<h2>Classification</h2>',
+               '<h2>Certifications</h2>', '<dt>Title</dt>']
+    positions = [html.index(marker) for marker in markers]
+    assert positions == sorted(positions)
+    assert '<details class="original-desc" open' not in html
+
+
+def test_search_one_edit_affordance(client):
+    html = client.get('/search').text
+    assert html.count('Edit criteria') == 1
+    for old in ['Edit roles', 'Edit must-haves', 'Edit nice-to-haves', 'Edit avoid',
+                'Edit notes', 'Save notes', 'cancel-notes']:
+        assert old not in html
+    assert html.count('class="row editor"') == 4
+    assert 'id="save-all" hidden>Done</button>' in html
+    assert 'id="cancel-all" hidden>Cancel</button>' in html
+
+
+@pytest.mark.skipif(NODE is None, reason='Node is required to execute the Search editor JS.')
+def test_search_local_edits_cancel_save_and_rollback(client):
+    html = client.get('/search').text
+    script = next(s for s in re.findall(r'<script>(.*?)</script>', html, re.S)
+                  if 'let criteria=' in s)
+    harness = r'''
+const assert = require('node:assert/strict');
+function element() {
+  return {value:'', hidden:false, disabled:false, children:[],
+          append(...items){this.children.push(...items)},
+          replaceChildren(){this.children=[]}, setAttribute(){}};
+}
+const ids = Object.fromEntries(['edit-criteria','save-all','cancel-all','notes',
+  'notes-heading','notes-view','notes-edit','updated'].map(id=>[id,element()]));
+const sections = ['roles','must_haves','nice_to_haves','avoid'].map(key=>{
+  const parts = Object.fromEntries(['ul','.empty','.editor','input'].map(k=>[k,element()]));
+  parts.form=parts['.editor'];
+  return {dataset:{section:key},parts,querySelector(k){return parts[k]}};
+});
+global.document = {
+  getElementById(id){return ids[id]},createElement:element,
+  querySelectorAll(selector){return selector==='[data-section]'?sections:sections.map(s=>s.parts.input)}
+};
+const calls=[], notices=[];
+let settle, reject;
+global.api=(url,method,data)=>{
+  calls.push({url,method,data:structuredClone(data)});
+  return new Promise((resolve,fail)=>{settle=resolve;reject=fail});
+};
+global.toast=(...args)=>notices.push(args);
+'''
+    checks = r'''
+(async()=>{
+  const initial=structuredClone(criteria);
+  editButton.onclick();
+  for(const section of sections){
+    assert.equal(section.parts['.editor'].hidden,false);
+    section.parts.input.value='New '+section.dataset.section;
+    section.parts.form.onsubmit({preventDefault(){}});
+  }
+  notes.value='Changed notes';notes.oninput();
+  sections[0].parts.ul.children[0].children[0].onclick();
+  assert.equal(calls.length,0);
+  cancelButton.onclick();
+  assert.deepEqual(criteria,initial);
+  assert.equal(calls.length,0);
+  assert.equal(notes.value,initial.notes||'');
+  editButton.onclick();
+  sections[0].parts.input.value='Saved role';
+  sections[0].parts.form.onsubmit({preventDefault(){}});
+  notes.value='Saved notes';notes.oninput();
+  const saving=doneButton.onclick();
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].url,'/api/search');
+  assert.equal(calls[0].method,'POST');
+  assert.equal(calls[0].data.notes,'Saved notes');
+  assert.equal(calls[0].data.roles.at(-1),'Saved role');
+  for(const key of ['must_haves','nice_to_haves','avoid'])assert.deepEqual(calls[0].data[key],initial[key]);
+  // While a save is pending the UI stays in edit mode (busy), so further clicks are no-ops.
+  editButton.onclick();cancelButton.onclick();await doneButton.onclick();
+  assert.equal(editing,true);assert.equal(calls.length,1);
+  settle({...calls[0].data,updated:'2026-10-10'});await saving;
+  assert.equal(busy,false);assert.equal(editing,false);
+  const saved=structuredClone(criteria);
+  editButton.onclick();notes.value='Failing notes';notes.oninput();
+  sections[0].parts.ul.children[0].children[0].onclick();
+  const failing=doneButton.onclick();reject(Error('Save failed'));await failing;
+  // New contract: on save failure the user stays in edit mode with edits intact.
+  assert.equal(editing,true);assert.equal(busy,false);
+  assert.equal(criteria.notes,'Failing notes');
+  assert.equal(criteria.roles.length,saved.roles.length-1);
+  assert.deepEqual(notices.at(-1),['Save failed',true]);
+  assert.equal(editButton.disabled,false);assert.equal(doneButton.disabled,false);
+  // Retry after failure succeeds and leaves edit mode.
+  const retrying=doneButton.onclick();
+  assert.equal(calls.length,3);
+  settle({...calls[2].data,updated:'2026-10-11'});await retrying;
+  assert.equal(editing,false);assert.equal(busy,false);
+})().catch(error=>{console.error(error);process.exitCode=1});
+'''
+    result = subprocess.run([NODE, '-e', harness + script + checks],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
