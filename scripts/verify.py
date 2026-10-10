@@ -91,8 +91,16 @@ def browser_checks():
             page.route('**/api/jobs/*/enrich', enrich_response)
             page.get_by_role('button', name='Enrich pending', exact=True).click()
             page.wait_for_function("document.getElementById('toast').textContent.includes('updated, 0 failed')")
-            page.get_by_role('button', name='Interested', exact=True).click()
-            assert page.locator('.job-card:visible').count() == 1
+            # M1 audit batch B: status pills are gone; check the replacement
+            # controls instead (Needs attention toggle + Function filter).
+            baseline_cards = page.locator('.job-card:visible').count()
+            needs_toggle = page.get_by_role('button', name='Needs attention', exact=True)
+            assert needs_toggle.get_attribute('aria-pressed') == 'false'
+            needs_toggle.click()
+            assert needs_toggle.get_attribute('aria-pressed') == 'true'
+            assert page.locator('.job-card[data-needs="false"]:visible').count() == 0
+            needs_toggle.click()
+            assert page.locator('.job-card:visible').count() == baseline_cards
             visit('/jobs/JOB-001', 'job-detail.png')
             assert page.locator('#job-history').is_visible()
             page.get_by_role('button', name='Check posting', exact=True).click()

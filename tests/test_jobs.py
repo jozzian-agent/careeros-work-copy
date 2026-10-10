@@ -1406,8 +1406,17 @@ def test_needs_attention_data_attribute_matches_server_rule(client):
                           'ingest_error': {'stage': 'fetch',
                                            'reason': 'connection refused',
                                            'at': '2026-10-09'}}, 'JOB-002')
+    vault.save_job(root, {'ingest_state': 'extract_failed',
+                          'ingest_error': {'stage': 'extract',
+                                           'reason': 'posting removed',
+                                           'at': '2026-10-09'},
+                          'company_link_state': 'linked'}, 'JOB-004')
+    vault.save_job(root, {'ingest_state': 'complete',
+                          'company_link_state': 'linked'}, 'JOB-005')
     html = client.get('/jobs').text
-    for job_id, expected in (('JOB-001', 'true'), ('JOB-002', 'true'), ('JOB-003', 'false')):
+    for job_id, expected in (('JOB-001', 'true'), ('JOB-002', 'true'),
+                             ('JOB-004', 'true'), ('JOB-005', 'false'),
+                             ('JOB-003', 'false')):
         card = re.search(r'<article class="card job-card"[^>]*data-id="' + job_id + r'"[^>]*>', html).group(0)
         assert f'data-needs="{expected}"' in card
         row = re.search(r'<tr class="job-row"[^>]*data-id="' + job_id + r'"[^>]*>', html).group(0)
