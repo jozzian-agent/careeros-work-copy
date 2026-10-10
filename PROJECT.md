@@ -10,6 +10,8 @@ Job seekers get stuck on job sites. Postings are stale, suggestions are off targ
 
 As of 2026-10-09 the product is a personal tool for one owner. It runs on the owner's hardware, is reachable on the local network only, and has no multi-user support. Journey 1 steps 1 to 4 are shipped, which are URL normalizing, hard duplicate check, instant stub and company resolution. Steps 5 to 8 are open as JOZ-267 and JOZ-268. The Journey 1 spec and the ticket tracker are the source for status. This file does not copy them.
 
+2026-10-10: experiences share the company database. Every experience links to a company record by company_id; the free-text company name is a frozen label. The former combined early-career record was split into one experience per employer, each linked, per owner decision; the staffing note (engaged via a third party) stays in the title and no staffing company record is created. Migration ran through the ordinary save path with a plan file kept outside the repo.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
