@@ -59,8 +59,9 @@ to `/tmp/careeros-chunk3/`. It uses the existing Chromium headless shell revisio
 See [FIXES.md](FIXES.md) for environment limitations and deviations.
 
 Chunk 3 verification additionally exercises job and company APIs, direct-employer
-intake against a real Mozilla careers URL over the host network, status filtering,
-notes/profile editing, and desktop/mobile job and company screenshots. The
+intake against a real Mozilla careers URL over the host network, the Function and
+Needs attention filters, notes/profile editing, and desktop/mobile job and company
+screenshots. The
 script restores all sample YAML afterward, including removing intake records.
 Run it on the host: sandbox verification uses Flask test clients and HTML dumps
 in `/tmp/careeros-chunk3-html/`, with no sockets, Chromium, or network.

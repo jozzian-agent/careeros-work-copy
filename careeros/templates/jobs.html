@@ -6,16 +6,21 @@
 <button id="duplicate-add-anyway">Add anyway</button>
 <button id="duplicate-cancel" autofocus>Cancel</button>
 </div></dialog>
-<div class="row spaced" aria-label="Filter jobs"><button class="filter-btn active" data-filter="all" aria-pressed="true">All</button>{% for status in statuses %}<button class="filter-btn" data-filter="{{ status }}" aria-pressed="false">{{ status|title }}</button>{% endfor %}<label for="function-filter">Function<select id="function-filter"><option value="all">All functions</option>{% for fid, label in function_options %}<option value="{{ fid }}">{{ label }}</option>{% endfor %}</select></label></div>
-<div id="cards" class="spaced">{% include 'job_cards.html' %}</div><p id="empty" class="muted" {% if entries %}hidden{% endif %}>{{ empty }}</p><p id="filter-empty" class="muted" hidden>No jobs in this status.</p>
+<div class="row spaced" aria-label="Filter jobs"><label for="function-filter">Function<select id="function-filter"><option value="all">All functions</option>{% for fid, label in function_options %}<option value="{{ fid }}">{{ label }}</option>{% endfor %}</select></label><button id="needs-attention-toggle" class="filter-btn" aria-pressed="false">Needs attention</button></div>
+<div id="cards" class="spaced">{% include 'job_cards.html' %}</div><p id="empty" class="muted" {% if entries %}hidden{% endif %}>{{ empty }}</p><p id="needs-attention-empty" class="muted" hidden>Nothing needs attention.</p>
 <script>
-let activeFilter='all',activeView='board',activeFunction='all';
+let activeView='board',activeFunction='all',needsAttention=false;
 try{activeView=localStorage.getItem('careerJobsView')==='list'?'list':'board';}catch{}
-function filter(){let count=0;document.querySelectorAll('.job-card,.job-row').forEach(c=>{const statusOk=activeFilter==='all'||c.dataset.status===activeFilter;const functions=(c.dataset.function||'').split(' ').filter(Boolean);const functionOk=activeFunction==='all'||functions.includes(activeFunction);c.hidden=!(statusOk&&functionOk);if(!c.hidden)count++;});document.querySelectorAll('[data-column]').forEach(c=>c.hidden=activeFilter!=='all'&&c.dataset.column!==activeFilter);document.getElementById('filter-empty').hidden=count>0||(activeFilter==='all'&&activeFunction==='all');}
+try{needsAttention=localStorage.getItem('careerNeedsAttention')==='true';}catch{}
+function filter(){let count=0;document.querySelectorAll('.job-card,.job-row').forEach(c=>{const functions=(c.dataset.function||'').split(' ').filter(Boolean);const functionOk=activeFunction==='all'||functions.includes(activeFunction);const needsOk=!needsAttention||c.dataset.needs==='true';c.hidden=!(functionOk&&needsOk);if(!c.hidden)count++;});document.getElementById('needs-attention-empty').hidden=count>0||!needsAttention;}
 document.getElementById('function-filter').onchange=e=>{activeFunction=e.target.value;filter();};
 function view(){document.getElementById('board-view').hidden=activeView!=='board';document.getElementById('list-view').hidden=activeView!=='list';document.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.view===activeView)));}
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{activeView=b.dataset.view;try{localStorage.setItem('careerJobsView',activeView);}catch{}view();});view();
-document.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{activeFilter=b.dataset.filter;document.querySelectorAll('[data-filter]').forEach(x=>{x.classList.toggle('active',x===b);x.setAttribute('aria-pressed',String(x===b));});filter();});
+const needsToggle=document.getElementById('needs-attention-toggle');
+needsToggle.setAttribute('aria-pressed',String(needsAttention));
+needsToggle.classList.toggle('active',needsAttention);
+needsToggle.onclick=()=>{needsAttention=!needsAttention;needsToggle.setAttribute('aria-pressed',String(needsAttention));needsToggle.classList.toggle('active',needsAttention);try{localStorage.setItem('careerNeedsAttention',String(needsAttention));}catch{}filter();};
+filter();
 let sortColumn=null,ascending=true;
 function sortJobs(column,direction){ascending=direction===undefined?(sortColumn===column?!ascending:true):direction;sortColumn=column;const body=document.querySelector('.jobs-table tbody');Array.from(body.rows).sort((a,b)=>a.cells[column].textContent.trim().localeCompare(b.cells[column].textContent.trim(),undefined,{numeric:true})*(ascending?1:-1)).forEach(row=>body.append(row));document.querySelectorAll('.jobs-table th').forEach((th,i)=>th.setAttribute('aria-sort',i===column?(ascending?'ascending':'descending'):'none'));document.getElementById('job-sort').value=column+':'+(ascending?'asc':'desc');}
 document.getElementById('cards').addEventListener('click',e=>{const b=e.target.closest('[data-sort]');if(b)sortJobs(Number(b.dataset.sort));});

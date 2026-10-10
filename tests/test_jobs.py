@@ -1386,6 +1386,43 @@ def test_list_view_shows_review_indicator_for_linked_company(client):
     assert 'company-review-chip' in list_view
 
 
+# --- M1 audit batch B: status pills removed, columns are the filter,
+# Needs attention replaces them --
+
+def test_m1_audit_batch_b_removes_status_pills(client):
+    html = client.get('/jobs').text
+    assert 'data-filter=' not in html
+    assert 'filter-btn active' not in html
+    assert 'id="filter-empty"' not in html
+    assert 'No jobs in this status.' not in html
+    assert 'activeFilter' not in html
+    assert re.search(r'<button id="needs-attention-toggle"[^>]*aria-pressed="false"', html)
+
+
+def test_needs_attention_data_attribute_matches_server_rule(client):
+    root = client.application.config['VAULT_PATH']
+    vault.save_job(root, {'company_link_state': 'needs_review'}, 'JOB-001')
+    vault.save_job(root, {'ingest_state': 'fetch_failed',
+                          'ingest_error': {'stage': 'fetch',
+                                           'reason': 'connection refused',
+                                           'at': '2026-10-09'}}, 'JOB-002')
+    vault.save_job(root, {'ingest_state': 'extract_failed',
+                          'ingest_error': {'stage': 'extract',
+                                           'reason': 'posting removed',
+                                           'at': '2026-10-09'},
+                          'company_link_state': 'linked'}, 'JOB-004')
+    vault.save_job(root, {'ingest_state': 'complete',
+                          'company_link_state': 'linked'}, 'JOB-005')
+    html = client.get('/jobs').text
+    for job_id, expected in (('JOB-001', 'true'), ('JOB-002', 'true'),
+                             ('JOB-004', 'true'), ('JOB-005', 'false'),
+                             ('JOB-003', 'false')):
+        card = re.search(r'<article class="card job-card"[^>]*data-id="' + job_id + r'"[^>]*>', html).group(0)
+        assert f'data-needs="{expected}"' in card
+        row = re.search(r'<tr class="job-row"[^>]*data-id="' + job_id + r'"[^>]*>', html).group(0)
+        assert f'data-needs="{expected}"' in row
+
+
 # --- M1 (JOZ-266 fix round): owner link decision protected as a group --
 
 def test_owner_link_decision_survives_concurrent_phase_b_resolution(client, monkeypatch):

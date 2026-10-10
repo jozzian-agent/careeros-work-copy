@@ -10,12 +10,22 @@ from careeros.web.markdown import render_markdown
 EMPTY_STATE = 'No jobs yet — paste a posting link to get started.'
 DESCRIPTION_PREVIEW_CHARS = 1200
 
+def needs_attention(job):
+    """M1 audit batch B: a job needs owner action when the company link is
+    unresolved or ingest got stuck, mirroring company_link_state/ingest_state
+    as already stored on the entry dict (no separate recompute in JS)."""
+    return (job.get('company_link_state') == 'needs_review'
+            or job.get('ingest_state') in ('fetch_failed', 'extract_failed'))
+
 def build_page():
     root = current_app.config['VAULT_PATH']
     function_labels = vault.function_label_map(root)
     function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
                               key=lambda pair: pair[1].casefold())
-    return page('Jobs', 'jobs', 'jobs.html', entries=vault.list_jobs(root),
+    entries = vault.list_jobs(root)
+    for job in entries:
+        job['needs_attention'] = needs_attention(job)
+    return page('Jobs', 'jobs', 'jobs.html', entries=entries,
                 companies={c['id']: c for c in vault.list_companies(root) if 'id' in c},
                 statuses=vault.STATUSES, empty=EMPTY_STATE, function_options=function_options)
 
