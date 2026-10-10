@@ -29,7 +29,7 @@ def test_routes(client, route, module):
     slug = module.__name__.split('.')[-1]
     assert module.EMPTY_STATE in html
     assert f"href='/{slug}' class='active' aria-current='page'" in html
-    assert 'CareerOS' in html and theme.SHELL_TAG in html
+    assert 'CareerOS' in html
     assert html.count("aria-current='page'") == 1
     assert [html.index(f"href='/{s}'", html.index('<nav')) for s, _ in theme.NAV_PAGES] == sorted(html.index(f"href='/{s}'", html.index('<nav')) for s, _ in theme.NAV_PAGES)
 

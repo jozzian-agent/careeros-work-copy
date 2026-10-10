@@ -744,7 +744,8 @@ def test_job_detail_location_and_header(client, location, remote_ok, mentions, c
     assert html.lower().count('remote') == mentions
     assert ('<span class="chip">Remote</span>' in html) is chip
     title = vault.load_job(root, 'JOB-001')['title']
-    assert f'<div class="page-header job-detail-header spaced"><h1>{title}</h1><small class="muted">JOB-001</small></div>' in html
+    assert f'<div class="page-header job-detail-header spaced"><h1>{title}</h1></div>' in html
+    assert '<small class="muted">JOB-001</small>' not in html
     assert vault.load_job(root, 'JOB-001')['location'] == location
 
 
