@@ -5,7 +5,17 @@ from careeros.web.ui import page
 
 EMPTY_STATE = 'No criteria yet — define your next role.'
 
+def page_context(root):
+    return criteria_context(vault.load_search(root))
+
+def criteria_context(data):
+    return dict(
+        data=data,
+        empty=EMPTY_STATE,
+        sections=[('roles', 'Roles'), ('must_haves', 'Must-haves'), ('nice_to_haves', 'Nice-to-haves'), ('avoid', 'Avoid')],
+    )
+
 def build_page():
-    data = vault.load_search(current_app.config['VAULT_PATH'])
-    return page('Search', 'search', 'search.html', data=data, empty=EMPTY_STATE,
-                sections=[('roles', 'Roles'), ('must_haves', 'Must-haves'), ('nice_to_haves', 'Nice-to-haves'), ('avoid', 'Avoid')])
+    root = current_app.config['VAULT_PATH']
+    context = page_context(root)
+    return page('Search', 'search', 'search.html', **context)

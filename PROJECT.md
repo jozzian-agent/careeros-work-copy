@@ -12,6 +12,8 @@ As of 2026-10-09 the product is a personal tool for one owner. It runs on the ow
 
 2026-10-10: experiences share the company database. Every experience links to a company record by company_id; the free-text company name is a frozen label. The former combined early-career record was split into one experience per employer, each linked, per owner decision; the staffing note (engaged via a third party) stays in the title and no staffing company record is created. Migration ran through the ordinary save path with a plan file kept outside the repo.
 
+2026-10-10: backend JSON page parity for the React migration is implemented for review. Existing record APIs and Jinja remain live; [contracts, reuse decisions and verification](docs/m1-api-contracts.md). This does not mark a React cutover or owner click-test accepted.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -98,6 +100,7 @@ Closed, Changed and Needs your input are facts or open questions about a job. Th
 | Company | Company browse |
 | Experiences | Bring yourself |
 | Preferences | Bring yourself |
+| JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/m1-api-contracts.md) |
 
 Interviews is removed from the navigation until it exists. Tab order is Jobs, Companies, Experiences, Preferences. Proposed.
 

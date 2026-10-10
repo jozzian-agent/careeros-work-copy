@@ -1007,11 +1007,35 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.get('/api/jobs')
     def job_collection():
+        if request.args.get('view') == 'board':
+            context = jobs.page_context(app.config['VAULT_PATH'])
+            names = {key: company['name'] for key, company in context['companies'].items()}
+            return jsonify(context | {
+                'companies': names,
+                'entries': [job | {'company_name': names.get(job.get('company_id')),
+                                   'pending': not bool(job.get('enriched'))}
+                            for job in context['entries']],
+            })
         return jsonify(storage.list_jobs(app.config['VAULT_PATH']))
 
     @app.get('/api/companies')
     def company_collection():
+        if request.args.get('view') == 'page':
+            return jsonify(companies.page_context(app.config['VAULT_PATH']))
         return jsonify(storage.list_companies(app.config['VAULT_PATH']))
+
+    @app.get('/api/jobs/<identifier>/taxonomy')
+    def job_taxonomy_api(identifier):
+        return jsonify(jobs.taxonomy_context(app.config['VAULT_PATH'], identifier))
+
+    @app.get('/api/companies/<identifier>/taxonomy')
+    def company_taxonomy_api(identifier):
+        return jsonify(companies.taxonomy_context(app.config['VAULT_PATH'], identifier))
+
+    @app.get('/api/experiences/new')
+    @app.get('/api/experiences/<identifier>/edit')
+    def experience_form_api(identifier=None):
+        return jsonify(experiences.form_context(app.config['VAULT_PATH'], identifier))
 
     @app.route('/api/jobs/<identifier>', methods=['GET', 'PUT', 'DELETE'])
     def job_api(identifier):
@@ -1021,6 +1045,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if data is None:
                 return jsonify(error='Job not found.'), 404
             if request.method == 'GET':
+                if request.args.get('view') == 'page':
+                    return jsonify(jobs.detail_context(root, identifier, identifier in llm_pending))
                 return jsonify(data | {'llm_pending': identifier in llm_pending})
             if request.method == 'DELETE':
                 storage.delete_job(root, identifier)
@@ -1084,6 +1110,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if data is None:
                 return jsonify(error='Company not found.'), 404
             if request.method == 'GET':
+                if request.args.get('view') == 'page':
+                    return jsonify(companies.detail_context(root, identifier))
                 return jsonify(data)
             if request.method == 'DELETE':
                 job_count = sum(job.get('company_id') == identifier for job in storage.list_jobs(root))
@@ -1104,6 +1132,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def search_api():
         root = app.config['VAULT_PATH']
         if request.method == 'GET':
+            if request.args.get('view') == 'page':
+                return jsonify(search.page_context(root))
             return jsonify(storage.load_search(root))
         with write_lock:
             return jsonify(storage.save_search(root, request.get_json()))
@@ -1112,6 +1142,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def experience_collection():
         root = app.config['VAULT_PATH']
         if request.method == 'GET':
+            if request.args.get('view') == 'page':
+                return jsonify(experiences.page_context(root))
             return jsonify(storage.list_experiences(root))
         with write_lock:
             return jsonify(storage.save_experience(root, request.get_json())), 201
@@ -1124,6 +1156,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if data is None:
                 return jsonify(error='Position not found.'), 404
             if request.method == 'GET':
+                if request.args.get('view') == 'page':
+                    return jsonify(experiences.detail_context(root, identifier))
                 return jsonify(data)
             if request.method == 'DELETE':
                 storage.delete_experience(root, identifier)
@@ -1226,6 +1260,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.errorhandler(404)
     def not_found(error):
+        if request.endpoint in ('job_taxonomy_api', 'company_taxonomy_api', 'experience_form_api'):
+            return jsonify(error='Record not found.'), 404
         return page_shell(
             'Page not found', '',
             "<section class='card empty-state'><h1>Page not found</h1>"
