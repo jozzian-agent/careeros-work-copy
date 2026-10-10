@@ -186,7 +186,7 @@ def main():
                 time.sleep(.1)
             else:
                 raise RuntimeError('Server boot timed out')
-            for route in ['/','/search','/experiences','/experiences/new','/experiences/EXP-001','/experiences/EXP-001/edit','/jobs','/jobs/JOB-001','/companies','/companies/CO-001','/interviews']:
+            for route in ['/','/search','/experiences','/experiences/new','/experiences/EXP-001','/experiences/EXP-001/edit','/jobs','/jobs/JOB-001','/companies','/companies/CO-001']:
                 assert 'CareerOS' in curl(route)
             assert 'Page not found' in curl('/missing', expected=404)
             curl('/experiences/EXP-999', expected=404)

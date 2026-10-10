@@ -28,7 +28,6 @@ NAV_PAGES = (
     ("experiences", "Experiences"),
     ("jobs", "Jobs"),
     ("companies", "Companies"),
-    ("interviews", "Interviews"),
 )
 
 #: CSS custom properties for the Linear dark palette (shared with life-os; token

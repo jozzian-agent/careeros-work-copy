@@ -3,7 +3,7 @@
 A personal career and job-hunt dashboard using the accepted Linear-dark shell.
 Search criteria, experiences, jobs, and company profiles are editable YAML-backed
 pages. Paste direct employer posting links into Jobs; failed fetches still save
-the opportunity for later enrichment. Interviews retains its empty shell page.
+the opportunity for later enrichment.
 
 | Chunk | Scope | Status |
 | --- | --- | --- |
@@ -24,7 +24,7 @@ Use Python 3.11 and the repository virtual environment:
 Open `http://localhost:8788` or `http://<host-LAN-IP>:8788` from the LAN.
 Routes: `/`, `/search`, `/experiences`, `/experiences/new`, `/experiences/<id>`,
 `/experiences/<id>/edit`, `/jobs`, `/jobs/<id>`, `/companies`,
-`/companies/<id>`, `/interviews`.
+`/companies/<id>`.
 Unknown paths return a styled 404. Stop the server with Ctrl-C.
 
 The optional `--vault PATH` takes precedence over `CAREEROS_VAULT`; otherwise the

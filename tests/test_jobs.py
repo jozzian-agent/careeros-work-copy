@@ -150,7 +150,10 @@ def test_crud_and_routes(client):
     assert '<strong>Ready</strong>' in html and '<script>bad()</script>' not in html
     assert client.put('/api/jobs/JOB-001',json={'status':'bogus'}).status_code==400
     assert client.put('/api/companies/CO-001',json={'sector':'Tools','locations':['Remote'],'notes':'**Studio**'}).status_code==200
-    assert '<strong>Studio</strong>' in client.get('/companies/CO-001').text
+    # M1 audit batch A: the duplicate read-only markdown Notes card is gone;
+    # notes now appear only as raw text in the one editable textarea.
+    company_html=client.get('/companies/CO-001').text
+    assert '**Studio**' in company_html and '<strong>Studio</strong>' not in company_html
     assert client.delete('/api/jobs/JOB-001').status_code==200
     for route in ['/api/jobs/JOB-001','/jobs/JOB-001','/api/companies/CO-999','/companies/CO-999']:
         assert client.get(route).status_code==404
@@ -164,6 +167,20 @@ def test_invalid_job(client,payload):
 @pytest.mark.parametrize('payload', [{'name':''},{'locations':'Remote'},{'website':'javascript:alert(1)'},{'sector':12},{'custom':[]}])
 def test_invalid_company(client,payload):
     assert client.put('/api/companies/CO-001',json=payload).status_code==400
+
+def test_company_put_without_custom_key_preserves_stored_custom(client):
+    # The profile form no longer renders a custom-fields control (M1 audit
+    # batch A), so its PUT payload never carries a custom key at all. This
+    # must not be confused with an explicit custom={} wipe.
+    root=client.application.config['VAULT_PATH']
+    vault.save_company(root,{'custom':{'keep':True}},'CO-001')
+    name=vault.load_company(root,'CO-001')['name']
+    payload={'name':name,'website':None,'locations':[],'notes':'Updated notes'}
+    assert 'custom' not in payload
+    response=client.put('/api/companies/CO-001',json=payload)
+    assert response.status_code==200
+    assert response.json['custom']=={'keep':True}
+    assert vault.load_company(root,'CO-001')['custom']=={'keep':True}
 
 @pytest.mark.parametrize('payload', [{'url':'file:///etc/passwd'},{'url':''},{'url':None},[],{}])
 def test_invalid_intake(client,payload):
