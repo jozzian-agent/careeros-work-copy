@@ -3,17 +3,17 @@ type: Convention
 title: Organisation intake
 description: Contract for the capability that resolves a loose organisation reference to a known, classified record.
 timestamp: 2026-10-11
-status: proposed
+status: approved
 ---
 
 # Organisation intake
 
 ## Purpose
 
-Given a loose reference to an organisation — a posting URL, a free-text
-employer name, or both — resolve it to one known record, reusing an
+Given a loose reference to an organisation - a posting URL, a free-text
+employer name, or both - resolve it to one known record, reusing an
 existing one whenever the evidence supports it and creating a fresh one
-when it doesn't, then classify that record by standard industry section
+when it does not, then classify that record by standard industry section
 and EU employee-count size class. Every step prefers the cheapest signal
 that can answer confidently over an expensive or fuzzy one, and refuses
 to guess past what its own confidence rules allow: anything short of
@@ -31,8 +31,8 @@ silently.
    `resolve_rungs_1_2` (local-only lookup, returns `None` cleanly on a
    miss) and `resolve_and_link` (always returns a result dict).
 
-2. Identity is tracked only through four identifier types — domain,
-   ats_tenant, wikidata, name_variant (`vault.IDENTIFIER_TYPES`) —
+2. Identity is tracked only through four identifier types - domain,
+   ats_tenant, wikidata, name_variant (`vault.IDENTIFIER_TYPES`) -
    matched by exact `(type, value)`. A persisted identifier always wins
    over a fresh name guess. *Reason:* once a link is established once,
    it must not be re-derived, and possibly re-litigated, on every later
@@ -40,7 +40,7 @@ silently.
    `careeros/company_resolve.py` `find_by_identifier`, `add_identifier`,
    and `resolve_and_link`'s `existing=` precedence.
    *Caveat:* `wikidata` is a legal identifier type but no code path
-   today ever writes one — a contract promise, not current behavior.
+   today ever writes one - a contract promise, not current behavior.
 
 3. The ladder climbs cheap/local to expensive/name-based: rungs 1–2 are
    pure local identifier lookups keyed by ATS tenant or domain, no
@@ -75,11 +75,11 @@ silently.
    `careeros/company_resolve.py` `resolve_rungs_3_5`'s
    `tenant_rooted` branch.
 
-7. Classification runs against one fixed external taxonomy — UN ISIC
-   Rev.4, 21 sections — by keyword matching on free-text industry
+7. Classification runs against one fixed external taxonomy - UN ISIC
+   Rev.4, 21 sections - by keyword matching on free-text industry
    strings; a string whose keywords match more than one section is
    refused outright rather than guessed. *Reason:* standards over ad
-   hoc labels, and a matcher that can't tell which of two sections
+   hoc labels, and a matcher that cannot tell which of two sections
    applies should say so, not pick one. File: `careeros/sectors.py`
    `all_matched_sections`, `match_sectors`; `careeros/data/isic_sections.yaml`.
 
@@ -103,7 +103,7 @@ silently.
    `sectors_cascade`, `external_sectors`.
 
 10. A field fills only on one confident result; two independent
-    confident results that can't be shown to describe genuinely
+    confident results that cannot be shown to describe genuinely
     distinct activities refuse to fill and raise a review flag instead
     of picking one. *Reason:* no source has priority over another, so
     an unresolved conflict must surface, not silently resolve. File:
@@ -117,8 +117,8 @@ silently.
     be written silently. File: `careeros/sectors.py`
     `fill_size_updates`; `careeros/company_lookup.py` `size_cascade`.
 
-12. Every external signal reports its own outcome — matched, ambiguous,
-    rate-limited, fetch-error, empty, or not-attempted — so a sweep's
+12. Every external signal reports its own outcome - matched, ambiguous,
+    rate-limited, fetch-error, empty, or not-attempted - so a sweep's
     silence is never confused with a fetch that quietly failed.
     *Reason:* a prior defect saw a backfill swallow the difference
     between "no usable data" and "Wikidata rate-limited us". File:
@@ -138,7 +138,7 @@ silently.
 14. Every identifier and every record name carries its own provenance
     (`scrape` vs `user`; `name_source` `auto` vs `owner`), and an
     owner-set link decision is never silently overwritten by a later
-    re-run. *Reason:* human edits always win — a re-run must not
+    re-run. *Reason:* human edits always win - a re-run must not
     undo an owner's correction just because it disagrees. File:
     `careeros/company_resolve.py` `add_identifier`, `apply_review`,
     `rerun`.
@@ -193,7 +193,7 @@ silently.
 
 Entry points as they will look once storage, the model client, and the
 clock/warn callback are parameters rather than imports. Plain data in,
-plain data out — no product-specific names.
+plain data out - no product-specific names.
 
 ```
 resolve_identity(store, *, url, employer_name=None, fallback_name=None,
@@ -256,15 +256,15 @@ normalize_url("HTTPS://Example.com/jobs/?utm_source=x&b=1&a=2")
 
 **Link state** (per job the product resolves against a record):
 
-- `pending` — no identity signal at all yet (no identifier match, no
+- `pending` - no identity signal at all yet (no identifier match, no
   employer name evidenced). Moves to `linked`, `needs_review`, or a
   freshly created record once an employer name or a stronger
   identifier arrives.
-- `linked` — confidently resolved to one record, via an identifier
+- `linked` - confidently resolved to one record, via an identifier
   match, an exact name match, or a confirmed tenant/employer
   cross-check. Stays `linked` on a later re-run unless new evidence
   contradicts it, or an owner changes it by hand.
-- `needs_review` — ambiguous, with a reason: `fuzzy_name` (best match
+- `needs_review` - ambiguous, with a reason: `fuzzy_name` (best match
   below exact), `ambiguous_exact` (two or more records share the exact
   name), `shared_tenant` (an ATS tenant has evidenced more than one
   employer), `employer_differs_from_tenant` (the posting's employer
@@ -273,7 +273,7 @@ normalize_url("HTTPS://Example.com/jobs/?utm_source=x&b=1&a=2")
   rejected rather than silently first-winning. Moves to `linked` only
   through an explicit resolution or a later rung-5 cross-check that
   reconfirms the tenant's own name.
-- new record — no local or name match at all, but a usable name signal
+- new record - no local or name match at all, but a usable name signal
   exists. Immediately reported as `linked` (reason `new_company`) once
   a fresh record is created.
 
@@ -283,15 +283,15 @@ normalize_url("HTTPS://Example.com/jobs/?utm_source=x&b=1&a=2")
 `user`). Never shrinks or rewrites except through explicit owner
 action.
 
-**Per-field enrichment state** (sector, size) — contract promise:
+**Per-field enrichment state** (sector, size) - contract promise:
 
-- `never-tried` — not yet attempted (promised, not yet built anywhere).
-- `filled` — a new value was written, or every relevant sub-field was
+- `never-tried` - not yet attempted (promised, not yet built anywhere).
+- `filled` - a new value was written, or every relevant sub-field was
   already populated.
-- `flagged` — a signal produced a result but confidence/consistency
+- `flagged` - a signal produced a result but confidence/consistency
   rules refused to fill it (ambiguous, conflicting, or inconsistent
   with an existing value).
-- `exhausted` — every signal ran; nothing usable came back and nothing
+- `exhausted` - every signal ran; nothing usable came back and nothing
   to flag either.
 
 A field's state only moves forward through an explicit cascade run; a
@@ -299,34 +299,30 @@ A field's state only moves forward through an explicit cascade run; a
 
 ## Consumers
 
-- CareerOS (careeros-dashboard) — pinned at: to be set at 2.4.
+- CareerOS (careeros-dashboard) - pinned at: to be set at 2.4.
 
 ## Open questions
 
-- The company-website JSON-LD signal today parses HTML by feeding it
-  through the product's full posting parser just to use its JSON-LD
-  block collector. Does the capability get its own minimal
-  JSON-LD-only scanner, and does its interface take raw HTML plus an
-  injected extractor, or already-parsed JSON-LD nodes?
-- The LLM size-hint signal validates its result against the product's
-  four-value EU size-class list. Does the capability own that
-  vocabulary as its own constant (duplicating `SIZE_CLASS_THRESHOLDS`'
-  labels), or does the product pass the valid value set in as a
-  parameter?
-- The LLM signal today imports the product's warning logger directly
-  for one timeout log line, and separately re-implements (rather than
-  imports) the product's own background-thread timeout pattern. Is
-  the deadline parameter a plain number of seconds, or an injected
-  callable that already enforces it the way today's code does?
-- The tenant-sharing check currently scans the product's job list
-  directly to see whether an ATS tenant has evidenced more than one
-  employer. What shape does the product pass in instead — a
+Contract approved by the owner 2026-10-11. The open questions below
+were answered at approval; only the two marked remain genuinely open.
+
+- JSON-LD collector: answered - the capability gets its own minimal
+  JSON-LD-only block scanner (extracted from the product's posting
+  parser); it does not import `intake.Posting`.
+- EU size labels: answered - the capability owns the size-class
+  vocabulary as its own constant (one canonical scale, per the owner
+  decision that EU classes win); the product does not pass labels in.
+- Deadline: answered - the deadline parameter is a plain number of
+  seconds; the internal background-thread timeout pattern moves with
+  the capability.
+- Tenant-sharing evidence: answered - the product passes a
   precomputed list of employer names already seen under that
-  `(provider, tenant)` pair, or a callback the capability invokes on
-  demand?
-- Repo name is `capa-repo` (owner creates it at 2.4); exact
-  package/module names for the moved code are not yet fixed.
-- `wikidata` is a legal identifier type with no code path that ever
-  writes one. Should this capability eventually populate it (e.g. from
-  the entity id its own Wikidata lookup already resolves), or should
-  the type list drop it until something does?
+  `(provider, tenant)` pair; the capability never scans job records.
+- `wikidata` identifier type: answered - the type stays; the
+  capability eventually populates it from the entity id its own
+  Wikidata lookup already resolves.
+- Open: exact package/module names for the moved code inside
+  `capa-repo` (owner creates the repo at 2.4).
+- Open: how the store adapter interface is shaped at extraction
+  (2.3) - list/load/save minimum is agreed, the exact signatures are
+  settled there.
