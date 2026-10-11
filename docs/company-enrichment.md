@@ -1,3 +1,10 @@
+---
+type: Surface
+title: "Company enrichment"
+description: "Describe the company enrichment endpoint and stored output."
+timestamp: 2026-10-11
+---
+
 # Company enrichment
 
 Company YAML stores regenerable posting facts under `enrichment`. Owner fields,

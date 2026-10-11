@@ -1,3 +1,10 @@
+---
+type: Surface
+title: "M1 JSON page contracts"
+description: "Describe JSON representations for existing dashboard pages."
+timestamp: 2026-10-11
+---
+
 # M1 JSON page contracts
 
 ## Purpose

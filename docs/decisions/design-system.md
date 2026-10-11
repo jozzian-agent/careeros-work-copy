@@ -1,3 +1,11 @@
+---
+type: Decision
+title: "JOZ-273 — Gestalt integration mode: decision note"
+description: "Record the approved full React integration of Gestalt."
+timestamp: 2026-10-11
+status: approved 2026-10-10
+---
+
 # JOZ-273 — Gestalt integration mode: decision note
 
 Status: DECIDED. Owner decision 2026-10-10: option C, full React front end

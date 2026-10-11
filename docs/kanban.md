@@ -1,3 +1,10 @@
+---
+type: Surface
+title: "Kanban interactions"
+description: "Describe interactions on the Jinja job board."
+timestamp: 2026-10-11
+---
+
 # Kanban interactions
 
 Drag a card into a status column, or use its compact “Move <title> to” select
@@ -23,3 +30,5 @@ Test hooks: `.job-card[data-id][data-status]`, `.job-status`, `[data-column]`,
 title clamping, and sparse-payload status persistence. For browser checks, move into
 an empty column, fail a PUT to check rollback, use the select by keyboard,
 and return from a detail edit using Back.
+
+Lifecycle: delete with the Jinja page at cutover.

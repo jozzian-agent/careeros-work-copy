@@ -1,3 +1,10 @@
+---
+type: Design system
+title: "Responsive breakpoint convention"
+description: "Describe the Jinja theme breakpoint and responsive treatments."
+timestamp: 2026-10-11
+---
+
 # Responsive breakpoint convention
 
 One breakpoint drives every mobile layout change: `MOBILE_BREAKPOINT` in
@@ -26,3 +33,5 @@ shared constant. Do not hard-code a pixel width in a new media query.
 The `__MOBILE_BREAKPOINT__` placeholder is substituted only inside the CSS
 strings in `theme.py` and `ui.py`. New CSS elsewhere should use an f-string
 with `MOBILE_BREAKPOINT` to insert the shared width.
+
+Lifecycle: delete with the Jinja page at cutover.

@@ -1,3 +1,10 @@
+---
+type: Surface
+title: "frontend"
+description: "Describe the frontend build and development commands."
+timestamp: 2026-10-11
+---
+
 # frontend
 
 React and Gestalt single page application for the CareerOS dashboard

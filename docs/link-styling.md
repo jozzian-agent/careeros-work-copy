@@ -1,3 +1,10 @@
+---
+type: Design system
+title: "Link styling convention"
+description: "Describe the Jinja theme treatments for internal and external links."
+timestamp: 2026-10-11
+---
+
 # Link styling convention
 
 Two link treatments exist, selected by where the link goes rather than by
@@ -47,3 +54,5 @@ styles:
 A new page or a new tool built on this pattern should reuse these two
 tokens rather than introducing its own link colors, so that internal and
 external links stay visually distinct everywhere they appear.
+
+Lifecycle: delete with the Jinja page at cutover.

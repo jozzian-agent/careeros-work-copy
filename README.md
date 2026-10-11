@@ -1,67 +1,62 @@
 # CareerOS
 
-A personal career and job-hunt dashboard using the accepted Linear-dark shell.
-Search criteria, experiences, jobs, and company profiles are editable YAML-backed
-pages. Paste direct employer posting links into Jobs; failed fetches still save
-the opportunity for later enrichment.
+CareerOS is a personal job-search dashboard for saving postings, tracking jobs,
+reviewing companies, and maintaining experiences and search preferences. Records
+live in a YAML vault. The current app is for one owner; the friend test is planned
+in [PROJECT.md](PROJECT.md).
 
-| Chunk | Scope | Status |
-| --- | --- | --- |
-| 0 | Package scaffold, shared theme, Flask routes, empty states | accepted |
-| 1 | Search criteria, experience library, YAML storage and editing | accepted |
-| 3 | Job intake, company profiles, jobs board | accepted |
-| 3.5 | Kanban/list boards, ATS-aware enrichment, delete everywhere | accepted |
-| 4 | Posting watcher, status history, notification CLI | accepted |
-| 5 | Interviews scheduling and follow-ups | not started |
+## Run
 
-Use Python 3.11 and the repository virtual environment:
+Use Python 3.11 and a local virtual environment. The sample vault contains
+fictional records; use it for development rather than personal data.
 
 ```bash
+python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m careeros.server --host 0.0.0.0 --port 8788 --vault sample/vault
+CAREEROS_REACT_UI=0 .venv/bin/python -m careeros.server --vault sample/vault
 ```
 
-Open `http://localhost:8788` or `http://<host-LAN-IP>:8788` from the LAN.
-Routes: `/`, `/search`, `/experiences`, `/experiences/new`, `/experiences/<id>`,
-`/experiences/<id>/edit`, `/jobs`, `/jobs/<id>`, `/companies`,
-`/companies/<id>`.
-Unknown paths return a styled 404. Stop the server with Ctrl-C.
+Open the address printed by Flask, then go to `/jobs`. Stop with Ctrl-C.
+`--vault PATH` takes precedence over `CAREEROS_VAULT`; pass it explicitly to
+select the intended data. Missing or empty vaults are supported.
 
-The optional `--vault PATH` takes precedence over `CAREEROS_VAULT`; otherwise the
-server defaults to `/root/career-os`. Always select `sample/vault` for development.
-The sample is entirely fictional: Neri Quill and three invented employers.
-Missing or empty vaults are supported. Tests mutate only temporary copies.
-
-Search lists have inline add/remove editors; notes have a Save action. Experience
-cards open a detail page with safe Markdown, custom fields, edit, and a styled
-delete confirmation. Add and edit share a form. Salary is managed only in vault
-files and appears only when non-null; all sample salaries are null.
-
-See [vault schemas](docs/schemas.md) for field types, JSON APIs, filename rules,
-and the later host-side import approach. The real import is a separate step after
-acceptance; this chunk does not access the real vault or implement that importer.
-
-Run tests and the full live verification:
+To use the React Jobs board, build its assets with Node and npm first:
 
 ```bash
-.venv/bin/python -m pytest
-.venv/bin/python scripts/verify.py
+npm --prefix frontend ci
+npm --prefix frontend run build
+CAREEROS_REACT_UI=1 .venv/bin/python -m careeros.server --vault sample/vault
 ```
 
-The verification script runs pytest, starts the server on :8788 against
-`sample/vault`, curls all page routes and the JSON APIs, exercises experience
-create/edit/delete and criteria save, and checks browser editing and deletion.
-It restores sample YAML bytes and stops its server even after failure. Screenshots
-(search view/edit, experience list/detail/new form, and mobile search) and logs go
-to `/tmp/careeros-chunk3/`. It uses the existing Chromium headless shell revision
-1228. No browser download or external font/network dependency is required.
+The flag selects React for Jobs when the build exists. Other pages still use
+Jinja. Build output stays out of Git. See the [frontend guide](frontend/README.md)
+for frontend development and browser checks.
 
-See [FIXES.md](FIXES.md) for environment limitations and deviations.
+## Documentation
 
-Chunk 3 verification additionally exercises job and company APIs, direct-employer
-intake against a real Mozilla careers URL over the host network, the Function and
-Needs attention filters, notes/profile editing, and desktop/mobile job and company
-screenshots. The
-script restores all sample YAML afterward, including removing intake records.
-Run it on the host: sandbox verification uses Flask test clients and HTML dumps
-in `/tmp/careeros-chunk3-html/`, with no sockets, Chromium, or network.
+- [Flows](docs/flows/): user journeys, starting with adding a job by link.
+- [Surfaces](docs/surfaces/): screens, API contracts and approval artifacts.
+- [Decisions](docs/decisions/): recorded choices and their consequences.
+- [Learnings](docs/learnings.md): dated findings carried forward from real work.
+- [Documentation index](docs/index.md): remaining schema and implementation docs.
+- [PROJECT.md](PROJECT.md): intent, inventory, milestones and open questions.
+
+## Environment limits
+
+Run one server process per vault: pending enrichment is process-local. Extraction
+needs runtime `LLM_BASE_URL` and `LLM_MODEL` configuration; without it, usable
+posting text can reach a visible extraction failure. JavaScript-only and protected
+postings may not yield readable content through the plain HTTP fetcher.
+
+Browser verification needs Node, an installed Chromium executable, and an
+environment that permits local sockets and browser launch. Earlier restricted
+builders could run Flask test-client tests but could not perform live browser
+checks; that is not a claim that this host has the same restriction.
+
+```bash
+.venv/bin/python -m pytest tests/ -q
+```
+
+Tests use temporary fixture vaults. The existing `scripts/verify.py` provides
+additional live checks, but contains a stale enrichment-button step; it is not a
+complete current acceptance checklist. Live checks are recorded with each surface.

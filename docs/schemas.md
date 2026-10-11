@@ -1,3 +1,10 @@
+---
+type: Surface
+title: "Vault schemas — Chunk 3"
+description: "Describe vault records and their JSON API representation."
+timestamp: 2026-10-11
+---
+
 # Vault schemas — Chunk 3
 
 Select a vault with `--vault PATH` or `CAREEROS_VAULT`; the explicit flag wins.
