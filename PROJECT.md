@@ -14,6 +14,8 @@ As of 2026-10-09 the product is a personal tool for one owner. It runs on the ow
 
 2026-10-10: backend JSON page parity for the React migration is implemented for review. Existing record APIs and Jinja remain live; [contracts, reuse decisions and verification](docs/m1-api-contracts.md). This does not mark a React cutover or owner click-test accepted.
 
+2026-10-11: the React Jobs board (migration milestone M0, [sketch](docs/m0-jobs-board-sketch.md)) passed the owner click-test on the live instance. It is served behind the CAREEROS_REACT_UI flag; all other pages stay Jinja. One gap found and being fixed: the shared page navigation is missing from the React page. The Jinja Jobs page is removed only at the cutover after the nav parity lands and the owner re-tests.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
