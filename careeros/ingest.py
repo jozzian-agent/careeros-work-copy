@@ -30,12 +30,12 @@ EXCLUDED_EMAIL_DOMAINS = ('example.com', 'example.org', 'example.net', 'sentry.i
 IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico')
 
 
-# Generic product vocabulary only; never encode deployment configuration here.
-PROVIDER_MODEL_BLOCKLIST = ('openai', 'anthropic', 'ollama', 'gpt', 'claude', 'llama', 'qwen', 'deepseek')
+# Redaction guards against private-network details leaking into the vault.
+# It never guards posting vocabulary: provider names, times like "9:00" and
+# decimals like "10.5" are legitimate posting content. The private-address
+# check requires at least three octets so prose decimals survive.
 REDACTION_PATTERNS = (
-    r'(?<![\d.])(?:10|192\.168|169\.254|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){1,3}(?![\d.])',
-    r'(?<![\w])(?:[a-z0-9_-]+\.)*[a-z0-9_-]+:\d{1,5}\b',
-    r'(?i)\b(?:' + '|'.join(PROVIDER_MODEL_BLOCKLIST) + r')(?:[-_.:/][\w.-]+)?\b',
+    r'(?<![\d.])(?:10|192\.168|169\.254|172\.(?:1[6-9]|2\d|3[01]))(?:\.\d{1,3}){2,3}(?![\d.])',
     r'(?i)(?:\[)?(?:f[cd][0-9a-f]{2}|fe[89ab][0-9a-f]):[0-9a-f:]+',
 )
 
