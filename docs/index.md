@@ -8,6 +8,7 @@ timestamp: 2026-10-11
 # Documentation
 
 - [Company enrichment](company-enrichment.md): Describe the company enrichment endpoint and stored output.
+- [Organisation intake](capabilities/org-intake.md): Contract for the capability that resolves a loose organisation reference to a known, classified record.
 - [Company classification](decisions/company-classification.md): Record the approved company classification scope and superseded draft choices.
 - [JOZ-273 — Gestalt integration mode: decision note](decisions/design-system.md): Record the approved full React integration of Gestalt.
 - [Enrichment evidence](decisions/enrichment-evidence.md): Preserve the implemented evidence and fallback choices for enrichment.
