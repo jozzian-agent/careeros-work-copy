@@ -1,4 +1,4 @@
-<a href="/companies/{{ company.id|urlencode }}">← {{ company.name }}</a><div class="page-header spaced"><h1>Classification</h1><span class="muted">{{ company.id }}</span></div>
+<a href="/companies/{{ company.id|urlencode }}">← {{ company.name }}</a><div class="page-header spaced"><h1>Classification</h1></div>
 <form id="taxonomy-form" class="card stack">
   <fieldset><legend>Kind</legend>
     <label>Company kind<select name="kind">{% for k in kinds %}<option value="{{ k }}" {% if company.kind==k %}selected{% endif %}>{{ k|title }}</option>{% endfor %}</select></label>
