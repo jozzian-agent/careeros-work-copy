@@ -247,6 +247,14 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
 - How often the job-status checker runs, which sets the check cycle in M6.
 - Whether the single YAML vault holds up for five users. Untested beyond about 24 jobs.
 - Privacy approach, see the Frame table.
+- Schemas doc update: `docs/schemas.md` predates the Journey-1 job fields
+  (normalized_url, in_pipeline, origin, source_id, ingest_state, ingest_error,
+  ats_provider, tenant, posting_id). Owner ruled 2026-10-11: update deferred
+  to the Part 2 intake-capability rewrite, which owns the record shape.
+- verify.py: the UI smoke script still clicks the removed Enrich pending and
+  Enrich buttons and fails on main. Owner ruled 2026-10-11: fix folded into
+  the Part 4 test audit (repair or supersede with real-backend smoke tests),
+  not a side quest.
 
 ### Unconfirmed taxonomy choices
 
