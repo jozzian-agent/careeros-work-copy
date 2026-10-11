@@ -27,13 +27,14 @@ together. Contact email fill follows the final company link and preserves
 existing company email.
 
 ingest.REDACTION_PATTERNS is the single redaction policy for extracted strings,
-nested lists, and metadata. It rejects private/link-local address patterns,
-host-and-port strings, and generic provider/model vocabulary declared in
-PROVIDER_MODEL_BLOCKLIST. Rejected LLM values preserve heuristic fields.
+nested lists, and metadata. It rejects private/link-local address patterns
+(requiring at least three octets, so prose decimals such as "10.5" survive) and
+IPv6 link-local strings. Rejected LLM values preserve heuristic fields.
 Rejected extracted values become empty; rejected websites remain unset or use a
-safe non-ATS posting origin. This conservative policy can omit legitimate text
-containing blocked vocabulary. Owner-entered text is outside this extraction
-policy. Contact addresses must also pass the shared email validator; mailto
+safe non-ATS posting origin. Owner-entered text is outside this extraction
+policy. Posting vocabulary such as provider names and times is never redacted:
+the no-provider-naming rule covers our docs and PRs, not posting content.
+Contact addresses must also pass the shared email validator; mailto
 scanning continues past invalid addresses.
 
 Background extraction and save failures log one line containing only an

@@ -92,7 +92,7 @@ def test_parse_response_new_fields():
 
 
 def test_redaction_covers_new_list_fields():
-    unsafe = 'worker.internal' + ':' + '9876'
+    unsafe = '192.168' + '.5.9'
     result = ingest.parse_response(json.dumps({
         'skills': [unsafe, 'Python'], 'certifications': [unsafe], 'responsibilities': [unsafe, 'Lead'],
     }))
@@ -519,8 +519,7 @@ def test_timeout_rejects_nonpositive_nonfinite(value, monkeypatch, capsys):
     '.'.join(['172', '31', '2', '3']),
     '.'.join(['192', '168', '2', '3']),
     '.'.join(['169', '254', '2', '3']),
-    'worker.internal' + ':' + '9876',
-    *ingest.PROVIDER_MODEL_BLOCKLIST,
+    'fe80' + ':0:0:0:0:0:0:1',
 ])
 def test_redaction_all_extracted_strings(value):
     assert ingest.redact('prefix ' + value + ' suffix') == ''
@@ -529,6 +528,15 @@ def test_redaction_all_extracted_strings(value):
     assert ingest.heuristic_extract('Company: ' + value)['company'] == ''
     html = '<meta property="og:site_name" content="' + value + '">'
     assert intake.heuristic_posting('https://safe.example/job', html)['company'] == ''
+
+
+@pytest.mark.parametrize('text', [
+    'You will build products on top of OpenAI and Claude APIs.',
+    'Office hours 9:00 to 17:00',
+    '25 days plus 10.5 public holidays',
+])
+def test_redaction_keeps_real_posting_text(text):
+    assert ingest.redact(text) == text
 
 
 @pytest.mark.parametrize('email', ['invalid', 'jobs@example.com', 'logo@2x.png', 'oops@sentry.io'])
@@ -762,7 +770,7 @@ def test_extract_async_single_argument_callback_still_works(monkeypatch):
 
 
 def test_auto_website_redaction(tmp_path, monkeypatch):
-    unsafe = 'http://' + 'internal.service' + ':' + '9876'
+    unsafe = 'http://' + '192.168' + '.5.9/careers'
     monkeypatch.setattr(intake, 'fetch_url', lambda url:
                         '<script type="application/ld+json">' + json.dumps({
                             '@type': 'JobPosting', 'title': 'Engineer',
@@ -777,7 +785,7 @@ def test_auto_website_redaction(tmp_path, monkeypatch):
 
 def test_async_redaction_and_invalid_email_never_persist(tmp_path, monkeypatch):
     app, api, baseline, callback = capture_intake(tmp_path, monkeypatch)
-    unsafe = 'worker.internal' + ':' + '9876'
+    unsafe = '192.168' + '.5.9'
     callback({'title': unsafe, 'summary': unsafe, 'company': unsafe,
               'contact_email': 'jobs@example.com', 'keywords': [unsafe, 'Python']})
     job = api.get('/api/jobs/' + baseline['id']).json
