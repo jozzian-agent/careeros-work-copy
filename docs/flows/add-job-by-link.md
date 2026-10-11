@@ -1,3 +1,10 @@
+---
+type: Flow
+title: "CareerOS — Journey Specs (handoff to coding agent)"
+description: "Describe adding a job by link and the constraints on later journeys."
+timestamp: 2026-10-11
+---
+
 # CareerOS — Journey Specs (handoff to coding agent)
 
 Status: draft v1. Scope for this handoff: **Journey 1 is built now.** Journeys 2 and 3 are written as *constraints on Journey 1*, not as work items.

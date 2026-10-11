@@ -1,3 +1,10 @@
+---
+type: Surface
+title: "Company enrichment"
+description: "Describe the company enrichment endpoint and stored output."
+timestamp: 2026-10-11
+---
+
 # Company enrichment
 
 Company YAML stores regenerable posting facts under `enrichment`. Owner fields,
@@ -9,6 +16,15 @@ refresh affected companies synchronously. Reassignment refreshes both companies.
 `POST /api/companies/<identifier>/enrich` also refreshes a company from stored
 postings, including older postings. It returns the company or HTTP 404 if absent.
 The endpoint uses the existing write lock. No fetching or text extraction occurs.
+
+`POST /api/companies/<identifier>/retry` is the owner-triggered sector and size
+retry for one employer company (it replaced the former sweep-all Backfill
+button). It runs the same cascade as the automatic new-company path, does the
+network phase outside the write lock, and returns the saved company plus a
+call-fresh `retry_applied` list naming the cascade fields this invocation
+actually wrote. Clients decide whether the retry changed anything from
+`retry_applied` alone, never from stored field states, which can carry an older
+run's results.
 
 | Field | Meaning |
 | --- | --- |

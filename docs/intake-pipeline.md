@@ -1,3 +1,10 @@
+---
+type: Flow
+title: "Intake enrichment"
+description: "Describe intake enrichment, concurrency and failure handling."
+timestamp: 2026-10-11
+---
+
 # Intake enrichment
 
 Intake saves sanitized heuristic data first. A background supervisor bounds the

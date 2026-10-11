@@ -12,9 +12,9 @@ As of 2026-10-09 the product is a personal tool for one owner. It runs on the ow
 
 2026-10-10: experiences share the company database. Every experience links to a company record by company_id; the free-text company name is a frozen label. The former combined early-career record was split into one experience per employer, each linked, per owner decision; the staffing note (engaged via a third party) stays in the title and no staffing company record is created. Migration ran through the ordinary save path with a plan file kept outside the repo.
 
-2026-10-10: backend JSON page parity for the React migration is implemented for review. Existing record APIs and Jinja remain live; [contracts, reuse decisions and verification](docs/m1-api-contracts.md). This does not mark a React cutover or owner click-test accepted.
+2026-10-10: backend JSON page parity for the React migration is implemented for review. Existing record APIs and Jinja remain live; [contracts, reuse decisions and verification](docs/surfaces/json-api.md). This does not mark a React cutover or owner click-test accepted.
 
-2026-10-11: the React Jobs board (migration milestone M0, [sketch](docs/m0-jobs-board-sketch.md)) passed the owner click-test on the live instance. It is served behind the CAREEROS_REACT_UI flag; all other pages stay Jinja. One gap found and being fixed: the shared page navigation is missing from the React page. The Jinja Jobs page is removed only at the cutover after the nav parity lands and the owner re-tests.
+2026-10-11: the React Jobs board (migration milestone R0, [sketch](docs/surfaces/jobs.md)) passed the owner click-test on the live instance. It is served behind the CAREEROS_REACT_UI flag; all other pages stay Jinja. One gap found and being fixed: the shared page navigation is missing from the React page. The Jinja Jobs page is removed only at the cutover after the nav parity lands and the owner re-tests.
 
 ## Product rules that shape the flows
 
@@ -39,7 +39,7 @@ The six owner rules live in the Journey 1 spec. These are the ones the flows bel
 | Out of scope | Regions outside Zurich, the vault, CV generation, Glassdoor data, interview preparation, the company-page watcher |
 | Smallest version as value | In one session you leave with three jobs you chose on a board, and you are told when one closes or changes. |
 | Dependencies | Hosting that friends can reach. A per-user board on top of shared jobs and companies. A universe of at least 50 companies and 50 jobs in Zurich, built by hand. Pick rounds cannot run without the universe. JOZ-267 and JOZ-268 are not required for the first test, because the owner simulates what they would automate, see M4. |
-| Expensive decisions | Gestalt as design system with blue and purple. Companies stay a top-level tab. Universe is a backend word and never appears in the interface. The edit model is per-user boards with the owner editing shared records. Gestalt integration mode: full React front end. Owner decision 2026-10-10 (JOZ-273, option C; see docs/joz-273-gestalt-decision.md). |
+| Expensive decisions | Gestalt as design system with blue and purple. Companies stay a top-level tab. Universe is a backend word and never appears in the interface. The edit model is per-user boards with the owner editing shared records. Gestalt integration mode: full React front end. Owner decision 2026-10-10 (JOZ-273, option C; see docs/decisions/design-system.md). |
 | Success signal | Proposed. Four of five friends put at least three jobs on their board and return within a week. |
 | Evidence | The owner's own frustration. Open. |
 | Risks | The universe has nothing for a friend outside product and business roles. The local model is CPU-only and takes up to a minute per call, so reading a job or a CV is slow. Enrichment signals are weak, so many companies end up exhausted. The single YAML vault is untested beyond about 24 jobs. Friends upload personal data. A simulated M4 tests whether the experience is useful, and says nothing about whether the automation is fast or accurate enough. |
@@ -102,7 +102,7 @@ Closed, Changed and Needs your input are facts or open questions about a job. Th
 | Company | Company browse |
 | Experiences | Bring yourself |
 | Preferences | Bring yourself |
-| JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/m1-api-contracts.md) |
+| JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md) |
 
 Interviews is removed from the navigation until it exists. Tab order is Jobs, Companies, Experiences, Preferences. Proposed.
 
@@ -130,7 +130,7 @@ Friends never delete jobs or companies. Only the owner edits shared records.
 
 ### Design system
 
-Gestalt, React, with blue and purple replacing the default red. Full React front end decided by the owner 2026-10-10 (JOZ-273 option C, docs/joz-273-gestalt-decision.md). Component inventory to record before the first polish round.
+Gestalt, React, with blue and purple replacing the default red. Full React front end decided by the owner 2026-10-10 (JOZ-273 option C, docs/decisions/design-system.md). Component inventory to record before the first polish round.
 
 ## What the audit says to remove or merge
 
@@ -142,8 +142,8 @@ Gestalt, React, with blue and purple replacing the default red. Full React front
 | Opportunities, Experience, Posting URL | Jobs, Experiences, Add a job by link or title. DONE 2026-10-10 (company page headings renamed; intake label renamed). |
 | Custom fields JSON on the company | Check what reads it, then delete if nothing does. DONE 2026-10-09 (nothing rendered it; form control removed, stored data preserved on every company write path). |
 | Interviews tab, the taxonomy sub-page text, an empty Updated line | Delete until the feature exists. Interviews tab and the empty Updated line DONE 2026-10-09 (nav entry, route, and page deleted; Updated span removed from Search). The taxonomy sub-page text stays: those pages exist. |
-| Five Edit buttons on Search | One edit mode — batch D (JOZ-270), implemented; [approved sketches and live checks](docs/batch-d-sketches.md). Owner implementation click-test pending. |
-| AI summary, AI responsibilities and original description on a job | Summary first, collapsed original directly below — batch D (JOZ-271); [approved sketches and live checks](docs/batch-d-sketches.md). Owner implementation click-test pending. |
+| Five Edit buttons on Search | One edit mode — batch D (JOZ-270), implemented; [approved sketches and live checks](docs/surfaces/preferences.md). Owner implementation click-test pending. |
+| AI summary, AI responsibilities and original description on a job | Summary first, collapsed original directly below — batch D (JOZ-271); [approved sketches and live checks](docs/surfaces/job.md). Owner implementation click-test pending. |
 | Chunk 4, JOB and CO identifiers | Delete from the interface. DONE 2026-10-10 (shell tag and its CSS removed; JOB/CO/EXP id labels removed from job, company, taxonomy and experience headers; ids stay in URLs and data attributes). |
 | Delete company | Friends see Remove from my board. Deleting stays with the owner. |
 
@@ -212,8 +212,8 @@ Status: SHIPPED 2026-10-09, merged to main via PR #4 (main 5d238b0).
 Option A: Retry visible to everyone until roles land in M2. All three
 buttons removed; company Retry via per-company endpoint reusing the
 sector and size cascades. Two follow-up fixes rode the same branch:
-LLM sector recall (ISIC letter table inlined in the prompt, model is
-now qwen3:30b-a3b with native think:false) and the resolved sector
+LLM sector recall (ISIC letter table inlined in the prompt, runtime uses
+native requests with thinking disabled) and the resolved sector
 label on the company detail page (same mapping as the directory card).
 Owner click-tested live; dual cross-review READY; suite 889 passed.
 
@@ -247,3 +247,53 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
 - How often the job-status checker runs, which sets the check cycle in M6.
 - Whether the single YAML vault holds up for five users. Untested beyond about 24 jobs.
 - Privacy approach, see the Frame table.
+- Schemas doc update: `docs/schemas.md` predates the Journey-1 job fields
+  (normalized_url, in_pipeline, origin, source_id, ingest_state, ingest_error,
+  ats_provider, tenant, posting_id). Owner ruled 2026-10-11: update deferred
+  to the Part 2 intake-capability rewrite, which owns the record shape.
+- verify.py: the UI smoke script still clicks the removed Enrich pending and
+  Enrich buttons and fails on main. Owner ruled 2026-10-11: fix folded into
+  the Part 4 test audit (repair or supersede with real-backend smoke tests),
+  not a side quest.
+
+### Unconfirmed taxonomy choices
+
+The concept draft explicitly called these proposals, not approvals. Confirm or
+close them in the later audit; implementation alone is not approval. The company
+kind ruling is in [Company classification](docs/decisions/company-classification.md).
+The undated-count proposal was superseded in [Enrichment evidence](docs/decisions/enrichment-evidence.md).
+
+- Draft taxonomy choice 2: Institution/removed aggregate kind behavior: adopt the field-group matrix (enrichment eligibility, directory visibility, filter participation, job-derived aggregation) in Section 1, replacing a single on/off enrichment guard; the sector/size exclusion for institutions and removed aggregate kinds covers both the top-level fields and the nested `enrichment.sectors` rollup, requiring `regenerate_company` to explicitly remove both, not merely gate them out of new aggregation, including when a company's `kind` changes after sectors were already stored. Default: yes, matrix, including the nested-rollup removal.
+- Draft taxonomy choice 4: Deletion protection: block company deletion when linked experiences exist, extending the existing job-linked guard. Default: yes, block.
+- Draft taxonomy choice 5: Experience write pattern: change `save_experience` to merge onto the existing stored record (like companies/jobs do today), rather than reconstructing the record from only the fields in the incoming payload. Default: yes, switch to merge.
+- Draft taxonomy choice 6: Legacy form/API compatibility: because of decision 5, and because of the `sector`-to-`sectors` and `size`-to-`size_range`/`size_class` renames in Section 3, schema and allowlist changes must ship before the UI changes that depend on them; legacy `skills`-only experience payloads are translated into `tags` during a one-release overlap window, and legacy `sector`/`size` company payloads (from `company_detail.html` and `fill_company_metadata` until both are updated) are likewise translated into `sectors`/`size_range`, and into `size_class` only when a raw employee count is separately available, rather than silently dropped (a bucket-only legacy `size` string yields `size_range` but not a confident `size_class`, per Section 3); `sector`/`size` are retired from the write-allowlist only after translation, backfill, and the updated readers have all shipped. Default: yes, staged rollout with translation on both sides.
+- Draft taxonomy choice 8: Company merge tool (combining two duplicate CO-### records): build now or defer. Default: defer.
+- Draft taxonomy choice 9: Tag facets: adopt the five-facet model (`skill/capability`, `skill/domain`, `function`, `experience-type`, `tool`). Default: yes, all five.
+- Draft taxonomy choice 10: Tag governance: open-with-review rather than a closed enum; id changes/retirement (as opposed to label-only renames) rewrite or tombstone every referencing experience AND job. Default: open-with-review.
+- Draft taxonomy choice 11: Tag multilingual handling: English slug id, free-text label, optional `label_de`; German/English labels and keywords serve as LLM prompt context for function extraction at launch, with a deterministic keyword matcher deferred. Default: yes, no automatic translation.
+- Draft taxonomy choice 12: External tag standard for skill/capability and skill/domain: reject ESCO/ISCO as oversized; keep a small local vocabulary. Default: reject standard.
+- Draft taxonomy choice 14: Sector field shape: multi-select `sectors: [string]` replacing `sector`. Default: yes.
+- Draft taxonomy choice 15: Size standard: combine EU Recommendation 2003/361/EC `size_class` (an employee-count proxy, not full SME qualification) with the existing numeric `size_range` bucket. Default: combine both.
+- Draft taxonomy choice 16: Size field naming: `size_range` (renamed from `size`) plus new `size_class`. Default: yes.
+- Draft taxonomy choice 17: Size precedence rule: `size_class` derived by default from the raw employee count (never from the `size_range` bucket), owner override always wins and is excluded from re-derivation. Default: yes.
+- Draft taxonomy choice 18: Ambiguous employee-count ranges (e.g. "50-100"): resolve to the upper bound. Default: upper bound.
+- Draft taxonomy choice 20: Sector ambiguity handling: leave `sectors` empty when one signal matches multiple ISIC sections with comparable confidence; store multiple sectors only when independent sources confidently resolve to different sections AND provide independent evidence of genuinely distinct business activities, not just differing labels for what may be the same activity, otherwise leave the conflict unresolved and flag it for owner review. Default: yes, refuse per-signal ambiguity, require distinct-activity evidence for genuine multi-sector, flag unresolved conflicts for review.
+- Draft taxonomy choice 21: Source-conflict handling for sectors: no source-priority order; confidence alone never resolves a same-activity conflict between sources, so an unresolved conflict is left empty and flagged for owner review rather than accepted from whichever source was confident, consistent with decision 20. Default: no priority order, unresolved conflicts flagged for review.
+- Draft taxonomy choice 22: Job function standard: adopt the ESCO-occupation-plus-derived-ISCO hybrid, with ISCO always derived from the validated concept, never stored by hand; the guarantee of an available ISCO roll-up applies only to ESCO-backed entries, not local extensions. Default: yes, hybrid, derived-not-stored, ESCO-scoped guarantee.
+- Draft taxonomy choice 23: Function extraction method: LLM-only at launch, with every returned id validated against `tags.yaml` and unknown ids dropped. Default: yes, LLM-only with validation.
+- Draft taxonomy choice 24: ESCO seed scope: curate a small subset grown on demand, stored as the `function` facet inside `tags.yaml`; any bulk ESCO export file is an import source only, never a second runtime registry. Default: curated subset, one registry.
+- Draft taxonomy choice 25: Local function extensions (no ESCO parent, e.g. "financial product manager" pending verification): allow as owner-governed local values with a visible marker; preserved in a distinct "unmapped" bucket in any ISCO roll-up report rather than excluded from that report entirely, matching Section 4's body. Default: yes, allow with marker, unmapped bucket in roll-ups.
+- Draft taxonomy choice 26: Scrollbar scope: scoped selectors plus opt-in `.scroll-thin` class, rather than a blanket `*` override. Default: scoped selectors plus opt-in class.
+- Draft taxonomy choice 27: Backfill mechanism for the 11 null `sector`/`size` company records, scoped to `kind: employer`: an explicit, owner-triggered action running independent per-field cascades, since `sectors` has a zero-network aggregation-promotion tier that size does not. Default: explicit trigger, independent per-field cascades.
+
+### React migration milestones
+
+The React plan uses R0–R6, distinct from the product milestones M1–M7.
+
+- R0: Toolchain and Jobs board proof — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R1: JSON API parity — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R2: Search page — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R3: Job detail — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R4: Companies and company detail — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R5: Experiences, forms and taxonomy pages — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R6: Component registry and retirement of absorbed styling work — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).

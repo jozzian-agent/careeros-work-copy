@@ -1,12 +1,29 @@
-# M0 sketch — Jobs board on Gestalt
+---
+type: Surface
+title: "Jobs"
+description: "Describe the approved React Jobs board and its acceptance state."
+timestamp: 2026-10-11
+---
+
+# Jobs
 
 Surface: /jobs (React rewrite of jobs.html + job_cards.html).
 Status: Approved 2026-10-10 (owner: "Go" on plan defaults + sketch).
-Owner click-test: Passed 2026-10-11 on live :8788 with the real vault
+Owner click-test: Passed 2026-10-11 on live LAN server with the real vault
 ("works all"). One gap found: navigation to the other pages is missing
 from the React Jobs page; tracked as M0 follow-up below.
 
-## What must survive (behavior contract, batches A–D)
+## Purpose
+
+Track jobs on the React board and list while preserving approved interactions.
+
+## Appears in
+
+Jobs → add a posting, review a card, change status or open job detail.
+
+## Minimal contents
+
+### Behavior contract (batches A–D)
 
 1. Board and List switch, remembered per browser (localStorage).
 2. Columns are the filter; one status control per card (select + drag-drop
@@ -24,7 +41,7 @@ from the React Jobs page; tracked as M0 follow-up below.
 10. Auto-refresh on tab regain (>30s) and back-forward cache restore.
 11. Toasts for success/error of every mutation.
 
-## Gestalt component mapping
+### Gestalt component mapping
 
 | Today (Jinja/CSS) | Gestalt |
 |---|---|
@@ -46,7 +63,7 @@ Theme: blue/purple tokens (owner decision, PROJECT.md design system).
 Gestalt default red accent replaced via custom theme tokens in
 frontend/src/theme.js.
 
-## Text layout
+### Text layout
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -78,7 +95,7 @@ Sort by [Choose order ▾]   (mobile only)
 | Title↕ | Company↕ | Source↕ | Status↕ | Location↕ | Posted↕ | Added↕ |
 ```
 
-## Deferred (listed per AGENTS.md)
+### Deferred (listed per AGENTS.md)
 
 - Responsive/mobile refinements beyond the existing mobile-sort select
   (Gestalt Box wrap defaults used in M0; revisit in polish round).
@@ -87,9 +104,19 @@ Sort by [Choose order ▾]   (mobile only)
 - Any visual polish beyond token swap; that is the M6 registry round.
 - Board column reorder/customization — never existed, not added.
 
-## Adds / Removes
+### Adds / Removes
 
 - Adds: frontend/ package (new element; required by owner decision C —
   no existing element can render Gestalt components).
 - Removes at cutover: jobs.html, job_cards.html, their JS-harness tests,
   and the /jobs HTML route branch.
+
+## States
+
+Board/list, empty board and no attention matches follow the sketch above.
+Duplicate intake opens a choice dialog; pending, failed and company-review
+chips identify unfinished work. Mutation failures revert and show a toast.
+
+## Open questions
+
+The recorded navigation follow-up and Jinja cutover await the later audit.

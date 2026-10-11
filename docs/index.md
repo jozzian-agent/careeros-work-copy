@@ -1,0 +1,29 @@
+---
+type: Index
+title: "Documentation"
+description: "Catalog the current CareerOS documentation."
+timestamp: 2026-10-11
+---
+
+# Documentation
+
+- [Company enrichment](company-enrichment.md): Describe the company enrichment endpoint and stored output.
+- [Company classification](decisions/company-classification.md): Record the approved company classification scope and superseded draft choices.
+- [JOZ-273 — Gestalt integration mode: decision note](decisions/design-system.md): Record the approved full React integration of Gestalt.
+- [Enrichment evidence](decisions/enrichment-evidence.md): Preserve the implemented evidence and fallback choices for enrichment.
+- [Intake persistence](decisions/intake-persistence.md): Preserve durable intake, duplicate and watcher persistence choices.
+- [CareerOS — Journey Specs (handoff to coding agent)](flows/add-job-by-link.md): Describe adding a job by link and the constraints on later journeys.
+- [Intake enrichment](intake-pipeline.md): Describe intake enrichment, concurrency and failure handling.
+- [Kanban interactions](kanban.md): Describe interactions on the Jinja job board.
+- [Learnings](learnings.md): Carry forward dated surprises from enrichment, intake and verification.
+- [Link styling convention](link-styling.md): Describe the Jinja theme treatments for internal and external links.
+- [Responsive breakpoint convention](responsive.md): Describe the Jinja theme breakpoint and responsive treatments.
+- [Vault schemas — Chunk 3](schemas.md): Describe vault records and their JSON API representation.
+- [Job](surfaces/job.md): Describe the approved summary-first job detail page.
+- [Jobs](surfaces/jobs.md): Describe the approved React Jobs board and its acceptance state.
+- [M1 JSON page contracts](surfaces/json-api.md): Describe JSON representations for existing dashboard pages.
+- [Preferences](surfaces/preferences.md): Describe the approved single edit mode for search preferences.
+
+## Open questions
+
+See PROJECT.md and each surface for unresolved product choices.

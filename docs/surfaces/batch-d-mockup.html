@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CareerOS — batch D mockup (JOZ-270 + JOZ-271)</title>
+<style>
+:root {
+  --bg-page: #08090a;
+  --bg-panel: #0f1011;
+  --bg-elevated: #191a1b;
+  --text-primary: #f7f8f8;
+  --text-secondary: #d0d6e0;
+  --text-muted: #8a8f98;
+  --text-faint: #62666d;
+  --accent-indigo: #5e6ad2;
+  --accent-violet: #7170ff;
+  --link-external: var(--text-muted);
+  --status-success: #27a644;
+  --status-emerald: #10b981;
+  --status-fail: #e5484d;
+  --status-warn: #f5a623;
+  --border-standard: rgba(255,255,255,0.08);
+  --border-subtle: rgba(255,255,255,0.05);
+  --card-bg: rgba(255,255,255,0.03);
+  --card-bg-elevated: rgba(255,255,255,0.05);
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  max-width: 1180px;
+  margin-left: auto;
+  margin-right: auto;
+  font-family: 'Inter', -apple-system, Helvetica, Arial, sans-serif;
+  font-feature-settings: 'cv01', 'ss03';
+  font-weight: 400;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+.page-nav { display: flex; gap: 24px; margin-bottom: 24px; font-size: 13px; }
+.page-nav a { color: var(--text-secondary); text-decoration: none; }
+.page-nav a:hover { color: var(--accent-violet); }
+.page-nav a.active { color: var(--text-primary); font-weight: 590; }
+.page { padding: 28px 32px; }
+h1, h2, h3 { margin: 0; font-weight: 590; letter-spacing: -0.02em; }
+h1 { font-size: 22px; }
+h2 { font-size: 15px; color: var(--text-secondary); font-weight: 510; }
+.muted { color: var(--text-muted); }
+.faint { color: var(--text-faint); }
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-standard);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.chip {
+  display: inline-block;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+a { color: var(--accent-violet); }
+a.external { color: var(--link-external); }
+a.external::after { content: ' \2197'; display: inline-block; }
+.goal-annotation { color: var(--text-faint); font-size: 0.85em; font-weight: 400; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+.job-detail-header { flex-direction: column; gap: 8px; overflow-wrap: anywhere; }
+.job-detail-header > * { max-width: 100%; }
+.stat-row { display: flex; gap: 22px; font-size: 13px; color: var(--text-secondary); align-items: baseline; }
+.stat-row b { color: var(--text-primary); font-weight: 510; }
+.status-chip {
+  display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 510;
+  background: rgba(255,255,255,0.06);
+}
+.filter-row { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; font-size: 12.5px; }
+.filter-btn {
+  background: var(--card-bg); border: 1px solid var(--border-standard); color: var(--text-secondary);
+  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+}
+.filter-btn.active { background: var(--accent-indigo); border-color: var(--accent-indigo); color: var(--text-primary); }
+.icon-legend { display: flex; gap: 16px; margin-top: 8px; }
+.src-icon { font-size: 11px; }
+.chart-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.app-header { display: flex; align-items: center; gap: 14px; margin-bottom: 32px; }
+.wordmark { color: var(--text-primary); font-size: 20px; font-weight: 590; text-decoration: none; letter-spacing: -0.02em; }
+.shell-tag { font-size: 12px; }
+.page-nav { flex-wrap: wrap; gap: 12px 24px; border-bottom: 1px solid var(--border-standard); padding-bottom: 16px; }
+.page-nav a.active { text-decoration: underline; text-decoration-color: var(--accent-indigo); text-underline-offset: 17px; }
+a:focus-visible { outline: 2px solid var(--accent-indigo); outline-offset: 5px; border-radius: 2px; }
+.empty-state { padding: 32px; min-height: 180px; }
+.empty-state p { font-size: 14px; line-height: 1.7; margin: 12px 0 0; max-width: 640px; }
+@media (max-width: 640px) {
+  html, body { font-size: 17px; }
+  h1 { font-size: 24px; }
+  .page { padding: 24px 18px; }
+  .empty-state { padding: 24px; }
+  .page-nav a.active { text-underline-offset: 5px; }
+  .page-nav a { min-height: 44px; display: inline-flex; align-items: center; }
+  table { display: block; max-width: 100%; overflow-x: auto; }
+}
+</style>
+<style>
+.mock-banner { background: #4c3a8f; color: #fff; padding: 10px 16px; font-size: 14px; }
+.mock-banner a { color: #cfc3ff; }
+.tabbar { display: flex; gap: 8px; margin: 16px; }
+.tabbar button { padding: 8px 16px; }
+.tabbar button.active { border-color: #7c6cff; background: #2a2350; color: #fff; }
+.mock-page { display: none; }
+.mock-page.active { display: block; }
+.edit-mode-bar { display: flex; justify-content: flex-end; padding: 8px 16px; gap: 8px; }
+li .remove-x { margin-left: 8px; color: #f87171; background: none; border: none; cursor: pointer; font-size: 16px; }
+.before-note { color: #94a3b8; font-size: 13px; margin: 4px 16px; }
+details.original-desc summary { cursor: pointer; color: #94a3b8; }
+.ai-badge { background: #3b2f63; color: #b9a6ff; }
+#notes-edit { width: 100%; }
+#notes-edit label { display: block; width: 100%; }
+#notes-area { display: block; width: 100%; min-height: 96px; margin-top: 6px; box-sizing: border-box; }
+ul.items li { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+ul.items li:last-child { border-bottom: none; }
+li .remove-x { margin-left: 12px; vertical-align: middle; }
+.editor { margin-top: 12px; display: flex; width: 100%; gap: 8px; }
+.editor input { flex: 1; width: auto; min-width: 0; }
+.editor button { flex: 0 0 auto; }
+.notes-h2 { display: block; }
+body.notes-editing .notes-h2 { display: none; }
+</style>
+</head>
+<body>
+<div class="mock-banner">MOCKUP — batch D proposal. Left: <b>Search with ONE edit mode</b> (JOZ-270). Right tab: <b>Job page, AI summary first</b> (JOZ-271). Click everything — this is live.</div>
+<div class="tabbar">
+  <button id="tab-search" class="active" onclick="show('search')">Search (JOZ-270)</button>
+  <button id="tab-job" onclick="show('job')">Job detail (JOZ-271)</button>
+</div>
+
+<!-- ============ JOZ-270: Search, one edit mode ============ -->
+<div id="page-search" class="mock-page active">
+<p class="before-note">BEFORE: each of the 4 criteria cards had its own Edit button + Notes had a 6th. AFTER: one “Edit criteria” toggle at the top; while on, every card shows add-inputs and × buttons; one Done/Cancel pair applies to all.</p>
+<div class="edit-mode-bar">
+  <button class="primary" id="edit-toggle" onclick="toggleEdit()">Edit criteria</button>
+  <button id="save-all" style="display:none" onclick="saveAll()">Done</button>
+  <button id="cancel-all" style="display:none" onclick="cancelEdit()">Cancel</button>
+</div>
+<div class="grid">
+  <section class="card" data-key="roles"><div class="page-header"><h2>Roles</h2></div><ul class="items"></ul><form class="row editor" hidden><input placeholder="Add an item" aria-label="New roles item"><button>Add</button></form></section>
+  <section class="card" data-key="must_haves"><div class="page-header"><h2>Must-haves</h2></div><ul class="items"></ul><form class="row editor" hidden><input placeholder="Add an item" aria-label="New must-haves item"><button>Add</button></form></section>
+  <section class="card" data-key="nice_to_haves"><div class="page-header"><h2>Nice-to-haves</h2></div><ul class="items"></ul><form class="row editor" hidden><input placeholder="Add an item" aria-label="New nice-to-haves item"><button>Add</button></form></section>
+  <section class="card" data-key="avoid"><div class="page-header"><h2>Avoid</h2></div><ul class="items"></ul><form class="row editor" hidden><input placeholder="Add an item" aria-label="New avoid item"><button>Add</button></form></section>
+  <section class="card wide"><h2 class="notes-h2">Notes</h2><p id="notes-view" class="preserve">Looking for platform/infra roles, EU or remote, no crypto.</p>
+  <div id="notes-edit" hidden><label>Notes<textarea id="notes-area">Looking for platform/infra roles, EU or remote, no crypto.</textarea></label></div></section>
+</div>
+</div>
+
+<!-- ============ JOZ-271: Job detail, AI summary first ============ -->
+<div id="page-job" class="mock-page">
+<p class="before-note">BEFORE: AI summary card (no heading) floated mid-page; original description was a full card lower down. AFTER: AI summary is the first card with an explicit heading; the original description collapses into a single &lt;details&gt; line right under it, labelled “Original posting text”.</p>
+<a href="#" onclick="return false">← Jobs</a>
+<div class="page-header job-detail-header spaced"><h1>Platform Engineering Lead</h1></div>
+<div class="stack">
+  <section class="card ai-summary"><h2>Summary <span class="chip ai-badge">AI-generated</span></h2>
+  <p>Lead a team of 6 platform engineers building internal developer infrastructure (Kubernetes, CI/CD, observability) for a fintech scale-up in Zurich. Hybrid, CHF 180–210k.</p></section>
+  <section class="card">
+    <details class="original-desc"><summary>Original posting text (from source)</summary>
+    <p class="preserve" style="margin-top:8px">We are looking for an experienced Platform Engineering Lead to join our growing infrastructure team. As the Platform Engineering Lead you will be responsible for architecting, building and maintaining our internal developer platform…
+
+[full text would follow here, scrolled inside the details element]</p></details>
+  </section>
+  <section class="card"><h2>Skills</h2><div class="job-chips"><span class="chip">Kubernetes</span><span class="chip">Terraform</span><span class="chip">CI/CD</span><span class="chip">Observability</span></div></section>
+  <section class="card"><h2>Responsibilities</h2><ul><li>Lead and grow the platform team</li><li>Own the internal developer platform roadmap</li><li>Drive reliability and cost targets</li></ul></section>
+  <section class="card"><div class="row"><a href="#" onclick="return false">Helvetia Pay</a> <a href="#" class="external" onclick="return false">Open posting</a></div>
+  <dl><dt>Title</dt><dd>Platform Engineering Lead</dd><dt>Location</dt><dd>Zurich <span class="chip">Remote</span></dd><dt>Source</dt><dd>jobs.ch</dd><dt>Posted date</dt><dd>2026-10-02</dd></dl>
+  <div class="row spaced"><span class="chip">Tracking</span><span class="chip salary-badge">Salary disclosed</span><span>CHF 180–210k</span><button type="button">Check posting</button></div></section>
+</div>
+</div>
+
+<script>
+let criteria = {
+  roles: ['Platform engineering lead', 'Site reliability engineer'],
+  must_haves: ['Kubernetes at scale', 'Team leadership'],
+  nice_to_haves: ['Fintech background', 'Terraform'],
+  avoid: ['Crypto', 'On-site only']
+};
+let backup = null, editing = false;
+
+function render() {
+  document.querySelectorAll('[data-key]').forEach(card => {
+    const key = card.dataset.key, ul = card.querySelector('ul');
+    ul.replaceChildren();
+    criteria[key].forEach((v, i) => {
+      const li = document.createElement('li');
+      li.textContent = v;
+      if (editing) {
+        const b = document.createElement('button');
+        b.className = 'remove-x'; b.type = 'button'; b.textContent = '×';
+        b.setAttribute('aria-label', 'Remove ' + v);
+        b.onclick = () => { criteria[key].splice(i, 1); render(); };
+        li.append(b);
+      }
+      ul.append(li);
+    });
+    card.querySelector('.editor').hidden = !editing;
+  });
+  document.getElementById('notes-edit').hidden = !editing;
+  document.getElementById('notes-view').style.display = editing ? 'none' : '';
+}
+
+function toggleEdit() {
+  editing = true;
+  backup = { criteria: JSON.parse(JSON.stringify(criteria)), notes: document.getElementById('notes-area').value };
+  setButtons(true); render();
+}
+function saveAll() {
+  editing = false; setButtons(false); render();
+  alert('Saved (mockup: in the real app this POSTs /api/search once, not per card).');
+}
+function cancelEdit() {
+  if (backup) { criteria = backup.criteria; document.getElementById('notes-area').value = backup.notes; }
+  editing = false; setButtons(false); render();
+}
+function setButtons(on) {
+  document.getElementById('edit-toggle').style.display = on ? 'none' : '';
+  document.getElementById('save-all').style.display = on ? '' : 'none';
+  document.getElementById('cancel-all').style.display = on ? '' : 'none';
+  document.body.classList.toggle('notes-editing', on);
+}
+document.querySelectorAll('.editor').forEach(f => {
+  f.onsubmit = e => {
+    e.preventDefault();
+    const input = f.querySelector('input'), key = f.closest('[data-key]').dataset.key;
+    if (input.value.trim()) { criteria[key].push(input.value.trim()); input.value = ''; render(); }
+  };
+});
+
+function show(page) {
+  document.querySelectorAll('.mock-page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.getElementById('tab-search').classList.toggle('active', page === 'search');
+  document.getElementById('tab-job').classList.toggle('active', page === 'job');
+}
+render();
+</script>
+</body>
+</html>
