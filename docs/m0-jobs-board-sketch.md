@@ -2,6 +2,9 @@
 
 Surface: /jobs (React rewrite of jobs.html + job_cards.html).
 Status: Approved 2026-10-10 (owner: "Go" on plan defaults + sketch).
+Owner click-test: Passed 2026-10-11 on live :8788 with the real vault
+("works all"). One gap found: navigation to the other pages is missing
+from the React Jobs page; tracked as M0 follow-up below.
 
 ## What must survive (behavior contract, batches A–D)
 
