@@ -173,9 +173,11 @@ detail lives in `frontend/BUILD_NOTES.md`'s "Filter bar and add-job popup
 rebuild (JOZ-279)" section; this is the surface-level summary.
 
 - **Filter bar.** Chip order is Fit, Function, Location, More filters, a
-  divider, then Needs attention — each chip opens a Popover (the first
-  three and Needs attention) or the More filters side panel, with at most
-  one open at a time. Industry and Company size live inside More filters.
+  divider, then Needs attention — each of the first three opens a Popover,
+  and More filters opens its own side panel, with at most one of those four
+  open at a time. Needs attention has no popup of its own; it is a plain
+  pressed/unpressed toggle chip. Industry and Company size live inside
+  More filters.
   Checking an option filters the board immediately; there is no separate
   "apply" draft state, Apply/Clear/Show N jobs just close or reset the
   panel that is already live.

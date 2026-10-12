@@ -175,6 +175,155 @@ test('Add anyway from the duplicate state forces the create and toasts success',
   expect(requests[1].body).toEqual({ url: 'https://example.com/careers/dup', force: true, origin: 'manual' });
 });
 
+test('editing the URL after a duplicate response resets the shown actions', async ({ page }) => {
+  await mockIntake(page, [
+    {
+      body: {
+        duplicate: true,
+        basis: 'same_url',
+        existing: { id: fixture.entries[0].id, title: fixture.entries[0].title, in_pipeline: true },
+        actions: ['open_existing', 'add_anyway'],
+      },
+    },
+  ]);
+  await page.goto('/');
+  await openPopup(page);
+  const box = dialog(page);
+  await box.getByLabel('Posting link').fill('https://example.com/careers/dup');
+  await box.getByRole('button', { name: 'Add job', exact: true }).click();
+  await expect(box.getByText('is already on your board.', { exact: false })).toBeVisible();
+  await expect(box.getByRole('button', { name: 'Show job', exact: true })).toBeVisible();
+  await expect(box.getByRole('button', { name: 'Add anyway', exact: true })).toBeVisible();
+
+  await box.getByLabel('Posting link').fill('https://example.com/careers/different-role');
+
+  await expect(box.getByText('is already on your board.', { exact: false })).toHaveCount(0);
+  await expect(box.getByRole('button', { name: 'Add anyway', exact: true })).toHaveCount(0);
+  await expect(box.getByRole('button', { name: 'Add job', exact: true })).toBeEnabled();
+});
+
+test('editing the URL after a failed forced add clears the force flag on the next submit', async ({ page }) => {
+  const requests = await mockIntake(page, [
+    {
+      body: {
+        duplicate: true,
+        basis: 'same_url',
+        existing: { id: fixture.entries[0].id, title: fixture.entries[0].title, in_pipeline: true },
+        actions: ['open_existing', 'add_anyway'],
+      },
+    },
+    { status: 500, body: { error: 'Could not add that posting.' } },
+    { body: { id: 'JOB-NEW', duplicate: false } },
+  ]);
+  await page.goto('/');
+  await openPopup(page);
+  const box = dialog(page);
+  await box.getByLabel('Posting link').fill('https://example.com/careers/dup');
+  await box.getByRole('button', { name: 'Add job', exact: true }).click();
+  await expect(box.getByText('is already on your board.', { exact: false })).toBeVisible();
+
+  await box.getByRole('button', { name: 'Add anyway', exact: true }).click();
+  await expect(box.getByText('Could not add that posting.')).toBeVisible();
+  expect(requests).toHaveLength(2);
+  expect(requests[1].body).toEqual({ url: 'https://example.com/careers/dup', force: true, origin: 'manual' });
+
+  await box.getByLabel('Posting link').fill('https://example.com/careers/dup-edited');
+  await expect(box.getByText('Could not add that posting.')).toHaveCount(0);
+  await box.getByRole('button', { name: 'Add job', exact: true }).click();
+
+  await expect(page.getByText('Added to New')).toBeVisible();
+  expect(requests).toHaveLength(3);
+  expect(requests[2].body).toEqual({ url: 'https://example.com/careers/dup-edited', origin: 'manual' });
+});
+
+test('a real posting-read failure (201 with a failed ingest_state) keeps the popup open and retries via extract', async ({
+  page,
+}) => {
+  const intakeRequests = await mockIntake(page, [
+    {
+      status: 201,
+      body: {
+        job: {
+          id: 'JOB-NEW',
+          ingest_state: 'fetch_failed',
+          ingest_error: { stage: 'fetch', reason: 'ConnectionError', at: '2026-10-12T00:00:00Z' },
+        },
+        company: null,
+      },
+    },
+  ]);
+  const extractRequests = [];
+  await page.route('**/api/jobs/*/extract', (route) => {
+    extractRequests.push(route.request().url());
+    route.fulfill({ status: 202, json: { id: 'JOB-NEW', llm_pending: true, accepted: true } });
+  });
+  await page.goto('/');
+  await openPopup(page);
+  const box = dialog(page);
+  await box.getByLabel('Posting link').fill('https://example.com/careers/unreachable');
+  await box.getByRole('button', { name: 'Add job', exact: true }).click();
+
+  // The HTTP request succeeded (201), but the saved job could not actually
+  // be read, so this must show the popup's error state and keep it open,
+  // not the "Added to New" success toast a bare response.ok check would give.
+  await expect(box).toBeVisible();
+  await expect(page.getByText('Added to New')).toHaveCount(0);
+  const retry = box.getByRole('button', { name: 'Try again', exact: true });
+  await expect(retry).toBeVisible();
+  expect(intakeRequests).toHaveLength(1);
+
+  await retry.click();
+
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByText('Retry started')).toBeVisible();
+  expect(extractRequests).toHaveLength(1);
+  expect(extractRequests[0]).toContain('/api/jobs/JOB-NEW/extract');
+  // The retry must hit the extraction endpoint for the saved record, never
+  // a second intake call (which would just hit dedup against itself).
+  expect(intakeRequests).toHaveLength(1);
+});
+
+test('a failed "Add anyway" from the off-board duplicate dialog shows the popup error state, and retry preserves force', async ({
+  page,
+}) => {
+  const existingId = fixture.entries[2].id;
+  const requests = await mockIntake(page, [
+    {
+      body: {
+        duplicate: true,
+        basis: 'same_ats_posting_id',
+        existing: { id: existingId, title: fixture.entries[2].title, in_pipeline: false },
+        actions: ['promote', 'open_existing', 'add_anyway'],
+      },
+    },
+    { status: 500, body: { error: 'Could not add that posting.' } },
+    { body: { id: 'JOB-NEW', duplicate: false } },
+  ]);
+  await page.goto('/');
+  await openPopup(page);
+  const box = dialog(page);
+  await box.getByLabel('Posting link').fill('https://example.com/careers/off-board-dup');
+  await box.getByRole('button', { name: 'Add job', exact: true }).click();
+
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByText('Possible duplicate')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add anyway', exact: true }).click();
+
+  // Both dialogs must not silently vanish: the forced add runs through the
+  // popup's own reading/error flow, so a failure is visible there.
+  await expect(page.getByText('Possible duplicate')).toHaveCount(0);
+  await expect(dialog(page)).toBeVisible();
+  await expect(dialog(page).getByText('Could not add that posting.')).toBeVisible();
+
+  await dialog(page).getByRole('button', { name: 'Try again', exact: true }).click();
+
+  await expect(page.getByText('Added to New')).toBeVisible();
+  expect(requests).toHaveLength(3);
+  expect(requests[1].body).toEqual({ url: 'https://example.com/careers/off-board-dup', force: true, origin: 'manual' });
+  expect(requests[2].body).toEqual({ url: 'https://example.com/careers/off-board-dup', force: true, origin: 'manual' });
+});
+
 test('a duplicate eligible for promotion closes the popup and opens the separate duplicate dialog', async ({ page }) => {
   const existingId = fixture.entries[2].id;
   await mockIntake(page, [

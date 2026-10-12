@@ -29,6 +29,7 @@ const AUTO_REFRESH_AFTER_MS = 30000;
 const TOAST_LIFETIME_MS = 4000;
 
 const EMPTY_FILTERS = { fit: [], function: [], location: [], industry: [], companySize: [] };
+const COULD_NOT_READ_MESSAGE = "Could not read that posting. It's saved, so Try again only retries the read.";
 const FIT_LABELS = [
   ['needs_input', 'Needs your input'],
   ['no_fit', 'No fit'],
@@ -554,6 +555,19 @@ export default function JobsBoard() {
         if (result.existing.in_pipeline === false) setAddPopupOpen(false);
         return;
       }
+      // careeros/server.py job_intake() still returns 201 when the stub
+      // saved fine but the fetch/extract itself failed (ingest_state
+      // fetch_failed/extract_failed): that is a real read failure, not a
+      // success, even though the HTTP request succeeded. The job id is
+      // already durable, so the retry path is the extraction endpoint for
+      // that record, never a second intake (which would just dedup).
+      const ingestState = result?.job?.ingest_state;
+      if (ingestState === 'fetch_failed' || ingestState === 'extract_failed') {
+        setDuplicate(null);
+        setIntakeError({ kind: 'ingest_failed', message: COULD_NOT_READ_MESSAGE, jobId: result.job.id });
+        await load();
+        return;
+      }
       setDuplicate(null);
       setIntakeUrl('');
       setAddPopupOpen(false);
@@ -566,11 +580,51 @@ export default function JobsBoard() {
     }
   }
 
+  // Retries a job that intake already saved but could not read, via the
+  // extraction endpoint for that specific record (not a second intake
+  // call). Fire-and-forget, same as the board's own per-card ingest
+  // retry (handleRetry): the worker runs in the background, so the popup
+  // closes and the board's own ingest badge/retry affordance picks up
+  // from there.
+  async function retrySavedIngest(jobId) {
+    setIntakeError(null);
+    setIntakeBusy(true);
+    try {
+      await retryIngest(jobId);
+      setDuplicate(null);
+      setIntakeUrl('');
+      setAddPopupOpen(false);
+      await load();
+      showToast('success', 'Retry started');
+    } catch (err) {
+      setIntakeError({ kind: 'ingest_failed', message: err.message, jobId });
+    } finally {
+      setIntakeBusy(false);
+    }
+  }
+
   function handleAddJobPrimary() {
+    if (intakeError?.kind === 'ingest_failed') {
+      retrySavedIngest(intakeError.jobId);
+      return;
+    }
     const trimmed = intakeUrl.trim();
     if (!trimmed) return;
     const force = intakeError?.kind === 'failed' ? Boolean(intakeError.force) : false;
     submitIntake(trimmed, { force });
+  }
+
+  // Edited text always wins (never lost on dismiss), but any stale
+  // duplicate/error/force state from a previous URL must not survive the
+  // edit: otherwise "Show job"/"Add anyway" would still act on the old
+  // duplicate, and a retry would keep resubmitting with the old force
+  // flag against a URL the owner has since changed.
+  function handleIntakeUrlChange(value) {
+    setIntakeUrl(value);
+    if (duplicate || intakeError) {
+      setDuplicate(null);
+      setIntakeError(null);
+    }
   }
 
   function handleAddJobDismiss() {
@@ -600,9 +654,17 @@ export default function JobsBoard() {
     }
   }
 
+  // Shared by the popup's own "Add anyway" (popup already open) and the
+  // separate DuplicateDialog's (off-board duplicate, popup already
+  // closed per submitIntake above). Always runs the forced add through
+  // the popup's reading/error flow, so a failure here is visible the
+  // same way any other intake failure is, rather than closing every
+  // dialog and leaving only a silent intakeError behind.
   function handleDuplicateAddAnyway() {
     const url = duplicate.url;
     setDuplicate(null);
+    setIntakeUrl(url);
+    setAddPopupOpen(true);
     submitIntake(url, { force: true });
   }
 
@@ -703,7 +765,7 @@ export default function JobsBoard() {
       ? 'duplicate'
       : intakeError?.kind === 'not_link'
         ? 'not_link'
-        : intakeError?.kind === 'failed'
+        : intakeError?.kind === 'failed' || intakeError?.kind === 'ingest_failed'
           ? 'error'
           : 'ready';
 
@@ -786,9 +848,11 @@ export default function JobsBoard() {
       {addPopupOpen ? (
         <AddJobPopup
           url={intakeUrl}
-          onUrlChange={setIntakeUrl}
+          onUrlChange={handleIntakeUrlChange}
           status={addJobStatus}
-          errorMessage={intakeError?.kind === 'failed' ? intakeError.message : null}
+          errorMessage={
+            intakeError?.kind === 'failed' || intakeError?.kind === 'ingest_failed' ? intakeError.message : null
+          }
           duplicateTitle={popupDuplicate?.existing?.title}
           onSubmit={handleAddJobPrimary}
           onShowExisting={handleDuplicateOpenExisting}

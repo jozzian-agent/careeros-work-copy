@@ -547,13 +547,13 @@ needed; only the badge is new.
 
 ### Industry and Company size stay client-side
 
-JOZ-278's BUILD_NOTES entry already covers this (see `COMPANY_SIZE_BUCKETS`
-above): the backend has no per-job industry facet or size bucket, so both
-"More filters" groups are computed from each job's existing `industries`
-array and raw `employee_count` in `JobsBoard.jsx`, with the same
-micro/small/medium/large thresholds the backend uses for a company's
-`size_class`. This batch reuses that computation unchanged; it only adds the
-`MoreFiltersPanel` UI in front of it. No API schema change.
+The backend has no per-job industry facet or size bucket, so both "More
+filters" groups are computed from each job's existing `industries` array
+and raw `employee_count` in `JobsBoard.jsx`. `COMPANY_SIZE_BUCKETS` (see
+above) is new in this batch, not carried over from JOZ-278: it mirrors the
+same micro/small/medium/large thresholds the backend uses for a company's
+`size_class`, since the board's "Company size" facet did not exist before
+this filter row did. No API schema change.
 
 ### The inline "Posting URL" field is retired
 

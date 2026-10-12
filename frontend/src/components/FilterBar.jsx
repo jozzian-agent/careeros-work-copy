@@ -94,7 +94,7 @@ export default function FilterBar({
         </Box>
       </Flex>
 
-      {anyGroupActive ? (
+      {filtersActive ? (
         <Box marginTop={3}>
           <Flex gap={2} alignItems="center" wrap>
             <Text color="subtle" size="200">
@@ -114,11 +114,21 @@ export default function FilterBar({
                 );
               }),
             )}
+            {needsAttention ? (
+              <Tag
+                text="Needs attention"
+                accessibilityRemoveIconLabel="Remove Needs attention"
+                onRemove={onToggleNeedsAttention}
+              />
+            ) : null}
             <Button
               text="Clear all"
               color="transparent"
               size="sm"
-              onClick={() => onClearGroups(ALL_GROUPS.map(({ key }) => key))}
+              onClick={() => {
+                onClearGroups(ALL_GROUPS.map(({ key }) => key));
+                if (needsAttention) onToggleNeedsAttention();
+              }}
             />
           </Flex>
         </Box>

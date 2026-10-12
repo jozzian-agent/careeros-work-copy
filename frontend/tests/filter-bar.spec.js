@@ -98,6 +98,44 @@ test('Location and Fit filters combine, and Clear all resets every group and the
   await expect(page.getByText(`${fixture.entries.length} jobs`, { exact: true })).toBeVisible();
 });
 
+test('Needs attention alone shows Clear all, and clearing it resets the toggle', async ({ page }) => {
+  await page.goto('/');
+  const toggle = page.getByRole('button', { name: 'Needs attention', exact: true });
+
+  await expect(page.getByText('Active filters')).toHaveCount(0);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+  await expect(page.getByText('Active filters')).toBeVisible();
+  const clearAll = page.getByRole('button', { name: 'Clear all', exact: true });
+  await expect(clearAll).toBeVisible();
+
+  await clearAll.click();
+
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByText('Active filters')).toHaveCount(0);
+});
+
+test('Clear all resets Needs attention together with a group filter', async ({ page }) => {
+  await page.goto('/');
+  const toggle = page.getByRole('button', { name: 'Needs attention', exact: true });
+  await toggle.click();
+
+  await page.getByTestId('filter-chip-fit').click();
+  await page.getByRole('checkbox', { name: 'Excellent fit' }).check();
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+
+  await expect(page.getByText('Active filters')).toBeVisible();
+  await page.getByRole('button', { name: 'Clear all', exact: true }).click();
+
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByText('Active filters')).toHaveCount(0);
+  for (const entry of fixture.entries) {
+    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
+  }
+  await expect(page.getByText(`${fixture.entries.length} jobs`, { exact: true })).toBeVisible();
+});
+
 test('More filters opens Industry and Company size, and a selection narrows the board', async ({ page }) => {
   await page.goto('/');
   const target = fixture.entries.find((entry) => entry.industries?.length);
