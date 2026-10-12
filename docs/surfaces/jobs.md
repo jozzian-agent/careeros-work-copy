@@ -2,7 +2,7 @@
 type: Surface
 title: "Jobs"
 description: "Describe the approved React Jobs board and its acceptance state."
-timestamp: 2026-10-11
+timestamp: 2026-10-12
 ---
 
 # Jobs
@@ -12,6 +12,13 @@ Status: Approved 2026-10-10 (owner: "Go" on plan defaults + sketch).
 Owner click-test: Passed 2026-10-11 on live LAN server with the real vault
 ("works all"). One gap found: navigation to the other pages is missing
 from the React Jobs page; tracked as M0 follow-up below.
+
+2026-10-12 (JOZ-278, design-brief rebuild): the board's card and status
+controls were rebuilt against the handoff brief, on top of the above. See
+"JOZ-278 rebuild" below for what changed; it supersedes the component
+mapping and card anatomy further down where the two disagree, and
+`frontend/BUILD_NOTES.md`'s "Jobs board rebuild (JOZ-278)" section has the
+full implementation rationale this doc only summarizes.
 
 ## Purpose
 
@@ -110,6 +117,45 @@ Sort by [Choose order ▾]   (mobile only)
   no existing element can render Gestalt components).
 - Removes at cutover: jobs.html, job_cards.html, their JS-harness tests,
   and the /jobs HTML route branch.
+
+## JOZ-278 rebuild
+
+Lands the design brief's card/status/drag anatomy on top of the R0 board
+above. Component-level detail (exact props, geometry, token wiring) lives in
+`frontend/BUILD_NOTES.md`'s "Jobs board rebuild (JOZ-278)" section; this is
+the surface-level summary.
+
+- **Fit chip.** Each card shows a read-only fit chip: one of three rated
+  states (`no_fit`, `lucky`, `excellent` — icon + label, brand-coloured
+  background) or, when the job has no fit yet, a "Needs your input" chip.
+  The two never appear together. Fit is set elsewhere (job detail page,
+  later calculated automatically); the board only displays it.
+- **Status control.** Replaces the old `SelectList` with a compact button
+  that opens a Dropdown (`StatusSelect.jsx`), reachable the same way by
+  click or keyboard; it is also the keyboard/screen-reader route for moving
+  a card, since drag-and-drop itself is not.
+- **Drag-and-drop.** Hand-rolled native HTML5 drag-and-drop (not a library):
+  it was already load-bearing on the pre-rebuild board, carries no new
+  React-19 peer-dependency risk, and matches the handoff mockup's own
+  reference implementation. A same-column drop is a pure client-side
+  reorder (the board API has no concept of card position); a cross-column
+  drop is the real status mutation, reachable identically from the status
+  control.
+- **Undo.** A successful move's success toast carries an Undo action.
+  Undo, and a failed move's automatic revert, each restore only the one
+  card's status and slot (not a whole-board snapshot), so a different
+  card's move landing in between is never reverted by this one. If Undo's
+  own write fails, the card is reconciled to the state the server actually
+  kept (not left showing the stale pre-Undo column) and a persistent error
+  is shown rather than a silent mismatch.
+- **Toasts.** A success toast auto-hides after ~4s; an error toast persists
+  until dismissed. Toasts stack rather than replace one another, so a
+  success elsewhere can never clear a still-outstanding error.
+- **Add-job popup.** The plus button next to Board/List opens a shell
+  Modal: a heading and a footer Close button, nothing else. The real
+  intake flow (posting-link field, duplicate/"not a link"/"couldn't read"
+  states) is JOZ-279; the existing inline "Posting URL" field below the
+  board stays the one working intake path until then.
 
 ## States
 

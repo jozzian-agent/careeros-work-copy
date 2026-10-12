@@ -362,3 +362,162 @@ and it is what the dark-mode specs drive.
   can reference them, and so a future divergence is a one-line edit.
 - **Density modes** ("Guided" vs "Workbench" from `directions.md`) are not
   tokenised at all — the handoff lists that as an open decision.
+
+## Jobs board rebuild (JOZ-278)
+
+### Drag-and-drop: hand-rolled, not a library
+
+The brief says "Gestalt has no kanban and no drag and drop, so use a drag
+library." This batch hand-rolls native HTML5 drag-and-drop instead, for
+three reasons:
+
+1. **It was already load-bearing.** The pre-rebuild board already used native
+   `draggable`/`onDragStart`/`onDragOver`/`onDrop` for its single
+   column-to-column move, proven reliable under Playwright's `dragTo()` in
+   this exact dev-server setup (two passing drag specs in the old
+   `tests/jobs-board.spec.js`). JOZ-277's own BUILD_NOTES entry above records
+   how fragile that wiring is — a global `line-height` rule on structural
+   wrappers once stopped `dragstart` from firing at all — which is a reason to
+   touch it minimally, not a reason to add a second, unproven drag
+   implementation on top of it.
+2. **React 19 peer risk.** The obvious off-the-shelf choice,
+   `react-beautiful-dnd`, is unmaintained and was never updated for React 18
+   strict mode, let alone the React 19 this app now runs (JOZ-277). `dnd-kit`
+   would work but is a new dependency, with its own sensor/collision-detection
+   model to learn and audit, to replace code that already existed and worked.
+3. **The mockup agrees.** `pages/Main.dc.html`'s own reference implementation
+   (`support.js` is referenced but does not exist in the handoff; the drag
+   logic is inline in the page's `<script>`) is itself hand-rolled native
+   HTML5 drag-and-drop with the identical shape this batch uses: a dragged
+   card fades to 40% opacity, the hovered column gets a dashed primary
+   outline, dropping on a card inserts before it, dropping on the column body
+   appends to the end, and a cross-column move speaks through one `move`
+   function also reachable from the status control.
+
+The implementation lives in `JobsBoard.jsx`'s `performMove`/`undoMove` plus
+the drag handler factories (`cardDragHandlers`, `columnDragHandlers`), not in
+`KanbanBoard.jsx` itself: the component only renders the chrome the handlers
+drive (the dashed ring, "Drop here"/"No jobs here yet"), per the README's
+"Consumer provides: columns, cards per column, drag handlers." A same-column
+drop is a pure client-side reorder (the board API has no concept of card
+position, only status); a cross-column drop is the real status mutation,
+reusing the same per-job generation counter the status dropdown already had
+for overlapping-request safety. Undo rolls back only the one card — its exact
+column and slot, read from the live `entries` at undo-time, not a frozen
+whole-board snapshot — then fires a second `PUT` to actually revert the
+status server-side. If that second `PUT` fails, the generation counter is
+checked again before reconciling the card back to the moved-to status: if a
+newer move already landed on the same card while the Undo was in flight, the
+counter has moved past the Undo's own generation and the stale failure is
+not allowed to clobber it.
+
+### Component registry
+
+New files under `src/components/`, one per design-system component this
+ticket touches:
+
+| Component | Gestalt building blocks | Notes |
+| --- | --- | --- |
+| `KanbanBoard.jsx` | `Flex` (`overflow="scrollX"`, `wrap={false}`), `Box` (320px columns), `Heading`, `Badge`, `Text` | Presentational only; drag state and the move/reorder logic stay in `JobsBoard.jsx`. |
+| `JobCard.jsx` | `Box`, `Flex`, `Heading`, `Icon`, `Link`, `Text`, `Badge`, `Button` | Also exports `CompanyDisplay`/`IngestIndicator`, reused by the untouched `ListView`, so there is one definition of each, not two. |
+| `FitChip.jsx` | `Box`, `Text` | Raw inline SVG for the three rated icons, not Gestalt `Icon` — see "FitChip icon colour" below. |
+| `StatusSelect.jsx` | `Box`, `Button` (`size="sm"`), `Dropdown`/`Dropdown.Item` | Replaces the old `SelectList`; see "StatusSelect geometry" below for the one place it does not match the brief's exact pixels. |
+| `Message.jsx` | `Box`, `BannerSlim` | One `FloatingMessage` used for every board toast (success and error alike), per the Message README's "Gestalt's Toast is not used." |
+| `AddJobPopupShell.jsx` | `Modal`, `Button`, `Flex`, `Text` | Shell only; see "Add-job popup" below. |
+
+### FitChip icon colour
+
+Gestalt's `Icon` `color` prop only reaches Gestalt's own semantic icon tokens
+(`--color-icon-error`, `--color-icon-warning`, …), not the brief's specific
+`color-text-error` / `color-text-warning` / `color-brand-accent` tokens.
+Wiring those would mean extending `design/theme.css` with a per-icon-class
+override the way JOZ-277 did for `Button color="red"` — disproportionate for
+three small glyphs. `FitChip` instead renders the three rated levels as raw
+inline `<svg>` elements using the exact path data from the component README,
+filled directly with the right CSS variable. The default ("Needs your input")
+state and the "Lucky" clover were always going to be custom paths regardless
+(Gestalt has no clover), so this keeps one rendering strategy for all four
+chip states instead of mixing `Icon` for two of them and raw SVG for the
+other two.
+
+### StatusSelect geometry
+
+The README specifies 112×32px, 8px rounding, 12px bold text,
+`color-border-default` border. `StatusSelect` uses a stock Gestalt
+`Button size="sm"` (32px tall, Gestalt's own pill rounding and label size)
+inside a `Box width={112}`, rather than reproducing the exact rounding/font
+via a hashed-class override. The accessible behaviour (opens a `Dropdown`,
+`accessibilityLabel="Move <title> to"`, same handler as drag) matches the
+brief exactly; only the corner-radius/font-size pixels do not. Flagging this
+rather than silently shipping it, since it is the one place this batch traded
+visual fidelity for not adding another fragile hashed-class dependency.
+
+### Fit data
+
+The backend has no `fit` field yet (BRIEF.md: "Fit is set by dropdown on the
+job detail page until it is calculated automatically" — that dropdown is a
+later ticket). `JobCard` reads `job.fit` if present and falls through to the
+"Needs your input" default otherwise, so the board is forward-compatible with
+no API change. `tests/fixtures/board.json` gives every entry an explicit
+`fit` (`no_fit`/`lucky`/`excellent`) so the real board fixture exercises all
+three rated chips; the unrated default is covered separately in
+`tests/fit-chip.spec.js` against a one-entry fixture override, to keep it
+decoupled from the main fixture's existing assertions.
+
+### Kept from the pre-rebuild card, against the JobCard README
+
+The README's anatomy is exactly three groups (fit/status, title/company,
+location/dates) and says explicitly "No source tag and no AI-generated tag on
+the card." This batch keeps the pre-existing source/salary/function/
+AI-generated badges and the ingest-failure "Retry" affordance underneath
+those three groups, rather than deleting them:
+
+- Ingest retry is real functionality (the only way to retry a failed
+  fetch/extract from the board), not decoration. JOZ-278's scope is the
+  fit/status/drag rebuild; deleting a working recovery path is not part of
+  that and has no replacement surfaced anywhere else yet.
+- The company-match review state (`CompanyDisplay`, the "Needs your input"
+  badge for `company_link_state: "needs_review"`) is a different feature
+  (company matching, pre-existing) that happens to reuse the same words as
+  the brief's fit-chip default. The fixture's one `needs_review` entry
+  (`JOB-002`) is given a rated fit (`lucky`) specifically so the two concepts
+  never collide on the same card; see `tests/fit-chip.spec.js`.
+- Task item 8 ("keep the AI-generated label") was read as applying to this
+  existing board badge too, not only the detail-page summary card it
+  literally names, since the ticket gave no instruction to remove it and
+  removing it would be an unrelated, unprompted content change.
+
+### Add-job popup: shell only, old intake path untouched
+
+The plus button next to Board/List (per BRIEF.md's page-level button, not a
+per-column one — "column header plus-button" in the ticket is read as the
+board's own header row, where the Board/List toggle already lives) opens
+`AddJobPopupShell`: a `Modal` with a heading and a footer "Close" button.
+Gestalt's plain `Modal` (unlike `ModalAlert`) renders no dismiss icon of its
+own, so the visible "close" the ticket asks for is that footer button; Escape
+and an outside click also call `onDismiss` via `Modal`'s own defaults. The
+field, validation states and Cancel/Add job buttons are explicitly out of
+scope ("popup contents are next batch"). The existing inline "Posting URL"
+`TextField` + Add button below the board is left completely alone and stays
+the one working intake path — removing it now, before the popup has the same
+capability, would be a functional regression this ticket does not ask for.
+
+### Status move copy changed to match the brief
+
+The status-change success toast changed from the old "Status updated" to
+"Moved to `<Column>`" with an Undo action, and the toast mechanism itself
+changed from Gestalt `Toast` (in a `Layer`) to a `BannerSlim`-based
+`FloatingMessage` in the same fixed bottom-centre container, per the Message
+README ("Gestalt's Toast is not used"). Both changes are mandated by the
+ticket, not incidental: `tests/jobs-board.spec.js` and the new
+`tests/drag-undo.spec.js`/`tests/message-lifetime.spec.js` assert the new
+copy and the new success/error lifetimes (success auto-hides at ~4s, error
+persists until dismissed — the brief lists both as open decisions; the ticket
+resolves them this way).
+
+### Test-only fixture change
+
+`tests/fixtures/board.json` gained one field per entry, `fit`. It is additive
+and test-only: production API behaviour, the `statuses`/`function_options`
+contract and every other field are unchanged, so this is not a backend
+contract change, just enough test data to exercise the new chip.
