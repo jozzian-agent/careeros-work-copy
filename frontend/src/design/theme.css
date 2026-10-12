@@ -1,0 +1,169 @@
+/* Gestalt 177 <- CareerOS token bridge (JOZ-277).
+ *
+ * src/design/tokens.css declares the handoff tokens. Some of those names are
+ * Gestalt's own (color-text-default, color-text-subtle, color-text-link,
+ * space-*, rounding-*, color-border-focus, ...) and therefore re-skin Gestalt
+ * on their own. The brand tokens (color-brand-*, color-background-page,
+ * color-background-card) are new names that Gestalt knows nothing about, so
+ * this file maps Gestalt's *component-level* tokens onto them.
+ *
+ * Gestalt has no runtime brand-colour prop: Button, Badge and Tag accept only
+ * a fixed colour list (see the handoff README, "Because Button, Badge and Tag
+ * take no custom colours..."). Redeclaring the component tokens is the
+ * CSS-variable half of that choice, and it means the Jobs board markup does
+ * not have to change to pick up the brand: a `Button color="red"` renders in
+ * brand blue because the primary-button tokens below are brand blue.
+ *
+ * `!important` is required here for the same reason as in tokens.css: the
+ * DesignTokensProvider style tag lives in <body>, later in document order
+ * than this stylesheet in <head>, at equal `:root` specificity.
+ */
+
+:root {
+  /* Surfaces. Gestalt's "default" background is the card surface in this
+   * system, so Box color="default", Modal and Popover all follow the theme
+   * (#ffffff light, #191919 dark) instead of being hardcoded white. */
+  --color-background-default: var(--color-background-card) !important;
+
+  /* Primary action = brand blue, replacing Gestalt's Pinterest red. These
+   * three also drive Button color="red", which is how the board's Add /
+   * Retry / Add anyway buttons become brand blue with no markup change. */
+  --color-background-button-primary-default: var(--color-brand-primary) !important;
+  --color-background-button-primary-hover: var(--color-brand-primary-strong) !important;
+  --color-background-button-primary-active: var(--color-brand-primary-strong) !important;
+  --color-background-primary-base: var(--color-brand-primary) !important;
+  --color-background-primary-strong: var(--color-brand-primary-strong) !important;
+  --color-background-primary-weak: var(--color-brand-wash-blue) !important;
+
+  /* ButtonToggle's selected state (Board/List, Needs attention) reads this
+   * token rather than the button-primary-* trio above, whatever its own
+   * color prop says. Gestalt 177 defaults it to near-black
+   * (--color-background-selected-base); the board wants brand blue. */
+  --color-background-button-selected-default: var(--color-brand-primary) !important;
+
+  /* Informational blue (Badge type="info": AI-generated, function chips). */
+  --color-background-info-base: var(--color-brand-primary) !important;
+  --color-background-info-strong: var(--color-brand-primary-strong) !important;
+  --color-background-info-weak: var(--color-brand-wash-blue) !important;
+  --color-icon-info: var(--color-brand-primary) !important;
+
+  /* Violet (Badge type="recommendation": "Needs your input"). Gestalt uses
+   * purple-mysticool-500; the brand uses 600 light / 300 dark. */
+  --color-background-recommendation-base: var(--color-brand-violet) !important;
+  --color-background-recommendation-weak: var(--color-brand-wash-violet) !important;
+  --color-icon-recommendation: var(--color-brand-violet) !important;
+
+  /* Typeface. Gestalt classic resolves every non-code font-family through
+   * --font-family-default-latin, so overriding that one token carries
+   * Atkinson Hyperlegible across every Gestalt component. The Japanese token
+   * is deliberately left alone: Atkinson ships a latin subset only. */
+  --font-family-default-latin: var(--font-sans) !important;
+
+  /* Only 400 and 700 exist in Atkinson Hyperlegible. Gestalt classic sets
+   * headings and standalone links to semibold, which the browser would have
+   * to synthesise, so semibold resolves to bold here. This is the handoff's
+   * "Gestalt's classic headings are semibold, so here they are bold". */
+  --font-weight-semibold: 700 !important;
+}
+
+/* Primary-button *text*, which the brand fill above makes unreadable in dark
+ * mode unless it is rebound here.
+ *
+ * Gestalt picks this colour in JS, not in CSS. Button maps color="red" to
+ * Text color="inverse", except in dark mode, where it deliberately switches to
+ * "default" for contrast against its own light-red dark-mode fill:
+ *
+ *   const isDarkModeRed = isDarkMode && color === 'red';
+ *   const textColor = ... || (isDarkModeRed && 'default') || DEFAULT_TEXT_COLORS[color];
+ *
+ * (gestalt.es.js lines 8034 and 8077-8081 at 177.0.12.) With the fill replaced
+ * by the brand blue, that exception backfires: dark --color-text-default is
+ * #ffffff and the dark brand blue is #75bfff, which is 1.97:1 - far below WCAG
+ * AA's 4.5:1. The handoff has the answer already: color-brand-on-color is the
+ * foreground it pairs with brand fills, #ffffff light and #111111 dark.
+ *
+ * So bind *both* tokens Button can read for its label to that one token, which
+ * makes the pairing correct by construction in either scheme and whichever
+ * branch Gestalt takes. Scoped to the fill itself: `.Il7` is Gestalt
+ * 177.0.12's class for Button's `red` colour (the styles map at gestalt.es.js
+ * line 6686; `.Il7{background-color:var(--color-background-button-primary-
+ * default)}` in gestalt.css), so it is exactly the element carrying the brand
+ * fill and an ancestor of the button's Text - the custom property inherits as
+ * far as the fill reaches and no further. A hashed class is safe to name here
+ * because `gestalt` is pinned to an exact version and both schemes are
+ * asserted with a real computed-contrast check in tests/theme.spec.js, so a
+ * class that moved could not pass silently.
+ *
+ * No `!important`, unlike the tokens above: this declaration lands on the
+ * button element, where nothing competes. The DesignTokensProvider tag that
+ * forces the issue elsewhere only ever declares tokens on `:root`, and a
+ * token set on the element itself beats one inherited from the root
+ * regardless of the selectors' specificity. */
+.Il7 {
+  --color-text-inverse: var(--color-brand-on-color);
+  --color-text-default: var(--color-brand-on-color);
+}
+
+html {
+  background-color: var(--color-background-page);
+}
+
+body {
+  background-color: var(--color-background-page);
+  color: var(--color-text-default);
+  font-family: var(--font-sans);
+}
+
+/* Line heights, per the brief: 44, 36, 28, 24, 20.
+ *
+ * Gestalt classic ships no line-height for Text or Heading at all (it defines
+ * --font-lineheight-* only for the datepicker), so the whole scale has to come
+ * from here. The handoff pairs each line height with a *font size*, not with a
+ * heading level, and the two do not always agree: Gestalt's PageHeader renders
+ * its title as an h1 at 20px, so keying off the tag would put a 44px line
+ * height on 20px text.
+ *
+ * So pair on the element's own font size. `em` in line-height resolves against
+ * that element's font-size, which makes this one declaration reproduce the
+ * entire handoff type scale exactly:
+ *
+ *   12px -> min(20, 16) = 16    (text-100)
+ *   14px -> min(22, 20) = 20    (text-200)
+ *   16px -> min(24, 24) = 24    (text-300, heading-300)
+ *   20px -> min(28, 32) = 28    (heading-400)
+ *   28px -> min(36, 48) = 36    (heading-600)
+ *   36px -> min(44, 64) = 44    (heading-700)
+ *
+ * It has to be set per element rather than inherited from body: a line-height
+ * given in em computes to an absolute length where it is declared, and
+ * descendants would inherit that length instead of recomputing from their own
+ * font size. tests/theme.spec.js asserts every pair above.
+ *
+ * Scoped to leaf elements, which is where text actually sits (Gestalt's Text
+ * renders a div holding a string, Heading an h1-h6 holding a string). A plain
+ * `#root *` is NOT safe here: declaring line-height on the structural wrappers
+ * too perturbs layout enough that Chromium stops starting a native drag on the
+ * job cards at all - no dragstart fires and the board's drag-and-drop silently
+ * dies (caught by tests/jobs-board.spec.js). Leaves exclude the draggable card
+ * wrapper, the columns and every Box/Flex, so the behaviour freeze holds.
+ *
+ * The second selector is for portals, which are not inside #root. Gestalt's
+ * Layer mounts its children in a plain `div` it creates and appends to
+ * document.body (gestalt.es.js lines 2643-2653; it carries a class only when
+ * Layer is given a zIndex, which the board's Toast is not), so a #root-only
+ * rule leaves Toast text with no line-height at all. Same leaf-only
+ * constraint, for the same drag-and-drop reason: whatever the selector, this
+ * declaration must never land on a structural wrapper. */
+#root *:not(:has(*)),
+body > div:not(#root) *:not(:has(*)) {
+  line-height: min(calc(1em + 8px), calc(2em - 8px));
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 700;
+}

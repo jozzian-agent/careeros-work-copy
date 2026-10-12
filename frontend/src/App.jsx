@@ -1,13 +1,13 @@
-import { ColorSchemeProvider } from 'gestalt';
+import ThemeProvider from './design/ThemeProvider.jsx';
 import Nav from './Nav.jsx';
 import JobsBoard from './pages/JobsBoard.jsx';
 
 function App() {
   return (
-    <ColorSchemeProvider colorScheme="light">
+    <ThemeProvider colorScheme="light">
       <Nav currentPage="jobs" />
       <JobsBoard />
-    </ColorSchemeProvider>
+    </ThemeProvider>
   );
 }
 

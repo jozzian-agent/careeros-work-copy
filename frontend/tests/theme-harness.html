@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Theme harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      // Test-only harness for the dark-mode assertions in tests/theme.spec.js.
+      //
+      // The app is pinned to colorScheme="light" (src/App.jsx), so a dark-mode
+      // test needs a second mount point. Flipping html[data-theme] by hand is
+      // not good enough: that exercises the stylesheet while React stays in
+      // light mode, and Gestalt chooses a Button's *text* colour in JS from
+      // useColorScheme(), not in CSS. Switching the colorScheme prop through
+      // React state, as the toggle below does, is the real transition: it
+      // re-renders ColorSchemeProvider, DesignTokensProvider and the Button
+      // together, exactly as a scheme change would in the app.
+      //
+      // Served by the Vite dev server at /tests/theme-harness.html. It is not
+      // an entry point of `vite build` (index.html is the only input), so it
+      // cannot reach production. No JSX: an inline module script is handed to
+      // Vite as plain JS, hence createElement.
+      import { createElement as h, useState } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { Button } from 'gestalt';
+
+      // Same import order as src/main.jsx; the cascade documented in
+      // design/tokens.css depends on it.
+      import 'gestalt/dist/gestalt.css';
+      import '../src/design/tokens.css';
+      import '../src/design/theme.css';
+      import '../src/index.css';
+      import ThemeProvider from '../src/design/ThemeProvider.jsx';
+
+      function Harness() {
+        const [colorScheme, setColorScheme] = useState('light');
+
+        return h(
+          'div',
+          null,
+          h(
+            'button',
+            { type: 'button', 'data-testid': 'to-dark', onClick: () => setColorScheme('dark') },
+            'dark',
+          ),
+          h(
+            'button',
+            { type: 'button', 'data-testid': 'to-light', onClick: () => setColorScheme('light') },
+            'light',
+          ),
+          h(
+            ThemeProvider,
+            { colorScheme },
+            // The board's Add, Retry and "Add anyway" are all this component
+            // with this prop, so one instance covers the same token path.
+            h(Button, { color: 'red', text: 'Add' }),
+          ),
+        );
+      }
+
+      createRoot(document.getElementById('root')).render(h(Harness));
+    </script>
+  </body>
+</html>
