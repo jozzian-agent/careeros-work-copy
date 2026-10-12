@@ -1,15 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { Badge, Box, Flex, Link, Text } from 'gestalt';
+import { useParams } from 'react-router-dom';
+import { BannerSlim, Badge, Box, Button, Flex, Link, Text } from 'gestalt';
 import { deleteExperience, fetchExperiencePage, fetchExperienceTagsRegistry, updateExperience } from '../api/experiences.js';
 import DetailHeader from '../components/DetailHeader.jsx';
 import SectionCard, { DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
 import EditPositionPopup from '../components/EditPositionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 
+// The schema permits any YAML value for salary (vault.py never validates
+// it, by design -- compensation is vault-file-only). A plain string/number
+// renders as-is; a structured value (e.g. {amount, currency}) is flattened
+// to a readable "key: value" line instead of being handed to <Text> raw,
+// which throws on a non-string child.
+function formatSalary(value) {
+  if (typeof value === 'object') {
+    return Object.entries(value).map(([key, val]) => `${key}: ${val}`).join(', ');
+  }
+  return String(value);
+}
+
 export default function ExperienceDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [page, setPage] = useState(null);
   const [tagRegistry, setTagRegistry] = useState(null);
   const [loadError, setLoadError] = useState(null);
@@ -17,6 +28,7 @@ export default function ExperienceDetail() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [actionError, setActionError] = useState(null);
 
   const load = useCallback(() => {
     fetchExperiencePage(id)
@@ -32,21 +44,40 @@ export default function ExperienceDetail() {
   }, [load]);
 
   async function openEdit() {
-    if (!tagRegistry) setTagRegistry(await fetchExperienceTagsRegistry());
-    setEditOpen(true);
+    try {
+      const registry = tagRegistry || (await fetchExperienceTagsRegistry());
+      if (!tagRegistry) setTagRegistry(registry);
+      setEditOpen(true);
+    } catch (err) {
+      setActionError(err.message);
+    }
+  }
+
+  // Closing the popup always refetches the page, on both Save and Cancel:
+  // the popup's own company-create/link action (EditPositionPopup's
+  // "Create & link new company") persists immediately against the record,
+  // so a Cancel that skipped this would leave `exp` showing the stale
+  // company, and reopening the popup would then resubmit that stale
+  // company_id on an unrelated save, undoing the link.
+  function handleEditDismiss() {
+    setEditOpen(false);
+    load();
   }
 
   async function handleSave(fields) {
     await updateExperience(id, fields);
-    setEditOpen(false);
-    load();
+    handleEditDismiss();
   }
 
   async function handleDelete() {
     setDeleteBusy(true);
     try {
       await deleteExperience(id);
-      navigate('/experiences');
+      // /experiences is the Jinja list page, not an App.jsx route, so a
+      // client-side navigate() would find no matching Route and render
+      // blank -- a full-document navigation is required to actually reach
+      // the server.
+      window.location.assign('/experiences');
     } catch (err) {
       setDeleteError(err.message);
       setDeleteBusy(false);
@@ -56,7 +87,10 @@ export default function ExperienceDetail() {
   if (loadError) {
     return (
       <Box padding={6}>
-        <Text color="error">{loadError}</Text>
+        <Flex direction="column" gap={3} alignItems="start">
+          <Text color="error">{loadError}</Text>
+          <Button text="Retry" onClick={load} />
+        </Flex>
       </Box>
     );
   }
@@ -87,6 +121,7 @@ export default function ExperienceDetail() {
           onEdit={openEdit}
           onDelete={() => setDeleteOpen(true)}
         />
+        {actionError ? <BannerSlim type="error" message={actionError} onDismiss={() => setActionError(null)} /> : null}
         {exp.summary || skillTags.length ? (
           <SectionCard title="Summary">
             {exp.summary ? <Text>{exp.summary}</Text> : null}
@@ -129,9 +164,9 @@ export default function ExperienceDetail() {
             />
           </SectionCard>
         ) : null}
-        {exp.salary ? (
+        {exp.salary !== null && exp.salary !== undefined ? (
           <SectionCard title="Salary">
-            <Text>{exp.salary}</Text>
+            <Text>{formatSalary(exp.salary)}</Text>
           </SectionCard>
         ) : null}
       </Flex>
@@ -141,7 +176,7 @@ export default function ExperienceDetail() {
           companies={page.companies}
           tagRegistry={tagRegistry}
           onSave={handleSave}
-          onDismiss={() => setEditOpen(false)}
+          onDismiss={handleEditDismiss}
         />
       ) : null}
       {deleteOpen ? (

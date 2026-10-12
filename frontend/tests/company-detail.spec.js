@@ -76,11 +76,56 @@ test('Delete confirmation 409 renders inline without closing the alert', async (
   await expect(alert).toBeVisible();
 });
 
-test('Delete confirmation succeeds and returns to the companies list', async ({ page }) => {
+test('Delete confirmation succeeds and performs a full navigation that actually reaches the companies list page', async ({
+  page,
+}) => {
+  // /companies is the server-rendered Jinja list page, not an App.jsx
+  // route -- a client-side navigate() would leave the SPA on a blank page
+  // with no matching Route while still showing the new URL. Fulfilling the
+  // real document request here proves a full-document navigation actually
+  // happened, not just that the URL string changed.
   await mockDelete(page, '**/api/companies/CO-001');
+  await page.route('**/companies', (route) => {
+    if (route.request().resourceType() !== 'document') {
+      route.fallback();
+      return;
+    }
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: '<!doctype html><html><body><h1>Companies (mock list page)</h1></body></html>',
+    });
+  });
   await page.goto('/companies/CO-001');
   await page.getByRole('button', { name: 'Delete' }).click();
   const alert = page.getByRole('alertdialog', { name: 'Delete this company?' });
   await alert.getByRole('button', { name: 'Delete company' }).click();
   await expect(page).toHaveURL('/companies');
+  await expect(page.getByRole('heading', { name: 'Companies (mock list page)' })).toBeVisible();
+});
+
+test('Retry failure shows a visible error', async ({ page }) => {
+  await mockCompanyPage(page, { ...fixture, company: { ...fixture.company, website: null, sectors: [], size_range: null, size_class: null } });
+  await page.route('**/api/companies/*/retry', (route) => route.fulfill({ status: 500, json: { error: 'nope' } }));
+  await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByText('Retry failed.')).toBeVisible();
+});
+
+test('Retry success surfaces retry_applied and outcome details', async ({ page }) => {
+  await mockCompanyPage(page, { ...fixture, company: { ...fixture.company, website: null, sectors: [], size_range: null, size_class: null } });
+  await page.route('**/api/companies/*/retry', (route) =>
+    route.fulfill({
+      json: {
+        ...fixture.company,
+        website: null,
+        retry_applied: ['sectors'],
+        enrichment: { field_states: { sectors: { state: 'filled' } } },
+        field_provenance: {},
+      },
+    }),
+  );
+  await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByText('Retry updated the company. Sector: filled')).toBeVisible();
 });

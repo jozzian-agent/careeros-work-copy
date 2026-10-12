@@ -664,9 +664,10 @@ their templates are gone.
 
 ### Notes editing consolidated into the Edit popup, not left inline too
 
-The handoff mockups (`JobDetail.dc.html`, `CompanyDetail.dc.html`) show an
-inline, always-editable Notes `<textarea>` with its own "Save notes"
-button directly on the detail page. The approved JOZ-280 Phase A wireframes
+Earlier reference mockups (not part of the approved design brief, and not
+shipped in this repo) show an inline, always-editable Notes `<textarea>`
+with its own "Save notes" button directly on the detail page. The approved
+JOZ-280 Phase A wireframes
 *also* put a notes field in the Edit job and Edit company popups. Gestalt's
 `SectionCard` README only lists four body shapes (paragraph, divider list,
 key/value grid, empty state) — an inline editable-textarea-with-its-own-save
@@ -735,37 +736,61 @@ of two ways, never a blanket skip:
   `enrichment.field_states`). This is the large majority — `test_jobs.py`,
   `test_company_kind.py`, `test_sectors.py`, `test_function_facet.py`,
   `test_watcher.py`, `test_vault.py`, `test_fix261.py`, `test_ingest.py`,
-  `test_company_resolve.py`.
+  `test_company_resolve.py`, plus two renamed in place in
+  `test_taxonomy_pages.py` (`test_detail_pages_link_to_taxonomy` →
+  `test_job_detail_omits_standalone_taxonomy_link`) and `test_jobs.py`
+  (`test_job_detail_description_escapes_html` →
+  `test_job_detail_description_round_trips_exactly`), each now asserting
+  the same underlying fact through the JSON API instead of rendered HTML.
 - **Removed outright**, only where the assertion was about Jinja/vanilla-JS
   mechanics with no data-level analog — exact `<dialog>` markup and its
-  inline `onclick` strings (`test_delete_detail_buttons`), running an
+  inline `onclick` strings (`test_delete_detail_buttons`, 2 parametrized
+  cases), the idle/pending re-enrich button markup
+  (`test_job_detail_no_reenrich_button_when_idle`,
+  `test_job_detail_polls_only_while_pending`), the 1200/1201-character
+  description-collapse boundary markup
+  (`test_job_detail_description_boundary_1200_collapsible`,
+  `test_job_detail_description_boundary_1201_reconstructs_exactly`), the
+  editable-title markup (`test_job_detail_has_editable_title`), running an
   extracted `<script>` block under Node to test polling logic
-  (`test_check_posting_client_behavior`), DOM element ordering on a page
-  that no longer has Jinja-rendered DOM at all
-  (`test_batch_d_job_card_order`, `test_check_posting_summary_placement`,
-  `test_detail_pages_link_to_taxonomy`). Section ordering and the delete
-  flow are covered instead by the new Playwright specs below, which test
-  the thing that actually renders them now.
+  (`test_check_posting_client_behavior`, 3 parametrized cases), and DOM
+  element ordering on a page that no longer has Jinja-rendered DOM at all
+  (`test_batch_d_job_card_order`, `test_check_posting_summary_placement`).
+  Section ordering and the delete flow are covered instead by the new
+  Playwright specs below, which test the thing that actually renders them
+  now.
 
-Net effect on the suite: 919 → 909 (ten tests removed outright per the
-above, two added for the routing regression caught during manual
-verification, the rest converted in place — not reduced coverage, moved
-coverage).
+Net effect on the suite: 919 → 909. Nine test functions were removed
+outright, expanding to twelve collected cases once their
+`@pytest.mark.parametrize` lists are counted (`test_delete_detail_buttons`
+and `test_check_posting_client_behavior` each cover more than one case);
+two cases were added in `test_react_ui_flag.py` for the routing regression
+caught during manual verification
+(`test_flag_on_serves_react_for_every_detail_route`,
+`test_flag_off_detail_routes_404_with_no_jinja_fallback`); the two renames
+above are a like-for-like swap and net zero. 12 − 2 = 10, matching
+919 − 909. This is moved coverage for the renamed/converted cases, but a
+real, uncompensated loss of backend-level coverage for the twelve removed
+outright — the Playwright specs that now exercise the equivalent UI mock
+every API call (`page.route`), so they confirm the React page renders and
+wires up correctly against a scripted response, not that the real Flask
+view and vault logic underneath still behaves the way the removed tests
+pinned.
 
 ### Frontend Playwright specs
 
 New fixtures (`frontend/tests/fixtures/job-detail.json`,
 `job-taxonomy.json`, `experience-detail.json`,
 `experience-tags-registry.json`, `company-detail.json`,
-`company-taxonomy.json`) and five spec files (`job-detail.spec.js`,
+`company-taxonomy.json`) and four spec files (`job-detail.spec.js`,
 `experience-detail.spec.js`, `company-detail.spec.js`,
 `company-classification.spec.js`, plus edit/delete coverage folded into
-each rather than separate files, since every popup is page-specific) cover:
-header rendering (type label, title, subtitle, chip, actions), the back
-link's navigation, SectionCard ordering via heading order, the Status and
-Fit dropdowns' PUT payloads, every edit popup's open/fill/save/cancel
-round-trip, and the delete `ModalAlert`'s confirm/keep/409-inline-error
-paths. `tests/helpers.js` gained matching `mockJobPage`/`mockJobTaxonomy`/
+each rather than separate files, since every popup is page-specific),
+28 tests total, cover: header rendering (type label, title, subtitle,
+chip, actions), the back link's navigation, SectionCard ordering via
+heading order, the Status and Fit dropdowns' PUT payloads, every edit
+popup's open/fill/save/cancel round-trip, and the delete `ModalAlert`'s
+confirm/keep/409-inline-error paths. `tests/helpers.js` gained matching `mockJobPage`/`mockJobTaxonomy`/
 `mockExperiencePage`/`mockExperienceTagsRegistry`/`mockCompanyPage`/
 `mockCompanyTaxonomy`/`mockUpdate`/`mockDelete` helpers, following the
 existing `mockBoard`/`mockMove` pattern (intercept the real fetch path,

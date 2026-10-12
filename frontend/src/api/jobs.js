@@ -68,6 +68,21 @@ export async function fetchJobTaxonomy(id) {
   return response.json();
 }
 
+// POST /api/watch/scan?job=<id>: the job detail page's "Check posting"
+// watcher action (careeros/server.py watch_scan). Returns { events,
+// watch_status, reason } -- a non-empty events list means history changed
+// and the caller should reload the page.
+export async function checkPosting(id) {
+  const response = await fetch(`/api/watch/scan?job=${encodeURIComponent(id)}`, {
+    method: 'POST',
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || 'Could not check that posting.');
+  }
+  return data;
+}
+
 export async function retryIngest(id) {
   const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/extract`, {
     method: 'POST',

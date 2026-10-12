@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Accordion, Badge, Box, Button, Flex, Link, Text } from 'gestalt';
-import { deleteJob, fetchJobPage, fetchJobTaxonomy, retryIngest, updateJob } from '../api/jobs.js';
+import { Accordion, BannerSlim, Badge, Box, Button, Flex, Link, Text } from 'gestalt';
+import { checkPosting, deleteJob, fetchJobPage, fetchJobTaxonomy, retryIngest, updateJob } from '../api/jobs.js';
 import DetailHeader from '../components/DetailHeader.jsx';
 import SectionCard, { DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
 import FitChip from '../components/FitChip.jsx';
@@ -29,6 +29,9 @@ export default function JobDetail() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [checkBusy, setCheckBusy] = useState(false);
+  const [checkResult, setCheckResult] = useState(null);
 
   const load = useCallback(() => {
     fetchJobPage(id)
@@ -46,7 +49,10 @@ export default function JobDetail() {
   if (loadError) {
     return (
       <Box padding={6}>
-        <Text color="error">{loadError}</Text>
+        <Flex direction="column" gap={3} alignItems="start">
+          <Text color="error">{loadError}</Text>
+          <Button text="Retry" onClick={load} />
+        </Flex>
       </Box>
     );
   }
@@ -58,16 +64,27 @@ export default function JobDetail() {
     );
   }
 
-  const { job, company, statuses, markdown, has_description: hasDescription } = page;
+  const {
+    job, company, statuses, markdown, has_description: hasDescription,
+    watch_eligible: watchEligible, watch_reason: watchReason,
+  } = page;
 
   async function handleStatusChange(status) {
-    await updateJob(id, { status });
-    load();
+    try {
+      await updateJob(id, { status });
+      await load();
+    } catch (err) {
+      setActionError(err.message);
+    }
   }
 
   async function handleFitChange(fit) {
-    await updateJob(id, { fit });
-    load();
+    try {
+      await updateJob(id, { fit });
+      await load();
+    } catch (err) {
+      setActionError(err.message);
+    }
   }
 
   async function handleSaveJob(fields) {
@@ -77,9 +94,13 @@ export default function JobDetail() {
   }
 
   async function openCriteria() {
-    const data = await fetchJobTaxonomy(id);
-    setCriteria(data);
-    setCriteriaOpen(true);
+    try {
+      const data = await fetchJobTaxonomy(id);
+      setCriteria(data);
+      setCriteriaOpen(true);
+    } catch (err) {
+      setActionError(err.message);
+    }
   }
 
   async function handleSaveCriteria(fields) {
@@ -89,8 +110,34 @@ export default function JobDetail() {
   }
 
   async function handleRetry() {
-    await retryIngest(id);
-    load();
+    try {
+      await retryIngest(id);
+      await load();
+    } catch (err) {
+      setActionError(err.message);
+    }
+  }
+
+  async function handleCheckPosting() {
+    setCheckBusy(true);
+    setCheckResult(null);
+    try {
+      const data = await checkPosting(id);
+      if (data.events?.length) {
+        await load();
+        return;
+      }
+      const messages = {
+        not_watched: data.reason,
+        error: 'Error: posting unreachable; will retry on the next scan.',
+        gone: 'Gone: posting previously unavailable.',
+      };
+      setCheckResult(messages[data.watch_status] || 'Unchanged');
+    } catch (err) {
+      setCheckResult(`Error: ${err.message}`);
+    } finally {
+      setCheckBusy(false);
+    }
   }
 
   async function handleDelete() {
@@ -123,6 +170,7 @@ export default function JobDetail() {
           onEdit={() => setEditOpen(true)}
           onDelete={() => setDeleteOpen(true)}
         />
+        {actionError ? <BannerSlim type="error" message={actionError} onDismiss={() => setActionError(null)} /> : null}
         <Flex gap={4} wrap>
           <Box>
             <Text weight="bold" size="200">
@@ -224,6 +272,19 @@ export default function JobDetail() {
               </Link>
             </Box>
           ) : null}
+          <Flex gap={3} alignItems="center" wrap>
+            <Button
+              text="Check posting"
+              size="sm"
+              color="gray"
+              disabled={!watchEligible || checkBusy}
+              accessibilityLabel={!watchEligible ? watchReason : 'Check posting'}
+              onClick={handleCheckPosting}
+            />
+            <div role="status" aria-live="polite">
+              {checkBusy ? <Text color="subtle">Checking…</Text> : checkResult ? <Text color="subtle">{checkResult}</Text> : null}
+            </div>
+          </Flex>
         </SectionCard>
         <SectionCard title="Notes">
           {job.notes ? (

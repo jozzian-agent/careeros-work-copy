@@ -58,7 +58,7 @@ not removed either.
 
 Four edit popups (Edit job, Edit position, Edit company, Edit criteria)
 and one delete confirmation template, all designed in Phase A of this
-ticket (not in the original handoff) and owner-approved before the build:
+ticket (not in the original design brief) and owner-approved before the build:
 wireframes lived at `frontend/wireframes/joz280/` (gitignored review
 artifacts, not shipped). All write through existing endpoints; no backend
 endpoint or schema change. See `frontend/BUILD_NOTES.md`'s component

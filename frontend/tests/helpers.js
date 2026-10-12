@@ -144,6 +144,12 @@ export async function mockIntake(page, responses) {
   return requests;
 }
 
+// Mocks POST /api/watch/scan?job=<id> (the Job detail page's Check posting
+// watcher action).
+export async function mockCheckPosting(page, { status = 200, body = { events: [], watch_status: 'unchanged' } } = {}) {
+  await page.route('**/api/watch/scan*', (route) => route.fulfill({ status, json: body }));
+}
+
 // Mocks POST /api/jobs/<id>/promote.
 export async function mockPromote(page, { status = 200, body = { ok: true } } = {}) {
   await page.route('**/api/jobs/*/promote', (route) => route.fulfill({ status, json: body }));

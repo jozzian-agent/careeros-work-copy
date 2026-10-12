@@ -5,7 +5,10 @@
     "facets": {
       "skill/capability": {
         "label": "Capability",
-        "values": [{ "id": "public-speaking", "label": "Public speaking" }]
+        "values": [
+          { "id": "public-speaking", "label": "Public speaking" },
+          { "id": "stakeholder-management", "label": "Stakeholder management" }
+        ]
       },
       "function": { "label": "Function", "values": [] }
     }

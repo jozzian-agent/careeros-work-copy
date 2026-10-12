@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BannerSlim, Box, Button, Checkbox, Fieldset, Flex, Modal, Text, TextArea, TextField } from 'gestalt';
+import { BannerSlim, Box, Button, Checkbox, Fieldset, Flex, Modal, SelectList, Text, TextArea, TextField } from 'gestalt';
 import { linkExperienceCompany } from '../api/experiences.js';
 
 function slugify(value) {
@@ -35,8 +35,15 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
   const [highlights, setHighlights] = useState((exp.highlights || []).join('\n'));
   const [detail, setDetail] = useState(exp.detail || '');
   const functionTags = (exp.tags || []).filter((tag) => tag.startsWith('function:'));
-  const [tags, setTags] = useState((exp.tags || []).filter((tag) => !tag.startsWith('function:')));
-  const [newSkill, setNewSkill] = useState('');
+  // Captured once at mount, from the experience's own prior tags -- never
+  // recomputed from the live `tags` state -- so handleSave can tell which
+  // tokens in the final `tags` list are newly added this session (and so
+  // must go in proposed_tags) from ones that were already on the record.
+  const initialTags = (exp.tags || []).filter((tag) => !tag.startsWith('function:'));
+  const [tags, setTags] = useState(initialTags);
+  const [registryPick, setRegistryPick] = useState('');
+  const [newFacet, setNewFacet] = useState(Object.keys(tagRegistry.facets).find((f) => f !== 'function') || '');
+  const [newTagId, setNewTagId] = useState('');
   const [custom, setCustom] = useState(
     Object.entries(exp.custom || {}).map(([key, value]) => ({
       key,
@@ -82,13 +89,28 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
     setTags((prev) => (checked ? [...prev, token] : prev.filter((v) => v !== token)));
   }
 
-  function addSkill() {
-    const raw = slugify(newSkill.trim());
-    if (!raw) return;
-    const token = `skill/capability:${raw}`;
-    if (!tags.includes(token)) setTags((prev) => [...prev, token]);
-    setNewSkill('');
+  function addFromRegistry() {
+    if (!registryPick || tags.includes(registryPick)) return;
+    setTags((prev) => [...prev, registryPick]);
+    setRegistryPick('');
   }
+
+  function addNewTag() {
+    const raw = slugify(newTagId.trim());
+    if (!raw) return;
+    const token = `${newFacet}:${raw}`;
+    if (tags.includes(token)) return;
+    setTags((prev) => [...prev, token]);
+    setNewTagId('');
+  }
+
+  const registryOptions = Object.entries(tagRegistry.facets)
+    .filter(([facet]) => facet !== 'function')
+    .flatMap(([facet, info]) =>
+      (info.values || [])
+        .filter((v) => !tags.includes(`${facet}:${v.id}`))
+        .map((v) => ({ value: `${facet}:${v.id}`, label: v.label || v.id })),
+    );
 
   function addCustomRow() {
     setCustom((prev) => [...prev, { key: '', value: '' }]);
@@ -109,7 +131,8 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
       const customObject = {};
       for (const row of custom) {
         const key = row.key.trim();
-        if (!key) continue;
+        if (!key) throw new Error('Each custom field needs a key.');
+        if (Object.hasOwn(customObject, key)) throw new Error('Custom field keys must be unique.');
         let value = row.value;
         try {
           value = JSON.parse(row.value);
@@ -118,6 +141,7 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
         }
         customObject[key] = value;
       }
+      const proposedTags = tags.filter((tag) => !initialTags.includes(tag));
       await onSave({
         title: title.trim(),
         start,
@@ -130,6 +154,7 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
         highlights: highlights.split('\n').map((line) => line.trim()).filter(Boolean),
         detail,
         tags: [...tags, ...functionTags],
+        proposed_tags: proposedTags,
         custom: customObject,
       });
     } catch (err) {
@@ -216,7 +241,7 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
           value={detail}
           onChange={({ value }) => setDetail(value)}
         />
-        <Fieldset legend="Skills">
+        <Fieldset legend="Skills" helperText="Controlled vocabulary — pick from the registry, or propose a new value.">
           <Flex direction="column" gap={3}>
             <Flex gap={3} wrap>
               {tags.map((token) => {
@@ -234,17 +259,47 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
                 );
               })}
             </Flex>
-            <Flex gap={2} alignItems="end">
+            <Flex gap={3} wrap>
               <Box minWidth={220}>
+                <SelectList
+                  id="edit-position-tag-registry"
+                  label="Add from registry"
+                  value={registryPick}
+                  onChange={({ value }) => setRegistryPick(value)}
+                >
+                  <SelectList.Option value="" label="— select a tag —" />
+                  {registryOptions.map((option) => (
+                    <SelectList.Option key={option.value} value={option.value} label={option.label} />
+                  ))}
+                </SelectList>
+              </Box>
+              <Box minWidth={160}>
+                <SelectList
+                  id="edit-position-new-tag-facet"
+                  label="Facet"
+                  value={newFacet}
+                  onChange={({ value }) => setNewFacet(value)}
+                >
+                  {Object.entries(tagRegistry.facets)
+                    .filter(([facet]) => facet !== 'function')
+                    .map(([facet, info]) => (
+                      <SelectList.Option key={facet} value={facet} label={info.label} />
+                    ))}
+                </SelectList>
+              </Box>
+              <Box minWidth={160}>
                 <TextField
-                  id="edit-position-new-skill"
-                  label="Propose a new skill tag"
+                  id="edit-position-new-tag"
+                  label="Propose a new tag"
                   placeholder="e.g. Public speaking"
-                  value={newSkill}
-                  onChange={({ value }) => setNewSkill(value)}
+                  value={newTagId}
+                  onChange={({ value }) => setNewTagId(value)}
                 />
               </Box>
-              <Button text="Add" onClick={addSkill} disabled={!newSkill.trim()} />
+            </Flex>
+            <Flex gap={2}>
+              <Button text="+ Add from registry" onClick={addFromRegistry} disabled={!registryPick} />
+              <Button text="+ Add tag" onClick={addNewTag} disabled={!newTagId.trim()} />
             </Flex>
           </Flex>
         </Fieldset>
