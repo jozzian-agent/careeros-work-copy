@@ -33,21 +33,30 @@ def test_job_taxonomy_page_renders(client, root):
 
 
 def test_company_taxonomy_page_renders(client, root):
+    # JOZ-280: /companies/<id>/taxonomy is a React page now (no Jinja
+    # coexistence); the JSON API behind it is unchanged, so this pins the
+    # API contract the React Company Classification page consumes. DOM
+    # rendering itself is covered by frontend/tests/company-classification.spec.js.
     company = vault.save_company(root, {'name': 'Fiction Co'})
-    html = client.get(f'/companies/{company["id"]}/taxonomy').text
-    assert 'Kind' in html and 'Sectors (ISIC Rev.4)' in html
-    assert 'aggregate' not in html
+    data = client.get(f'/api/companies/{company["id"]}/taxonomy').json
+    assert data['kinds'] and 'aggregate' not in data['kinds']
+    assert any(s['code'] for s in data['isic_sections'])
 
 
 def test_job_taxonomy_unknown_id_404(client):
     assert client.get('/jobs/JOZ-999999/taxonomy').status_code == 404
 
 
-def test_detail_pages_link_to_taxonomy(client, root):
+def test_job_detail_omits_standalone_taxonomy_link(client, root):
+    # JOZ-280: the React Job detail page's "Edit classification" opens the
+    # Edit criteria popup inline (approved Phase A wireframe), rather than
+    # navigating to the standalone /jobs/<id>/taxonomy page the old Jinja
+    # detail.html linked to; that page itself is untouched and still
+    # reachable directly, just no longer linked from the job detail header.
+    # Classification data for the popup comes from the unchanged JSON API.
     job = vault.save_job(root, {'title': 'AI PM', 'url': 'https://fiction.example/pm2'})
-    company = vault.save_company(root, {'name': 'Link Co'})
-    assert f'/jobs/{job["id"]}/taxonomy' in client.get(f'/jobs/{job["id"]}').text
-    assert f'/companies/{company["id"]}/taxonomy' in client.get(f'/companies/{company["id"]}').text
+    data = client.get(f'/api/jobs/{job["id"]}/taxonomy').json
+    assert data['job']['id'] == job['id']
 
 
 def test_job_taxonomy_save_roundtrip(client, root):

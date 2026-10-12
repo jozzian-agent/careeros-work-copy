@@ -1,0 +1,22 @@
+{
+  "exp": {
+    "id": "EXP-001",
+    "title": "Guest Lecturer, Fictional Data Strategy Course",
+    "company": "Fictional University",
+    "company_id": "CO-002",
+    "start": "2024-01",
+    "end": "present",
+    "location": "Zurich, CH",
+    "people_led": 2,
+    "summary": "Fictional guest lecture summary for test fixtures only.",
+    "highlights": ["Taught two sessions on data strategy."],
+    "detail": "**Fictional** detail paragraph for test fixtures only.",
+    "tags": ["skill/capability:public-speaking"],
+    "custom": { "Clearance": "None" },
+    "salary": null
+  },
+  "label": "Fictional University",
+  "companies": { "CO-002": { "id": "CO-002", "name": "Fictional University" } },
+  "tag_labels": { "skill/capability:public-speaking": { "label": "Public speaking" } },
+  "markdown": "<p><strong>Fictional</strong> detail paragraph for test fixtures only.</p>"
+}

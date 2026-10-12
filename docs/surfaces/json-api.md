@@ -13,6 +13,13 @@ Provide the existing dashboard data to the approved React migration while
 keeping Jinja and existing record clients working. Backend implementation of
 the owner brief, 2026-10-10; this does not accept a React page or its design gate.
 
+2026-10-12 (JOZ-280): the job detail, company detail, experience detail and
+company taxonomy JSON contracts below are now read by React pages instead of
+Jinja (their Jinja routes/templates are removed as part of that ticket's
+detail-page cutover; see [Detail pages](detail-pages.md)). The contracts
+themselves — every field listed below — are unchanged; only the renderer
+consuming them moved.
+
 ## Appears in
 
 The existing Jobs, Search, Companies and Experiences flows. Page views extend

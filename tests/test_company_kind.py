@@ -189,15 +189,14 @@ def test_company_detail_page_lists_linked_experience(client, root):
     company = vault.save_company(root, {'name': 'Fiction Co'})
     vault.save_experience(root, {'company': 'Fiction Co', 'title': 'Distinct Builder Role', 'start': '2020-01',
                                  'end': 'present', 'company_id': company['id']})
-    html = client.get('/companies/' + company['id']).text
-    assert 'Distinct Builder Role' in html
-    assert 'No linked experience.' not in html
+    page = client.get('/api/companies/' + company['id'] + '?view=page').json
+    assert [exp['title'] for exp in page['experiences']] == ['Distinct Builder Role']
 
 
 def test_company_detail_page_shows_empty_experience_state(client, root):
     company = vault.save_company(root, {'name': 'Fiction Co'})
-    html = client.get('/companies/' + company['id']).text
-    assert 'No linked experience.' in html
+    page = client.get('/api/companies/' + company['id'] + '?view=page').json
+    assert page['experiences'] == []
 
 
 # --- Engineering item 8: live label resolution -----------------------------
@@ -212,8 +211,8 @@ def test_experience_card_label_updates_on_company_rename_without_experience_writ
     assert before == after  # the stored experience record itself never changes
     html = client.get('/experiences').text
     assert 'Renamed Co' in html and 'Original Name' not in html
-    html = client.get('/experiences/' + exp['id']).text
-    assert 'Renamed Co' in html
+    page = client.get('/api/experiences/' + exp['id'] + '?view=page').json
+    assert page['label'] == 'Renamed Co'
 
 
 def test_unlinked_experience_falls_back_to_cached_company_text(client, root):

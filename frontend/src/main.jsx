@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
 // Order matters: gestalt's own tokens first, then the CareerOS tokens that
 // redeclare them, then the Gestalt bridge. All three land in <head>, so they
 // also carry !important to beat DesignTokensProvider's <body>-level :root
@@ -12,6 +13,8 @@ import App from './App.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
   </StrictMode>,
 )

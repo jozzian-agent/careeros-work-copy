@@ -212,3 +212,13 @@ show a toast.
 ## Open questions
 
 The recorded navigation follow-up and Jinja cutover await the later audit.
+
+## JOZ-280: job card links now depend on the React flag
+
+Card titles have always linked to `/jobs/<id>`. Before JOZ-280 that always
+served the Jinja job detail page, flag or no flag. After JOZ-280 it serves
+the React Job detail page when `CAREEROS_REACT_UI=1` and the build exists,
+and otherwise 404s — the Jinja detail page is removed outright rather than
+kept as a flag-off fallback (an intentional difference from this board's
+own dual-mode `/jobs`; see [Detail pages](detail-pages.md)). The board
+itself is unaffected either way.

@@ -57,11 +57,6 @@ def experience_context(data, companies_by_id, tag_labels):
         markdown=Markup(render_markdown(data.get('detail', ''))),
     )
 
-def detail(identifier):
-    root = current_app.config['VAULT_PATH']
-    context = detail_context(root, identifier)
-    return page(context['exp']['title'], 'experiences', 'detail.html', **context)
-
 def form_context(root, identifier=None):
     data = get(root, identifier) if identifier else {}
     return editor_context(data, vault.list_companies(root), vault.load_tags(root))

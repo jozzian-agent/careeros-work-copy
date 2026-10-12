@@ -71,11 +71,6 @@ def job_context(job, company, function_labels, llm_pending=False):
         llm_pending=llm_pending,
     )
 
-def detail(identifier):
-    root = current_app.config['VAULT_PATH']
-    context = detail_context(root, identifier, identifier in current_app.config.get('LLM_PENDING', {}))
-    return page(context['job'].get('title', 'Job'), 'jobs', 'job_detail.html', **context)
-
 def taxonomy_context(root, identifier):
     """Taxonomy sub-page (approved wireframe 2026-10-07): function (ESCO),
     the company's ISIC sectors read-only, and controlled-vocabulary tags.

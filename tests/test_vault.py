@@ -47,9 +47,8 @@ def test_crud(client, root):
     new = response.json
     assert new['id'] == 'EXP-004' and new['salary'] is None
     assert client.get('/api/experiences/'+new['id']).json == new
-    html = client.get('/experiences/'+new['id']).text
-    assert 'Distinct field' in html and '&lt;script&gt;bad&lt;/script&gt;' in html
-    assert '<h2>Salary' not in html
+    page = client.get('/api/experiences/'+new['id']+'?view=page').json
+    assert page['exp']['custom'] == {'Distinct field': '<script>bad</script>', 'Nested': {'a': [1, 2]}}
     assert client.get('/experiences/'+new['id']+'/edit').status_code == 200
     new['company'] = 'Another Invented Company'
     assert client.put('/api/experiences/'+new['id'], json=new).status_code == 200
@@ -58,7 +57,6 @@ def test_crud(client, root):
     assert client.post('/api/experiences/'+new['id'], json=new).status_code == 200
     assert client.delete('/api/experiences/'+new['id']).status_code == 200
     assert client.get('/api/experiences/'+new['id']).status_code == 404
-    assert client.get('/experiences/'+new['id']).status_code == 404
     assert len(client.get('/api/experiences').json) == 3
 
 @pytest.mark.parametrize('patch', [{'start':'2020-13'}, {'end':'1900-01'}, {'people_led':True}, {'people_led':-1}, {'custom':[]}, {'skills':'x'}, {'company':''}])
@@ -96,7 +94,10 @@ def test_file_only_salary(root, client):
     path = next((root/'experiences').glob('*.yaml'))
     data = yaml.safe_load(path.read_text()); data['salary'] = '42 fictional credits'
     path.write_text(yaml.safe_dump(data))
-    assert '🔒 private' in client.get('/experiences/'+data['id']).text
+    # Salary is file-only and read-only (the React Edit position popup
+    # shows it disabled, per frontend/wireframes/joz280/edit-position.html);
+    # the JSON API still carries the raw value for display.
+    assert client.get('/api/experiences/'+data['id']+'?view=page').json['exp']['salary'] == '42 fictional credits'
     assert client.put('/api/experiences/'+data['id'], json=data | {'salary':None}).json['salary'] == '42 fictional credits'
 
 def test_corrupt_and_nonmapping_yaml_never_crash(root, client):
@@ -115,7 +116,7 @@ def test_corrupt_and_nonmapping_yaml_never_crash(root, client):
     assert client.get('/api/search').status_code == 200
     # the good entries are all still individually reachable
     for entry in listed:
-        assert client.get('/experiences/' + entry['id']).status_code == 200
+        assert client.get('/api/experiences/' + entry['id']).status_code == 200
 
 
 def test_migrate_job_fields_backfills_every_missing_key(root):

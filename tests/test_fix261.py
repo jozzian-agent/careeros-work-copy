@@ -91,7 +91,6 @@ def test_refresh_failure_is_persisted_and_visible(tmp_path, monkeypatch):
     assert updated['refresh'] == 'failed'
     assert any(e['event'] == 'description_refresh_failed' for e in updated['history'])
     assert callbacks[0][0] == 'Stored duties.'
-    assert 'Live page unavailable — enriched stored text' in api.get('/jobs/' + job['id']).text
 
 
 @pytest.mark.parametrize('when', ['fetch', 'callback'])

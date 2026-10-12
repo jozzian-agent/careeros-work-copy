@@ -579,17 +579,17 @@ def test_r2_legacy_review_migrate_save_render(client):
     path = next(p for p, record in vault._records(root, 'jobs') if record['id'] == job['id'])
     job['company_review'] = {'candidates': [], 'at': vault.timestamp()}
     vault._write(path, job)
-    # Even before migration, an old review renders a safe null token.
-    response = client.get('/jobs/' + job['id'])
+    # Even before migration, an old review serves safely with no token.
+    response = client.get('/api/jobs/' + job['id'] + '?view=page')
     assert response.status_code == 200
-    assert 'const reviewToken=null;' in response.text
+    assert response.json['job']['company_review'].get('token') is None
     vault.migrate_job_fields(root)
     token = vault.load_job(root, job['id'])['company_review']['token']
     assert token
     vault.migrate_job_fields(root)
     assert vault.load_job(root, job['id'])['company_review']['token'] == token
     assert client.put('/api/jobs/' + job['id'], json={'notes': 'saved'}).status_code == 200
-    assert client.get('/jobs/' + job['id']).status_code == 200
+    assert client.get('/api/jobs/' + job['id'] + '?view=page').status_code == 200
 
 
 def test_r3_tokenless_and_double_pick(client):

@@ -587,3 +587,210 @@ anyway/Cancel. Dropping either path, or the popup's own "Add anyway" for the
 on-board case, would regress working backend-supported actions with no
 replacement — the same reasoning BUILD_NOTES.md already records for
 JOZ-278's kept badges and ingest-retry affordance.
+
+## Detail pages rebuild (JOZ-280)
+
+Rebuilds Job, Experience, Company and Company Classification on the shared
+DetailHeader/SectionCard skeleton, adds client-side routing
+(`react-router-dom`, pinned `^7.18.4`), and cuts the four Jinja detail pages
+over to React with no coexistence (owner decision). Phase A (wireframes for
+the four edit popups and the delete confirmation) was approved before this
+batch started; the four flagged defaults from that approval are honored as
+given (Edit job excludes Status/Fit/classification, Edit position carries
+the full form into the popup, Edit criteria is job-detail-only with Company
+Classification staying a full page, and the company delete 409 renders
+inline in the `ModalAlert`).
+
+### Routing: no Jinja fallback for detail pages, unlike the list pages
+
+`server.py` already gated `/jobs` on `CAREEROS_REACT_UI` with a Jinja
+fallback whenever the flag is off or the build is missing (JOZ-273). The
+owner decision for this batch is narrower for the four detail routes
+(`/jobs/<id>`, `/experiences/<id>`, `/companies/<id>`,
+`/companies/<id>/taxonomy`): they exist **only** behind the same flag, with
+their Jinja routes, view functions and templates removed outright rather
+than kept as a fallback. `tests/test_react_ui_flag.py` pins both directions
+explicitly (`test_flag_on_serves_react_for_every_detail_route`,
+`test_flag_off_detail_routes_404_with_no_jinja_fallback`): flag off means a
+genuine 404, not a degraded page. List pages (`jobs.html` and friends) are
+untouched and keep the dual-mode behavior.
+
+One bug this surfaced that no existing test caught: the shared
+`react_index` lambda the four new `add_url_rule` calls point at took no
+arguments, but Flask calls a `<identifier>`-carrying route's view function
+with that value as a keyword argument — every detail route 500'd until the
+lambda became `lambda **_kwargs: send_from_directory(...)`. Caught by
+manually exercising the built `dist/` against the flag before writing the
+regression test above, not by the view layer itself.
+
+`/jobs/<id>/taxonomy` (the pre-existing standalone job classification
+page) is deliberately **not** part of this cutover and stays Jinja,
+unconditionally, regardless of the flag: the routing list this ticket
+specifies names only `/jobs`, `/jobs/:id`, `/experiences/:id`,
+`/companies/:id` and the company classification route, and the Phase A
+wireframe reads job classification as owned by the new Edit criteria popup
+instead of a navigated-to sub-page. The page's own JSON API
+(`/api/jobs/<id>/taxonomy`) is unchanged and is what the popup actually
+reads and writes through — the Jinja page itself is simply no longer
+linked from anywhere once `job_detail.html` is gone, not removed.
+
+`/experiences/new` and `/experiences/<id>/edit` (the full-page Jinja
+add/edit form) are also untouched: the ticket's routing list doesn't name
+them, the Experiences list page (out of scope, still Jinja) links to
+`/experiences/new` for Add, and nothing demanded deleting the edit route
+just because the Edit position popup now duplicates its fields.
+
+### Backend removal: routes, views and templates, not the context builders
+
+Removed: the four Jinja view functions (`jobs.detail`, `companies.detail`,
+`companies.taxonomy`, `experiences.detail`) and their four templates
+(`job_detail.html`, `company_detail.html`, `company_taxonomy.html`,
+`detail.html`). Kept, because the JSON `view=page`/`/taxonomy` API
+endpoints still call them: `detail_context`/`job_context` (jobs),
+`detail_context`/`company_context`/`classification_context` (companies),
+`detail_context`/`experience_context` (experiences). None of the record
+read/write logic changed — only the Jinja-rendering wrapper functions and
+their templates are gone.
+
+### Component registry
+
+| Component | Gestalt building blocks | Notes |
+| --- | --- | --- |
+| `DetailHeader.jsx` | `Link`+`arrow-back` `Icon`, `Heading` size 600, `Text`, `Button`, `location` `Icon` | Back link's accessible name is `Back to <label>` (not the bare label), set via `Link`'s `accessibilityLabel` — the visible text still matches the brief's "← Jobs", but the bare label collides with the Nav tab of the same name for assistive tech and for Playwright's role queries alike. |
+| `SectionCard.jsx` | `Box`, `Heading` size 300, `Badge` | Also exports `DividerList`, `KeyValueGrid`, `EmptyState`, the three body shapes the README lists (paragraph is just `Text`, no wrapper needed). One definition of each, reused by every detail page. |
+| `FitSelect.jsx` | `Box`, `Button` (`size="sm"`), `Dropdown`/`Dropdown.Item` | The Job detail page's Fit control. No fit-editing UI existed anywhere before this ticket (JOZ-278 left the board's `FitChip` read-only), so this is new, built as the exact same sm-Button-opens-Dropdown recipe as `StatusSelect` rather than inventing a second control shape. The job record's `fit` field gets its first writer here — written through the existing generic `PUT /api/jobs/<id>`, no new endpoint or schema change, since the vault's job record is schema-less. |
+| `EditJobPopup.jsx` / `EditCompanyPopup.jsx` / `EditPositionPopup.jsx` / `EditCriteriaPopup.jsx` | `Modal`, `TextField`, `TextArea`, `Checkbox`, `Fieldset`, `SelectList`, `BannerSlim` | One component per approved Phase A wireframe; field sets match the wireframes exactly. All four save through existing PUT endpoints (`/api/jobs/<id>`, `/api/companies/<id>`, `/api/experiences/<id>`); `EditPositionPopup` also calls the existing `POST /api/experiences/<id>/link-company` for its company field, including the fuzzy-match suggestion round-trip (surfaced via `window.confirm`, matching `experience_form.html`'s own prompt rather than inventing a second confirmation UI for one edge case). |
+| `DeleteConfirmModal.jsx` | `ModalAlert`, `BannerSlim` | One template, three copy variants (job/experience/company), per the approved wireframe. The company variant's 409 "still linked" response renders as a `BannerSlim` inside the still-open alert rather than closing it — the brief's "failures are visible states" rule, applied literally. |
+
+### Notes editing consolidated into the Edit popup, not left inline too
+
+The handoff mockups (`JobDetail.dc.html`, `CompanyDetail.dc.html`) show an
+inline, always-editable Notes `<textarea>` with its own "Save notes"
+button directly on the detail page. The approved JOZ-280 Phase A wireframes
+*also* put a notes field in the Edit job and Edit company popups. Gestalt's
+`SectionCard` README only lists four body shapes (paragraph, divider list,
+key/value grid, empty state) — an inline editable-textarea-with-its-own-save
+body is not one of them. Read together, the mockups are describing the
+pre-existing Jinja behavior carried into the reference image, not a second
+intentional editing surface; this batch picked one editing path (fewest
+elements), so the Notes `SectionCard` on Job and Company detail renders the
+stored value read-only (job notes rendered from the markdown the backend
+already computes; company notes as plain text, since company notes were
+never markdown-rendered anywhere even in Jinja), and the popup is the only
+way to change it.
+
+### Company detail's "show Retry" decision moves client-side
+
+`company_detail.html`'s Jinja template computed, inline, whether to show a
+Retry affordance (any enrichment field `exhausted`/`flagged`, a review flag
+present, or the company never enriched at all — three different messages).
+None of that decision was exposed as a precomputed field on the JSON
+`view=page` payload; `CompanyDetail.jsx`'s `retryState()` reproduces the
+exact same condition from the same underlying fields
+(`enrichment.field_states`, `review_flags`, `sectors`/`size_range`/
+`size_class`), scoped to `kind === 'employer'` like the backend
+`retry_company` endpoint already is. `tests/test_sectors.py`'s six
+Jinja-button-presence tests were rewritten to pin that the JSON API still
+carries exactly those fields, since the rendering decision itself is no
+longer backend-testable.
+
+### Known gap, flagged rather than silently dropped: company-review resolution
+
+`job_detail.html` had an inline "Company needs your input" card letting the
+owner pick a candidate or create a new company
+(`POST /api/jobs/<id>/resolve-review`) when `company_link_state ===
+'needs_review'`. This ticket's `JobDetail.jsx` shows that state (so it is
+never silently invisible, per the product's "failures and unknowns are
+visible states" rule) but does not yet implement picking a candidate or
+creating a company from the React page — that resolution UI has its own
+candidate list, score display and inline create-company form, which is
+scope beyond "rebuild the detail-page skeleton." The API the Jinja page
+used is untouched and reachable directly; porting the resolution UI itself
+is left for a follow-up ticket.
+
+### Ingest failure/pending states carried over, enrichment retry card too
+
+Unlike the company-review gap above, the job's own ingest-failure/pending
+messaging (`fetch_failed`/`extract_failed`/`stub`/`fetched`) and its Retry
+button (`POST /api/jobs/<id>/extract`) are implemented in `JobDetail.jsx` —
+this is the product's "never silent" rule applied to the one state that
+most needed it (a stuck or failed ingest with no visible way to retry would
+be a real regression, not just a visual gap). The Jinja page's live-polling
+behavior while extraction is pending (`checkEnrichment`'s 4s interval) is
+not ported; the page shows the pending state from the loaded snapshot and
+the owner can reload or use the Retry button, rather than this batch adding
+a second polling mechanism alongside the board's own refresh-on-focus
+pattern.
+
+### Test suite: Jinja-rendering tests converted to API-level tests, not just deleted
+
+Removing four templates breaks every existing test that asserted on their
+rendered HTML. Per the ticket's explicit instruction, each was handled one
+of two ways, never a blanket skip:
+
+- **Converted to assert the same underlying data via the JSON `view=page`/
+  `/taxonomy` endpoints**, wherever the Jinja assertion was really pinning
+  record state the API exposes unchanged (e.g. `summary_source`,
+  `has_description`, `watch_eligible`, `show_remote_chip`, `sector_labels`,
+  `enrichment.field_states`). This is the large majority — `test_jobs.py`,
+  `test_company_kind.py`, `test_sectors.py`, `test_function_facet.py`,
+  `test_watcher.py`, `test_vault.py`, `test_fix261.py`, `test_ingest.py`,
+  `test_company_resolve.py`.
+- **Removed outright**, only where the assertion was about Jinja/vanilla-JS
+  mechanics with no data-level analog — exact `<dialog>` markup and its
+  inline `onclick` strings (`test_delete_detail_buttons`), running an
+  extracted `<script>` block under Node to test polling logic
+  (`test_check_posting_client_behavior`), DOM element ordering on a page
+  that no longer has Jinja-rendered DOM at all
+  (`test_batch_d_job_card_order`, `test_check_posting_summary_placement`,
+  `test_detail_pages_link_to_taxonomy`). Section ordering and the delete
+  flow are covered instead by the new Playwright specs below, which test
+  the thing that actually renders them now.
+
+Net effect on the suite: 919 → 909 (ten tests removed outright per the
+above, two added for the routing regression caught during manual
+verification, the rest converted in place — not reduced coverage, moved
+coverage).
+
+### Frontend Playwright specs
+
+New fixtures (`frontend/tests/fixtures/job-detail.json`,
+`job-taxonomy.json`, `experience-detail.json`,
+`experience-tags-registry.json`, `company-detail.json`,
+`company-taxonomy.json`) and five spec files (`job-detail.spec.js`,
+`experience-detail.spec.js`, `company-detail.spec.js`,
+`company-classification.spec.js`, plus edit/delete coverage folded into
+each rather than separate files, since every popup is page-specific) cover:
+header rendering (type label, title, subtitle, chip, actions), the back
+link's navigation, SectionCard ordering via heading order, the Status and
+Fit dropdowns' PUT payloads, every edit popup's open/fill/save/cancel
+round-trip, and the delete `ModalAlert`'s confirm/keep/409-inline-error
+paths. `tests/helpers.js` gained matching `mockJobPage`/`mockJobTaxonomy`/
+`mockExperiencePage`/`mockExperienceTagsRegistry`/`mockCompanyPage`/
+`mockCompanyTaxonomy`/`mockUpdate`/`mockDelete` helpers, following the
+existing `mockBoard`/`mockMove` pattern (intercept the real fetch path,
+never a dev-only mock branch in application code).
+
+Two authoring pitfalls worth recording for the next batch using this same
+pattern: a bare `page.getByRole('heading').allTextContents()` right after
+`page.goto()` races the mocked fetch's resolution (fixed by waiting for the
+title heading first), and reusing a record's bare label text for a visible
+back-link ties it to the Nav tab's identical text — both are now avoided
+via `DetailHeader`'s `accessibilityLabel` (see the component registry
+entry above) plus an explicit wait before reading heading order.
+
+### `moveJobStatus` deliberately not refactored onto the new generic `updateJob`
+
+The Fit dropdown and the edit popups needed a generic job PUT helper
+(`updateJob`, added to `frontend/src/api/jobs.js`), and the obvious
+simplification was to make the existing `moveJobStatus` call it instead of
+duplicating the fetch. That broke three pre-existing JOZ-278 specs
+(`jobs-board.spec.js`, `drag-undo.spec.js`, `message-lifetime.spec.js`):
+they mock a failing move with `{ error: 'nope' }` and assert the fixed
+toast text `"Status update failed."`, which `moveJobStatus` has always
+thrown verbatim regardless of the response body. `updateJob` instead
+surfaces the server's actual `error` message, which is the right behavior
+for a popup save but would have silently changed the board's own toast
+copy to `"nope"`. Reverted to keeping `moveJobStatus` self-contained with
+its own fixed message; `updateJob` is a separate function for the new call
+sites only.
