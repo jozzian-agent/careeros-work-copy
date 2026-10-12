@@ -208,7 +208,7 @@ export default function JobsBoard() {
   const [view, setView] = useState(readStoredView);
   const [needsAttention, setNeedsAttention] = useState(readStoredNeedsAttention);
   const [functionFilter, setFunctionFilter] = useState('all');
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
   const [intakeUrl, setIntakeUrl] = useState('');
   const [intakeBusy, setIntakeBusy] = useState(false);
   const [intakeError, setIntakeError] = useState(null);
@@ -217,9 +217,30 @@ export default function JobsBoard() {
   const [dragId, setDragId] = useState(null);
   const [overColumn, setOverColumn] = useState(null);
   const moveGenerationRef = useRef({});
+  const toastIdRef = useRef(0);
 
+  // One success toast auto-hides on its own timer; an error toast has none
+  // and sits until dismissed. Toasts are a list, not a single slot, so a
+  // success elsewhere can never replace (and silently clear) an outstanding
+  // error - they just stack in the same fixed bottom-centre container.
   function showToast(kind, text, action) {
-    setToast({ kind, text, ...action });
+    const id = ++toastIdRef.current;
+    const entry = { id, kind, text, ...action };
+    if (entry.onAction) {
+      const fire = entry.onAction;
+      entry.onAction = () => {
+        dismissToast(id);
+        fire();
+      };
+    }
+    setToasts((prev) => [...prev, entry]);
+    if (kind !== 'error') {
+      window.setTimeout(() => dismissToast(id), TOAST_LIFETIME_MS);
+    }
+  }
+
+  function dismissToast(id) {
+    setToasts((prev) => prev.filter((entry) => entry.id !== id));
   }
 
   async function load() {
@@ -235,12 +256,6 @@ export default function JobsBoard() {
   useEffect(() => {
     load();
   }, []);
-
-  useEffect(() => {
-    if (!toast || toast.kind === 'error') return undefined;
-    const timer = window.setTimeout(() => setToast(null), TOAST_LIFETIME_MS);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
 
   useEffect(() => {
     let hiddenAt = document.hidden ? Date.now() : null;
@@ -283,34 +298,57 @@ export default function JobsBoard() {
     }
   }
 
+  // Re-slots one card into `toStatus`, inserting it ahead of `beforeId` (or
+  // at the end of that column when `beforeId` is null/absent/gone). Used
+  // both for the live move and for rolling a single card back later -
+  // always against whatever `entries` is current at that moment, never a
+  // frozen whole-board snapshot, so an unrelated card's move in between is
+  // never clobbered.
+  function reorderEntries(entries, id, toStatus, beforeId) {
+    const movingJob = entries.find((job) => job.id === id);
+    if (!movingJob) return entries;
+    const withoutMoving = entries.filter((job) => job.id !== id);
+    const insertAt = beforeId ? withoutMoving.findIndex((job) => job.id === beforeId) : -1;
+    const updatedJob = movingJob.status === toStatus ? movingJob : { ...movingJob, status: toStatus };
+    return insertAt === -1
+      ? [...withoutMoving, updatedJob]
+      : [...withoutMoving.slice(0, insertAt), updatedJob, ...withoutMoving.slice(insertAt)];
+  }
+
+  // The id of the card immediately after `id` within its own column (or
+  // null if it is last/not found), captured so a later rollback can put it
+  // back in the same slot rather than just the same column.
+  function nextInColumn(entries, id, status) {
+    const columnEntries = entries.filter((job) => job.status === status);
+    const ownIndex = columnEntries.findIndex((job) => job.id === id);
+    if (ownIndex === -1 || ownIndex === columnEntries.length - 1) return null;
+    return columnEntries[ownIndex + 1].id;
+  }
+
   // Shared by the status dropdown and drag-and-drop (StatusSelect README:
   // "Changing it moves the card to that column", same handler as drag).
   // beforeId reorders within/into a column by inserting ahead of that card;
   // null appends to the end. A same-column move is a pure client-side
   // reorder (no backend concept of card position); a cross-column move is
   // the real status mutation, with a per-job generation counter so an
-  // older failed request cannot roll back a newer successful one.
+  // older failed request cannot roll back a newer successful one. Rollback
+  // (on failure, or via Undo) only ever touches this one card's slot, via
+  // reorderEntries against the latest board state, so a different card's
+  // move that lands in between is never reverted by this one.
   function performMove(id, toStatus, beforeId) {
     if (!board) return;
     const current = board.entries;
     const movingJob = current.find((job) => job.id === id);
     if (!movingJob || id === beforeId) return;
     const fromStatus = movingJob.status;
-
-    const withoutMoving = current.filter((job) => job.id !== id);
-    const insertAt = beforeId ? withoutMoving.findIndex((job) => job.id === beforeId) : -1;
-    const updatedJob = fromStatus === toStatus ? movingJob : { ...movingJob, status: toStatus };
-    const nextEntries =
-      insertAt === -1
-        ? [...withoutMoving, updatedJob]
-        : [...withoutMoving.slice(0, insertAt), updatedJob, ...withoutMoving.slice(insertAt)];
+    const originalBeforeId = nextInColumn(current, id, fromStatus);
+    const nextEntries = reorderEntries(current, id, toStatus, beforeId);
 
     if (fromStatus === toStatus) {
       setBoard((prev) => ({ ...prev, entries: nextEntries }));
       return;
     }
 
-    const prevEntries = current;
     const generation = (moveGenerationRef.current[id] || 0) + 1;
     moveGenerationRef.current[id] = generation;
     setBoard((prev) => ({ ...prev, entries: nextEntries }));
@@ -320,23 +358,38 @@ export default function JobsBoard() {
         if (moveGenerationRef.current[id] !== generation) return;
         showToast('success', `Moved to ${titleCase(toStatus)}`, {
           actionLabel: 'Undo',
-          onAction: () => undoMove(id, generation, prevEntries, fromStatus),
+          onAction: () => undoMove(id, generation, fromStatus, toStatus, originalBeforeId),
         });
       })
       .catch((err) => {
         if (moveGenerationRef.current[id] === generation) {
-          setBoard((prev) => ({ ...prev, entries: prevEntries }));
+          setBoard((prev) => ({ ...prev, entries: reorderEntries(prev.entries, id, fromStatus, originalBeforeId) }));
         }
         showToast('error', err.message);
       });
   }
 
-  function undoMove(id, generation, prevEntries, previousStatus) {
+  function undoMove(id, generation, previousStatus, movedStatus, originalBeforeId) {
     if (moveGenerationRef.current[id] !== generation) return;
     moveGenerationRef.current[id] = generation + 1;
-    setToast(null);
-    setBoard((prev) => ({ ...prev, entries: prevEntries }));
-    moveJobStatus(id, previousStatus).catch((err) => showToast('error', err.message));
+
+    // Captured from inside the same functional update that performs the
+    // rollback, so it reflects the card's actual slot at undo-time (not a
+    // stale closure), for the failure branch below to restore it to.
+    const movedBeforeId = { current: null };
+    setBoard((prev) => {
+      movedBeforeId.current = nextInColumn(prev.entries, id, movedStatus);
+      return { ...prev, entries: reorderEntries(prev.entries, id, previousStatus, originalBeforeId) };
+    });
+
+    moveJobStatus(id, previousStatus).catch((err) => {
+      // The Undo PUT failed: the server kept the moved-to status even
+      // though we already rolled the card back visually above. Put it back
+      // at the moved state so the display matches what the server actually
+      // has, and surface a persistent error rather than a silent mismatch.
+      setBoard((prev) => ({ ...prev, entries: reorderEntries(prev.entries, id, movedStatus, movedBeforeId.current) }));
+      showToast('error', err.message);
+    });
   }
 
   function handleMove(id, status) {
@@ -598,17 +651,22 @@ export default function JobsBoard() {
         />
       ) : null}
       {addPopupOpen ? <AddJobPopupShell onDismiss={() => setAddPopupOpen(false)} /> : null}
-      {toast ? (
+      {toasts.length ? (
         <Layer>
           <Box position="fixed" bottom left right display="flex" justifyContent="center" padding={4}>
             <Box width={560} maxWidth="100%">
-              <FloatingMessage
-                kind={toast.kind}
-                text={toast.text}
-                actionLabel={toast.actionLabel}
-                onAction={toast.onAction}
-                onDismiss={() => setToast(null)}
-              />
+              <Flex direction="column" gap={2}>
+                {toasts.map((entry) => (
+                  <FloatingMessage
+                    key={entry.id}
+                    kind={entry.kind}
+                    text={entry.text}
+                    actionLabel={entry.actionLabel}
+                    onAction={entry.onAction}
+                    onDismiss={() => dismissToast(entry.id)}
+                  />
+                ))}
+              </Flex>
             </Box>
           </Box>
         </Layer>

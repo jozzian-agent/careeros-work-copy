@@ -40,8 +40,8 @@ const ROW_STYLE = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: '6px',
-  height: 24,
-  borderRadius: 999,
+  height: 'var(--space-600)',
+  borderRadius: 'var(--rounding-pill)',
   fontSize: 12,
   lineHeight: '16px',
   fontWeight: 700,
@@ -58,10 +58,10 @@ export default function FitChip({ fit }) {
         }}
       >
         <Box
-          width={8}
-          height={8}
           rounding="circle"
-          dangerouslySetInlineStyle={{ __style: { border: '2px solid var(--color-brand-violet)' } }}
+          dangerouslySetInlineStyle={{
+            __style: { width: 'var(--space-200)', height: 'var(--space-200)', border: '2px solid var(--color-brand-violet)' },
+          }}
         />
         <Text size="100" weight="bold">
           Needs your input

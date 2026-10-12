@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Box, Button, Dropdown } from 'gestalt';
+import './StatusSelect.css';
 
 function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
@@ -15,15 +16,19 @@ export default function StatusSelect({ id, jobTitle, status, statuses, onChange 
 
   return (
     <Box width={112} flex="none">
-      <Button
-        ref={setAnchor}
-        accessibilityLabel={`Move ${jobTitle} to`}
-        color="gray"
-        size="sm"
-        text={titleCase(status)}
-        fullWidth
-        onClick={() => setOpen((value) => !value)}
-      />
+      <div className="status-select-control">
+        <Button
+          ref={setAnchor}
+          accessibilityLabel={`Move ${jobTitle} to, current status ${titleCase(status)}`}
+          accessibilityHaspopup
+          accessibilityExpanded={open}
+          color="gray"
+          size="sm"
+          text={titleCase(status)}
+          fullWidth
+          onClick={() => setOpen((value) => !value)}
+        />
+      </div>
       {open && anchor ? (
         <Dropdown id={`status-dropdown-${id}`} anchor={anchor} onDismiss={() => setOpen(false)}>
           {statuses.map((option) => (

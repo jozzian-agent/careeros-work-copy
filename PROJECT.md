@@ -16,6 +16,8 @@ As of 2026-10-09 the product is a personal tool for one owner. It runs on the ow
 
 2026-10-11: the React Jobs board (migration milestone R0, [sketch](docs/surfaces/jobs.md)) passed the owner click-test on the live instance. It is served behind the CAREEROS_REACT_UI flag; all other pages stay Jinja. One gap found and being fixed: the shared page navigation is missing from the React page. The Jinja Jobs page is removed only at the cutover after the nav parity lands and the owner re-tests.
 
+2026-10-12: the Jobs board was rebuilt to the design brief (JOZ-278; [sketch update](docs/surfaces/jobs.md)): a fit chip per card (rated/"Needs your input"), a compact status control, hand-rolled native drag-and-drop between columns with per-card Undo, and an "Add a job" popup shell (title + Close only, opened from the plus button; the real intake field stays the one below the board until JOZ-279). A cross-review of that batch found and fixed three correctness issues before merge: a failed or undone move was rolling back the whole board's card list rather than just the moved card (clobbering any other card moved in between), a failed Undo could leave the displayed column out of sync with what the server actually kept, and a success toast could replace a still-outstanding error toast. All three are now per-card operations and the toasts are a dismiss-order-independent stack; see `frontend/BUILD_NOTES.md` "Jobs board rebuild (JOZ-278)" for the implementation detail.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
