@@ -43,7 +43,14 @@ export async function intakeJob(url, { force = false, origin = 'manual' } = {}) 
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(data?.error || 'Could not add that posting.');
+    const error = new Error(data?.error || 'Could not add that posting.');
+    // careeros/server.py job_intake() returns 503 with {job, error} when the
+    // stub saved fine but extraction could not even start. The caller needs
+    // that job id to retry via the extraction endpoint for the saved record,
+    // never a second intake call (which would just hit dedup, or create a
+    // duplicate record if forced).
+    if (data?.job?.id) error.jobId = data.job.id;
+    throw error;
   }
   return data;
 }

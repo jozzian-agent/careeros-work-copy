@@ -574,6 +574,16 @@ export default function JobsBoard() {
       await load();
       showToast('success', 'Added to New');
     } catch (err) {
+      // A 503 from job_intake() (extraction could not start) still saved the
+      // stub, carried here as err.jobId (frontend/src/api/jobs.js). That
+      // record is already durable, so this is the same saved-job retry path
+      // as the 201-failed-ingest branch above, never a second intake call.
+      if (err.jobId) {
+        setDuplicate(null);
+        setIntakeError({ kind: 'ingest_failed', message: COULD_NOT_READ_MESSAGE, jobId: err.jobId });
+        await load();
+        return;
+      }
       setIntakeError({ kind: 'failed', message: err.message, url, force });
     } finally {
       setIntakeBusy(false);

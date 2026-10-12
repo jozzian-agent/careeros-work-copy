@@ -190,9 +190,13 @@ rebuild (JOZ-279)" section; this is the surface-level summary.
   field — no backend change.
 - **Add-job popup.** Replaces the JOZ-278 shell with the full flow: a
   posting-link `TextField`, Cancel/Add job, and the five README states
-  (ready, reading, not a link, already on your board, couldn't read with a
-  Try again that resubmits). Wired to the same `POST /api/jobs/intake`
-  endpoint the old inline field used.
+  (ready, reading, not a link, already on your board, couldn't read). For a
+  posting that was saved but could not be read, Try again retries extraction
+  for that saved record rather than resubmitting to intake; this covers both
+  a 201 whose ingest_state came back failed and a 503 (extraction could not
+  even start), so an ordinary retry never risks a duplicate record and a
+  forced retry does not resubmit intake either. Wired to the same
+  `POST /api/jobs/intake` endpoint the old inline field used.
 - **Inline "Posting URL" field removed.** Now that the popup has the same
   capability, the pre-existing field and Add button below the board are
   gone (fewest-elements); intake lives only behind the plus button.

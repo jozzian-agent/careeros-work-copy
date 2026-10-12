@@ -283,6 +283,95 @@ test('a real posting-read failure (201 with a failed ingest_state) keeps the pop
   expect(intakeRequests).toHaveLength(1);
 });
 
+test('a 503 (saved job, extraction could not start) keeps the popup open and retries via extract, not intake', async ({
+  page,
+}) => {
+  const intakeRequests = await mockIntake(page, [
+    {
+      status: 503,
+      body: {
+        job: { id: 'JOB-NEW', ingest_state: 'extract_failed' },
+        company: null,
+        error: 'Could not start extraction.',
+      },
+    },
+  ]);
+  const extractRequests = [];
+  await page.route('**/api/jobs/*/extract', (route) => {
+    extractRequests.push(route.request().url());
+    route.fulfill({ status: 202, json: { id: 'JOB-NEW', llm_pending: true, accepted: true } });
+  });
+  await page.goto('/');
+  await openPopup(page);
+  const box = dialog(page);
+  await box.getByLabel('Posting link').fill('https://example.com/careers/no-worker');
+  await box.getByRole('button', { name: 'Add job', exact: true }).click();
+
+  // The HTTP request failed (503), but the job was already saved, so this
+  // must show the popup's error state and keep it open, not the generic
+  // "failed" state whose retry would resubmit to intake and risk a
+  // duplicate record once forced.
+  await expect(box).toBeVisible();
+  await expect(page.getByText('Added to New')).toHaveCount(0);
+  const retry = box.getByRole('button', { name: 'Try again', exact: true });
+  await expect(retry).toBeVisible();
+  expect(intakeRequests).toHaveLength(1);
+
+  await retry.click();
+
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByText('Retry started')).toBeVisible();
+  expect(extractRequests).toHaveLength(1);
+  expect(extractRequests[0]).toContain('/api/jobs/JOB-NEW/extract');
+  expect(intakeRequests).toHaveLength(1);
+});
+
+test('a forced-then-503 retry on the same URL does not resubmit intake a second time', async ({ page }) => {
+  const intakeRequests = await mockIntake(page, [
+    {
+      body: {
+        duplicate: true,
+        basis: 'same_url',
+        existing: { id: fixture.entries[0].id, title: fixture.entries[0].title, in_pipeline: true },
+        actions: ['open_existing', 'add_anyway'],
+      },
+    },
+    {
+      status: 503,
+      body: {
+        job: { id: 'JOB-NEW', ingest_state: 'extract_failed' },
+        company: null,
+        error: 'Could not start extraction.',
+      },
+    },
+  ]);
+  const extractRequests = [];
+  await page.route('**/api/jobs/*/extract', (route) => {
+    extractRequests.push(route.request().url());
+    route.fulfill({ status: 202, json: { id: 'JOB-NEW', llm_pending: true, accepted: true } });
+  });
+  await page.goto('/');
+  await openPopup(page);
+  const box = dialog(page);
+  await box.getByLabel('Posting link').fill('https://example.com/careers/dup-no-worker');
+  await box.getByRole('button', { name: 'Add job', exact: true }).click();
+  await expect(box.getByText('is already on your board.', { exact: false })).toBeVisible();
+
+  await box.getByRole('button', { name: 'Add anyway', exact: true }).click();
+  expect(intakeRequests).toHaveLength(2);
+
+  const retry = box.getByRole('button', { name: 'Try again', exact: true });
+  await expect(retry).toBeVisible();
+  await retry.click();
+
+  await expect(page.getByText('Retry started')).toBeVisible();
+  expect(extractRequests).toHaveLength(1);
+  // The forced attempt that hit the 503 still saved the stub, so the retry
+  // must stay on the extraction endpoint and never resubmit intake, which
+  // would create a second duplicate record.
+  expect(intakeRequests).toHaveLength(2);
+});
+
 test('a failed "Add anyway" from the off-board duplicate dialog shows the popup error state, and retry preserves force', async ({
   page,
 }) => {
