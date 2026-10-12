@@ -51,6 +51,7 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
     })),
   );
   const [busy, setBusy] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [error, setError] = useState(null);
 
   const matched = matchCompanyByName(companies, companyName);
@@ -69,6 +70,7 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
   async function handleCreateCompany() {
     const name = companyName.trim();
     if (!name) return;
+    setLinking(true);
     try {
       let response = await linkExperienceCompany(exp.id, { create: { name } });
       let linkedName = name;
@@ -89,7 +91,21 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
       if (response.company_id) onCompanyLinked?.(response.company_id, linkedName);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLinking(false);
     }
+  }
+
+  // Cancel/dismiss stays disabled for the duration of the link request.
+  // Without this, a Cancel-then-reopen while the POST is still in flight
+  // mounts the new popup from the parent's pre-link props, and the
+  // response (which still lands, since the request outlives the unmount)
+  // updates the parent but not this already-mounted instance -- a
+  // subsequent Save would then write the stale company_id back over the
+  // link that just landed.
+  function handleDismiss() {
+    if (linking) return;
+    onDismiss();
   }
 
   function toggleTag(token, checked) {
@@ -175,11 +191,11 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
       accessibilityModalLabel="Edit position"
       heading="Edit position"
       size={720}
-      onDismiss={onDismiss}
+      onDismiss={handleDismiss}
       footer={
         <Flex gap={2} justifyContent="end">
-          <Button text="Cancel" onClick={onDismiss} />
-          <Button text="Save position" color="red" disabled={busy || !title.trim()} onClick={handleSave} />
+          <Button text="Cancel" disabled={linking} onClick={handleDismiss} />
+          <Button text="Save position" color="red" disabled={busy || linking || !title.trim()} onClick={handleSave} />
         </Flex>
       }
     >
@@ -214,7 +230,12 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
           <Flex gap={2} alignItems="center">
             <Text color="subtle">{linkStatus}</Text>
             {!companyId && companyName.trim() ? (
-              <Button text="Create &amp; link new company" size="sm" onClick={handleCreateCompany} />
+              <Button
+                text={linking ? 'Linking…' : 'Create & link new company'}
+                size="sm"
+                disabled={linking}
+                onClick={handleCreateCompany}
+              />
             ) : null}
           </Flex>
         </Flex>

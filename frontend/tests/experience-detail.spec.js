@@ -155,6 +155,64 @@ test('Cancelling after linking a new company keeps the link even when reopened b
   pending.shift().fulfill({ json: current });
 });
 
+test('Cancel is blocked while a company link is in flight, and the new link survives a reopen', async ({ page }) => {
+  let current = fixture;
+  await page.route('**/api/experiences/*?view=page', (route) => route.fulfill({ json: current }));
+
+  let releaseLink;
+  const linkPending = new Promise((resolve) => {
+    releaseLink = resolve;
+  });
+  let linkStarted = false;
+  // Holding the handler open on `linkPending` keeps the browser's fetch for
+  // link-company unresolved for as long as the test likes, the same as a
+  // slow real request -- this is the exact window the race needs: a Cancel
+  // click that lands before the response does.
+  await page.route('**/api/experiences/EXP-001/link-company', async (route) => {
+    linkStarted = true;
+    await linkPending;
+    current = {
+      ...current,
+      exp: { ...current.exp, company_id: 'CO-999', company: 'New Startup Co' },
+      label: 'New Startup Co',
+      companies: { ...current.companies, 'CO-999': { id: 'CO-999', name: 'New Startup Co' } },
+    };
+    route.fulfill({ json: { company_id: 'CO-999' } });
+  });
+  await mockExperienceTagsRegistry(page, tagsRegistry);
+  const saveRequests = await mockUpdate(page, '**/api/experiences/EXP-001', { body: fixture.exp });
+
+  await page.goto('/experiences/EXP-001');
+  await expect(page.getByRole('heading', { name: fixture.exp.title })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit position' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit position' });
+  await modal.getByRole('textbox', { name: 'Company' }).fill('New Startup Co');
+  await modal.getByRole('button', { name: /link new company/i }).click();
+  await expect.poll(() => linkStarted).toBe(true);
+
+  // The link request is still pending here -- both the triggering button
+  // and Cancel must stay disabled, closing the window where a Cancel then
+  // an immediate reopen would otherwise mount a fresh popup from the
+  // pre-link props and let a later Save overwrite the link once it lands.
+  await expect(modal.getByRole('button', { name: 'Linking…' })).toBeDisabled();
+  await expect(modal.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+  releaseLink();
+  await expect(modal.getByText('Linked to New Startup Co')).toBeVisible();
+  await expect(modal.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  await modal.getByRole('button', { name: 'Cancel' }).click();
+  await expect(modal).not.toBeVisible();
+
+  await page.getByRole('button', { name: 'Edit position' }).click();
+  const reopened = page.getByRole('dialog', { name: 'Edit position' });
+  await expect(reopened.getByRole('textbox', { name: 'Company' })).toHaveValue('New Startup Co');
+  await reopened.getByRole('textbox', { name: 'Title' }).fill('Updated Title');
+  await reopened.getByRole('button', { name: 'Save position' }).click();
+  await expect.poll(() => saveRequests.length).toBe(1);
+  expect(saveRequests[0].company_id).toBe('CO-999');
+});
+
 test('adding a proposed skill tag sends it in both tags and proposed_tags', async ({ page }) => {
   const requests = await mockUpdate(page, '**/api/experiences/EXP-001', { body: fixture.exp });
   await page.goto('/experiences/EXP-001');
