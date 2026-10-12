@@ -7,6 +7,18 @@ export function loadBoardFixture() {
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
 }
 
+function titleCase(value) {
+  return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+// Drives StatusSelect (sm Button + Dropdown, JOZ-278): open the card's status
+// control and pick a status, the same way a user would. Mirrors the shape
+// of the old native-select `.selectOption()` call it replaced.
+export async function selectStatus(page, card, jobTitle, newStatus) {
+  await card.getByRole('button', { name: `Move ${jobTitle} to` }).click();
+  await page.getByRole('menuitem', { name: titleCase(newStatus), exact: true }).click();
+}
+
 // Mocks the production GET /api/jobs?view=board request with a fixture body.
 // The application code always fetches the real relative endpoint; only the
 // test harness injects data, so dev and prod code paths stay identical. See

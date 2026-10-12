@@ -102,6 +102,7 @@
       "needs_attention": false,
       "company_name": "Northwind Systems",
       "pending": false,
+      "fit": "excellent",
       "history": [
         {
           "event": "created",
@@ -169,6 +170,7 @@
       "needs_attention": true,
       "company_name": "Beacon Robotics",
       "pending": false,
+      "fit": "lucky",
       "history": [
         {
           "event": "created",
@@ -237,6 +239,7 @@
       "needs_attention": false,
       "company_name": null,
       "pending": true,
+      "fit": "no_fit",
       "history": [
         {
           "event": "created",
@@ -308,6 +311,7 @@
       "needs_attention": true,
       "company_name": "Helviva AG",
       "pending": true,
+      "fit": "no_fit",
       "history": [
         {
           "event": "fetch_failed",
@@ -375,6 +379,7 @@
       "needs_attention": false,
       "company_name": "Studio Alpine",
       "pending": false,
+      "fit": "excellent",
       "history": [
         {
           "event": "extracted",
@@ -446,6 +451,7 @@
       "needs_attention": true,
       "company_name": "Northwind Systems",
       "pending": true,
+      "fit": "excellent",
       "history": [
         {
           "event": "extract_failed",
@@ -513,6 +519,7 @@
       "needs_attention": false,
       "company_name": "Vector Analytics",
       "pending": false,
+      "fit": "lucky",
       "history": [
         {
           "event": "created",
@@ -580,6 +587,7 @@
       "needs_attention": false,
       "company_name": "Vector Analytics",
       "pending": false,
+      "fit": "lucky",
       "history": [
         {
           "event": "created",

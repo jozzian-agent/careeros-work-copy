@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loadBoardFixture, mockBoard, mockIntake, mockMove, mockPromote, mockRetry } from './helpers.js';
+import { loadBoardFixture, mockBoard, mockIntake, mockMove, mockPromote, mockRetry, selectStatus } from './helpers.js';
 
 const fixture = loadBoardFixture();
 
@@ -254,10 +254,10 @@ test('status select move updates the board, toasts success, and sends the correc
 
   const moved = fixture.entries.find((entry) => entry.status === 'applied');
   const card = page.getByTestId(`job-card-${moved.id}`);
-  await card.getByLabel(`Move ${moved.title} to`).selectOption('interviewing');
+  await selectStatus(page, card, moved.title, 'interviewing');
 
   await expect(page.getByTestId('board-column-interviewing').getByTestId(`job-card-${moved.id}`)).toBeVisible();
-  await expect(page.getByText('Status updated')).toBeVisible();
+  await expect(page.getByText('Moved to Interviewing')).toBeVisible();
 
   expect(requests).toHaveLength(1);
   expect(requests[0].method).toBe('PUT');
@@ -270,7 +270,7 @@ test('status select failure reverts the move and toasts the error', async ({ pag
 
   const moved = fixture.entries.find((entry) => entry.status === 'applied');
   const card = page.getByTestId(`job-card-${moved.id}`);
-  await card.getByLabel(`Move ${moved.title} to`).selectOption('interviewing');
+  await selectStatus(page, card, moved.title, 'interviewing');
 
   await expect(page.getByText('Status update failed.')).toBeVisible();
   await expect(page.getByTestId(`board-column-${moved.status}`).getByTestId(`job-card-${moved.id}`)).toBeVisible();
@@ -307,14 +307,13 @@ test('an older failed move does not overwrite a newer successful move on the sam
   await page.goto('/');
 
   const card = page.getByTestId(`job-card-${moved.id}`);
-  const select = card.getByLabel(`Move ${moved.title} to`);
-  await select.selectOption('interested');
+  await selectStatus(page, card, moved.title, 'interested');
   // Wait for the first move's optimistic update to commit before firing the
   // second, so the two requests are deterministically ordered (older sent
   // first, held; newer sent second, resolves first) instead of racing on
   // React's own commit timing.
   await expect(page.getByTestId('board-column-interested').getByTestId(`job-card-${moved.id}`)).toBeVisible();
-  await select.selectOption('applied');
+  await selectStatus(page, card, moved.title, 'applied');
 
   await expect(page.getByTestId('board-column-applied').getByTestId(`job-card-${moved.id}`)).toBeVisible();
   await expect(page.getByText('Status update failed.')).toBeVisible();
@@ -334,7 +333,7 @@ test('drag-and-drop moves a card between columns through the same handler as the
   await card.dragTo(target);
 
   await expect(page.getByTestId('board-column-interested').getByTestId(`job-card-${moved.id}`)).toBeVisible();
-  await expect(page.getByText('Status updated')).toBeVisible();
+  await expect(page.getByText('Moved to Interested')).toBeVisible();
 });
 
 test('drag-and-drop failure reverts the card to its origin column and toasts the error', async ({ page }) => {

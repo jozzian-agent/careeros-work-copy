@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Badge,
   Box,
   Button,
   ButtonToggle,
   Flex,
-  Heading,
+  IconButton,
   Layer,
   Link,
   Modal,
@@ -14,14 +13,19 @@ import {
   Table,
   Text,
   TextField,
-  Toast,
 } from 'gestalt';
 import { fetchBoard, intakeJob, moveJobStatus, promoteJob, retryIngest } from '../api/jobs.js';
+import KanbanBoard from '../components/KanbanBoard.jsx';
+import JobCard, { CompanyDisplay, IngestIndicator } from '../components/JobCard.jsx';
+import FloatingMessage from '../components/Message.jsx';
+import AddJobPopupShell from '../components/AddJobPopupShell.jsx';
 
 const VIEW_KEY = 'careerJobsView';
 const NEEDS_ATTENTION_KEY = 'careerNeedsAttention';
 const LIST_COLUMNS = ['Title', 'Company', 'Source', 'Status', 'Location', 'Posted', 'Added'];
 const AUTO_REFRESH_AFTER_MS = 30000;
+// Success toasts auto-hide; error messages stay until the user dismisses
+// them (owner decision, Message README).
 const TOAST_LIFETIME_MS = 4000;
 
 function readStoredView() {
@@ -46,152 +50,6 @@ function titleCase(value) {
 
 function jobHref(id) {
   return `/jobs/${encodeURIComponent(id)}`;
-}
-
-function companyHref(id) {
-  return `/companies/${encodeURIComponent(id)}`;
-}
-
-// The company link is either confirmed (company_name + company_id, no
-// review pending), tentative-but-still-in-review (company_link_state
-// "needs_review" with a candidate name + id already attached), stuck in
-// the owner-review queue with no candidate yet (needs_review, no name),
-// or genuinely unresolved ("pending", no candidate at all). Per contract
-// point 7, a tentative name alongside needs_review renders BOTH the link
-// and the review chip together, since the link is informative even though
-// it is not yet the owner's confirmed decision.
-function CompanyDisplay({ job }) {
-  const hasCandidate = job.company_name && job.company_id;
-  const companyLink = hasCandidate ? (
-    <Link href={companyHref(job.company_id)} display="inlineBlock">
-      <Text weight="bold" color="link">
-        {job.company_name}
-      </Text>
-    </Link>
-  ) : null;
-  if (job.company_link_state === 'needs_review') {
-    return (
-      <Flex gap={2} alignItems="center" wrap>
-        {companyLink}
-        <Badge type="recommendation" text="Needs your input" />
-      </Flex>
-    );
-  }
-  if (hasCandidate) {
-    return companyLink;
-  }
-  return <Badge type="neutral" text="Company: pending" />;
-}
-
-function IngestIndicator({ job, onRetry }) {
-  if (job.ingest_state === 'fetch_failed' || job.ingest_state === 'extract_failed') {
-    const label = job.ingest_state === 'fetch_failed' ? 'Fetch failed' : 'Extraction failed';
-    const reason = job.ingest_error?.reason;
-    return (
-      <Flex gap={2} alignItems="center" wrap>
-        <Badge type="error" text={reason ? `${label}, ${reason}` : label} />
-        <Button size="sm" color="red" text="Retry" onClick={() => onRetry(job.id)} />
-      </Flex>
-    );
-  }
-  if (!job.enriched && (job.ingest_state === 'stub' || job.ingest_state === 'fetched')) {
-    return <Badge type="warning" text="Details filling in…" />;
-  }
-  if (!job.enriched) {
-    return <Badge type="neutral" text="Enrichment pending" />;
-  }
-  return null;
-}
-
-function JobCard({ job, statuses, functionLabels, onMove, onRetry, draggable }) {
-  function handleDragStart(event) {
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', job.id);
-  }
-
-  return (
-    // Gestalt Box has no drag-event props; this plain div only carries drag
-    // wiring (contract point 2), all visuals stay on the Box inside it.
-    <div data-testid={`job-card-${job.id}`} draggable={draggable} onDragStart={handleDragStart}>
-      <Box color="default" borderStyle="sm" rounding={3} padding={3} marginBottom={3}>
-        <Flex direction="column" gap={2}>
-          <Flex justifyContent="between" alignItems="center" gap={2}>
-            <Link href={jobHref(job.id)} display="inlineBlock">
-              <Text weight="bold" overflow="normal">
-                {job.title}
-              </Text>
-            </Link>
-            <SelectList
-              id={`status-${job.id}`}
-              label={`Move ${job.title} to`}
-              labelDisplay="hidden"
-              size="md"
-              value={job.status}
-              onChange={({ value }) => onMove(job.id, value)}
-            >
-              {statuses.map((status) => (
-                <SelectList.Option key={status} label={titleCase(status)} value={status} />
-              ))}
-            </SelectList>
-          </Flex>
-          <CompanyDisplay job={job} />
-          <Text size="200" color="subtle">
-            {job.location || 'Location unknown'}, added {job.added}
-          </Text>
-          {job.posted_date ? (
-            <Text size="200" color="subtle">
-              Posted {job.posted_date}
-            </Text>
-          ) : null}
-          <Flex gap={2} wrap>
-            <Badge type="neutral" text={job.source || 'Unknown source'} />
-            {job.salary_info ? <Badge type="success" text="Salary disclosed" /> : null}
-            {job.summary_source === 'ai' ? <Badge type="info" text="AI-generated" /> : null}
-            {job.function.map((functionId) => (
-              <Badge key={functionId} type="info" text={functionLabels[functionId] || functionId} />
-            ))}
-          </Flex>
-          <IngestIndicator job={job} onRetry={onRetry} />
-        </Flex>
-      </Box>
-    </div>
-  );
-}
-
-function BoardColumn({ status, entries, statuses, functionLabels, onMove, onRetry }) {
-  function handleDragOver(event) {
-    event.preventDefault();
-  }
-
-  function handleDrop(event) {
-    event.preventDefault();
-    const id = event.dataTransfer.getData('text/plain');
-    if (id) onMove(id, status);
-  }
-
-  return (
-    <div data-testid={`board-column-${status}`} onDragOver={handleDragOver} onDrop={handleDrop}>
-      <Box minWidth={240} flex="grow" marginEnd={3}>
-        <Box marginBottom={2}>
-          <Flex alignItems="center" gap={2}>
-            <Heading size="400">{titleCase(status)}</Heading>
-            <Badge type="neutral" text={String(entries.length)} />
-          </Flex>
-        </Box>
-        {entries.map((job) => (
-          <JobCard
-            key={job.id}
-            job={job}
-            statuses={statuses}
-            functionLabels={functionLabels}
-            onMove={onMove}
-            onRetry={onRetry}
-            draggable
-          />
-        ))}
-      </Box>
-    </div>
-  );
 }
 
 function sortEntries(entries, column, ascending) {
@@ -233,6 +91,7 @@ function SortableHeaderCell({ label, status, sortOrder, onSortChange }) {
   );
 }
 
+// List view is untouched by this rebuild (JOZ-278 is board-only).
 function ListView({ entries, onRetry }) {
   const [sortColumn, setSortColumn] = useState(null);
   const [ascending, setAscending] = useState(true);
@@ -262,9 +121,6 @@ function ListView({ entries, onRetry }) {
           ])}
         </SelectList>
       </Box>
-      {/* No display:none at any breakpoint here: hiding the table on mobile
-          is the bug this round fixes (contract point 9's mobile rows). The
-          wrapper only adds horizontal scroll so the table still fits. */}
       <Box overflow="auto">
         <Table accessibilityLabel="Jobs list">
           <Table.Header>
@@ -357,10 +213,13 @@ export default function JobsBoard() {
   const [intakeBusy, setIntakeBusy] = useState(false);
   const [intakeError, setIntakeError] = useState(null);
   const [duplicate, setDuplicate] = useState(null);
+  const [addPopupOpen, setAddPopupOpen] = useState(false);
+  const [dragId, setDragId] = useState(null);
+  const [overColumn, setOverColumn] = useState(null);
   const moveGenerationRef = useRef({});
 
-  function showToast(message, type = 'success') {
-    setToast({ message, type });
+  function showToast(kind, text, action) {
+    setToast({ kind, text, ...action });
   }
 
   async function load() {
@@ -378,7 +237,7 @@ export default function JobsBoard() {
   }, []);
 
   useEffect(() => {
-    if (!toast) return undefined;
+    if (!toast || toast.kind === 'error') return undefined;
     const timer = window.setTimeout(() => setToast(null), TOAST_LIFETIME_MS);
     return () => window.clearTimeout(timer);
   }, [toast]);
@@ -424,41 +283,113 @@ export default function JobsBoard() {
     }
   }
 
-  // Two moves on the same job can overlap in flight (e.g. New->Interested
-  // sent, then New->Applied sent before the first replies). Whichever
-  // reply lands last used to win regardless of which one is stale; a
-  // per-job generation counter fixes that: a failure only rolls the board
-  // back if no newer move for that job has started since it was sent.
-  async function handleMove(id, status) {
-    const previous = board.entries.find((job) => job.id === id)?.status;
-    if (!previous || previous === status) return;
+  // Shared by the status dropdown and drag-and-drop (StatusSelect README:
+  // "Changing it moves the card to that column", same handler as drag).
+  // beforeId reorders within/into a column by inserting ahead of that card;
+  // null appends to the end. A same-column move is a pure client-side
+  // reorder (no backend concept of card position); a cross-column move is
+  // the real status mutation, with a per-job generation counter so an
+  // older failed request cannot roll back a newer successful one.
+  function performMove(id, toStatus, beforeId) {
+    if (!board) return;
+    const current = board.entries;
+    const movingJob = current.find((job) => job.id === id);
+    if (!movingJob || id === beforeId) return;
+    const fromStatus = movingJob.status;
+
+    const withoutMoving = current.filter((job) => job.id !== id);
+    const insertAt = beforeId ? withoutMoving.findIndex((job) => job.id === beforeId) : -1;
+    const updatedJob = fromStatus === toStatus ? movingJob : { ...movingJob, status: toStatus };
+    const nextEntries =
+      insertAt === -1
+        ? [...withoutMoving, updatedJob]
+        : [...withoutMoving.slice(0, insertAt), updatedJob, ...withoutMoving.slice(insertAt)];
+
+    if (fromStatus === toStatus) {
+      setBoard((prev) => ({ ...prev, entries: nextEntries }));
+      return;
+    }
+
+    const prevEntries = current;
     const generation = (moveGenerationRef.current[id] || 0) + 1;
     moveGenerationRef.current[id] = generation;
-    setBoard((current) => ({
-      ...current,
-      entries: current.entries.map((job) => (job.id === id ? { ...job, status } : job)),
-    }));
-    try {
-      await moveJobStatus(id, status);
-      showToast('Status updated', 'success');
-    } catch (err) {
-      if (moveGenerationRef.current[id] === generation) {
-        setBoard((current) => ({
-          ...current,
-          entries: current.entries.map((job) => (job.id === id ? { ...job, status: previous } : job)),
-        }));
-      }
-      showToast(err.message, 'error');
-    }
+    setBoard((prev) => ({ ...prev, entries: nextEntries }));
+
+    moveJobStatus(id, toStatus)
+      .then(() => {
+        if (moveGenerationRef.current[id] !== generation) return;
+        showToast('success', `Moved to ${titleCase(toStatus)}`, {
+          actionLabel: 'Undo',
+          onAction: () => undoMove(id, generation, prevEntries, fromStatus),
+        });
+      })
+      .catch((err) => {
+        if (moveGenerationRef.current[id] === generation) {
+          setBoard((prev) => ({ ...prev, entries: prevEntries }));
+        }
+        showToast('error', err.message);
+      });
+  }
+
+  function undoMove(id, generation, prevEntries, previousStatus) {
+    if (moveGenerationRef.current[id] !== generation) return;
+    moveGenerationRef.current[id] = generation + 1;
+    setToast(null);
+    setBoard((prev) => ({ ...prev, entries: prevEntries }));
+    moveJobStatus(id, previousStatus).catch((err) => showToast('error', err.message));
+  }
+
+  function handleMove(id, status) {
+    performMove(id, status, null);
+  }
+
+  function cardDragHandlers(job) {
+    return {
+      onDragStart: (event) => {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', job.id);
+        setDragId(job.id);
+      },
+      onDragEnd: () => {
+        setDragId(null);
+        setOverColumn(null);
+      },
+      onDragOver: (event) => event.preventDefault(),
+      onDrop: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = event.dataTransfer.getData('text/plain') || dragId;
+        if (id) performMove(id, job.status, job.id);
+        setDragId(null);
+        setOverColumn(null);
+      },
+    };
+  }
+
+  function columnDragHandlers(status) {
+    return {
+      onDragOver: (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        if (overColumn !== status) setOverColumn(status);
+      },
+      onDrop: (event) => {
+        event.preventDefault();
+        const id = event.dataTransfer.getData('text/plain') || dragId;
+        if (id) performMove(id, status, null);
+        setDragId(null);
+        setOverColumn(null);
+      },
+    };
   }
 
   async function handleRetry(id) {
     try {
       await retryIngest(id);
       await load();
-      showToast('Retry started', 'success');
+      showToast('success', 'Retry started');
     } catch (err) {
-      showToast(err.message, 'error');
+      showToast('error', err.message);
     }
   }
 
@@ -477,10 +408,10 @@ export default function JobsBoard() {
       setIntakeError(null);
       setIntakeUrl('');
       await load();
-      showToast('Job added', 'success');
+      showToast('success', 'Job added');
     } catch (err) {
       setIntakeError({ message: err.message, url: trimmed, force });
-      showToast(err.message, 'error');
+      showToast('error', err.message);
     } finally {
       setIntakeBusy(false);
     }
@@ -505,9 +436,9 @@ export default function JobsBoard() {
       setDuplicate(null);
       setIntakeUrl('');
       await load();
-      showToast('Promoted to pipeline', 'success');
+      showToast('success', 'Promoted to pipeline');
     } catch (err) {
-      showToast(err.message, 'error');
+      showToast('error', err.message);
     }
   }
 
@@ -553,6 +484,30 @@ export default function JobsBoard() {
   const isEmpty = board.entries.length === 0;
   const needsAttentionEmpty = !isEmpty && needsAttention && filteredEntries.length === 0;
 
+  const columns = board.statuses.map((status) => {
+    const entries = filteredEntries.filter((job) => job.status === status);
+    return {
+      status,
+      title: titleCase(status),
+      count: entries.length,
+      isEmpty: entries.length === 0,
+      isOver: overColumn === status,
+      ...columnDragHandlers(status),
+      children: entries.map((job) => (
+        <JobCard
+          key={job.id}
+          job={job}
+          statuses={board.statuses}
+          functionLabels={functionLabels}
+          onMove={handleMove}
+          onRetry={handleRetry}
+          dragHandlers={cardDragHandlers(job)}
+          isDragging={dragId === job.id}
+        />
+      )),
+    };
+  });
+
   return (
     <Box padding={6}>
       <PageHeader title="Jobs" />
@@ -562,7 +517,15 @@ export default function JobsBoard() {
           unreachable on mobile and the mobile list-rows fix would be moot.
           This row has no such hiding and stays visible at every width. */}
       <Box marginTop={3} marginBottom={3}>
-        <Flex gap={2}>
+        <Flex gap={2} alignItems="center">
+          <IconButton
+            accessibilityLabel="Add a job"
+            accessibilityPopupRole="dialog"
+            icon="add"
+            bgColor="red"
+            size="lg"
+            onClick={() => setAddPopupOpen(true)}
+          />
           <ButtonToggle text="Board" selected={view === 'board'} onClick={() => persistView('board')} />
           <ButtonToggle text="List" selected={view === 'list'} onClick={() => persistView('list')} />
         </Flex>
@@ -621,19 +584,7 @@ export default function JobsBoard() {
       ) : needsAttentionEmpty ? (
         <Text color="subtle">Nothing needs attention.</Text>
       ) : view === 'board' ? (
-        <Flex wrap>
-          {board.statuses.map((status) => (
-            <BoardColumn
-              key={status}
-              status={status}
-              entries={filteredEntries.filter((job) => job.status === status)}
-              statuses={board.statuses}
-              functionLabels={functionLabels}
-              onMove={handleMove}
-              onRetry={handleRetry}
-            />
-          ))}
-        </Flex>
+        <KanbanBoard columns={columns} />
       ) : (
         <ListView entries={filteredEntries} onRetry={handleRetry} />
       )}
@@ -646,10 +597,19 @@ export default function JobsBoard() {
           onAddAnyway={handleDuplicateAddAnyway}
         />
       ) : null}
+      {addPopupOpen ? <AddJobPopupShell onDismiss={() => setAddPopupOpen(false)} /> : null}
       {toast ? (
         <Layer>
           <Box position="fixed" bottom left right display="flex" justifyContent="center" padding={4}>
-            <Toast type={toast.type === 'error' ? 'error' : 'success'} text={toast.message} />
+            <Box width={560} maxWidth="100%">
+              <FloatingMessage
+                kind={toast.kind}
+                text={toast.text}
+                actionLabel={toast.actionLabel}
+                onAction={toast.onAction}
+                onDismiss={() => setToast(null)}
+              />
+            </Box>
           </Box>
         </Layer>
       ) : null}
