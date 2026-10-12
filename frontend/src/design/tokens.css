@@ -1,0 +1,115 @@
+/* CareerOS design tokens, version 3 (JOZ-277).
+ *
+ * Ported verbatim (values unchanged) from the owner's design handoff
+ * design-system/tokens.css, which is itself generated from tokens.json.
+ * This file is the single source of truth for tokens in the repo: the JSON
+ * form is deliberately NOT vendored, so there is only one place to edit.
+ *
+ * Two deviations from the handoff file, both required to make the tokens
+ * actually win in a Gestalt app, and both explained in BUILD_NOTES.md:
+ *
+ * 1. `!important` on every declaration.
+ *
+ *    Gestalt 177 does not re-theme from a prop. The supported route is to
+ *    redeclare its CSS custom properties. The competing rule is NOT
+ *    stylesheet order: `DesignTokensProvider` (rendered inside #root by
+ *    src/design/ThemeProvider.jsx, and required for dark mode to exist at
+ *    all) emits its own `<style>` containing a fresh `:root { ... }` block
+ *    with Gestalt's stock values on every render. That tag lives in <body>,
+ *    always later in document order than this stylesheet in <head>, so at
+ *    equal `:root` specificity it would win on every mount and on every
+ *    re-render (e.g. a prefers-color-scheme flip). `!important` makes these
+ *    values win regardless of render order.
+ *
+ *    This is the same cascade trap the old src/theme.js documented for
+ *    Gestalt 160, where ColorSchemeProvider injected the style tag itself.
+ *    In 177 ColorSchemeProvider is pure React context and injects nothing;
+ *    the injection moved to DesignTokensProvider. The trap is unchanged,
+ *    only its source moved.
+ *
+ * 2. Dark mode keys off `:root[data-theme="dark"]` (as the handoff file
+ *    specifies) and ThemeProvider.jsx sets that attribute from Gestalt's
+ *    own colour scheme context, so ColorSchemeProvider stays the one
+ *    control point. `:root[data-theme="dark"]` (0,2,0) also outranks the
+ *    plain `:root` light block (0,1,0), so dark wins cleanly when set.
+ */
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('./fonts/atkinson-hyperlegible-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('./fonts/atkinson-hyperlegible-latin-700-normal.woff2') format('woff2');
+}
+
+:root {
+  --color-background-page: #f7fbff !important;
+  --color-background-card: #ffffff !important;
+  --color-background-secondary-base: #e9e9e9 !important;
+  --color-background-secondary-weak: #cdcdcd !important;
+  --color-background-warning-weak: #ffe4c1 !important;
+  --color-background-error-weak: #ffe0e0 !important;
+  --color-brand-primary: #005fcb !important;
+  --color-brand-primary-strong: #004ba9 !important;
+  --color-brand-accent: #006b6c !important;
+  --color-brand-violet: #6b16ca !important;
+  --color-brand-on-color: #ffffff !important;
+  --color-brand-wash-blue: #e6f4ff !important;
+  --color-brand-wash-teal: #e6faf5 !important;
+  --color-brand-wash-violet: #f0edff !important;
+  --color-text-default: #111111 !important;
+  --color-text-subtle: #5f5f5f !important;
+  --color-text-link: #005fcb !important;
+  --color-text-warning: #bd5b00 !important;
+  --color-text-error: #cc0000 !important;
+  --color-border-default: #767676 !important;
+  --color-border-container: #cdcdcd !important;
+  --color-border-focus: #004ba9 !important;
+  --space-100: 4px !important;
+  --space-200: 8px !important;
+  --space-300: 12px !important;
+  --space-400: 16px !important;
+  --space-600: 24px !important;
+  --space-800: 32px !important;
+  --rounding-200: 8px !important;
+  --rounding-400: 16px !important;
+  --rounding-600: 24px !important;
+  --rounding-pill: 999px !important;
+  --elevation-floating: 0px 0px 8px 0px rgba(0, 0, 0, 0.1) !important;
+  --elevation-raised-top: 0px 2px 8px 0px rgba(0, 0, 0, 0.12) !important;
+  --font-sans: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif !important;
+}
+
+:root[data-theme='dark'] {
+  --color-background-page: #111111 !important;
+  --color-background-card: #191919 !important;
+  --color-background-secondary-base: #2b2b2b !important;
+  --color-background-secondary-weak: #4a4a4a !important;
+  --color-background-warning-weak: #7c2d00 !important;
+  --color-background-error-weak: #660000 !important;
+  --color-brand-primary: #75bfff !important;
+  --color-brand-primary-strong: #abdbff !important;
+  --color-brand-accent: #48d5c6 !important;
+  --color-brand-violet: #b190ff !important;
+  --color-brand-on-color: #111111 !important;
+  --color-brand-wash-blue: #002966 !important;
+  --color-brand-wash-teal: #003440 !important;
+  --color-brand-wash-violet: #2c0066 !important;
+  --color-text-default: #ffffff !important;
+  --color-text-subtle: #cdcdcd !important;
+  --color-text-link: #75bfff !important;
+  --color-text-warning: #e18d00 !important;
+  --color-text-error: #f47171 !important;
+  --color-border-default: #a5a5a5 !important;
+  --color-border-container: #4a4a4a !important;
+  --color-border-focus: #abdbff !important;
+}

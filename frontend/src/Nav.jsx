@@ -6,7 +6,7 @@ import { NAV_PAGES } from './nav.js';
 // Jobs board keeps nav parity with the Jinja-rendered pages.
 export default function Nav({ currentPage }) {
   return (
-    <Box as="header" padding={4} marginBottom={4} borderStyle="raisedBottomShadow" color="white">
+    <Box as="header" padding={4} marginBottom={4} borderStyle="raisedBottomShadow" color="default">
       <Flex gap={6} alignItems="center" wrap>
         <TapAreaLink href="/search" target="self" fullWidth={false}>
           <Text weight="bold" size="400">

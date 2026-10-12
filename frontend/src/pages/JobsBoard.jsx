@@ -113,7 +113,7 @@ function JobCard({ job, statuses, functionLabels, onMove, onRetry, draggable }) 
     // Gestalt Box has no drag-event props; this plain div only carries drag
     // wiring (contract point 2), all visuals stay on the Box inside it.
     <div data-testid={`job-card-${job.id}`} draggable={draggable} onDragStart={handleDragStart}>
-      <Box color="white" borderStyle="sm" rounding={3} padding={3} marginBottom={3}>
+      <Box color="default" borderStyle="sm" rounding={3} padding={3} marginBottom={3}>
         <Flex direction="column" gap={2}>
           <Flex justifyContent="between" alignItems="center" gap={2}>
             <Link href={jobHref(job.id)} display="inlineBlock">
@@ -210,7 +210,8 @@ function sortEntries(entries, column, ascending) {
   return copy;
 }
 
-// Table.SortableHeaderCell (gestalt@160) never sets aria-sort on its <th>;
+// Table.SortableHeaderCell never sets aria-sort on its <th> (still true in
+// gestalt@177.0.12: the string "aria-sort" appears nowhere in the bundle);
 // it only swaps the visible sort icon. This adapter sets the attribute
 // directly on the ancestor <th> after render, which is the minimal fix
 // since Table.HeaderCell does not accept extra DOM attributes either.

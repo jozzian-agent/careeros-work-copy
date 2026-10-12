@@ -59,15 +59,27 @@ parity merge; no Python file changes in this task.
 
 ## Theme
 
-`src/theme.js` overrides Gestalt's default red accent with the blue and
-purple pair already used by the Flask dashboard
-(`careeros/web/theme.py`: `--accent-indigo` for primary actions,
-`--accent-violet`, the page's link accent, for links and hover). The
-competing rule is not stylesheet chunk load order: `ColorSchemeProvider`
-(wrapping the app in `App.jsx`) renders its own `<style>` tag with a fresh
-`:root` block containing Gestalt's default tokens, every time it renders.
-That tag lives inside `#root` in `<body>`, always later in document order
-than this override's `<head>` style, so without `!important` it would win
-the cascade on every mount and every `ColorSchemeProvider` re-render (e.g.
-a `prefers-color-scheme` change). `!important` makes the override win
-regardless of DOM order.
+The theme is the owner's design handoff, wired in `src/design/` (JOZ-277,
+superseding the ad-hoc indigo/violet `src/theme.js`):
+
+- `design/tokens.css` — the handoff tokens, light and dark. Single source of
+  truth; the handoff's `tokens.json` is deliberately not vendored.
+- `design/theme.css` — maps Gestalt's component-level tokens onto the brand
+  tokens, and applies the typeface and line heights.
+- `design/fonts/` + `design/LICENSE-atkinson-hyperlegible.md` — Atkinson
+  Hyperlegible 400/700, self-hosted, SIL OFL 1.1.
+- `design/ThemeProvider.jsx` — `ColorSchemeProvider` + `DesignTokensProvider`,
+  and it mirrors the active scheme onto `html[data-theme]`.
+
+Gestalt has no runtime brand-colour prop, so re-theming means redeclaring its
+CSS custom properties, and that needs `!important`. The competing rule is not
+stylesheet load order: `DesignTokensProvider` renders a `<style>` tag with a
+fresh `:root` block of Gestalt's stock tokens on every render, and that tag
+lives inside `#root` in `<body>`, always later in document order than the
+stylesheets in `<head>`. Without `!important` it would win on every mount and
+every re-render (e.g. a `prefers-color-scheme` change).
+
+On Gestalt 160 the injected tag came from `ColorSchemeProvider` itself; in 177
+that component is pure React context and injects nothing, so
+`DesignTokensProvider` has to be rendered explicitly or there is no dark mode
+at all. See `BUILD_NOTES.md` for the full 160 → 177 delta.
