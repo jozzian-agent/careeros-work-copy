@@ -13,8 +13,20 @@ fictional records; use it for development rather than personal data.
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+git submodule update --init
+.venv/bin/python - <<'PY'
+from pathlib import Path
+import sysconfig
+package_root = Path('vendor/capa-repo').resolve()
+pth = Path(sysconfig.get_path('purelib')) / 'org_intake_vendor.pth'
+pth.write_text(str(package_root) + '\n')
+PY
 CAREEROS_REACT_UI=0 .venv/bin/python -m careeros.server --vault sample/vault
 ```
+
+After cloning, initialize the pinned capability submodule and register its path
+in the product venv with the commands above. Repeat the path registration if
+the checkout moves or the venv is recreated.
 
 Open the address printed by Flask, then go to `/jobs`. Stop with Ctrl-C.
 `--vault PATH` takes precedence over `CAREEROS_VAULT`; pass it explicitly to
