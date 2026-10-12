@@ -91,12 +91,14 @@ test('selected toggle and primary button both render the brand blue', async ({ p
   );
   expect(selectedBackground).toBe(BRAND_PRIMARY);
 
-  // The Add button is Button color="red": the brand reaches it through the
-  // --color-background-button-primary-* tokens, with no change to its markup.
-  // It is disabled until the field has a URL, so fill it first.
-  await page.getByLabel('Posting URL').fill('https://example.com/job/1');
-  const addBackground = await page
-    .getByRole('button', { name: 'Add', exact: true })
+  // The Add job button is Button color="red": the brand reaches it through
+  // the --color-background-button-primary-* tokens, with no change to its
+  // markup. It is disabled until the field has a URL, so fill it first.
+  await page.getByRole('button', { name: 'Add a job', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a job' });
+  await dialog.getByLabel('Posting link').fill('https://example.com/job/1');
+  const addBackground = await dialog
+    .getByRole('button', { name: 'Add job', exact: true })
     .evaluate((el) => getComputedStyle(el.firstElementChild).backgroundColor);
   expect(addBackground).toBe(BRAND_PRIMARY);
 });
@@ -214,13 +216,14 @@ test('portal text gets the line heights too, not just text inside #root', async 
   await mockIntake(page, [{ body: { id: 'JOB-NEW', duplicate: false } }]);
   await openBoard(page);
 
-  await page.getByLabel('Posting URL').fill('https://example.com/careers/new-role');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByText('Job added')).toBeVisible();
+  await page.getByRole('button', { name: 'Add a job', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Add a job' }).getByLabel('Posting link').fill('https://example.com/careers/new-role');
+  await page.getByRole('dialog', { name: 'Add a job' }).getByRole('button', { name: 'Add job', exact: true }).click();
+  await expect(page.getByText('Added to New')).toBeVisible();
 
   const toast = await page.evaluate(() => {
     const el = [...document.querySelectorAll('*')].find(
-      (node) => node.children.length === 0 && node.textContent.trim() === 'Job added',
+      (node) => node.children.length === 0 && node.textContent.trim() === 'Added to New',
     );
     const cs = getComputedStyle(el);
     return {

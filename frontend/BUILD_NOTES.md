@@ -521,3 +521,69 @@ resolves them this way).
 and test-only: production API behaviour, the `statuses`/`function_options`
 contract and every other field are unchanged, so this is not a backend
 contract change, just enough test data to exercise the new chip.
+
+## Filter bar and add-job popup rebuild (JOZ-279)
+
+Fills in the two pieces JOZ-278 deliberately left as a shell: the filter row
+and the add-job popup's contents.
+
+### Component registry
+
+| Component | Gestalt building blocks | Notes |
+| --- | --- | --- |
+| `FilterBar.jsx` | `Box`, `Flex`, `Popover`, `Tag` | Chip order Fit, Function, Location, More filters, a divider, Needs attention, then the result count; the active-filters Tag row with Clear all sits below. One Popover (or the More filters panel) open at a time. |
+| `FilterChip.jsx` | `Icon`, `Text` | The one chip shape shared by every filter control, per the README's "same chip, a count badge, filled only when active." A plain `<button>`, not `Button`/`TapArea`: the chip's content (label, count pill, chevron) is composite, and the count pill is `aria-hidden` so the accessible name stays just the label. |
+| `FilterPopoverPanel.jsx` | `Box`, `Checkbox`, `SearchField`, `Button` | The Fit/Function/Location popover body: checkbox list with counts, a search field once a group has more than six options, "Show N more", Clear and Apply. Checking a box filters the board immediately — there is no separate draft state, so Apply/Clear only close or reset this one panel. |
+| `MoreFiltersPanel.jsx` | `OverlayPanel`, `Fieldset`, `Checkbox` | Industry and Company size, each a `Fieldset` with "(estimated)" in the legend per the README (both are CareerOS-classified, not posting-stated). Same immediate-filter behaviour as the popovers. |
+| `AddJobPopup.jsx` | `Modal`, `TextField`, `Spinner`, `BannerSlim`, `Button` | Replaces `AddJobPopupShell.jsx` (deleted). The five README states — ready, reading, not a link, already on your board, couldn't read — map to one `status` prop computed in `JobsBoard.jsx` from `intakeBusy`/`intakeError`/the popup-eligible half of `duplicate`. |
+
+### Needs attention: a count, not just a toggle
+
+The brief upgrades Needs attention from a plain toggle (JOZ-278) to "a toggle
+with a count, same chip style as the others." The count is
+`board.entries.filter(job => job.needs_attention).length` — the same
+client-side field the toggle already filtered on — so no backend change was
+needed; only the badge is new.
+
+### Industry and Company size stay client-side
+
+JOZ-278's BUILD_NOTES entry already covers this (see `COMPANY_SIZE_BUCKETS`
+above): the backend has no per-job industry facet or size bucket, so both
+"More filters" groups are computed from each job's existing `industries`
+array and raw `employee_count` in `JobsBoard.jsx`, with the same
+micro/small/medium/large thresholds the backend uses for a company's
+`size_class`. This batch reuses that computation unchanged; it only adds the
+`MoreFiltersPanel` UI in front of it. No API schema change.
+
+### The inline "Posting URL" field is retired
+
+JOZ-278 kept the pre-existing `TextField` + Add button below the board
+deliberately, because the popup was a shell with no field yet. Now that
+`AddJobPopup` carries the full intake flow (the same `intakeJob` endpoint,
+the same duplicate handling, the same force-retry path), the inline field is
+a second, redundant entry point to the identical action — fewest-elements
+says keep one. It is removed from `JobsBoard.jsx`; intake now lives only in
+the popup opened by the plus button. `tests/jobs-board.spec.js`'s intake
+specs moved to `tests/add-job-popup.spec.js` and `tests/theme.spec.js`'s two
+intake-touching assertions were updated to open the popup first.
+
+### Popover vs. OverlayPanel, and one open panel at a time
+
+`FilterBar` tracks a single `openPanel` key covering both the three
+Gestalt `Popover`s (Fit, Function, Location) and the `OverlayPanel` (More
+filters): opening one dismisses whichever of the other four was open,
+matching the mockup (only one filter surface visible at once) and avoiding
+the bookkeeping of independent open/closed state per chip.
+
+### Duplicate states the popup does not name, and why they stay
+
+The README's five named states do not include "a duplicate that is also
+eligible for promotion" or "Add anyway." Both predate this ticket (the separate `DuplicateDialog` in `JobsBoard.jsx`,
+from the original M0 board) and stay reachable: a duplicate whose existing job is already on the user's board
+(`in_pipeline !== false`) is the popup's own "already on your board" state;
+one that is only in the shared universe closes the popup and hands off to
+`DuplicateDialog`, which still offers Promote/Open existing/Add
+anyway/Cancel. Dropping either path, or the popup's own "Add anyway" for the
+on-board case, would regress working backend-supported actions with no
+replacement — the same reasoning BUILD_NOTES.md already records for
+JOZ-278's kept badges and ingest-retry affordance.

@@ -73,14 +73,16 @@
       "sector": null,
       "sectors": [],
       "industry": null,
-      "industries": [],
+      "industries": [
+        "Software and IT"
+      ],
       "background": "",
       "skills": [],
       "certifications": [],
       "responsibilities": [],
       "summary_source": "",
       "refresh": "skipped",
-      "employee_count": null,
+      "employee_count": 120,
       "function": [
         "engineering"
       ],
@@ -350,14 +352,16 @@
       "sector": null,
       "sectors": [],
       "industry": null,
-      "industries": [],
+      "industries": [
+        "Design and creative"
+      ],
       "background": "",
       "skills": [],
       "certifications": [],
       "responsibilities": [],
       "summary_source": "ai",
       "refresh": "skipped",
-      "employee_count": null,
+      "employee_count": 8,
       "function": [
         "design"
       ],
@@ -490,14 +494,16 @@
       "sector": null,
       "sectors": [],
       "industry": null,
-      "industries": [],
+      "industries": [
+        "Banking and finance"
+      ],
       "background": "",
       "skills": [],
       "certifications": [],
       "responsibilities": [],
       "summary_source": "",
       "refresh": "skipped",
-      "employee_count": null,
+      "employee_count": 1200,
       "function": [
         "finance"
       ],

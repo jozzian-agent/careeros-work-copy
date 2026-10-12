@@ -12,13 +12,13 @@ import {
   SelectList,
   Table,
   Text,
-  TextField,
 } from 'gestalt';
 import { fetchBoard, intakeJob, moveJobStatus, promoteJob, retryIngest } from '../api/jobs.js';
 import KanbanBoard from '../components/KanbanBoard.jsx';
 import JobCard, { CompanyDisplay, IngestIndicator } from '../components/JobCard.jsx';
 import FloatingMessage from '../components/Message.jsx';
-import AddJobPopupShell from '../components/AddJobPopupShell.jsx';
+import AddJobPopup from '../components/AddJobPopup.jsx';
+import FilterBar from '../components/FilterBar.jsx';
 
 const VIEW_KEY = 'careerJobsView';
 const NEEDS_ATTENTION_KEY = 'careerNeedsAttention';
@@ -27,6 +27,63 @@ const AUTO_REFRESH_AFTER_MS = 30000;
 // Success toasts auto-hide; error messages stay until the user dismisses
 // them (owner decision, Message README).
 const TOAST_LIFETIME_MS = 4000;
+
+const EMPTY_FILTERS = { fit: [], function: [], location: [], industry: [], companySize: [] };
+const FIT_LABELS = [
+  ['needs_input', 'Needs your input'],
+  ['no_fit', 'No fit'],
+  ['lucky', 'Lucky'],
+  ['excellent', 'Excellent fit'],
+];
+// Mirrors careeros/vault.py's SIZE_CLASS_THRESHOLDS (10/50/250, else
+// large): the board's own "Company size" facet is computed client-side
+// from each job's raw employee_count, with the same boundaries the
+// backend uses for a company's size_class, rather than asking the backend
+// for a value it does not expose on job records (BUILD_NOTES.md).
+const COMPANY_SIZE_BUCKETS = [
+  { value: 'micro', label: 'Micro (1-10)', max: 10 },
+  { value: 'small', label: 'Small (11-50)', max: 50 },
+  { value: 'medium', label: 'Medium (51-250)', max: 250 },
+];
+
+function companySizeBucket(employeeCount) {
+  const match = COMPANY_SIZE_BUCKETS.find((bucket) => employeeCount <= bucket.max);
+  return match ? match.value : 'large';
+}
+
+function companySizeLabel(value) {
+  return COMPANY_SIZE_BUCKETS.find((bucket) => bucket.value === value)?.label || 'Large (251+)';
+}
+
+function fitValue(job) {
+  return job.fit && FIT_LABELS.some(([value]) => value === job.fit) ? job.fit : 'needs_input';
+}
+
+function looksLikeUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function countBy(entries, getValues) {
+  const counts = new Map();
+  entries.forEach((entry) => {
+    getValues(entry).forEach((value) => {
+      if (value === null || value === undefined || value === '') return;
+      counts.set(value, (counts.get(value) || 0) + 1);
+    });
+  });
+  return counts;
+}
+
+function sortedOptions(counts) {
+  return Array.from(counts.entries())
+    .map(([value, count]) => ({ value, label: value, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
 
 function readStoredView() {
   try {
@@ -207,7 +264,7 @@ export default function JobsBoard() {
   const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState(readStoredView);
   const [needsAttention, setNeedsAttention] = useState(readStoredNeedsAttention);
-  const [functionFilter, setFunctionFilter] = useState('all');
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [toasts, setToasts] = useState([]);
   const [intakeUrl, setIntakeUrl] = useState('');
   const [intakeBusy, setIntakeBusy] = useState(false);
@@ -296,6 +353,28 @@ export default function JobsBoard() {
     } catch {
       // localStorage unavailable; toggle choice just will not persist.
     }
+  }
+
+  function toggleFilterValue(group, value) {
+    setFilters((current) => {
+      const values = current[group];
+      const next = values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
+      return { ...current, [group]: next };
+    });
+  }
+
+  function clearFilterGroup(group) {
+    setFilters((current) => ({ ...current, [group]: [] }));
+  }
+
+  function clearFilterGroups(groups) {
+    setFilters((current) => {
+      const next = { ...current };
+      groups.forEach((group) => {
+        next[group] = [];
+      });
+      return next;
+    });
   }
 
   // Re-slots one card into `toStatus`, inserting it ahead of `beforeId` (or
@@ -452,32 +531,52 @@ export default function JobsBoard() {
     }
   }
 
-  async function handleIntakeSubmit(url, { force = false } = {}) {
-    const trimmed = url.trim();
-    if (!trimmed) return;
+  // Shared by every path that calls the intake endpoint: the add-job
+  // popup's own submit/retry, and the duplicate dialog's Promote/Add
+  // anyway actions. A duplicate whose existing job is already on the
+  // board (in_pipeline !== false) is handled inside the popup itself (its
+  // "already on your board" state); one that is only in the shared
+  // universe (in_pipeline: false, eligible for promotion) closes the
+  // popup and hands off to the separate duplicate dialog, since that
+  // flow needs more actions than the popup's single primary button.
+  async function submitIntake(url, { force = false } = {}) {
+    if (!force && !looksLikeUrl(url)) {
+      setDuplicate(null);
+      setIntakeError({ kind: 'not_link' });
+      return;
+    }
+    setIntakeError(null);
     setIntakeBusy(true);
     try {
-      const result = await intakeJob(trimmed, { force });
+      const result = await intakeJob(url, { force });
       if (result?.duplicate) {
-        setDuplicate({ ...result, url: trimmed });
-        setIntakeError(null);
+        setDuplicate({ ...result, url });
+        if (result.existing.in_pipeline === false) setAddPopupOpen(false);
         return;
       }
       setDuplicate(null);
-      setIntakeError(null);
       setIntakeUrl('');
+      setAddPopupOpen(false);
       await load();
-      showToast('success', 'Job added');
+      showToast('success', 'Added to New');
     } catch (err) {
-      setIntakeError({ message: err.message, url: trimmed, force });
-      showToast('error', err.message);
+      setIntakeError({ kind: 'failed', message: err.message, url, force });
     } finally {
       setIntakeBusy(false);
     }
   }
 
-  function handleIntakeRetry() {
-    if (intakeError) handleIntakeSubmit(intakeError.url, { force: intakeError.force });
+  function handleAddJobPrimary() {
+    const trimmed = intakeUrl.trim();
+    if (!trimmed) return;
+    const force = intakeError?.kind === 'failed' ? Boolean(intakeError.force) : false;
+    submitIntake(trimmed, { force });
+  }
+
+  function handleAddJobDismiss() {
+    // Deliberately does not reset intakeUrl/intakeError/duplicate: closing
+    // never loses typed text or an in-progress state silently (README).
+    setAddPopupOpen(false);
   }
 
   function handleDuplicateCancel() {
@@ -504,7 +603,7 @@ export default function JobsBoard() {
   function handleDuplicateAddAnyway() {
     const url = duplicate.url;
     setDuplicate(null);
-    handleIntakeSubmit(url, { force: true });
+    submitIntake(url, { force: true });
   }
 
   const functionLabels = useMemo(() => {
@@ -512,14 +611,64 @@ export default function JobsBoard() {
     return Object.fromEntries(board.function_options.map(([id, label]) => [id, label]));
   }, [board]);
 
+  const fitOptions = useMemo(() => {
+    if (!board) return [];
+    const counts = countBy(board.entries, (job) => [fitValue(job)]);
+    return FIT_LABELS.map(([value, label]) => ({ value, label, count: counts.get(value) || 0 }));
+  }, [board]);
+
+  const functionOptions = useMemo(() => {
+    if (!board) return [];
+    const counts = countBy(board.entries, (job) => job.function || []);
+    return board.function_options.map(([value, label]) => ({ value, label, count: counts.get(value) || 0 }));
+  }, [board]);
+
+  const locationOptions = useMemo(() => {
+    if (!board) return [];
+    return sortedOptions(countBy(board.entries, (job) => [job.location]));
+  }, [board]);
+
+  const industryOptions = useMemo(() => {
+    if (!board) return [];
+    return sortedOptions(countBy(board.entries, (job) => job.industries || []));
+  }, [board]);
+
+  const companySizeOptions = useMemo(() => {
+    if (!board) return [];
+    const counts = countBy(
+      board.entries,
+      (job) => (typeof job.employee_count === 'number' ? [companySizeBucket(job.employee_count)] : []),
+    );
+    return ['micro', 'small', 'medium', 'large']
+      .filter((value) => counts.has(value))
+      .map((value) => ({ value, label: companySizeLabel(value), count: counts.get(value) }));
+  }, [board]);
+
+  const optionsByGroup = useMemo(
+    () => ({
+      fit: fitOptions,
+      function: functionOptions,
+      location: locationOptions,
+      industry: industryOptions,
+      companySize: companySizeOptions,
+    }),
+    [fitOptions, functionOptions, locationOptions, industryOptions, companySizeOptions],
+  );
+
   const filteredEntries = useMemo(() => {
     if (!board) return [];
     return board.entries.filter((job) => {
-      const functionOk = functionFilter === 'all' || job.function.includes(functionFilter);
+      const fitOk = filters.fit.length === 0 || filters.fit.includes(fitValue(job));
+      const functionOk = filters.function.length === 0 || (job.function || []).some((f) => filters.function.includes(f));
+      const locationOk = filters.location.length === 0 || filters.location.includes(job.location);
+      const industryOk = filters.industry.length === 0 || (job.industries || []).some((v) => filters.industry.includes(v));
+      const sizeOk =
+        filters.companySize.length === 0 ||
+        (typeof job.employee_count === 'number' && filters.companySize.includes(companySizeBucket(job.employee_count)));
       const needsOk = !needsAttention || job.needs_attention;
-      return functionOk && needsOk;
+      return fitOk && functionOk && locationOk && industryOk && sizeOk && needsOk;
     });
-  }, [board, functionFilter, needsAttention]);
+  }, [board, filters, needsAttention]);
 
   if (loadError) {
     return (
@@ -541,7 +690,22 @@ export default function JobsBoard() {
   }
 
   const isEmpty = board.entries.length === 0;
-  const needsAttentionEmpty = !isEmpty && needsAttention && filteredEntries.length === 0;
+  const anyGroupFilterActive = Object.values(filters).some((values) => values.length > 0);
+  const noMatches = !isEmpty && filteredEntries.length === 0;
+  const noMatchesMessage = needsAttention && !anyGroupFilterActive ? 'Nothing needs attention.' : 'No jobs match these filters.';
+  const needsAttentionCount = board.entries.filter((job) => job.needs_attention).length;
+
+  const popupDuplicate = duplicate && duplicate.existing.in_pipeline !== false ? duplicate : null;
+  const dialogDuplicate = duplicate && duplicate.existing.in_pipeline === false ? duplicate : null;
+  const addJobStatus = intakeBusy
+    ? 'reading'
+    : popupDuplicate
+      ? 'duplicate'
+      : intakeError?.kind === 'not_link'
+        ? 'not_link'
+        : intakeError?.kind === 'failed'
+          ? 'error'
+          : 'ready';
 
   const columns = board.statuses.map((status) => {
     const entries = filteredEntries.filter((job) => job.status === status);
@@ -589,74 +753,49 @@ export default function JobsBoard() {
           <ButtonToggle text="List" selected={view === 'list'} onClick={() => persistView('list')} />
         </Flex>
       </Box>
-      <Box marginTop={4} marginBottom={4}>
-        <Flex gap={2} alignItems="end" wrap>
-          <Box flex="grow" minWidth={240}>
-            <TextField
-              id="posting-url"
-              type="url"
-              label="Posting URL"
-              placeholder="https://company.example/careers/role"
-              value={intakeUrl}
-              disabled={intakeBusy}
-              onChange={({ value }) => setIntakeUrl(value)}
-            />
-          </Box>
-          <Button
-            text="Add"
-            color="red"
-            disabled={intakeBusy || !intakeUrl.trim()}
-            onClick={() => handleIntakeSubmit(intakeUrl)}
-          />
-        </Flex>
-        {intakeError ? (
-          <Box marginTop={2}>
-            <Flex gap={2} alignItems="center" wrap>
-              <Text dataTestId="intake-error" color="error">
-                {intakeError.message}
-              </Text>
-              <Button dataTestId="intake-retry" size="sm" text="Retry" onClick={handleIntakeRetry} />
-            </Flex>
-          </Box>
-        ) : null}
-      </Box>
-      <Box marginBottom={4}>
-        <Flex gap={3} alignItems="center" wrap>
-          <Box maxWidth={240}>
-            <SelectList
-              id="function-filter"
-              label="Function"
-              value={functionFilter}
-              onChange={({ value }) => setFunctionFilter(value)}
-            >
-              <SelectList.Option label="All functions" value="all" />
-              {board.function_options.map(([id, label]) => (
-                <SelectList.Option key={id} label={label} value={id} />
-              ))}
-            </SelectList>
-          </Box>
-          <ButtonToggle text="Needs attention" selected={needsAttention} onClick={toggleNeedsAttention} />
-        </Flex>
-      </Box>
+      <FilterBar
+        optionsByGroup={optionsByGroup}
+        selected={filters}
+        onToggleValue={toggleFilterValue}
+        onClearGroup={clearFilterGroup}
+        onClearGroups={clearFilterGroups}
+        needsAttention={needsAttention}
+        needsAttentionCount={needsAttentionCount}
+        onToggleNeedsAttention={toggleNeedsAttention}
+        resultCount={filteredEntries.length}
+        totalCount={board.entries.length}
+      />
       {isEmpty ? (
         <Text color="subtle">{board.empty}</Text>
-      ) : needsAttentionEmpty ? (
-        <Text color="subtle">Nothing needs attention.</Text>
+      ) : noMatches ? (
+        <Text color="subtle">{noMatchesMessage}</Text>
       ) : view === 'board' ? (
         <KanbanBoard columns={columns} />
       ) : (
         <ListView entries={filteredEntries} onRetry={handleRetry} />
       )}
-      {duplicate ? (
+      {dialogDuplicate ? (
         <DuplicateDialog
-          duplicate={duplicate}
+          duplicate={dialogDuplicate}
           onCancel={handleDuplicateCancel}
           onOpenExisting={handleDuplicateOpenExisting}
           onPromote={handleDuplicatePromote}
           onAddAnyway={handleDuplicateAddAnyway}
         />
       ) : null}
-      {addPopupOpen ? <AddJobPopupShell onDismiss={() => setAddPopupOpen(false)} /> : null}
+      {addPopupOpen ? (
+        <AddJobPopup
+          url={intakeUrl}
+          onUrlChange={setIntakeUrl}
+          status={addJobStatus}
+          errorMessage={intakeError?.kind === 'failed' ? intakeError.message : null}
+          duplicateTitle={popupDuplicate?.existing?.title}
+          onSubmit={handleAddJobPrimary}
+          onShowExisting={handleDuplicateOpenExisting}
+          onAddAnyway={handleDuplicateAddAnyway}
+          onDismiss={handleAddJobDismiss}
+        />
+      ) : null}
       {toasts.length ? (
         <Layer>
           <Box position="fixed" bottom left right display="flex" justifyContent="center" padding={4}>
