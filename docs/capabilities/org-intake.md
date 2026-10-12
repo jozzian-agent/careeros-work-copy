@@ -27,7 +27,7 @@ silently.
    produces a definite outcome (pending / linked / needs-review / a
    fresh record) and never raises. *Reason:* every job needs a usable
    outcome at every call, including the no-signal-yet case at stub
-   creation. File: `careeros/company_resolve.py`
+   creation. File: `vendor/capa-repo/org_intake/identity.py`
    `resolve_rungs_1_2` (local-only lookup, returns `None` cleanly on a
    miss) and `resolve_and_link` (always returns a result dict).
 
@@ -37,7 +37,7 @@ silently.
    over a fresh name guess. *Reason:* once a link is established once,
    it must not be re-derived, and possibly re-litigated, on every later
    call. File: `careeros/vault.py` `IDENTIFIER_TYPES`;
-   `careeros/company_resolve.py` `find_by_identifier`, `add_identifier`,
+   `vendor/capa-repo/org_intake/identity.py` `find_by_identifier`, `add_identifier`,
    and `resolve_and_link`'s `existing=` precedence.
    *Caveat:* `wikidata` is a legal identifier type but no code path
    today ever writes one - a contract promise, not current behavior.
@@ -47,7 +47,7 @@ silently.
    network I/O; rungs 3–5 add name matching (exact, then fuzzy) and a
    tenant-vs-employer cross-check once posting text is available.
    *Reason:* a free, structural match should never wait on a fuzzy
-   name comparison. File: `careeros/company_resolve.py`
+   name comparison. File: `vendor/capa-repo/org_intake/identity.py`
    `resolve_rungs_1_2` and `resolve_rungs_3_5`.
 
 4. A name match only ever links confidently on an exact
@@ -55,14 +55,14 @@ silently.
    of its name_variant identifiers; anything short of exact is reported
    as a scored fuzzy candidate, never auto-linked. *Reason:* a fuzzy
    score is evidence for a human to weigh, not grounds to link
-   automatically. File: `careeros/company_resolve.py`
+   automatically. File: `vendor/capa-repo/org_intake/identity.py`
    `find_by_exact_name`, `find_all_by_exact_name`, `fuzzy_candidates`.
 
 5. More than one record carrying the identical exact name is itself an
    ambiguity, never a first-wins pick. *Reason:* silently picking the
    first of two identically-named records would pick wrong half the
    time with no evidence either way. File:
-   `careeros/company_resolve.py` `resolve_rungs_3_5`'s
+   `vendor/capa-repo/org_intake/identity.py` `resolve_rungs_3_5`'s
    `ambiguous_exact` branch.
 
 6. A unique ATS-tenant link must still agree with the posting's own
@@ -72,7 +72,7 @@ silently.
    different record is reported as `shared_tenant`. *Reason:* one ATS
    tenant can host more than one employer (e.g. a staffing agency), so
    tenant membership alone is never sufficient evidence. File:
-   `careeros/company_resolve.py` `resolve_rungs_3_5`'s
+   `vendor/capa-repo/org_intake/identity.py` `resolve_rungs_3_5`'s
    `tenant_rooted` branch.
 
 7. Classification runs against one fixed external taxonomy - UN ISIC
@@ -80,8 +80,8 @@ silently.
    strings; a string whose keywords match more than one section is
    refused outright rather than guessed. *Reason:* standards over ad
    hoc labels, and a matcher that cannot tell which of two sections
-   applies should say so, not pick one. File: `careeros/sectors.py`
-   `all_matched_sections`, `match_sectors`; `careeros/data/isic_sections.yaml`.
+   applies should say so, not pick one. File: `vendor/capa-repo/org_intake/classify.py`
+   `all_matched_sections`, `match_sectors`; `vendor/capa-repo/org_intake/data/isic_sections.yaml`.
 
 8. Size is classified on one scale: EU Recommendation 2003/361/EC
    employee-count thresholds (micro ≤10, small ≤50, medium ≤250,
@@ -89,7 +89,7 @@ silently.
    same raw count so the two fields can never desync. *Reason:* two
    independently-derived size fields could silently disagree; deriving
    both from one count at once rules that out by construction. File:
-   `careeros/sectors.py` `SIZE_CLASS_THRESHOLDS`, `derive_size`.
+   `vendor/capa-repo/org_intake/classify.py` `SIZE_CLASS_THRESHOLDS`, `derive_size`.
 
 9. Sector/size enrichment runs a cascade from cheap/structured to
    expensive/fuzzy: a zero-network promotion from already-aggregated
@@ -99,7 +99,7 @@ silently.
    every structured signal came back empty. *Reason:* the LLM signal
    is neither free nor independently verifiable, so it is a last
    resort, gated in code rather than by prompt wording alone. File:
-   `careeros/company_lookup.py` `SECTOR_SIGNALS`/`SIZE_SIGNALS`,
+   `vendor/capa-repo/org_intake/enrich.py` `SECTOR_SIGNALS`/`SIZE_SIGNALS`,
    `sectors_cascade`, `external_sectors`.
 
 10. A field fills only on one confident result; two independent
@@ -107,22 +107,22 @@ silently.
     distinct activities refuse to fill and raise a review flag instead
     of picking one. *Reason:* no source has priority over another, so
     an unresolved conflict must surface, not silently resolve. File:
-    `careeros/company_lookup.py` `external_sectors`,
+    `vendor/capa-repo/org_intake/enrich.py` `external_sectors`,
     `promote_aggregated_sectors`.
 
 11. Size never overwrites an already-populated field, and a freshly
     fetched value that contradicts one already on file fills nothing
     and raises a review flag instead of guessing which is right.
     *Reason:* a half-filled, internally inconsistent pair must never
-    be written silently. File: `careeros/sectors.py`
-    `fill_size_updates`; `careeros/company_lookup.py` `size_cascade`.
+    be written silently. File: `vendor/capa-repo/org_intake/classify.py`
+    `fill_size_updates`; `vendor/capa-repo/org_intake/enrich.py` `size_cascade`.
 
 12. Every external signal reports its own outcome - matched, ambiguous,
     rate-limited, fetch-error, empty, or not-attempted - so a sweep's
     silence is never confused with a fetch that quietly failed.
     *Reason:* a prior defect saw a backfill swallow the difference
     between "no usable data" and "Wikidata rate-limited us". File:
-    `careeros/company_lookup.py` `BackfillAccounting`,
+    `vendor/capa-repo/org_intake/enrich.py` `BackfillAccounting`,
     `_STATUS_OUTCOMES`, `_record_outcome`.
 
 13. A re-run never repeats work a field already has. The identity
@@ -131,7 +131,7 @@ silently.
     the link. The enrichment cascades skip any field that is already
     populated or owner-provenanced. *Reason:* re-running must be safe
     to call often and cheap when there is nothing left to do. File:
-    `careeros/company_resolve.py` `rerun`; `careeros/company_lookup.py`
+    `vendor/capa-repo/org_intake/identity.py` `rerun`; `vendor/capa-repo/org_intake/enrich.py`
     `size_cascade` and `sectors_cascade`'s early-populated-field
     returns.
 
@@ -140,16 +140,16 @@ silently.
     owner-set link decision is never silently overwritten by a later
     re-run. *Reason:* human edits always win - a re-run must not
     undo an owner's correction just because it disagrees. File:
-    `careeros/company_resolve.py` `add_identifier`, `apply_review`,
+    `vendor/capa-repo/org_intake/identity.py` `add_identifier`, `apply_review`,
     `rerun`.
 
 15. Per-field enrichment state is a lifecycle the contract promises in
     full (`never-tried` / `filled` / `flagged` / `exhausted`) but the
-    code only partly builds today. *Caveat:* `company_lookup.py`'s own
+    code only partly builds today. *Caveat:* `vendor/capa-repo/org_intake/enrich.py`'s own
     cascades return a bare `(result, flag)` pair with no state label
     at all; `filled`/`flagged`/`exhausted` are assembled only once, in
     the product's `server.py`, and nothing anywhere writes a
-    `never-tried` label yet. File: `careeros/company_lookup.py`
+    `never-tried` label yet. File: `vendor/capa-repo/org_intake/enrich.py`
     `sectors_cascade`, `size_cascade`; `careeros/server.py`
     `run_company_cascade`'s per-field state block.
 
@@ -181,7 +181,7 @@ silently.
   `careeros/enrich.py`). The capability reads and writes only
   organisation-shaped records; any evidence that today comes from
   scanning job records directly stays product-supplied as a parameter.
-  (`careeros/company_resolve.py`'s tenant-sharing check currently
+  (`careeros/server.py`'s tenant-sharing evidence collector currently
   scans `vault.list_jobs` itself for this; that job scan stays with
   the product, which must pass the capability the evidence it needs
   instead.)
@@ -299,12 +299,13 @@ A field's state only moves forward through an explicit cascade run; a
 
 ## Consumers
 
-- CareerOS (careeros-dashboard) - pinned at: to be set at 2.4.
+- CareerOS (careeros-dashboard) - pinned at: `capa-repo` main
+  `9606d6d2a097c4c29b7b5844ba906a7defef0efc` (2026-10-12).
 
 ## Open questions
 
-Contract approved by the owner 2026-10-11. The open questions below
-were answered at approval; only the two marked remain genuinely open.
+Contract approved by the owner 2026-10-11. All open questions below are
+answered.
 
 - JSON-LD collector: answered - the capability gets its own minimal
   JSON-LD-only block scanner (extracted from the product's posting
@@ -321,8 +322,14 @@ were answered at approval; only the two marked remain genuinely open.
 - `wikidata` identifier type: answered - the type stays; the
   capability eventually populates it from the entity id its own
   Wikidata lookup already resolves.
-- Open: exact package/module names for the moved code inside
-  `capa-repo` (owner creates the repo at 2.4).
-- Open: how the store adapter interface is shaped at extraction
-  (2.3) - list/load/save minimum is agreed, the exact signatures are
-  settled there.
+- Package/module names: answered at 2.3 - the capability lives in
+  `github.com/jozzian/capa-repo` as the package `org_intake` with
+  modules `identity` (resolution ladder), `enrich` (sector/size
+  cascades), `classify` (ISIC/EU vocabularies), `ats`, `url`, `fetch`
+  (guards), `jsonld`, and `store` (adapter protocol).
+- Store adapter shape: answered at 2.3 - a duck-typed three-method
+  protocol, `list_organisations()`, `load_organisation(id)`, and
+  `save_organisation(updates, organisation_id=None)`; list-shaped
+  fields in updates replace the stored list wholesale, with the caller
+  building the full replacement list. Reference implementation:
+  `org_intake/store.py` `InMemoryStore`.

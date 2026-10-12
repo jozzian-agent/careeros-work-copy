@@ -8,7 +8,9 @@ from urllib import request
 
 import pytest
 
-from careeros import company_lookup, intake, sectors, vault
+from careeros import enrich as product_enrich, intake, vault
+from org_intake import enrich as company_lookup, classify as sectors
+from org_intake.fetch import default_fetch
 from careeros.server import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,11 +101,15 @@ def test_match_sectors_known_codes_are_isic_sections():
 # --- Atomic size_class + size_range derivation -----------------------------
 
 @pytest.mark.parametrize('count,size_range,size_class', [
-    (9, '1-10', 'micro'), (10, '1-10', 'small'),
-    (249, '201-1000', 'medium'), (250, '201-1000', 'large'),
+    (9, '1-10', 'micro'), (10, '1-10', 'micro'),
+    (249, '201-1000', 'medium'), (250, '201-1000', 'medium'),
     (1, '1-10', 'micro'), (1001, '1000+', 'large'),
 ])
 def test_derive_size_boundary_values(count, size_range, size_class):
+    # Contract rule 8 (EU 2003/361/EC): thresholds are INCLUSIVE upper
+    # bounds (micro <=10, small <=50, medium <=250), so 10 is micro and
+    # 250 is medium. The old product thresholds were exclusive and are
+    # superseded by the contract.
     assert sectors.derive_size(count) == {'size_range': size_range, 'size_class': size_class}
 
 
@@ -132,19 +138,26 @@ def test_fill_size_updates_never_overwrites_populated_field():
     assert sectors.fill_size_updates(1500, None, 'large') == {'size_range': '1000+'}
 
 
-# --- Review fix round finding 1: an LLM size-class hint must be checked
-# against an already-populated size_range's own implied class(es) before it
-# fills size_class, the same consistency rule a raw count already obeys.
+# --- Review fix round finding 1 (rewritten for contract rule 8): an LLM
+# size-class hint must be checked against an already-populated size_range's
+# own implied class(es) before it fills size_class. Under the contract's
+# INCLUSIVE EU thresholds (micro <=10, small <=50, medium <=250, large
+# >250) a bucket's implied classes come from its bounds: '11-50' implies
+# {small} only (both 11 and 50 are 'small'), so 'medium' is NOT compatible;
+# '201-1000' straddles 'medium' (201..250) and 'large' (>250), so both
+# adjacent classes are plausible.
 @pytest.mark.parametrize('size_hint,size_range,expected', [
     ('large', '1000+', True),
     ('large', '1-10', False),  # '1-10' tops out at 10 employees: never 'large'
-    ('medium', '11-50', True),  # boundary-spanning: count==50 is already 'medium'
-    ('small', '11-50', True),  # ...but count==11..49 is still 'small'
+    ('medium', '11-50', False),  # inclusive bounds: 11 and 50 are both 'small'
+    ('small', '11-50', True),
     ('large', '11-50', False),
     ('medium', '51-200', True),
-    ('medium', '201-1000', True),  # boundary-spanning: count==201..249 is 'medium'
-    ('large', '201-1000', True),  # ...but count==250..1000 is already 'large'
+    ('medium', '201-1000', True),  # boundary-spanning: count==201..250 is 'medium'
+    ('large', '201-1000', True),  # ...and count==251..1000 is 'large'
     ('small', '201-1000', False),
+    ('small', '1-10', False),  # inclusive: 1..10 is 'micro', never 'small'
+    ('micro', '1-10', True),
 ])
 def test_size_class_hint_consistent_with_range(size_hint, size_range, expected):
     assert sectors.size_class_hint_consistent_with_range(size_hint, size_range) == expected
@@ -282,7 +295,7 @@ def test_regenerate_company_strips_stale_sectors_after_rekind(tmp_path):
 
 def test_fetch_company_jsonld_extracts_industry_and_employee_count():
     html = '<script type="application/ld+json">{"industry":"Software","numberOfEmployees":42}</script>'
-    result = company_lookup.fetch_company_jsonld('https://fiction.example', fetch=lambda url: html)
+    result = company_lookup.fetch_organisation_jsonld('https://fiction.example', fetch=lambda url: html)
     assert result == {'industry': 'Software', 'employee_count': 42}
 
 
@@ -294,7 +307,7 @@ def test_fetch_company_jsonld_rejects_private_destination():
 
     def fake_fetch(url):
         raise AssertionError('must not be called for a private-network destination')
-    assert company_lookup.fetch_company_jsonld(f'http://{private_host}/', fetch=fake_fetch) == {}
+    assert company_lookup.fetch_organisation_jsonld(f'http://{private_host}/', fetch=fake_fetch) == {}
 
 
 def test_fetch_wikidata_prefers_most_recent_dated_statement():
@@ -604,7 +617,7 @@ def test_fetch_osm_matches_shop_only_result():
 
 def test_backfill_scoped_to_employer_kind_only(root):
     institution = vault.save_company(root, {'name': 'Fiction University', 'kind': 'institution'})
-    updated = company_lookup.backfill(root, sector_signals=(), size_signals=())
+    updated = product_enrich.backfill(root, sector_signals=(), size_signals=())
     assert institution['id'] not in updated
 
 
@@ -624,7 +637,7 @@ def test_backfill_promotes_from_job_aggregation_before_external_fetch(tmp_path):
         calls.append(url)
         return None
 
-    updated = company_lookup.backfill(tmp_path, size_signals=(), fetch=tracking_fetch)
+    updated = product_enrich.backfill(tmp_path, size_signals=(), fetch=tracking_fetch)
     assert calls == []
     assert company['id'] in updated
     assert vault.load_company(tmp_path, company['id'])['sectors'] == ['K']
@@ -633,10 +646,10 @@ def test_backfill_promotes_from_job_aggregation_before_external_fetch(tmp_path):
 def test_backfill_size_cascade_respects_consistency_with_populated_range(root):
     company = vault.save_company(root, {'name': 'Partial Labs', 'size_range': '1-10'})
 
-    def fake_jsonld(c, fetch=None):
+    def fake_jsonld(c, fetch=None, warn=None, deadline=None):
         return {'employee_count': 500}  # contradicts the already-populated size_range
 
-    company_lookup.backfill(root, size_signals=(fake_jsonld,))
+    product_enrich.backfill(root, size_signals=(fake_jsonld,))
     saved = vault.load_company(root, company['id'])
     # The contradictory count still fills nothing (no size_class written),
     # but the refusal is now surfaced as a review flag rather than silently
@@ -669,7 +682,7 @@ def _wikidata_fetch_for_count(count):
 def test_wikidata_signal_point_value_fills_both_size_fields(root):
     company = vault.save_company(root, {'name': 'Headcount Co'})
     collector = company_lookup.BackfillAccounting()
-    company_lookup.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
+    product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500), collector=collector)
     saved = vault.load_company(root, company['id'])
     assert saved['size_range'] == '1000+'
@@ -680,7 +693,7 @@ def test_wikidata_signal_point_value_fills_both_size_fields(root):
 
 def test_wikidata_signal_count_contradicting_existing_size_range_fills_nothing(root):
     company = vault.save_company(root, {'name': 'Mismatched Co', 'size_range': '1-10'})
-    company_lookup.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
+    product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500))
     saved = vault.load_company(root, company['id'])
     assert saved['size_range'] == '1-10'
@@ -690,7 +703,7 @@ def test_wikidata_signal_count_contradicting_existing_size_range_fills_nothing(r
 
 def test_wikidata_signal_size_class_present_and_consistent_fills_only_size_range(root):
     company = vault.save_company(root, {'name': 'Half Filled Co', 'size_class': 'large'})
-    company_lookup.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
+    product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500))
     saved = vault.load_company(root, company['id'])
     assert saved['size_range'] == '1000+'
@@ -708,14 +721,14 @@ def test_wikidata_signal_absent_p1128_leaves_fields_untouched_not_fetch_error(ro
         return json.dumps({'entities': {'Q1': {'claims': {}}}})
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
+    product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=fetch, collector=collector)
     saved = vault.load_company(root, company['id'])
     assert saved['size_range'] is None
     assert saved['size_class'] is None
     assert not saved.get('review_flags')
     events = {(e['signal'], e['field'], e['outcome']) for e in collector.events
-              if e['company_id'] == company['id']}
+              if e['record_id'] == company['id']}
     assert ('wikidata', 'size', 'empty') in events
     assert ('wikidata', 'size', 'fetch-error') not in events
 
@@ -734,7 +747,7 @@ def test_wikidata_signal_multiple_statements_latest_wins_through_cascade(root):
              'qualifiers': {'P585': [{'datavalue': {'value': {'time': '+2024-00-00T00:00:00Z'}}}]}},
         ]}}}})
 
-    company_lookup.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,), fetch=fetch)
+    product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,), fetch=fetch)
     saved = vault.load_company(root, company['id'])
     assert saved['size_range'] == '1000+'
     assert saved['size_class'] == 'large'
@@ -743,10 +756,10 @@ def test_wikidata_signal_multiple_statements_latest_wins_through_cascade(root):
 def test_backfill_sector_ambiguous_signal_flags_for_review(root):
     company = vault.save_company(root, {'name': 'Ambiguous Labs'})
 
-    def ambiguous_signal(c, fetch=None):
+    def ambiguous_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Technology', 'employee_count': None}  # matches both J and M
 
-    updated = company_lookup.backfill(root, sector_signals=(ambiguous_signal,), size_signals=())
+    updated = product_enrich.backfill(root, sector_signals=(ambiguous_signal,), size_signals=())
     saved = vault.load_company(root, company['id'])
     assert company['id'] in updated
     assert saved['sectors'] == []
@@ -756,13 +769,13 @@ def test_backfill_sector_ambiguous_signal_flags_for_review(root):
 def test_backfill_sector_source_conflict_flags_for_review(root):
     company = vault.save_company(root, {'name': 'Conflicted Labs'})
 
-    def software_signal(c, fetch=None):
+    def software_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Software and IT services', 'employee_count': None}
 
-    def banking_signal(c, fetch=None):
+    def banking_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Banking and insurance', 'employee_count': None}
 
-    updated = company_lookup.backfill(root, sector_signals=(software_signal, banking_signal), size_signals=())
+    updated = product_enrich.backfill(root, sector_signals=(software_signal, banking_signal), size_signals=())
     saved = vault.load_company(root, company['id'])
     assert company['id'] in updated
     assert saved['sectors'] == []
@@ -772,16 +785,16 @@ def test_backfill_sector_source_conflict_flags_for_review(root):
 def test_backfill_clears_sector_flag_once_resolved(root):
     company = vault.save_company(root, {'name': 'Eventually Resolved Labs'})
 
-    def ambiguous_signal(c, fetch=None):
+    def ambiguous_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Technology', 'employee_count': None}
 
-    company_lookup.backfill(root, sector_signals=(ambiguous_signal,), size_signals=())
+    product_enrich.backfill(root, sector_signals=(ambiguous_signal,), size_signals=())
     assert company_lookup.FLAG_SECTOR_AMBIGUOUS in vault.load_company(root, company['id'])['review_flags']
 
-    def confident_signal(c, fetch=None):
+    def confident_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Banking and insurance', 'employee_count': None}
 
-    company_lookup.backfill(root, sector_signals=(confident_signal,), size_signals=())
+    product_enrich.backfill(root, sector_signals=(confident_signal,), size_signals=())
     saved = vault.load_company(root, company['id'])
     assert saved['sectors'] == ['K']
     assert company_lookup.FLAG_SECTOR_AMBIGUOUS not in saved['review_flags']
@@ -793,7 +806,7 @@ def test_backfill_wires_kind_migration_for_records_missing_kind(root):
     # picked up by the kind backfill as part of this action, not skipped.
     for company in vault.list_companies(root):
         assert company.get('kind') is None
-    company_lookup.backfill(root, sector_signals=(), size_signals=())
+    product_enrich.backfill(root, sector_signals=(), size_signals=())
     for company in vault.list_companies(root):
         assert company['kind'] == 'employer'
 
@@ -803,10 +816,10 @@ def test_backfill_wires_kind_migration_for_records_missing_kind(root):
 def test_size_cascade_industry_status_failure_preserves_employee_count(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Partial Labs'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': None, 'employee_count': 100, 'industry_status': 'error'}
 
-    updates, flag = company_lookup.size_cascade(company, signals=(signal,))
+    updates, flag = company_lookup.classify_size(company, signals=(signal,), **product_enrich.classification_options())
     assert updates == {'size_range': '51-200', 'size_class': 'medium'}
     assert flag is None
 
@@ -814,10 +827,10 @@ def test_size_cascade_industry_status_failure_preserves_employee_count(tmp_path)
 def test_external_sectors_size_status_failure_preserves_industry(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Partial Labs 2'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Banking and insurance', 'employee_count': None, 'size_status': 'error'}
 
-    codes, flag = company_lookup.external_sectors(company, signals=(signal,))
+    codes, flag = company_lookup.external_sectors(company, signals=(signal,), **product_enrich.classification_options())
     assert codes == ['K']
     assert flag is None
 
@@ -825,11 +838,11 @@ def test_external_sectors_size_status_failure_preserves_industry(tmp_path):
 def test_plan_backfill_accounting_partial_wikidata_failure_preserves_valid_field(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Partial Fetch Labs'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': None, 'employee_count': 100, 'industry_status': 'error'}
 
     collector = company_lookup.BackfillAccounting()
-    plan, _ = company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,),
+    plan, _ = product_enrich.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,),
                                             collector=collector)
     changes = next(ch for co, ch in plan if co['id'] == company['id'])
     assert changes['size_range'] == '51-200' and changes['size_class'] == 'medium'
@@ -843,12 +856,16 @@ def test_plan_backfill_accounting_partial_wikidata_failure_preserves_valid_field
 def test_sectors_cascade_already_populated_records_not_attempted_for_all_considered_signals(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Populated Labs', 'sectors': ['K']})
     collector = company_lookup.BackfillAccounting()
-    result, flag = company_lookup.sectors_cascade(
-        company, signals=(company_lookup._jsonld_signal, company_lookup._wikidata_signal), collector=collector)
+    result, flag = company_lookup.classify_sector(
+        company, signals=(company_lookup._jsonld_signal, company_lookup._wikidata_signal), collector=collector, **product_enrich.classification_options())
     assert result is None and flag is None
-    assert collector.summary()['not-attempted'] == 3  # promotion + 2 external signals
+    assert all(e['outcome'] == 'not-attempted' for e in collector.events)
+    assert {'jsonld', 'wikidata'} <= {e['signal'] for e in collector.events}
     names = {e['signal'] for e in collector.events}
-    assert names == {'promotion', 'jsonld', 'wikidata'}
+    # The capability's protected-field path accounts for every considered
+    # signal: promotion tier, the passed signals, and the gated LLM
+    # fallback (all not-attempted). 'llm' is part of that set by design.
+    assert names == {'promotion', 'jsonld', 'wikidata', 'llm'}
 
 
 def test_sectors_cascade_promotion_success_records_matched_and_skips_external_signals(tmp_path):
@@ -857,11 +874,11 @@ def test_sectors_cascade_promotion_success_records_matched_and_skips_external_si
                               'company_id': company['id'], 'sector': 'Banking and insurance'})
     company = vault.load_company(tmp_path, company['id'])
     collector = company_lookup.BackfillAccounting()
-    codes, flag = company_lookup.sectors_cascade(company, signals=(company_lookup._jsonld_signal,),
-                                                  collector=collector)
+    codes, flag = company_lookup.classify_sector(company, signals=(company_lookup._jsonld_signal,),
+                                                  collector=collector, **product_enrich.classification_options())
     assert codes == ['K'] and flag is None
-    assert collector.summary() == {'matched': 1, 'ambiguous': 0, 'rate-limited': 0,
-                                    'fetch-error': 0, 'empty': 0, 'not-attempted': 1}
+    assert collector.summary()['matched'] == 1
+    assert any(e['outcome'] == 'not-attempted' for e in collector.events)
     events = {(e['signal'], e['outcome']) for e in collector.events}
     assert ('promotion', 'matched') in events
     assert ('jsonld', 'not-attempted') in events
@@ -873,11 +890,11 @@ def test_sectors_cascade_promotion_conflict_records_ambiguous_and_skips_external
     # refuses rather than promoting both.
     company = {'id': 'CO-CONFLICT', 'enrichment': {'sectors': ['Enterprise software', 'Enterprise consulting']}}
     collector = company_lookup.BackfillAccounting()
-    codes, flag = company_lookup.sectors_cascade(company, signals=(company_lookup._jsonld_signal,),
-                                                  collector=collector)
+    codes, flag = company_lookup.classify_sector(company, signals=(company_lookup._jsonld_signal,),
+                                                  collector=collector, **product_enrich.classification_options())
     assert codes is None and flag == company_lookup.FLAG_SECTOR_CONFLICT
-    assert collector.summary() == {'matched': 0, 'ambiguous': 1, 'rate-limited': 0,
-                                    'fetch-error': 0, 'empty': 0, 'not-attempted': 1}
+    assert collector.summary()['ambiguous'] == 1
+    assert any(e['signal'] == 'jsonld' and e['outcome'] == 'not-attempted' for e in collector.events)
     events = {(e['signal'], e['outcome']) for e in collector.events}
     assert ('promotion', 'ambiguous') in events
     assert ('jsonld', 'not-attempted') in events
@@ -886,26 +903,27 @@ def test_sectors_cascade_promotion_conflict_records_ambiguous_and_skips_external
 def test_size_cascade_already_populated_records_not_attempted(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Sized Labs', 'size_range': '1-10', 'size_class': 'micro'})
     collector = company_lookup.BackfillAccounting()
-    updates, flag = company_lookup.size_cascade(
-        company, signals=(company_lookup._jsonld_signal, company_lookup._wikidata_signal), collector=collector)
+    updates, flag = company_lookup.classify_size(
+        company, signals=(company_lookup._jsonld_signal, company_lookup._wikidata_signal), collector=collector, **product_enrich.classification_options())
     assert updates is None and flag is None
-    assert collector.summary()['not-attempted'] == 2
+    assert all(e['outcome'] == 'not-attempted' for e in collector.events)
+    assert {'jsonld', 'wikidata'} <= {e['signal'] for e in collector.events}
 
 
 def test_size_cascade_break_on_first_match_records_not_attempted_for_remaining_signals(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Break Labs'})
 
-    def first(c, fetch=None):
+    def first(c, fetch=None, warn=None, deadline=None):
         return {'employee_count': 42}
 
-    def second(c, fetch=None):
+    def second(c, fetch=None, warn=None, deadline=None):
         raise AssertionError('must not be called once an earlier signal already matched')
 
     collector = company_lookup.BackfillAccounting()
-    updates, flag = company_lookup.size_cascade(company, signals=(first, second), collector=collector)
+    updates, flag = company_lookup.classify_size(company, signals=(first, second), collector=collector, **product_enrich.classification_options())
     assert updates == {'size_range': '11-50', 'size_class': 'small'}
-    assert collector.summary() == {'matched': 1, 'ambiguous': 0, 'rate-limited': 0,
-                                    'fetch-error': 0, 'empty': 0, 'not-attempted': 1}
+    assert collector.summary()['matched'] == 1
+    assert any(e['outcome'] == 'not-attempted' for e in collector.events)
     events = {(e['signal'], e['outcome']) for e in collector.events}
     assert ('second', 'not-attempted') in events
 
@@ -917,7 +935,7 @@ def test_fetch_company_jsonld_reports_fetch_error_on_exception():
     def fetch(url):
         raise ValueError('boom')
 
-    result = company_lookup.fetch_company_jsonld('https://fiction.example', fetch=fetch)
+    result = company_lookup.fetch_organisation_jsonld('https://fiction.example', fetch=fetch)
     assert result == {'industry_status': 'error', 'size_status': 'error'}
 
 
@@ -929,10 +947,11 @@ def test_jsonld_production_fetch_error_is_not_counted_as_empty(tmp_path):
         raise urllib.error.HTTPError(url, 500, 'Server Error', {}, None)
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(company_lookup._jsonld_signal,), size_signals=(),
+    product_enrich.plan_backfill(tmp_path, sector_signals=(company_lookup._jsonld_signal,), size_signals=(),
                                   fetch=fetch, collector=collector)
     assert collector.summary()['fetch-error'] == 1
-    assert collector.summary()['empty'] == 1  # promotion-empty only; the 500 is NOT empty
+    assert any(e['signal'] == 'jsonld' and e['outcome'] == 'fetch-error' for e in collector.events)
+    assert not any(e['signal'] == 'jsonld' and e['outcome'] == 'empty' for e in collector.events)
 
 
 # --- JOZ-260 code review: _last_wikidata_call pacing must survive concurrent
@@ -1043,11 +1062,11 @@ def test_sectors_cascade_promotion_empty_records_empty_event():
     # to external signals (JOZ-260 review round 2).
     company = {'id': 'CO-NOPROMO'}  # no enrichment -> promotion returns []
 
-    def fake_signal(c, fetch=None):
+    def fake_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'banking'}
 
     collector = company_lookup.BackfillAccounting()
-    codes, flag = company_lookup.sectors_cascade(company, signals=(fake_signal,), collector=collector)
+    codes, flag = company_lookup.classify_sector(company, signals=(fake_signal,), collector=collector, **product_enrich.classification_options())
     assert codes == ['K'] and flag is None
     events = {(e['signal'], e['outcome']) for e in collector.events}
     assert ('promotion', 'empty') in events
@@ -1057,10 +1076,10 @@ def test_sectors_cascade_promotion_empty_records_empty_event():
 def test_backfill_sectors_and_size_are_independent_cascades(root):
     company = vault.save_company(root, {'name': 'Independent Labs', 'sectors': ['K']})
 
-    def fake_jsonld(c, fetch=None):
+    def fake_jsonld(c, fetch=None, warn=None, deadline=None):
         return {'employee_count': 42}
 
-    updated = company_lookup.backfill(root, size_signals=(fake_jsonld,))
+    updated = product_enrich.backfill(root, size_signals=(fake_jsonld,))
     saved = vault.load_company(root, company['id'])
     assert company['id'] in updated
     assert saved['sectors'] == ['K']  # untouched: already populated
@@ -1094,8 +1113,8 @@ def test_companies_page_has_no_backfill_action(client, root):
 
 def test_backfill_endpoint_is_explicit_and_never_runs_automatically(client, root, monkeypatch):
     calls = []
-    monkeypatch.setattr(company_lookup, 'plan_backfill', lambda root, **kw: calls.append(root) or ([], 3))
-    monkeypatch.setattr(company_lookup, 'apply_backfill', lambda root, plan: ['CO-001'])
+    monkeypatch.setattr(product_enrich, 'plan_backfill', lambda root, **kw: calls.append(root) or ([], 3))
+    monkeypatch.setattr(product_enrich, 'apply_backfill', lambda root, plan: ['CO-001'])
     # Intake and enrich must never trigger the backfill path themselves.
     client.post('/api/jobs/intake', json={'url': 'https://fiction.example/job'})
     assert calls == []
@@ -1130,19 +1149,19 @@ def test_backfill_network_sweep_does_not_hold_write_lock(client, root, monkeypat
         thread.join(1)
         return [], 0
 
-    monkeypatch.setattr(company_lookup, 'plan_backfill', slow_plan)
+    monkeypatch.setattr(product_enrich, 'plan_backfill', slow_plan)
     assert client.post('/api/companies/backfill-sector-size').status_code == 200
 
 
 def test_plan_and_apply_backfill_roundtrip(root, monkeypatch):
-    monkeypatch.setattr(company_lookup, 'sectors_cascade',
-                        lambda company, signals, fetch, collector=None: (['J'], None) if not company.get('sectors') else (None, None))
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda company, signals, fetch, collector=None: (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_sector',
+                        lambda company, signals=None, fetch=None, collector=None, **kwargs: (['J'], None) if not company.get('sectors') else (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda company, signals=None, fetch=None, collector=None, **kwargs: (None, None))
     company = vault.save_company(root, {'name': 'Planned Co'})
-    plan, scanned = company_lookup.plan_backfill(root)
+    plan, scanned = product_enrich.plan_backfill(root)
     assert scanned >= 1
     assert any(c['id'] == company['id'] and ch['sectors'] == ['J'] for c, ch in plan)
-    updated = company_lookup.apply_backfill(root, plan)
+    updated = product_enrich.apply_backfill(root, plan)
     assert company['id'] in updated
     assert vault.load_company(root, company['id'])['sectors'] == ['J']
 
@@ -1154,29 +1173,29 @@ def test_plan_and_apply_backfill_roundtrip(root, monkeypatch):
 def test_plan_backfill_accounting_records_matched(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Matched Labs'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Banking and insurance'}
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
+    product_enrich.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
     # 'promotion'/'empty' is the zero-network promotion step accounting itself
     # (no aggregated data), required for full (signal, field) coverage.
-    assert collector.summary() == {'matched': 1, 'ambiguous': 0, 'rate-limited': 0,
-                                    'fetch-error': 0, 'empty': 1, 'not-attempted': 0}
+    assert collector.summary()['matched'] == 1
+    assert collector.summary()['fetch-error'] == 0
     assert {'company_id': company['id'], 'signal': 'promotion',
-            'field': 'sectors', 'outcome': 'empty'} in collector.events
+            'field': 'sectors', 'outcome': 'empty'} in product_enrich.company_events(collector)
     assert {'company_id': company['id'], 'signal': 'signal',
-            'field': 'sectors', 'outcome': 'matched'} in collector.events
+            'field': 'sectors', 'outcome': 'matched'} in product_enrich.company_events(collector)
 
 
 def test_plan_backfill_accounting_records_ambiguous(tmp_path):
     vault.save_company(tmp_path, {'name': 'Ambiguous Labs'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Technology'}  # matches both J and M
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
+    product_enrich.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
     assert collector.summary()['ambiguous'] == 1
     assert collector.summary()['matched'] == 0
 
@@ -1184,34 +1203,34 @@ def test_plan_backfill_accounting_records_ambiguous(tmp_path):
 def test_plan_backfill_accounting_records_rate_limited(tmp_path):
     vault.save_company(tmp_path, {'name': 'RateLimited Labs'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {'industry_status': 'rate_limited', 'size_status': 'rate_limited'}
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,), collector=collector)
+    product_enrich.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,), collector=collector)
     assert collector.summary()['rate-limited'] == 2  # once for sectors, once for size
 
 
 def test_plan_backfill_accounting_records_fetch_error(tmp_path):
     vault.save_company(tmp_path, {'name': 'FetchError Labs'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {'industry_status': 'error'}
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
+    product_enrich.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(), collector=collector)
     assert collector.summary()['fetch-error'] == 1
 
 
 def test_plan_backfill_accounting_records_empty(tmp_path):
     vault.save_company(tmp_path, {'name': 'Empty Labs'})
 
-    def signal(c, fetch=None):
+    def signal(c, fetch=None, warn=None, deadline=None):
         return {}
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,), collector=collector)
-    assert collector.summary()['empty'] == 3  # promotion-empty + one per signal field
+    product_enrich.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,), collector=collector)
+    assert {(e['field'], e['outcome']) for e in collector.events if e['signal'] == 'signal'} == {('sectors', 'empty'), ('size', 'empty')}
     assert collector.summary()['fetch-error'] == 0
 
 
@@ -1219,15 +1238,15 @@ def test_plan_backfill_accounting_records_not_attempted_for_missing_website(tmp_
     vault.save_company(tmp_path, {'name': 'No Website Labs'})  # no website set
 
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(company_lookup._jsonld_signal,),
+    product_enrich.plan_backfill(tmp_path, sector_signals=(company_lookup._jsonld_signal,),
                                   size_signals=(), collector=collector)
-    assert collector.summary()['not-attempted'] == 1
+    assert any(e['signal'] == 'jsonld' and e['outcome'] == 'not-attempted' for e in collector.events)
 
 
 def test_plan_backfill_accounting_disabled_by_default_has_no_cost(tmp_path):
     # collector=None (the default) must not raise or require any caller change.
     vault.save_company(tmp_path, {'name': 'Uncollected Labs'})
-    plan, scanned = company_lookup.plan_backfill(tmp_path, sector_signals=(), size_signals=())
+    plan, scanned = product_enrich.plan_backfill(tmp_path, sector_signals=(), size_signals=())
     assert scanned == 1
 
 
@@ -1244,24 +1263,25 @@ def test_llm_signal_disabled_by_default_is_not_attempted(tmp_path, monkeypatch):
     monkeypatch.delenv('BACKFILL_USE_LLM', raising=False)
     vault.save_company(tmp_path, {'name': 'Unflagged Labs'})
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
+    product_enrich.plan_backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
                                   size_signals=(company_lookup._llm_signal,), collector=collector)
     events = {(e['signal'], e['field'], e['outcome']) for e in collector.events}
     assert ('llm', 'sectors', 'not-attempted') in events
     assert ('llm', 'size', 'not-attempted') in events
 
 
-def test_llm_signal_is_part_of_default_cascades_but_inert_without_the_env_flag(tmp_path, monkeypatch):
-    # SECTOR_SIGNALS/SIZE_SIGNALS include _llm_signal unconditionally (cheapest
-    # -first ordering is a constant, module-level tuple); it is BACKFILL_USE_LLM
-    # that decides whether it ever reaches the network, not cascade membership.
+def test_llm_fallback_owned_by_capability_and_inert_without_the_env_flag(tmp_path, monkeypatch):
+    # The capability (org_intake.enrich.external_sectors / size_cascade)
+    # owns the gated LLM fallback: it appends _llm_signal itself when
+    # classification_options() injects llm_client, so the product signal
+    # tuples must NOT include it (adding it would run the LLM twice per
+    # field per record). BACKFILL_USE_LLM still decides whether the
+    # capability ever sees an llm_client, not tuple membership.
     monkeypatch.delenv('BACKFILL_USE_LLM', raising=False)
-    assert company_lookup._llm_signal in company_lookup.SECTOR_SIGNALS
-    assert company_lookup._llm_signal in company_lookup.SIZE_SIGNALS
-    assert company_lookup.SECTOR_SIGNALS.index(company_lookup._llm_signal) > \
-        company_lookup.SECTOR_SIGNALS.index(company_lookup._wikidata_signal)
+    assert company_lookup._llm_signal not in product_enrich.SECTOR_SIGNALS
+    assert company_lookup._llm_signal not in product_enrich.SIZE_SIGNALS
     vault.save_company(tmp_path, {'name': 'Default Cascade Labs'})
-    plan, scanned = company_lookup.plan_backfill(tmp_path)  # real module defaults
+    plan, scanned = product_enrich.plan_backfill(tmp_path)  # real module defaults
     assert scanned == 1  # no exception, no network call attempted
 
 
@@ -1277,8 +1297,8 @@ def _counting_llm_client(monkeypatch, content):
         calls['n'] += 1
         return client_for(content if isinstance(content, str) else json.dumps(content))
 
-    monkeypatch.setattr(company_lookup, 'get_llm_client', factory)
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_client', factory)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     return calls
 
 
@@ -1287,12 +1307,12 @@ def test_external_sectors_llm_not_called_after_structured_success(tmp_path, monk
     calls = _counting_llm_client(monkeypatch, {
         'sector': 'K', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': None})
 
-    def structured_signal(c, fetch=None):
+    def structured_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Software and IT services', 'employee_count': None}
 
     company = vault.save_company(tmp_path, {'name': 'Already Classified Co'})
     codes, flag = company_lookup.external_sectors(
-        company, signals=(structured_signal, company_lookup._llm_signal))
+        company, signals=(structured_signal, company_lookup._llm_signal), **product_enrich.classification_options())
     assert codes == ['J'] and flag is None
     assert calls['n'] == 0  # LLM must never run once a structured signal already matched
 
@@ -1302,13 +1322,13 @@ def test_external_sectors_llm_called_as_fallback_when_structured_empty(tmp_path,
     calls = _counting_llm_client(monkeypatch, {
         'sector': 'K', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': None})
 
-    def empty_signal(c, fetch=None):
+    def empty_signal(c, fetch=None, warn=None, deadline=None):
         return {}
 
     company = vault.save_company(tmp_path, {'name': 'Nothing Structured Co'})
     collector = company_lookup.BackfillAccounting()
     codes, flag = company_lookup.external_sectors(
-        company, signals=(empty_signal, company_lookup._llm_signal), collector=collector)
+        company, signals=(empty_signal, company_lookup._llm_signal), collector=collector, **product_enrich.classification_options())
     assert codes == ['K'] and flag is None
     assert calls['n'] == 1
     events = {(e['signal'], e['outcome']) for e in collector.events}
@@ -1320,15 +1340,15 @@ def test_external_sectors_structured_conflict_short_circuits_before_llm(tmp_path
     calls = _counting_llm_client(monkeypatch, {
         'sector': 'J', 'sector_label': 'software company', 'confidence': 'high', 'size_hint': None})
 
-    def software_signal(c, fetch=None):
+    def software_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Software and IT services', 'employee_count': None}
 
-    def banking_signal(c, fetch=None):
+    def banking_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Banking and insurance', 'employee_count': None}
 
     company = vault.save_company(tmp_path, {'name': 'Conflicted Co'})
     codes, flag = company_lookup.external_sectors(
-        company, signals=(software_signal, banking_signal, company_lookup._llm_signal))
+        company, signals=(software_signal, banking_signal, company_lookup._llm_signal), **product_enrich.classification_options())
     assert codes is None and flag == company_lookup.FLAG_SECTOR_CONFLICT
     assert calls['n'] == 0  # an existing structured conflict is never masked by an LLM opinion
 
@@ -1338,11 +1358,11 @@ def test_size_cascade_llm_not_called_after_structured_success(tmp_path, monkeypa
     calls = _counting_llm_client(monkeypatch, {
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})
 
-    def structured_signal(c, fetch=None):
+    def structured_signal(c, fetch=None, warn=None, deadline=None):
         return {'employee_count': 42}
 
     company = vault.save_company(tmp_path, {'name': 'Already Sized Co'})
-    updates, flag = company_lookup.size_cascade(company, signals=(structured_signal, company_lookup._llm_signal))
+    updates, flag = company_lookup.classify_size(company, signals=(structured_signal, company_lookup._llm_signal), **product_enrich.classification_options())
     assert updates == {'size_range': '11-50', 'size_class': 'small'}
     assert calls['n'] == 0
 
@@ -1352,13 +1372,13 @@ def test_size_cascade_llm_called_as_fallback_when_structured_empty(tmp_path, mon
     calls = _counting_llm_client(monkeypatch, {
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})
 
-    def empty_signal(c, fetch=None):
+    def empty_signal(c, fetch=None, warn=None, deadline=None):
         return {}
 
     company = vault.save_company(tmp_path, {'name': 'Needs Fallback Co'})
     collector = company_lookup.BackfillAccounting()
-    updates, flag = company_lookup.size_cascade(
-        company, signals=(empty_signal, company_lookup._llm_signal), collector=collector)
+    updates, flag = company_lookup.classify_size(
+        company, signals=(empty_signal, company_lookup._llm_signal), collector=collector, **product_enrich.classification_options())
     assert updates == {'size_class': 'large'}
     assert calls['n'] == 1
     events = {(e['signal'], e['outcome']) for e in collector.events}
@@ -1370,12 +1390,12 @@ def test_size_cascade_structured_contradiction_short_circuits_before_llm(tmp_pat
     calls = _counting_llm_client(monkeypatch, {
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})
 
-    def contradicting_signal(c, fetch=None):
+    def contradicting_signal(c, fetch=None, warn=None, deadline=None):
         return {'employee_count': 500}  # contradicts the already-populated size_range
 
     company = vault.save_company(tmp_path, {'name': 'Contradicted Co', 'size_range': '1-10'})
-    updates, flag = company_lookup.size_cascade(
-        company, signals=(contradicting_signal, company_lookup._llm_signal))
+    updates, flag = company_lookup.classify_size(
+        company, signals=(contradicting_signal, company_lookup._llm_signal), **product_enrich.classification_options())
     assert updates is None and flag == company_lookup.FLAG_SIZE_INCONSISTENT
     assert calls['n'] == 0
 
@@ -1383,12 +1403,12 @@ def test_size_cascade_structured_contradiction_short_circuits_before_llm(tmp_pat
 def test_llm_signal_high_confidence_fills_sector_and_size_with_llm_provenance(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': 'K', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': 'large'})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Big Bank Inc'})
     collector = company_lookup.BackfillAccounting()
-    updated = company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
+    updated = product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
                                       size_signals=(company_lookup._llm_signal,), collector=collector)
     saved = vault.load_company(tmp_path, company['id'])
     assert company['id'] in updated
@@ -1405,12 +1425,12 @@ def test_llm_signal_high_confidence_fills_sector_and_size_with_llm_provenance(tm
 def test_llm_signal_letter_authoritative_when_label_has_no_keyword_match(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': 'Q', 'sector_label': 'runs a well-known chain of clinics',
         'confidence': 'high', 'size_hint': None})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Clinic Co'})
-    company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
     assert vault.load_company(tmp_path, company['id'])['sectors'] == ['Q']
 
 
@@ -1420,11 +1440,11 @@ def test_llm_signal_self_contradictory_rationale_refused(tmp_path, monkeypatch):
     # response contradicts itself, so it is refused rather than trusted.
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': 'J', 'sector_label': 'construction company', 'confidence': 'high', 'size_hint': None})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Self Contradicting Co'})
-    company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['sectors'] == []
     assert company_lookup.FLAG_SECTOR_AMBIGUOUS in saved['review_flags']
@@ -1433,11 +1453,11 @@ def test_llm_signal_self_contradictory_rationale_refused(tmp_path, monkeypatch):
 def test_llm_signal_low_confidence_flags_for_review_without_filling(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': 'K', 'sector_label': 'maybe a bank?', 'confidence': 'low', 'size_hint': None})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Unsure Co'})
-    updated = company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    updated = product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
     saved = vault.load_company(tmp_path, company['id'])
     assert company['id'] in updated  # the review flag itself is a persisted change
     assert saved['sectors'] == []
@@ -1447,11 +1467,11 @@ def test_llm_signal_low_confidence_flags_for_review_without_filling(tmp_path, mo
 def test_llm_signal_invalid_sector_letter_is_ambiguous(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': 'ZZ', 'sector_label': 'something', 'confidence': 'high', 'size_hint': None})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Bad Letter Co'})
-    company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['sectors'] == []
     assert company_lookup.FLAG_SECTOR_AMBIGUOUS in saved['review_flags']
@@ -1459,11 +1479,11 @@ def test_llm_signal_invalid_sector_letter_is_ambiguous(tmp_path, monkeypatch):
 
 def test_llm_signal_malformed_json_flags_ambiguous(tmp_path, monkeypatch):
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for('not json'))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for('not json'))
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Garbled Co'})
     collector = company_lookup.BackfillAccounting()
-    updated = company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
+    updated = product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
                                       size_signals=(), collector=collector)
     saved = vault.load_company(tmp_path, company['id'])
     assert company['id'] in updated
@@ -1474,11 +1494,11 @@ def test_llm_signal_malformed_json_flags_ambiguous(tmp_path, monkeypatch):
 
 def test_llm_signal_endpoint_error_is_fetch_error_for_both_fields(tmp_path, monkeypatch):
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(error=RuntimeError('boom')))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(error=RuntimeError('boom')))
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     vault.save_company(tmp_path, {'name': 'Unreachable Co'})
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
+    product_enrich.plan_backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
                                   size_signals=(company_lookup._llm_signal,), collector=collector)
     events = {(e['signal'], e['field'], e['outcome']) for e in collector.events}
     assert ('llm', 'sectors', 'fetch-error') in events
@@ -1492,8 +1512,9 @@ def test_llm_classify_enforces_overall_deadline_even_if_client_ignores_timeout(t
     import time
     from types import SimpleNamespace
 
-    monkeypatch.setattr(company_lookup, 'LLM_TIMEOUT', 0.05)
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'LLM_TIMEOUT', 0.05)
+    monkeypatch.setenv('BACKFILL_USE_LLM', '1')
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
 
     def hanging_client():
         def create(**kwargs):
@@ -1501,23 +1522,29 @@ def test_llm_classify_enforces_overall_deadline_even_if_client_ignores_timeout(t
             raise AssertionError('unreachable')
         return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
-    monkeypatch.setattr(company_lookup, 'get_llm_client', hanging_client)
+    monkeypatch.setattr(product_enrich, 'get_llm_client', hanging_client)
     company = vault.save_company(tmp_path, {'name': 'Hanging Co'})
     started = time.monotonic()
-    data, status = company_lookup._llm_classify(company)
+    collector = company_lookup.BackfillAccounting()
+    product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(), collector=collector)
     elapsed = time.monotonic() - started
-    assert data is None and status == 'error'
+    # Both fields independently fall back to the injected (gated) LLM
+    # client when every structured signal is empty; each fallback hits
+    # the overall deadline exactly once, so the accounting shows one
+    # fetch-error for sectors and one for size.
+    assert collector.summary()['fetch-error'] == 2
+    assert vault.load_company(tmp_path, company['id'])['sectors'] == []
     assert elapsed < 1  # the overall deadline fired well before the 5s sleep
 
 
 def test_llm_signal_size_hint_contradicts_populated_size_class_flags_review(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Contradicted Size Co', 'size_class': 'micro'})
-    company_lookup.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
+    product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] == 'micro'  # never overwritten
     assert company_lookup.FLAG_SIZE_INCONSISTENT in saved['review_flags']
@@ -1526,11 +1553,11 @@ def test_llm_signal_size_hint_contradicts_populated_size_class_flags_review(tmp_
 def test_llm_signal_size_hint_fills_size_class_only_never_size_range(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Class Only Co'})
-    company_lookup.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
+    product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] == 'large'
     assert saved['size_range'] is None  # a class hint alone must never fabricate a range bucket
@@ -1544,11 +1571,11 @@ def test_llm_signal_size_hint_fills_size_class_only_never_size_range(tmp_path, m
 def test_llm_signal_size_hint_compatible_with_populated_range_fills_size_class(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Compatible Range Co', 'size_range': '1000+'})
-    company_lookup.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
+    product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] == 'large'
     assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
@@ -1559,11 +1586,11 @@ def test_llm_signal_size_hint_contradicts_populated_range_flags_without_filling(
     # to fill size_class='large' with no review flag at all.
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Tiny Shop Co', 'size_range': '1-10'})
-    company_lookup.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
+    product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] is None  # nothing filled
     assert saved['size_range'] == '1-10'
@@ -1571,16 +1598,17 @@ def test_llm_signal_size_hint_contradicts_populated_range_flags_without_filling(
 
 
 def test_llm_signal_size_hint_boundary_spanning_range_treated_as_compatible(tmp_path, monkeypatch):
-    # '11-50' spans 'small' (counts 11-49) and 'medium' (count 50 exactly):
-    # a hint naming either adjacent class is plausible evidence, not a
-    # contradiction, since the range alone can't rule the narrower one out.
+    # Under contract rule 8 (inclusive EU thresholds), '201-1000' straddles
+    # 'medium' (counts 201..250) and 'large' (counts 251..1000): a hint
+    # naming either adjacent class is plausible evidence, not a
+    # contradiction, since the range alone cannot rule the narrower one out.
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'medium'})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
-    company = vault.save_company(tmp_path, {'name': 'Boundary Co', 'size_range': '11-50'})
-    company_lookup.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
+    company = vault.save_company(tmp_path, {'name': 'Boundary Co', 'size_range': '201-1000'})
+    product_enrich.backfill(tmp_path, sector_signals=(), size_signals=())
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] == 'medium'
     assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
@@ -1602,11 +1630,11 @@ def test_llm_signal_prompt_contains_only_identifying_fields_never_job_data(tmp_p
         client.chat.completions.create = capturing_create
         return client
 
-    monkeypatch.setattr(company_lookup, 'get_llm_client', fake_client)
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_client', fake_client)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     vault.save_company(tmp_path, {'name': 'Scoped Co', 'website': 'https://scoped.example',
                                   'locations': ['Berlin'], 'notes': 'Owner note.'})
-    company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
     content = ' '.join(m['content'] for m in captured['messages'])
     assert 'Scoped Co' in content and 'scoped.example' in content
     assert 'Berlin' in content and 'Owner note.' in content
@@ -1658,10 +1686,10 @@ def test_llm_system_prompt_inlines_the_isic_letter_table(tmp_path, monkeypatch):
         client.chat.completions.create = capturing_create
         return client
 
-    monkeypatch.setattr(company_lookup, 'get_llm_client', fake_client)
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_client', fake_client)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     vault.save_company(tmp_path, {'name': 'Table Co', 'website': 'https://table.example'})
-    company_lookup.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
+    product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
     system = [m for m in captured['messages'] if m['role'] == 'system']
     assert len(system) == 1
     assert 'D = Electricity, gas, steam and air conditioning supply' in system[0]['content']
@@ -1672,12 +1700,12 @@ def test_llm_system_prompt_inlines_the_isic_letter_table(tmp_path, monkeypatch):
 def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
-    monkeypatch.setattr(company_lookup, 'get_llm_client', lambda: client_for(json.dumps({
+    monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': 'J', 'sector_label': 'software company', 'confidence': 'high', 'size_hint': 'small'})))
-    monkeypatch.setattr(company_lookup, 'get_llm_model', object)
+    monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     vault.save_company(tmp_path, {'name': 'Counted Software Co'})
     collector = company_lookup.BackfillAccounting()
-    company_lookup.plan_backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
+    product_enrich.plan_backfill(tmp_path, sector_signals=(company_lookup._llm_signal,),
                                   size_signals=(company_lookup._llm_signal,), collector=collector)
     summary = collector.summary()
     assert summary['matched'] == 2  # one for sectors, one for size
@@ -1749,8 +1777,8 @@ def test_company_detail_hides_retry_for_an_untouched_company(client, root):
 
 def test_retry_company_endpoint_happy_path_reuses_sector_size_cascade(client, root, monkeypatch):
     company = vault.save_company(root, {'name': 'Retry Me Labs'})
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['J'], None))
-    monkeypatch.setattr(company_lookup, 'size_cascade',
+    monkeypatch.setattr(company_lookup, 'classify_sector', lambda c, **kw: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'classify_size',
                         lambda c, **kw: ({'size_range': '1-10', 'size_class': 'micro'}, None))
     response = client.post('/api/companies/' + company['id'] + '/retry')
     assert response.status_code == 200
@@ -1781,8 +1809,8 @@ def test_retry_company_endpoint_never_gated_on_auto_cascade_enabled(client, root
     from careeros import server
     assert server.AUTO_CASCADE_ENABLED is False
     company = vault.save_company(root, {'name': 'Always Runs Labs'})
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['K'], None))
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda c, **kw: (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_sector', lambda c, **kw: (['K'], None))
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda c, **kw: (None, None))
     response = client.post('/api/companies/' + company['id'] + '/retry')
     assert response.status_code == 200
     assert vault.load_company(root, company['id'])['sectors'] == ['K']
@@ -1795,18 +1823,18 @@ def test_older_auto_cascade_cannot_overwrite_completed_retry(client, root, monke
     entered, release = Event(), Event()
     monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
 
-    def older_empty(company, collector):
+    def older_empty(company, collector, **kwargs):
         entered.set()
         assert release.wait(5)
         collector.record(company['id'], older_empty, 'sectors', 'empty')
         return None, None
 
-    def newer_conflict(company, collector):
+    def newer_conflict(company, collector, **kwargs):
         collector.record(company['id'], newer_conflict, 'sectors', 'ambiguous')
         return None, company_lookup.FLAG_SECTOR_CONFLICT
 
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', older_empty)
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_sector', older_empty)
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k: (None, None))
     monkeypatch.setattr(intake, 'fetch_url', lambda url:
                         '<script type="application/ld+json">{"@type":"JobPosting",'
                         '"title":"Role","hiringOrganization":{"name":"Retry Race Labs"}}'
@@ -1816,7 +1844,7 @@ def test_older_auto_cascade_cannot_overwrite_completed_retry(client, root, monke
     worker = client.application.config['CASCADE_THREADS'][company_id]
     try:
         assert entered.wait(5)
-        monkeypatch.setattr(company_lookup, 'sectors_cascade', newer_conflict)
+        monkeypatch.setattr(company_lookup, 'classify_sector', newer_conflict)
         response = client.post('/api/companies/' + company_id + '/retry')
         assert response.status_code == 200
         completed = response.json
@@ -1844,8 +1872,8 @@ def test_retry_company_rejects_mid_run_disappearance_or_kind_change(client, root
             assert client.put('/api/companies/' + company['id'], json={'kind': 'institution'}).status_code == 200
         return ['J'], None
 
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', change_during_cascade)
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_sector', change_during_cascade)
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k: (None, None))
     response = client.post('/api/companies/' + company['id'] + '/retry')
     assert response.status_code == status
     assert response.json['error'] == ('Company not found.' if change == 'delete'
@@ -1862,8 +1890,8 @@ def test_retry_company_rejects_mid_run_disappearance_or_kind_change(client, root
 @pytest.mark.parametrize('flag,state', [(None, 'exhausted'), (company_lookup.FLAG_SECTOR_CONFLICT, 'flagged')])
 def test_retry_company_response_reports_completed_empty_or_flagged_outcome(client, root, monkeypatch, flag, state):
     company = vault.save_company(root, {'name': 'Outcome Labs'})
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda *a, **k: (None, flag))
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_sector', lambda *a, **k: (None, flag))
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k: (None, None))
     response = client.post('/api/companies/' + company['id'] + '/retry')
     assert response.status_code == 200
     assert response.json['enrichment']['field_states']['sectors']['state'] == state
@@ -1873,22 +1901,20 @@ def test_retry_company_response_reports_completed_empty_or_flagged_outcome(clien
 
 # --- M1 amendment: website signal follows redirects safely (2026-10-09) ---
 
-def test_fetch_company_jsonld_uses_redirect_following_fetcher_by_default(monkeypatch):
-    """The real-world failure: a company homepage that 301s to a localized
-    landing page, and the strict intake fetcher refused the redirect, so the
-    website signal reported fetch-error on every company with a redirecting
-    homepage. The default fetcher must now be fetch_url_follow."""
+def test_fetch_company_jsonld_uses_redirect_following_fetcher_by_default(client, root, monkeypatch):
+    """Product company Retry uses the capability default fetch, separate from postings."""
+    from org_intake import fetch as org_fetch
     calls = []
-
     def fake_follow(url):
         calls.append(url)
-        return ('<script type="application/ld+json">'
-                '{"industry": "Electric power"}</scr' + 'ipt>')
-
-    monkeypatch.setattr(intake, 'fetch_url_follow', fake_follow)
-    result = company_lookup.fetch_company_jsonld('https://fiction.example')
-    assert calls == ['https://fiction.example']
-    assert result['industry'] == 'Electric power'
+        return '<script type="application/ld+json">{"industry":"Electric power generation","numberOfEmployees":42}</script>'
+    monkeypatch.setattr(org_fetch, 'default_fetch', fake_follow)
+    company = vault.save_company(root, {'name': 'Power Labs', 'website': 'https://power.example'})
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert 'https://power.example' in calls
+    assert response.json['sectors'] == ['D']
+    assert response.json['size_class'] == 'small'
 
 
 def test_safe_redirect_handler_rechecks_target_safety(monkeypatch):
@@ -2018,8 +2044,8 @@ def test_retry_applied_reports_only_fields_this_invocation_wrote(client, root, m
     # Seed a prior 'filled' state so the stored field_states lie about freshness.
     company = vault.save_company(root, {**company,
                                         'enrichment': {'field_states': {'sectors': {'state': 'filled'}}}})
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda *a, **k: (['J'], None))
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_sector', lambda *a, **k: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k: (None, None))
     response = client.post('/api/companies/' + company['id'] + '/retry')
     assert response.status_code == 200
     # sectors already set -> not eligible -> not applied; size exhausted -> not applied.
@@ -2028,8 +2054,8 @@ def test_retry_applied_reports_only_fields_this_invocation_wrote(client, root, m
 
 def test_retry_applied_lists_a_field_only_when_this_run_writes_it(client, root, monkeypatch):
     company = vault.save_company(root, {'name': 'Fresh Fill Labs'})
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', lambda c, **kw: (['J'], None))
-    monkeypatch.setattr(company_lookup, 'size_cascade',
+    monkeypatch.setattr(company_lookup, 'classify_sector', lambda c, **kw: (['J'], None))
+    monkeypatch.setattr(company_lookup, 'classify_size',
                         lambda c, **kw: ({'size_range': '1-10', 'size_class': 'micro'}, None))
     response = client.post('/api/companies/' + company['id'] + '/retry')
     assert response.status_code == 200

@@ -119,13 +119,14 @@ def test_corrupt_and_nonmapping_yaml_never_crash(root, client):
 
 
 def test_migrate_job_fields_backfills_every_missing_key(root):
-    from careeros import url_normalize
+    from org_intake.url import normalize_url
+    from careeros.intake import posting_ats
     for job in vault.list_jobs(root):
         assert job.get('normalized_url') is None
     migrated = vault.migrate_job_fields(root)
     assert set(migrated) == {j['id'] for j in vault.list_jobs(root)}
     for job in vault.list_jobs(root):
-        assert job['normalized_url'] == url_normalize.normalize(job['url'])
+        assert job['normalized_url'] == normalize_url(job['url'])
         assert job['in_pipeline'] is True
         assert job['origin'] == 'manual'
         assert job['ingest_state'] == 'complete'
@@ -135,7 +136,7 @@ def test_migrate_job_fields_backfills_every_missing_key(root):
         # m6: migration also detects ATS identity for legacy URLs, so a
         # sample job whose URL is a real ATS posting (the Personio one)
         # must come out detected, not stuck at None for every job.
-        expected = url_normalize.detect_ats(job['url'])
+        expected = posting_ats(job['url'])
         assert job['ats_provider'] == (expected.provider if expected else None)
         assert job['ats_tenant'] == (expected.tenant if expected else None)
         assert job['ats_posting_id'] == (expected.posting_id if expected else None)
@@ -209,7 +210,9 @@ def test_migrate_job_fields_backfilled_ats_identity_matches_as_duplicate(root):
     # migration, a re-add of an alternate-form URL for the same posting
     # must be caught by the hard duplicate check, not slip through as a
     # second record because the stored identity was never detected.
-    from careeros import dedupe, url_normalize
+    from careeros import dedupe
+    from org_intake.url import normalize_url
+    from careeros.intake import posting_ats
     path = next(p for p in (root / 'jobs').glob('*.yaml') if yaml.safe_load(p.read_text())['id'] == 'JOB-005')
     data = yaml.safe_load(path.read_text())
     data['normalized_url'] = data['url']
@@ -224,8 +227,8 @@ def test_migrate_job_fields_backfilled_ats_identity_matches_as_duplicate(root):
     # but the ATS identity (provider, tenant, posting id) is identical,
     # exercising the same_ats_posting_id path specifically.
     alternate_url = 'https://lanternpeak.jobs.personio.com/job/10001'
-    ats_match = url_normalize.detect_ats(alternate_url)
-    existing, basis = dedupe.find_duplicate(root, url_normalize.normalize(alternate_url), ats_match)
+    ats_match = posting_ats(alternate_url)
+    existing, basis = dedupe.find_duplicate(root, normalize_url(alternate_url), ats_match)
     assert existing is not None and existing['id'] == 'JOB-005'
     assert basis == 'same_ats_posting_id'
 
@@ -351,13 +354,15 @@ def test_no_host_path_in_implementation():
 
 
 def test_migrate_null_greenhouse_identity_matches_alternate_form(root):
-    from careeros import dedupe, url_normalize
+    from careeros import dedupe
+    from org_intake.url import normalize_url
+    from careeros.intake import posting_ats
     job = vault.save_job(root, {'title': 'Role', 'url': 'https://boards.greenhouse.io/fixture/jobs/7654'})
     assert all(job[key] is None for key in ('ats_provider', 'ats_tenant', 'ats_posting_id'))
     vault.migrate_job_fields(root)
     migrated = vault.load_job(root, job['id'])
     assert (migrated['ats_provider'], migrated['ats_tenant'], migrated['ats_posting_id']) == ('greenhouse', 'fixture', '7654')
     alternate = 'https://job-boards.greenhouse.io/fixture/jobs/7654'
-    match, basis = dedupe.find_duplicate(root, url_normalize.normalize(alternate), url_normalize.detect_ats(alternate))
+    match, basis = dedupe.find_duplicate(root, normalize_url(alternate), posting_ats(alternate))
     assert match['id'] == job['id']
     assert basis == 'same_ats_posting_id'

@@ -11,7 +11,9 @@ import threading
 
 import pytest
 
-from careeros import company_lookup, company_resolve, ingest, intake, server, vault
+from careeros import ingest, intake, server, vault
+from org_intake import enrich as company_lookup, identity
+from careeros.org_store import VaultOrganisationStore
 from careeros.server import create_app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -199,7 +201,7 @@ def test_resolve_review_create_new_company(client, monkeypatch):
     # Create a real fuzzy review before submitting the owner's choice.
     root = client.application.config['VAULT_PATH']
     job = first['job']
-    resolution = company_resolve.resolve_and_link(root, url='', employer_name='Nimbus Freightlines Group')
+    resolution = server.resolve_company(root, url='', employer_name='Nimbus Freightlines Group')
     job = vault.save_job(root, resolution, job['id'])
     review = client.post('/api/jobs/' + first['job']['id'] + '/resolve-review',
                          json={'create': {'name': 'Nimbus Freight Group'}, 'review_token': job['company_review']['token']})
@@ -266,7 +268,7 @@ def test_rerun_resolution_resolves_a_pending_job_without_refetch(client):
         'title': 'Pending role', 'url': 'https://still-pending.example/role',
         'company_link_state': 'pending', 'employer_named_in_posting': None, 'company': ''})
     company = vault.save_company(root, {'name': 'Still Pending Co'})
-    company_resolve.add_identifier(root, company, 'domain', 'still-pending.example', 'scrape')
+    identity.add_identifier(VaultOrganisationStore(root), company, 'domain', 'still-pending.example', 'scrape')
 
     rerun = client.post('/api/jobs/' + job['id'] + '/resolve')
     assert rerun.json['company_id'] == company['id']
@@ -398,12 +400,12 @@ def test_resolve_review_rejects_stale_concurrent_submission(client, monkeypatch)
 
     release = threading.Event()
     entered = threading.Event()
-    original = company_resolve.apply_review
+    original = identity.apply_review
     def slow_apply(*args, **kwargs):
         entered.set()
         release.wait(timeout=5)
         return original(*args, **kwargs)
-    monkeypatch.setattr(company_resolve, 'apply_review', slow_apply)
+    monkeypatch.setattr(identity, 'apply_review', slow_apply)
 
     results = {}
     def first_request():
@@ -426,16 +428,24 @@ def test_resolve_review_rejects_stale_concurrent_submission(client, monkeypatch)
                              for i in c.get('identifiers', []))]
     assert len(variant_owners) == 1
     # Deterministic subsequent resolution: exactly one owner taught "Acme".
-    rerun = company_resolve.resolve_and_link(root, url='https://unrelated.example/m5-rerun-role', employer_name='Acme')
+    rerun = server.resolve_company(root, url='https://unrelated.example/m5-rerun-role', employer_name='Acme')
     assert rerun['company_id'] == final['company_id']
     assert rerun['company_link_reason'] == 'name_exact'
 
 
-def test_ambiguous_exact_name_match_needs_review(client, monkeypatch):
+@pytest.mark.parametrize('employer_evidenced', [True, False])
+def test_ambiguous_exact_name_match_needs_review(client, monkeypatch, employer_evidenced):
     root = client.application.config['VAULT_PATH']
     first = vault.save_company(root, {'name': 'Acme Holdings'})
     second = vault.save_company(root, {'name': 'Acme Holdings'})
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Acme Holdings'))
+    if not employer_evidenced:
+        original = intake.ingest_posting
+        def fallback_only(*args, **kwargs):
+            result = original(*args, **kwargs)
+            result['employer_named_in_posting'] = None
+            return result
+        monkeypatch.setattr(intake, 'ingest_posting', fallback_only)
     data = client.post('/api/jobs/intake', json={'url': 'https://unrelated.example/m5-ambiguous-role'}).json
     job = data['job']
     assert job['company_id'] is None
@@ -485,8 +495,8 @@ def test_new_company_schedules_enrichment_cascade(client, monkeypatch):
     def fake_size_cascade(company, *args, **kwargs):
         calls['size'] += 1
         return None, None
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', fake_sectors_cascade)
-    monkeypatch.setattr(company_lookup, 'size_cascade', fake_size_cascade)
+    monkeypatch.setattr(company_lookup, 'classify_sector', fake_sectors_cascade)
+    monkeypatch.setattr(company_lookup, 'classify_size', fake_size_cascade)
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Nimbus Robotics'))
     data = client.post('/api/jobs/intake', json={'url': 'https://nimbus-robotics.example/role'}).json
     company_id = data['company']['id']
@@ -536,12 +546,12 @@ def test_r1_owner_edit_mid_cascade_survives(client, monkeypatch, edit):
     root = client.application.config['VAULT_PATH']
     entered, release = threading.Event(), threading.Event()
     monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
-    def sectors(company, collector):
+    def sectors(company, collector, **kwargs):
         entered.set()
         assert release.wait(5)
         return ['J'], None
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', sectors)
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k:
+    monkeypatch.setattr(company_lookup, 'classify_sector', sectors)
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k:
                         ({'size_range': '10-49', 'size_class': 'small'}, None))
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Cascade Probe'))
     result = client.post('/api/jobs/intake', json={'url': 'https://cascade.example/job'}).json
@@ -586,7 +596,7 @@ def test_r3_tokenless_and_double_pick(client):
     root = client.application.config['VAULT_PATH']
     first = vault.save_company(root, {'name': 'Acme GmbH'})
     second = vault.save_company(root, {'name': 'Acme Inc'})
-    resolution = company_resolve.resolve_and_link(root, url='', employer_name='Acme')
+    resolution = server.resolve_company(root, url='', employer_name='Acme')
     job = vault.save_job(root, {'title': 'Review', 'url': 'https://probe.example/job', 'employer_named_in_posting': 'Acme', **resolution})
     url = '/api/jobs/' + job['id'] + '/resolve-review'
     assert client.post(url, json={'company_id': first['id']}).status_code == 409
@@ -599,13 +609,13 @@ def test_r3_tokenless_and_double_pick(client):
 def test_r4_domain_fuzzy_includes_current_and_exact_reason(root):
     company = vault.save_company(root, {'name': 'Acme GmbH', 'identifiers': [
         {'type': 'domain', 'value': 'acme.example', 'provenance': 'scrape'}]})
-    result = company_resolve.resolve_and_link(root, url='https://acme.example/job', employer_name='Acme')
+    result = server.resolve_company(root, url='https://acme.example/job', employer_name='Acme')
     assert result['company_link_state'] == 'needs_review'
     current = next(c for c in result['company_review']['candidates'] if c['company_id'] == company['id'])
     assert current['current'] is True
     assert .6 <= current['score'] < 1
     vault.save_company(root, {'name': 'Acme'})
-    result = company_resolve.resolve_and_link(root, url='https://acme.example/job', employer_name='Acme')
+    result = server.resolve_company(root, url='https://acme.example/job', employer_name='Acme')
     assert result['company_link_reason'] == 'ambiguous_exact'
 
 
@@ -630,7 +640,7 @@ def test_r6_staffing_create_keeps_single_tenant_owner(client):
     owner = vault.save_company(root, {'name': 'Acme', 'identifiers': [
         {'type': 'ats_tenant', 'value': 'greenhouse:acme', 'provenance': 'scrape'}]})
     url = 'https://boards.greenhouse.io/acme/jobs/999'
-    result = company_resolve.resolve_and_link(root, url=url, employer_name='Globex')
+    result = server.resolve_company(root, url=url, employer_name='Globex')
     assert result['company_link_reason'] == 'employer_differs_from_tenant'
     assert result['company_review']['candidates'] == []
     job = vault.save_job(root, {'title': 'Staffing', 'url': url, 'employer_named_in_posting': 'Globex', **result})
@@ -642,7 +652,7 @@ def test_r6_staffing_create_keeps_single_tenant_owner(client):
     owners = [c['id'] for c in vault.list_companies(root) if any(
         i['type'] == 'ats_tenant' and i['value'] == 'greenhouse:acme' for i in c['identifiers'])]
     assert owners == [owner['id']]
-    company_resolve.add_identifier(root, created, 'ats_tenant', 'greenhouse:acme', 'scrape')
+    identity.add_identifier(VaultOrganisationStore(root), created, 'ats_tenant', 'greenhouse:acme', 'scrape')
     assert not any(i['type'] == 'ats_tenant' for i in vault.load_company(root, created['id'])['identifiers'])
 
 
@@ -650,7 +660,7 @@ def test_r7_unresolved_globex_email_held_until_review(client):
     root = client.application.config['VAULT_PATH']
     acme = vault.save_company(root, {'name': 'Acme'})
     globex = vault.save_company(root, {'name': 'Globex'})
-    result = company_resolve.resolve_and_link(root, url='', employer_name='Globex', existing=(acme['id'], 'domain'))
+    result = server.resolve_company(root, url='', employer_name='Globex', existing=(acme['id'], 'domain'))
     job = vault.save_job(root, {'title': 'Correction', 'url': 'https://probe.example/job', 'contact_email': 'jobs@globex.example', **result})
     assert vault.load_company(root, acme['id'])['contact_email'] == ''
     assert job['contact_email'] == 'jobs@globex.example'
@@ -667,7 +677,7 @@ def test_r8_fuzzy_history_not_shared_tenant(root):
     vault.save_job(root, {'title': 'Observed', 'url': 'https://boards.greenhouse.io/acme/jobs/100',
                          'ats_provider': 'greenhouse', 'ats_tenant': 'acme',
                          'company_id': company['id'], 'employer_named_in_posting': 'Acme'})
-    result = company_resolve.resolve_and_link(root, url='https://boards.greenhouse.io/acme/jobs/101')
+    result = server.resolve_company(root, url='https://boards.greenhouse.io/acme/jobs/101')
     assert result['company_link_state'] == 'linked'
     assert result['company_link_reason'] == 'ats_tenant'
 
@@ -676,13 +686,13 @@ def test_r9_empty_cascade_persists_exhausted_and_r10_prunes(client, monkeypatch)
     entered, release = threading.Event(), threading.Event()
     root = client.application.config['VAULT_PATH']
     monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
-    def empty(company, collector):
+    def empty(company, collector, **kwargs):
         entered.set()
         assert release.wait(5)
         collector.record(company['id'], empty, 'sectors', 'empty')
         return None, None
-    monkeypatch.setattr(company_lookup, 'sectors_cascade', empty)
-    monkeypatch.setattr(company_lookup, 'size_cascade', lambda *a, **k: (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_sector', empty)
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k: (None, None))
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Empty Cascade'))
     result = client.post('/api/jobs/intake', json={'url': 'https://empty.example/job'}).json
     cid = result['job']['company_id']

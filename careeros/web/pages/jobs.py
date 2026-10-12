@@ -3,7 +3,8 @@ import re
 
 from flask import abort, current_app
 from markupsafe import Markup
-from careeros import sectors, vault, watcher
+from careeros import vault, watcher
+from org_intake import classify as sectors
 from careeros.web.ui import page
 from careeros.web.markdown import render_markdown
 

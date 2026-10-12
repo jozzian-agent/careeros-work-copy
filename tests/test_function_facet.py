@@ -8,7 +8,8 @@ import shutil
 import pytest
 import yaml
 
-from careeros import ingest, sectors, vault
+from careeros import ingest, vault
+from org_intake import classify as sectors
 from careeros.server import create_app
 
 ROOT = Path(__file__).resolve().parents[1]

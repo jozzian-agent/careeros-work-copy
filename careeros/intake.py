@@ -2,7 +2,7 @@
 from html.parser import HTMLParser
 import re
 import json
-from urllib.parse import urljoin, urlsplit, unquote
+from urllib.parse import urljoin, urlsplit, unquote, parse_qsl
 from urllib import request
 import ipaddress
 import socket
@@ -475,7 +475,7 @@ def _extract(url, parser, schema):
     employees = org.get('numberOfEmployees')
     if isinstance(employees, dict):
         employees = employees.get('value')
-    from careeros.sectors import resolve_employee_count, size_range_bucket
+    from org_intake.classify import resolve_employee_count, size_range_bucket
     employee_count = resolve_employee_count(employees)
     size = size_range_bucket(employee_count) if employee_count else None
     sector = org.get('industry')
@@ -557,3 +557,36 @@ def ingest_posting(url, html, function_options=None):
         data['contact_email'] = mailto
     from careeros.ingest import redact
     return redact(data)
+
+
+def posting_ats(url):
+    """Combine capability tenant recognition with product-owned posting IDs."""
+    from types import SimpleNamespace
+    from org_intake.ats import detect_ats
+    match = detect_ats(url)
+    if match is None:
+        return None
+    parts = urlsplit(url)
+    segments = [unquote(s) for s in parts.path.split('/') if s]
+    query = dict(parse_qsl(parts.query))
+    provider = match['provider']
+    if provider == 'refline':
+        posting = segments[1:]
+        if posting[-1] == 'index.html':
+            posting = posting[:-1]
+        posting_id = '/'.join(posting)
+    elif provider == 'greenhouse':
+        posting_id = segments[2]
+    elif provider == 'personio':
+        posting_id = segments[1] if len(segments) >= 2 and segments[0] == 'job' else query['jobId']
+    elif provider == 'workday':
+        suffix = re.search(r'_([A-Za-z0-9-]+)$', segments[-1]) if segments else None
+        posting_id = suffix.group(1) if suffix else query['jobId']
+    elif provider in ('smartrecruiters', 'teamtailor', 'join'):
+        segment = segments[2] if provider == 'join' and parts.hostname == 'join.com' else segments[1]
+        number = re.match(r'(\d+)', segment)
+        posting_id = number.group(1) if number else segment
+    else:
+        posting_id = segments[1]
+    return SimpleNamespace(**match, posting_id=posting_id)
+

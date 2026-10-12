@@ -11,15 +11,89 @@ from flask import Flask, request, jsonify, send_from_directory
 from careeros import vault as storage
 from careeros import intake
 from careeros import ingest
-from careeros import sectors
-from careeros import company_lookup
-from careeros import company_resolve
-from careeros import url_normalize
+from org_intake import classify as sectors
+from org_intake import enrich as org_enrich
+from careeros import enrich as company_enrichment
+from careeros.org_store import VaultOrganisationStore
+from org_intake import identity, ats
+from org_intake.url import normalize_url
+from careeros.intake import posting_ats
 from careeros import dedupe
 import difflib
 
 from careeros.web.pages import companies, experiences, jobs, search
 from careeros.web.theme import page_shell
+
+_ATS_FEED_URL = {
+    'greenhouse': 'https://boards.greenhouse.io/{tenant}',
+    'lever': 'https://jobs.lever.co/{tenant}',
+    'ashby': 'https://jobs.ashbyhq.com/{tenant}',
+    'smartrecruiters': 'https://jobs.smartrecruiters.com/{tenant}',
+    'recruitee': 'https://{tenant}.recruitee.com',
+    'teamtailor': 'https://{tenant}.teamtailor.com/jobs',
+    'personio': 'https://{tenant}.jobs.personio.de',
+    'workday': 'https://{tenant}.myworkdayjobs.com',
+    'refline': 'https://m.refline.ch/{tenant}',
+    'join': 'https://{tenant}.join.com/jobs',
+}
+
+
+def _ats_feed_url(ats_match, fallback_url):
+    template = _ATS_FEED_URL.get(ats_match['provider'])
+    return template.format(tenant=ats_match['tenant']) if template else fallback_url
+
+
+def add_source(root, company, kind, url, ats_provider=None):
+    """Append one source, deduped by normalized url; last_polled stays null
+    (Journey 2 polls, Journey 1 only records, per spec §5)."""
+    if not url:
+        return company
+    normalized = normalize_url(url)
+    sources = company.get('sources') or []
+    if any(normalize_url(source.get('url') or '') == normalized for source in sources):
+        return company
+    new_source = {'id': f'SRC-{len(sources) + 1}', 'kind': kind, 'url': url,
+                  'ats_provider': ats_provider, 'active': True, 'last_polled': None}
+    return storage.save_company(root, {'sources': sources + [new_source]}, company['id'])
+
+
+
+def tenant_employer_names(root, url):
+    match = ats.detect_ats(url)
+    return [job.get('employer_named_in_posting') for job in storage.list_jobs(root)
+            if match and job.get('ats_provider') == match['provider']
+            and job.get('ats_tenant') == match['tenant']]
+
+
+def record_company_source(root, company, url):
+    match = ats.detect_ats(url)
+    if match:
+        return add_source(root, company, 'ats_feed', _ats_feed_url(match, url), match['provider'])
+    if intake.domain(url):
+        return add_source(root, company, 'careers_page', url)
+    return company
+
+
+def company_job_fields(result):
+    review = result['review']
+    if review is not None:
+        review = {**review, 'at': storage.timestamp(), 'candidates': [
+            {('company_id' if k == 'record_id' else k): v for k, v in c.items()}
+            for c in review['candidates']]}
+    reason = result['link_reason']
+    return dict(company_id=result['record_id'], company_link_state=result['link_state'],
+                company_link_reason='ambiguous_exact' if reason == 'ambiguous_exact_name_match' else reason,
+                company_review=review)
+
+
+def resolve_company(root, *, url, **kwargs):
+    """Pass product evidence in and map capability output to stored job fields."""
+    result = identity.resolve_identity(VaultOrganisationStore(root), url=url,
+        tenant_employer_names=tenant_employer_names(root, url), **kwargs)
+    if result['record_id'] and result['link_state'] == 'linked':
+        record_company_source(root, storage.load_company(root, result['record_id']), url)
+    return company_job_fields(result)
+
 
 DEFAULT_VAULT = Path('/root/career-os')
 
@@ -159,7 +233,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         (POST /api/companies/<id>/retry, M1 audit: replaces the Backfill
         sector/size button, scoped to one company instead of sweeping all
         of them). Same sectors_cascade/size_cascade entry points
-        backfill_sector_size uses; company_lookup.py itself stays
+        backfill_sector_size uses; org_enrich.py itself stays
         unmodified. Runs the network phase outside the write lock -- a
         caller holding it across network I/O would starve every other
         writer -- and applies any eligible result under the lock
@@ -176,9 +250,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
         company = storage.load_company(root, company_id)
         if company is None or company.get('kind', 'employer') != 'employer':
             return company, []
-        collector = company_lookup.BackfillAccounting()
-        new_sectors, sector_flag = company_lookup.sectors_cascade(company, collector=collector)
-        size_changes, size_flag = company_lookup.size_cascade(company, collector=collector)
+        collector = org_enrich.BackfillAccounting()
+        options = company_enrichment.classification_options()
+        new_sectors, sector_flag = org_enrich.classify_sector(company, collector=collector, signals=company_enrichment.SECTOR_SIGNALS, **options)
+        size_changes, size_flag = org_enrich.classify_size(company, collector=collector, signals=company_enrichment.SIZE_SIGNALS, **options)
+        identifiers = []
+        if isinstance(new_sectors, dict):
+            identifiers.extend(new_sectors.get('identifiers', []))
+            new_sectors = new_sectors.get('sectors')
+        if size_changes and 'identifiers' in size_changes:
+            identifiers.extend(size_changes['identifiers'])
+            size_changes = {k: v for k, v in size_changes.items() if k != 'identifiers'}
         with write_lock:
             current = storage.load_company(root, company_id)
             if current is None or current.get('kind', 'employer') != 'employer':
@@ -186,6 +268,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # A completed cascade invalidates older results, including state and accounting.
             if current.get('enrichment', {}).get('attempted_at') != company.get('enrichment', {}).get('attempted_at'):
                 return current, []
+            for identifier in identifiers:
+                current = identity.add_identifier(VaultOrganisationStore(root), current,
+                    identifier['type'], identifier['value'], identifier['provenance'])
             provenance = current.get('field_provenance', {})
             changes = {}
             applied = []
@@ -193,9 +278,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
             states = dict(current.get('enrichment', {}).get('field_states', {}))
             for field, keys, proposed, flag, resolved in (
                 ('sectors', ('sectors',), {'sectors': new_sectors} if new_sectors else {},
-                 sector_flag, (company_lookup.FLAG_SECTOR_AMBIGUOUS, company_lookup.FLAG_SECTOR_CONFLICT)),
+                 sector_flag, (org_enrich.FLAG_SECTOR_AMBIGUOUS, org_enrich.FLAG_SECTOR_CONFLICT)),
                 ('size', ('size_range', 'size_class'), size_changes or {}, size_flag,
-                 (company_lookup.FLAG_SIZE_INCONSISTENT,)),
+                 (org_enrich.FLAG_SIZE_INCONSISTENT,)),
             ):
                 # Size is a consistency-checked pair: discard stale evidence if either changed.
                 if any(current.get(k) != company.get(k) or provenance.get(k) == 'user' for k in keys):
@@ -204,21 +289,21 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 changes.update(eligible)
                 if eligible:
                     applied.append(field)
-                    flags = company_lookup._clear_flags(flags, resolved)
+                    flags = company_enrichment._clear_flags(flags, resolved)
                 elif flag:
-                    flags = company_lookup._merge_flags(flags, flag)
+                    flags = company_enrichment._merge_flags(flags, flag)
                 states[field] = {
                     'state': 'filled' if eligible or all(current.get(k) for k in keys)
                              else 'flagged' if flag else 'exhausted',
                     'attempted_at': storage.timestamp(),
                     # Preserve BackfillAccounting's event/summary shape, including empty outcomes.
-                    'events': [e for e in collector.events if e['field'] == field],
+                    'events': [e for e in company_enrichment.company_events(collector) if e['field'] == field],
                     'applied_fields': list(eligible),
                 }
             changes['review_flags'] = flags
             changes['enrichment'] = {**current.get('enrichment', {}), 'field_states': states,
                                     'attempted_at': storage.timestamp(),
-                                    'events': collector.events, 'summary': collector.summary()}
+                                    'events': company_enrichment.company_events(collector), 'summary': collector.summary()}
             return storage.save_company(root, changes, company_id), applied
 
     def schedule_company_cascade(root, company_id):
@@ -294,15 +379,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
         return bool(segments) and segments[0].casefold() == ats_match.tenant.casefold()
 
     def find_company(root, name, posting_url):
-        """Pre-JOZ-266 matching, kept as company_resolve's legacy_hint: a
+        """Pre-JOZ-266 matching, kept as org_intake.identity's legacy_hint: a
         company predates the identifiers table whenever it was created
         before this ladder existed (its ATS tenant/domain lives only in its
         free-text name or website field, or in another job's url on the
         same tenant), so this stays the fallback the ladder consults once
         its own identifier-based rungs find nothing. Any match made here is
         taught into a real identifier by the ladder (see
-        company_resolve._record_link_evidence), so later lookups for the
-        same tenant/domain no longer need this fallback at all.
+        org_intake/identity.py apply_review/_record_link_evidence), so later
+        lookups for the same tenant/domain no longer need this fallback at
+        all.
 
         M4 (JOZ-266 fix round): matching for an ATS-hosted posting URL is
         decided ONLY by the posting's own detect_ats provider+tenant
@@ -320,9 +406,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # Zero or multiple name matches: fall through to the
             # identifier-based checks below. An ambiguous name match is
             # never resolved here -- that is Decision-20's
-            # company_resolve.resolve_rungs_3_5 territory, not this
+            # org_intake.identity resolve ladder territory, not this
             # legacy, pre-identifiers fallback.
-        ats_match = url_normalize.detect_ats(posting_url)
+        ats_match = posting_ats(posting_url)
         if ats_match is not None:
             posting_host = (urlsplit(posting_url).hostname or '').rstrip('.').casefold()
             for company in companies_:
@@ -336,7 +422,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             for job in storage.list_jobs(root):
                 if not job.get('company_id'):
                     continue
-                job_match = url_normalize.detect_ats(job.get('url') or '')
+                job_match = posting_ats(job.get('url') or '')
                 if (job_match is not None and job_match.provider == ats_match.provider
                         and job_match.tenant == ats_match.tenant):
                     return next((c for c in companies_ if c['id'] == job['company_id']), None)
@@ -350,7 +436,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         company = find_company(root, name, posting_url)
         if company is None:
             return None
-        return (company, 'ats_tenant' if url_normalize.detect_ats(posting_url) is not None else 'domain')
+        return (company, 'ats_tenant' if posting_ats(posting_url) is not None else 'domain')
 
     def apply_llm_update(root, baseline, fields, token):
         """Apply under the caller-held write lock. The baseline contains only
@@ -407,7 +493,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             owner_locked = any(provenance.get(key) == 'user'
                                for key in ('company_id', 'company_link_state', 'company_link_reason'))
             if not owner_locked:
-                resolution = company_resolve.resolve_and_link(
+                resolution = resolve_company(
                     root, url=job.get('url') or '', employer_name=correction,
                     fallback_name=updates.get('company', job.get('company')),
                     existing=(job.get('company_id'), job.get('company_link_reason')))
@@ -566,8 +652,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if origin not in ('manual', 'discovered'):
             raise ValueError('Invalid origin.')
         root = app.config['VAULT_PATH']
-        normalized = url_normalize.normalize(url)
-        ats_match = url_normalize.detect_ats(url)
+        normalized = normalize_url(url)
+        ats_match = posting_ats(url)
 
         # Step 2 (hard duplicate check) and Step 3 (stub creation) share one
         # lock scope: no network/LLM call happens in here, so this never
@@ -581,7 +667,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # lookups, no network I/O, safe to run synchronously here
             # before the fetch below. Rungs 3-5 need the posting text and
             # run after fetch, in Phase B.
-            pre_link = company_resolve.resolve_and_link(root, url=url, legacy_hint=legacy_hint(root, '', url))
+            pre_link = resolve_company(root, url=url, legacy_hint=legacy_hint(root, '', url))
             stub_fields = {
                 'url': url, 'normalized_url': normalized, 'title': stub_title(url),
                 'status': 'new', 'ingest_state': 'stub', 'in_pipeline': True,
@@ -682,7 +768,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     # name signal at all is available (unchanged from
                     # JOZ-265), without ever basing a review question or a
                     # flag on a guess.
-                    resolution = company_resolve.resolve_and_link(
+                    resolution = resolve_company(
                         root, url=url, employer_name=data.get('employer_named_in_posting'), fallback_name=name,
                         legacy_hint=legacy_hint(root, name, url),
                         existing=(current.get('company_id'), current.get('company_link_reason')))
@@ -772,8 +858,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
             submitted_token = payload.get('review_token')
             if not submitted_token or review is None or review.get('token') != submitted_token:
                 return jsonify(error='This review is out of date. Reload and try again.'), 409
-            company = company_resolve.apply_review(
-                root, job, company_id=payload.get('company_id'), create=payload.get('create'))
+            try:
+                result = identity.apply_review(VaultOrganisationStore(root),
+                    url=job.get('url'), link_reason=job.get('company_link_reason'),
+                    employer_name=job.get('employer_named_in_posting'),
+                    record_id=payload.get('company_id'), create=payload.get('create'),
+                    token=submitted_token, current_token=review['token'])
+            except ValueError as error:
+                raise ValueError(str(error).replace('Record', 'Company').replace('record', 'company')) from error
+            company = result['record']
+            if payload.get('create') and not payload.get('company_id'):
+                company = record_company_source(root, company, job.get('url') or '')
             provenance = {**job.get('field_provenance', {}), 'company_id': 'user',
                          'company_link_state': 'user', 'company_link_reason': 'user'}
             return jsonify(storage.save_job(root, {
@@ -793,7 +888,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
             job = storage.load_job(root, identifier)
             if job is None:
                 return jsonify(error='Job not found.'), 404
-            resolution = company_resolve.rerun(root, job)
+            owner_set = any((job.get('field_provenance') or {}).get(key) == 'user'
+                            for key in ('company_id', 'company_link_state', 'company_link_reason'))
+            result = identity.rerun(VaultOrganisationStore(root), url=job.get('url') or '',
+                employer_name=job.get('employer_named_in_posting'), fallback_name=job.get('company'),
+                record_id=job.get('company_id'), link_reason=job.get('company_link_reason'),
+                link_state=job.get('company_link_state'), review=job.get('company_review'),
+                owner_set=owner_set, tenant_employer_names=tenant_employer_names(root, job.get('url') or ''))
+            resolution = company_job_fields(result) if not owner_set else {
+                key: job.get(key) for key in ('company_id', 'company_link_state', 'company_link_reason', 'company_review')}
+            if not owner_set and result['record_id'] and result['link_state'] == 'linked':
+                record_company_source(root, storage.load_company(root, result['record_id']), job.get('url') or '')
             return jsonify(storage.save_job(root, resolution, identifier))
 
     @app.post('/api/jobs/<identifier>/promote')
@@ -873,7 +978,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             owner_locked = any(provenance.get(key) == 'user'
                                for key in ('company_id', 'company_link_state', 'company_link_reason'))
             if not owner_locked:
-                resolution = company_resolve.resolve_and_link(
+                resolution = resolve_company(
                     root, url=url, employer_name=employer_evidence, fallback_name=name,
                     legacy_hint=legacy_hint(root, name, url),
                     existing=(job.get('company_id'), job.get('company_link_reason')))
@@ -1084,8 +1189,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # the old url, and a stale ats_* falsely matches/misses future
             # hard-duplicate checks).
             if 'url' in payload and payload['url'] != data.get('url'):
-                ats_match = url_normalize.detect_ats(payload['url'] or '')
-                payload['normalized_url'] = url_normalize.normalize(payload['url'])
+                ats_match = posting_ats(payload['url'] or '')
+                payload['normalized_url'] = normalize_url(payload['url'])
                 payload['ats_provider'] = ats_match.provider if ats_match else None
                 payload['ats_tenant'] = ats_match.tenant if ats_match else None
                 payload['ats_posting_id'] = ats_match.posting_id if ats_match else None
@@ -1224,10 +1329,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
         it, which reads as 'both buttons do nothing'. Planning is read-only;
         only the fast local-filesystem apply phase takes the lock."""
         root = app.config['VAULT_PATH']
-        collector = company_lookup.BackfillAccounting()
-        plan, scanned = company_lookup.plan_backfill(root, collector=collector)
+        collector = org_enrich.BackfillAccounting()
+        plan, scanned = company_enrichment.plan_backfill(root, collector=collector)
         with write_lock:
-            updated = company_lookup.apply_backfill(root, plan)
+            updated = company_enrichment.apply_backfill(root, plan)
         return jsonify(updated=updated, scanned=scanned, signal_summary=collector.summary())
 
     @app.post('/api/companies/<identifier>/retry')

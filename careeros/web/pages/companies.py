@@ -1,6 +1,7 @@
 """Company directory and editable profiles."""
 from flask import abort, current_app
-from careeros import sectors, vault
+from careeros import vault
+from org_intake import classify as sectors
 from careeros.web.pages.jobs import needs_attention
 from careeros.web.ui import page
 

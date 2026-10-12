@@ -1,6 +1,8 @@
 """JOZ-265: URL normalization and ATS detection. Pure functions, no network."""
+from types import SimpleNamespace
 import pytest
-from careeros import url_normalize
+from org_intake.url import normalize_url
+from careeros.intake import posting_ats
 
 
 @pytest.mark.parametrize('url,expected', [
@@ -11,40 +13,40 @@ from careeros import url_normalize
     ('https://example.com:8080/role', 'https://example.com:8080/role'),
 ])
 def test_scheme_host_and_slash_normalization(url, expected):
-    assert url_normalize.normalize(url) == expected
+    assert normalize_url(url) == expected
 
 
 def test_fragment_is_stripped():
-    assert url_normalize.normalize('https://example.com/role#apply-section') == 'https://example.com/role'
+    assert normalize_url('https://example.com/role#apply-section') == 'https://example.com/role'
 
 
 @pytest.mark.parametrize('param', ['utm_source', 'utm_campaign', 'utm_medium', 'gclid', 'fbclid',
                                    'msclkid', 'igshid', 'mc_cid', 'ref', '_ga'])
 def test_tracking_params_are_stripped(param):
-    normalized = url_normalize.normalize(f'https://example.com/role?{param}=abc123')
+    normalized = normalize_url(f'https://example.com/role?{param}=abc123')
     assert normalized == 'https://example.com/role'
 
 
 @pytest.mark.parametrize('param', ['gh_jid', 'jobId', 'posting_id', 'jvi'])
 def test_non_tracking_params_are_preserved(param):
-    normalized = url_normalize.normalize(f'https://example.com/role?{param}=4242')
+    normalized = normalize_url(f'https://example.com/role?{param}=4242')
     assert normalized == f'https://example.com/role?{param}=4242'
 
 
 def test_param_sort_is_stable_regardless_of_input_order():
-    first = url_normalize.normalize('https://example.com/role?b=2&a=1&utm_source=x')
-    second = url_normalize.normalize('https://example.com/role?utm_source=y&a=1&b=2')
+    first = normalize_url('https://example.com/role?b=2&a=1&utm_source=x')
+    second = normalize_url('https://example.com/role?utm_source=y&a=1&b=2')
     assert first == second == 'https://example.com/role?a=1&b=2'
 
 
 def test_posting_id_param_survives_alongside_tracking_params():
-    normalized = url_normalize.normalize('https://boards.greenhouse.io/embed/job_app?for=acme&gh_jid=1234&utm_source=linkedin')
+    normalized = normalize_url('https://boards.greenhouse.io/embed/job_app?for=acme&gh_jid=1234&utm_source=linkedin')
     assert 'gh_jid=1234' in normalized and 'utm_source' not in normalized
 
 
 def test_empty_url_normalizes_to_empty_string():
-    assert url_normalize.normalize('') == ''
-    assert url_normalize.normalize(None) == ''
+    assert normalize_url('') == ''
+    assert normalize_url(None) == ''
 
 
 @pytest.mark.parametrize('url,provider,tenant,posting_id', [
@@ -59,7 +61,7 @@ def test_empty_url_normalizes_to_empty_string():
     ('https://acme.join.com/jobs/123456-software-engineer', 'join', 'acme', '123456'),
 ])
 def test_ats_detection_one_fixture_per_provider(url, provider, tenant, posting_id):
-    match = url_normalize.detect_ats(url)
+    match = posting_ats(url)
     assert match is not None
     assert (match.provider, match.tenant, match.posting_id) == (provider, tenant, posting_id)
 
@@ -69,7 +71,7 @@ def test_ats_detection_one_fixture_per_provider(url, provider, tenant, posting_i
     'https://careers.acme.com/jobs/123',
 ])
 def test_ats_detection_returns_none_for_unrecognized_hosts(url):
-    assert url_normalize.detect_ats(url) is None
+    assert posting_ats(url) is None
 
 
 # JOZ-265 fix round, M4: host matching must be an exact match or a
@@ -88,7 +90,7 @@ def test_ats_detection_returns_none_for_unrecognized_hosts(url):
     'https://evil-join.com/jobs/123-role',
 ])
 def test_ats_detection_rejects_lookalike_hosts(url):
-    assert url_normalize.detect_ats(url) is None
+    assert posting_ats(url) is None
 
 
 @pytest.mark.parametrize('url,provider,tenant,posting_id', [
@@ -100,7 +102,7 @@ def test_ats_detection_query_and_root_forms(url, provider, tenant, posting_id):
     # m9: provider identity forms that live in the query string or (for
     # join.com) the bare root domain, not only the path/subdomain forms
     # already covered above.
-    match = url_normalize.detect_ats(url)
+    match = posting_ats(url)
     assert match is not None
     assert (match.provider, match.tenant, match.posting_id) == (provider, tenant, posting_id)
 
@@ -114,7 +116,7 @@ def test_ats_detection_query_and_root_forms(url, provider, tenant, posting_id):
 def test_ats_detection_query_forms_do_not_misfire_on_unrelated_params(url):
     # Only the documented, known provider ID query params are recognized;
     # an unrelated query param (or a missing/malformed id) must not guess.
-    assert url_normalize.detect_ats(url) is None
+    assert posting_ats(url) is None
 
 
 @pytest.mark.parametrize('url', [
@@ -125,8 +127,8 @@ def test_ats_detection_query_forms_do_not_misfire_on_unrelated_params(url):
     'https://careers.refline.ch/792841/11410/pub/1/index.html/',
 ])
 def test_refline_detection_acceptance_and_host_variants(url):
-    assert url_normalize.detect_ats(url) == url_normalize.AtsMatch(
-        'refline', '792841', '11410/pub/1')
+    assert posting_ats(url) == SimpleNamespace(
+        provider='refline', tenant='792841', posting_id='11410/pub/1')
 
 
 @pytest.mark.parametrize('url', [
@@ -135,7 +137,7 @@ def test_refline_detection_acceptance_and_host_variants(url):
     'https://m.refline.ch.attacker.example/792841/11410/pub/1',
 ])
 def test_refline_rejects_lookalike_hosts(url):
-    assert url_normalize.detect_ats(url) is None
+    assert posting_ats(url) is None
 
 
 @pytest.mark.parametrize('path', [
@@ -144,7 +146,7 @@ def test_refline_rejects_lookalike_hosts(url):
     '/792841/11410/pub/index.html',
 ])
 def test_refline_unrelated_paths_have_no_identity(path):
-    assert url_normalize.detect_ats('https://refline.ch' + path) is None
+    assert posting_ats('https://refline.ch' + path) is None
 
 
 def test_refline_cross_subdomain_hard_duplicate(tmp_path):
@@ -204,7 +206,7 @@ def test_refline_startup_migration_backfills_identity(tmp_path, missing_fields):
     assert tuple(migrated[key] for key in keys) == ('refline', '792841', '11410/pub/1')
     alternate = 'https://apply.refline.ch/792841/11410/pub/1'
     existing, basis = dedupe.find_duplicate(
-        tmp_path, url_normalize.normalize(alternate), url_normalize.detect_ats(alternate))
+        tmp_path, normalize_url(alternate), posting_ats(alternate))
     assert existing['id'] == job['id']
     assert basis == 'same_ats_posting_id'
     assert vault.migrate_job_fields(tmp_path) == []

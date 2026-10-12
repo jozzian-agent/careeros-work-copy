@@ -8,8 +8,9 @@ import os
 import yaml
 import uuid
 
-from careeros.sectors import known_section_codes, match_sectors
-from careeros import url_normalize
+from org_intake.classify import known_section_codes, match_sectors
+from org_intake.url import normalize_url
+from careeros.intake import posting_ats
 
 LISTS = ('roles', 'must_haves', 'nice_to_haves', 'avoid')
 KINDS = ('employer', 'institution')
@@ -682,7 +683,7 @@ def _migrate_one_job(data):
     setdefault semantics (only a genuinely absent key is filled)."""
     changed = False
     if not data.get('normalized_url'):
-        normalized = url_normalize.normalize(data.get('url') or '')
+        normalized = normalize_url(data.get('url') or '')
         if normalized != data.get('normalized_url'):
             data['normalized_url'] = normalized
             changed = True
@@ -700,7 +701,7 @@ def _migrate_one_job(data):
     # value (a real previous detection, never owner-set through any API)
     # is still left untouched.
     if any(data.get(key) is None for key in ('ats_provider', 'ats_tenant', 'ats_posting_id')):
-        ats_match = url_normalize.detect_ats(data.get('url') or '')
+        ats_match = posting_ats(data.get('url') or '')
         for key, value in (('ats_provider', ats_match.provider if ats_match else None),
                            ('ats_tenant', ats_match.tenant if ats_match else None),
                            ('ats_posting_id', ats_match.posting_id if ats_match else None)):
