@@ -23,7 +23,7 @@ function matchCompanyByName(companies, name) {
 // (frontend/wireframes/joz280/edit-position.html). Saves via the existing
 // PUT /api/experiences/<id>; a pending company create goes through the
 // existing POST .../link-company the same way the current form does it.
-export default function EditPositionPopup({ exp, companies, tagRegistry, onSave, onDismiss }) {
+export default function EditPositionPopup({ exp, companies, tagRegistry, onSave, onDismiss, onCompanyLinked }) {
   const [title, setTitle] = useState(exp.title || '');
   const [start, setStart] = useState(exp.start || '');
   const [end, setEnd] = useState(exp.end || '');
@@ -71,15 +71,22 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
     if (!name) return;
     try {
       let response = await linkExperienceCompany(exp.id, { create: { name } });
+      let linkedName = name;
       if (response.suggestion) {
+        const suggestion = response.suggestion;
         const useSuggestion = window.confirm(
-          `Did you mean "${response.suggestion.name}"? Choose OK to link to it, or Cancel to create a new company named "${name}".`,
+          `Did you mean "${suggestion.name}"? Choose OK to link to it, or Cancel to create a new company named "${name}".`,
         );
         response = useSuggestion
-          ? await linkExperienceCompany(exp.id, { company_id: response.suggestion.id })
+          ? await linkExperienceCompany(exp.id, { company_id: suggestion.id })
           : await linkExperienceCompany(exp.id, { create: { name }, confirm_create: true });
+        if (useSuggestion) linkedName = suggestion.name;
       }
       setCompanyId(response.company_id || null);
+      // Report the link straight to the parent, from this response, rather
+      // than leaving it to the popup-close refetch -- see ExperienceDetail's
+      // handleCompanyLinked for why that refetch alone is not enough.
+      if (response.company_id) onCompanyLinked?.(response.company_id, linkedName);
     } catch (err) {
       setError(err.message);
     }

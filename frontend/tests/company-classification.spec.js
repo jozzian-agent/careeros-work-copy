@@ -34,6 +34,26 @@ test('review flags render when present', async ({ page }) => {
   await expect(page.getByText('size-inconsistent')).toBeVisible();
 });
 
+test('load failure shows a visible error with a Retry button that recovers', async ({ page }) => {
+  let fail = true;
+  await page.route('**/api/companies/*/taxonomy', (route) => {
+    if (route.request().method() !== 'GET') {
+      route.fallback();
+      return;
+    }
+    if (fail) {
+      route.fulfill({ status: 500, json: { error: 'nope' } });
+      return;
+    }
+    route.fulfill({ json: fixture });
+  });
+  await page.goto('/companies/CO-001/taxonomy');
+  await expect(page.getByText('Could not load classification.')).toBeVisible();
+  fail = false;
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByRole('heading', { name: 'Classification' })).toBeVisible();
+});
+
 test('Cancel returns to the company without saving', async ({ page }) => {
   const requests = await mockUpdate(page, '**/api/companies/CO-001', { body: fixture.company });
   await page.goto('/companies/CO-001/taxonomy');

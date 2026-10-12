@@ -166,13 +166,15 @@ export default function CompanyDetail() {
           onEdit={() => setEditOpen(true)}
           onDelete={() => setDeleteOpen(true)}
         />
-        {retryMessage ? (
+        {retryMessage || retryFeedback ? (
           <SectionCard title="Enrichment">
             <Flex direction="column" gap={3}>
-              <Flex gap={3} alignItems="center" wrap>
-                <Text color="subtle">{retryMessage}</Text>
-                <Button text="Retry" size="sm" disabled={retryBusy} onClick={handleRetry} />
-              </Flex>
+              {retryMessage ? (
+                <Flex gap={3} alignItems="center" wrap>
+                  <Text color="subtle">{retryMessage}</Text>
+                  <Button text="Retry" size="sm" disabled={retryBusy} onClick={handleRetry} />
+                </Flex>
+              ) : null}
               {retryFeedback ? (
                 <BannerSlim
                   type={retryFeedback.type}

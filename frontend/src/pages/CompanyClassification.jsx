@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Box, Button, Checkbox, Flex, SelectList, Text, TextField } from 'gestalt';
 import { fetchCompanyTaxonomy, updateCompany } from '../api/companies.js';
@@ -25,16 +25,21 @@ export default function CompanyClassification() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     fetchCompanyTaxonomy(id)
       .then((payload) => {
         setData(payload);
         setKind(payload.company.kind || 'employer');
         setSectors(payload.company.sectors || []);
         setSizeClass(payload.company.size_class || '');
+        setLoadError(null);
       })
       .catch((err) => setLoadError(err.message));
   }, [id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   function toggleSector(code, checked) {
     setSectors((prev) => (checked ? [...prev, code] : prev.filter((c) => c !== code)));
@@ -55,7 +60,10 @@ export default function CompanyClassification() {
   if (loadError) {
     return (
       <Box padding={6}>
-        <Text color="error">{loadError}</Text>
+        <Flex direction="column" gap={3} alignItems="start">
+          <Text color="error">{loadError}</Text>
+          <Button text="Retry" onClick={load} />
+        </Flex>
       </Box>
     );
   }

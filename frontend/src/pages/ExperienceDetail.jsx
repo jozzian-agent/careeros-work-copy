@@ -53,15 +53,34 @@ export default function ExperienceDetail() {
     }
   }
 
-  // Closing the popup always refetches the page, on both Save and Cancel:
-  // the popup's own company-create/link action (EditPositionPopup's
-  // "Create & link new company") persists immediately against the record,
-  // so a Cancel that skipped this would leave `exp` showing the stale
-  // company, and reopening the popup would then resubmit that stale
-  // company_id on an unrelated save, undoing the link.
+  // Closing the popup always refetches the page, on both Save and Cancel,
+  // to pick up any other server-side effects of the edit session.
   function handleEditDismiss() {
     setEditOpen(false);
     load();
+  }
+
+  // The popup's own company-create/link action (EditPositionPopup's
+  // "Create & link new company") persists immediately against the record,
+  // ahead of any Save. Applying that result to `page` here, synchronously
+  // with the popup call that produced it, means a Cancel followed by an
+  // immediate reopen always shows the linked company -- it does not wait
+  // on the handleEditDismiss refetch above, which can resolve after the
+  // reopen and would otherwise hand the reopened popup a stale company_id
+  // that a later Save would then write back, undoing the link.
+  function handleCompanyLinked(companyId, name) {
+    setPage((prev) => {
+      if (!prev) return prev;
+      const companies = companyId && !prev.companies[companyId]
+        ? { ...prev.companies, [companyId]: { id: companyId, name } }
+        : prev.companies;
+      return {
+        ...prev,
+        exp: { ...prev.exp, company_id: companyId, company: name },
+        label: name,
+        companies,
+      };
+    });
   }
 
   async function handleSave(fields) {
@@ -177,6 +196,7 @@ export default function ExperienceDetail() {
           tagRegistry={tagRegistry}
           onSave={handleSave}
           onDismiss={handleEditDismiss}
+          onCompanyLinked={handleCompanyLinked}
         />
       ) : null}
       {deleteOpen ? (

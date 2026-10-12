@@ -96,9 +96,23 @@ test('a structured salary value renders instead of crashing the page', async ({ 
   await expect(page.getByText('currency: CHF')).toBeVisible();
 });
 
-test('Cancelling after linking a new company refreshes the parent, so a later save keeps the new link', async ({ page }) => {
+test('Cancelling after linking a new company keeps the link even when reopened before the refresh GET resolves', async ({ page }) => {
   let current = fixture;
-  await page.route('**/api/experiences/*?view=page', (route) => route.fulfill({ json: current }));
+  // The initial mount's load() fires its view=page GET straight through
+  // below (React StrictMode double-invokes that effect in dev, so this can
+  // be more than one request). Only once the page has actually rendered
+  // does `holdRefresh` flip on, so the one GET that matters -- the
+  // Cancel-triggered refresh from handleEditDismiss -- is queued instead of
+  // fulfilled, and can be held open for as long as the test likes.
+  let holdRefresh = false;
+  const pending = [];
+  await page.route('**/api/experiences/*?view=page', (route) => {
+    if (!holdRefresh) {
+      route.fulfill({ json: current });
+      return;
+    }
+    pending.push(route);
+  });
   await page.route('**/api/experiences/EXP-001/link-company', (route) => {
     current = {
       ...current,
@@ -112,6 +126,9 @@ test('Cancelling after linking a new company refreshes the parent, so a later sa
   const saveRequests = await mockUpdate(page, '**/api/experiences/EXP-001', { body: fixture.exp });
 
   await page.goto('/experiences/EXP-001');
+  await expect(page.getByRole('heading', { name: fixture.exp.title })).toBeVisible();
+  holdRefresh = true;
+
   await page.getByRole('button', { name: 'Edit position' }).click();
   let modal = page.getByRole('dialog', { name: 'Edit position' });
   await modal.getByRole('textbox', { name: 'Company' }).fill('New Startup Co');
@@ -120,8 +137,12 @@ test('Cancelling after linking a new company refreshes the parent, so a later sa
   await modal.getByRole('button', { name: 'Cancel' }).click();
   await expect(modal).not.toBeVisible();
 
-  // Reopening must reflect the just-persisted link, from the parent's
-  // refreshed state -- not the stale company this popup mounted with.
+  // The Cancel-triggered refresh (handleEditDismiss -> load()) is now in
+  // flight but deliberately left unfulfilled below -- reopening here must
+  // show the linked company from ExperienceDetail's synchronous
+  // handleCompanyLinked update, not from this still-pending GET.
+  await expect.poll(() => pending.length).toBe(1);
+
   await page.getByRole('button', { name: 'Edit position' }).click();
   modal = page.getByRole('dialog', { name: 'Edit position' });
   await expect(modal.getByRole('textbox', { name: 'Company' })).toHaveValue('New Startup Co');
@@ -129,6 +150,9 @@ test('Cancelling after linking a new company refreshes the parent, so a later sa
   await modal.getByRole('button', { name: 'Save position' }).click();
   await expect.poll(() => saveRequests.length).toBe(1);
   expect(saveRequests[0].company_id).toBe('CO-999');
+
+  // Release the held refresh so the page/context can tear down cleanly.
+  pending.shift().fulfill({ json: current });
 });
 
 test('adding a proposed skill tag sends it in both tags and proposed_tags', async ({ page }) => {

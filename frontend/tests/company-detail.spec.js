@@ -112,20 +112,37 @@ test('Retry failure shows a visible error', async ({ page }) => {
   await expect(page.getByText('Retry failed.')).toBeVisible();
 });
 
-test('Retry success surfaces retry_applied and outcome details', async ({ page }) => {
-  await mockCompanyPage(page, { ...fixture, company: { ...fixture.company, website: null, sectors: [], size_range: null, size_class: null } });
-  await page.route('**/api/companies/*/retry', (route) =>
+test('Retry success surfaces retry_applied and outcome details, and keeps showing once the company is no longer retry-eligible', async ({ page }) => {
+  // Starts retry-eligible (no sectors/size), same as the other Retry tests.
+  // The mocked retry call then refreshes `current` to a fully-enriched
+  // record -- sectors and size filled, no review flags -- so the
+  // subsequent load() makes retryState(company) return null and the
+  // Retry button/eligibility text disappear. The outcome banner must stay
+  // visible regardless, since it no longer depends on retry eligibility.
+  let current = { ...fixture, company: { ...fixture.company, website: null, sectors: [], size_range: null, size_class: null } };
+  await page.route('**/api/companies/*?view=page', (route) => route.fulfill({ json: current }));
+  await page.route('**/api/companies/*/retry', (route) => {
+    current = {
+      ...current,
+      company: {
+        ...current.company,
+        sectors: ['J'],
+        size_range: '51-200',
+        enrichment: { field_states: { sectors: { state: 'filled' }, size: { state: 'filled' } } },
+      },
+    };
     route.fulfill({
       json: {
-        ...fixture.company,
-        website: null,
+        ...current.company,
         retry_applied: ['sectors'],
-        enrichment: { field_states: { sectors: { state: 'filled' } } },
         field_provenance: {},
       },
-    }),
-  );
+    });
+  });
   await page.goto('/companies/CO-001');
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
   await page.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByText('Retry updated the company. Sector: filled')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   await expect(page.getByText('Retry updated the company. Sector: filled')).toBeVisible();
 });

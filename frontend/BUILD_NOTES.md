@@ -3,7 +3,7 @@
 ## Gestalt 160 → 177 delta
 
 JOZ-277 pinned `gestalt` to exactly `177.0.12` (from `^160.0.0`) to match the
-owner's design handoff, which states its component facts were checked against
+owner's approved design brief, which states its component facts were checked against
 that version's TypeScript definitions. Everything below was verified against
 the installed package in `node_modules/gestalt`, not recalled.
 
@@ -40,7 +40,7 @@ Two call sites used it, and both became `color="default"`:
 
 `"default"` is the right replacement rather than a workaround: it resolves
 through `--color-background-default`, which `design/theme.css` maps to the
-handoff's `--color-background-card`. So the nav and the cards are `#ffffff` in
+approved design brief's `--color-background-card`. So the nav and the cards are `#ffffff` in
 light and `#191919` in dark, instead of being pinned to white in both. Because
 Vite does not type-check JSX against a dependency's `.d.ts`, this would not
 have failed the build — it would have shipped as cards with no background at
@@ -113,7 +113,7 @@ stylesheet, that it really does declare Gestalt's own
   `SortableHeaderCell` adapter in `JobsBoard.jsx` is still required. Its
   comment was updated from "gestalt@160" to say so.
 
-### Checked against the handoff BRIEF.md "Gestalt facts"
+### Checked against BRIEF.md's "Gestalt facts"
 
 **No contradiction found.** Every fact in the brief's checked-facts list that
 this batch touches matches the installed type definitions:
@@ -156,7 +156,7 @@ pre-existing and is about bundling Gestalt as one chunk.
 
 ### One canonical token form
 
-The handoff ships both `tokens.json` (version 3) and a `tokens.css` generated
+The approved design brief ships both `tokens.json` (version 3) and a `tokens.css` generated
 from it. The repo vendors **only the CSS**, as `src/design/tokens.css`, because
 the CSS is the form the app actually consumes; keeping the JSON as well would
 mean two sources of truth that could drift. Values are a verbatim port. The
@@ -167,8 +167,8 @@ only deviations, both documented in the file's own header:
 2. `font-display: swap` added to the two `@font-face` rules, so text is not
    invisible while the woff2 files load.
 
-Dark mode keys off `:root[data-theme="dark"]`, exactly as the handoff's CSS
-specifies. `ThemeProvider.jsx` sets that attribute from Gestalt's own
+Dark mode keys off `:root[data-theme="dark"]`, exactly as the approved design
+brief's CSS specifies. `ThemeProvider.jsx` sets that attribute from Gestalt's own
 `useColorScheme()` context in a layout effect, so `ColorSchemeProvider` stays
 the single control point for the scheme (including `userPreference`) and a dark
 mount never flashes light values before paint. `:root[data-theme="dark"]`
@@ -181,9 +181,9 @@ self-hosted and referenced by `@font-face` in `tokens.css` — no external font
 service. Vite fingerprints and emits both into `dist/assets/`.
 
 **Provenance note.** The sandbox blocks reads and copies across the
-design-handoff directory boundary, so the two binaries could not be copied out
-of the handoff directly (the text files there are readable, which is how the
-tokens, README, brief and licence were ported). The handoff's own licence file
+approved design brief's directory boundary, so the two binaries could not be
+copied out of it directly (the text files there are readable, which is how the
+tokens, README, brief and licence were ported). The brief's own licence file
 names its source exactly — "packaged by Fontsource
 (@fontsource/atkinson-hyperlegible 5.3.0, latin subset)" — so the identical
 files were taken from that exact package and version instead, which ships them
@@ -191,8 +191,8 @@ under the same filenames. The package was installed with `--no-save`, the two
 files copied out, and the package then pruned by a plain `npm install`, so it
 is not a dependency of this app.
 
-`src/design/LICENSE-atkinson-hyperlegible.md` carries the handoff's own licence
-paragraph verbatim plus the full SIL OFL 1.1 text, copyright 2020 Braille
+`src/design/LICENSE-atkinson-hyperlegible.md` carries the approved design
+brief's own licence paragraph verbatim plus the full SIL OFL 1.1 text, copyright 2020 Braille
 Institute of America, Inc.
 
 ### Typeface and line heights
@@ -203,19 +203,20 @@ Hyperlegible across every Gestalt component. `--font-family-default-japanese`
 is deliberately left alone: the bundled subset is latin-only.
 `--font-weight-semibold` is set to `700` because only 400 and 700 exist in the
 typeface and Gestalt classic sets headings and standalone links to semibold —
-this is the handoff's "Gestalt's classic headings are semibold, so here they
-are bold".
+this is the approved design brief's "Gestalt's classic headings are semibold,
+so here they are bold".
 
 Line heights were the one genuinely awkward part. Gestalt classic defines
 **no** line-height for `Text` or `Heading` (it has `--font-lineheight-*` only
-for the datepicker), which is what the handoff means by "Line heights 44, 36,
-28, 24, 20 — Gestalt classic sets none of its own in the type CSS". Two
+for the datepicker), which is what the approved design brief means by "Line
+heights 44, 36, 28, 24, 20 — Gestalt classic sets none of its own in the type
+CSS". Two
 approaches were tried and rejected before the one that shipped:
 
 1. **Keyed on heading tag** (`h1 { line-height: 44px }` …). Rejected: Gestalt's
    `PageHeader` renders its title as an `h1` at 20px, so the board's own page
-   title would have got a 44px line height on 20px text. The handoff pairs each
-   line height with a font *size*, not with a heading level.
+   title would have got a 44px line height on 20px text. The approved design
+   brief pairs each line height with a font *size*, not with a heading level.
 2. **A single `em` formula on `#root *`.** Correct typographically, but
    declaring `line-height` on the structural wrappers as well perturbed layout
    enough that **Chromium stopped starting a native drag on the job cards
@@ -247,9 +248,10 @@ structural wrapper, whatever the scope. The two drag specs in
 `tests/jobs-board.spec.js` still pass.
 
 `em` in `line-height` resolves against the element's own font size, and the
-piecewise `min()` reproduces the handoff's entire type scale exactly:
+piecewise `min()` reproduces the approved design brief's entire type scale
+exactly:
 
-| font-size | `1em + 8px` | `2em - 8px` | result | handoff style |
+| font-size | `1em + 8px` | `2em - 8px` | result | brief style |
 | --- | --- | --- | --- | --- |
 | 12px | 20 | **16** | 16px | text-100 |
 | 14px | 22 | **20** | 20px | text-200 |
@@ -269,7 +271,7 @@ font size. `tests/theme.spec.js` asserts all six pairs.
 board picks up the brand with no markup change — a `Button color="red"` renders
 brand blue because the primary-button tokens are brand blue:
 
-| Handoff token | Bound to |
+| Brief token | Bound to |
 | --- | --- |
 | `color-brand-primary` / `-strong` | `--color-background-button-primary-{default,hover,active}`, `--color-background-button-selected-default`, `--color-background-primary-{base,strong}`, `--color-background-info-{base,strong}`, `--color-icon-info` |
 | `color-brand-violet` | `--color-background-recommendation-base`, `--color-icon-recommendation` |
@@ -301,7 +303,7 @@ dark brand blue is `#75bfff`, i.e. **1.97:1**, far under WCAG AA's 4.5:1. An
 earlier version of this file claimed the stock pairings were already correct in
 both schemes; that was wrong — only the light one was.
 
-The handoff already has the answer in `color-brand-on-color`, the foreground it
+The approved design brief already has the answer in `color-brand-on-color`, the foreground it
 pairs with brand fills (`#ffffff` light, `#111111` dark). `design/theme.css`
 binds *both* tokens Button can reach for to it, scoped to the fill itself:
 
@@ -339,29 +341,29 @@ test-only page, served by the Vite dev server and not an entry point of
 `ColorSchemeProvider`, `DesignTokensProvider` and the `Button` all re-render —
 and it is what the dark-mode specs drive.
 
-### Handoff tokens NOT wired, and why
+### Brief tokens NOT wired, and why
 
 - **`color-brand-accent` (teal) and `color-brand-wash-teal`.** Defined and
-  available, but not bound to any Gestalt component token. The handoff uses
-  teal for the Live badge, filled fit segments and completed rounds — none of
-  which exist on the current board. Binding it to Gestalt's `success` tokens
-  was considered and rejected: the handoff explicitly inherits Gestalt's status
-  colours ("spacing, rounding, elevation, status colours and borders" from
-  `gestalt-design-tokens`) and `tokens.json` does not redefine success, so
-  turning the "Salary disclosed" badge teal would be a design decision this
-  batch has no mandate for. It lands with the components that need it in
-  JOZ-278.
+  available, but not bound to any Gestalt component token. The approved design
+  brief uses teal for the Live badge, filled fit segments and completed rounds
+  — none of which exist on the current board. Binding it to Gestalt's
+  `success` tokens was considered and rejected: the brief explicitly inherits
+  Gestalt's status colours ("spacing, rounding, elevation, status colours and
+  borders" from `gestalt-design-tokens`) and `tokens.json` does not redefine
+  success, so turning the "Salary disclosed" badge teal would be a design
+  decision this batch has no mandate for. It lands with the components that
+  need it in JOZ-278.
 - **Focus ring geometry.** The *colour* is wired
-  (`--color-border-focus`, the handoff's solid value replacing Gestalt's 50%
-  blue). The handoff's "3px with a 2px offset" geometry is not: Gestalt draws
+  (`--color-border-focus`, the brief's solid value replacing Gestalt's 50%
+  blue). The brief's "3px with a 2px offset" geometry is not: Gestalt draws
   its own focus outline widths per component, and changing them globally would
   be a visual change beyond the token swap this batch is scoped to.
 - **`space-*` / `rounding-*` / `elevation-*`.** Declared, and they override
-  Gestalt's identically-named tokens, but every value the handoff specifies is
+  Gestalt's identically-named tokens, but every value the brief specifies is
   already Gestalt's own value, so they are no-ops today. They exist so JOZ-278
   can reference them, and so a future divergence is a one-line edit.
 - **Density modes** ("Guided" vs "Workbench" from `directions.md`) are not
-  tokenised at all — the handoff lists that as an open decision.
+  tokenised at all — the brief lists that as an open decision.
 
 ## Jobs board rebuild (JOZ-278)
 
@@ -386,7 +388,8 @@ three reasons:
    would work but is a new dependency, with its own sensor/collision-detection
    model to learn and audit, to replace code that already existed and worked.
 3. **The mockup agrees.** `pages/Main.dc.html`'s own reference implementation
-   (`support.js` is referenced but does not exist in the handoff; the drag
+   (`support.js` is referenced but does not exist in the approved design
+   brief; the drag
    logic is inline in the page's `<script>`) is itself hand-rolled native
    HTML5 drag-and-drop with the identical shape this batch uses: a dragged
    card fades to 40% opacity, the hovered column gets a dashed primary
@@ -786,7 +789,7 @@ New fixtures (`frontend/tests/fixtures/job-detail.json`,
 `experience-detail.spec.js`, `company-detail.spec.js`,
 `company-classification.spec.js`, plus edit/delete coverage folded into
 each rather than separate files, since every popup is page-specific),
-28 tests total, cover: header rendering (type label, title, subtitle,
+45 tests total, cover: header rendering (type label, title, subtitle,
 chip, actions), the back link's navigation, SectionCard ordering via
 heading order, the Status and Fit dropdowns' PUT payloads, every edit
 popup's open/fill/save/cancel round-trip, and the delete `ModalAlert`'s
