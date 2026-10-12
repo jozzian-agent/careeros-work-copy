@@ -132,6 +132,34 @@ Friends never delete jobs or companies. Only the owner edits shared records.
 
 Gestalt, React, with blue and purple replacing the default red. Full React front end decided by the owner 2026-10-10 (JOZ-273 option C, docs/decisions/design-system.md). Component inventory to record before the first polish round.
 
+### Capabilities
+
+| Name | Repository | Pinned version |
+|---|---|---|
+| Organisation intake | capa-repo, submodule at `vendor/capa-repo` | `9606d6d2a097c4c29b7b5844ba906a7defef0efc` |
+
+### JOZ-276: Organisation intake extraction
+
+2026-10-12: pin organisation intake as a submodule at `9606d6d`, per the
+[approved contract](docs/capabilities/org-intake.md). The vault store adapter
+uses the existing company record keys and save path; no vault format change
+is needed. Product call sites now use the capability for identity,
+classification, ATS recognition and URL normalization. The four duplicated
+modules are removed. Posting IDs and company source records remain
+product-owned; the existing intake, server and enrichment modules hold
+that integration and vault persistence. The adapter is the only new product
+module because the capability requires an injected store.
+
+Owner ruling 2026-10-12: contract rule 5 wins over the previous first-match
+fallback. Duplicate exact names produce `needs_review` / `ambiguous_exact`
+and list all candidates, without a compatibility shim.
+
+Resolved 2026-10-11: contract rule 8 (inclusive EU thresholds: 10 is micro,
+250 is medium, 1001 is large) is owner-approved as recorded in commit
+`4e48cf6`. The pre-extraction exclusive-threshold test expectations were
+updated to the approved scale in task 2.4; the earlier product behavior
+classified exact-boundary counts one class up.
+
 ## What the audit says to remove or merge
 
 | Found in the prototype | Do this |
