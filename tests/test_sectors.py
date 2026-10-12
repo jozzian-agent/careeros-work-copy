@@ -1713,9 +1713,11 @@ def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
 
 
 # --- M1 audit: per-company Retry replaces the sweep-all Backfill button ----
-# Visibility follows the states rule exactly: 'exhausted' or 'flagged' on
-# any field_state, OR a non-empty review_flags list. A company with
-# everything filled (or simply untouched) shows no Retry -- nothing to retry.
+# Visibility: 'exhausted' or 'flagged' on any field_state, OR a
+# non-empty review_flags list, OR a never-enriched company (empty
+# sectors/size -- owner decision 2026-10-12, option B: show Retry with
+# a "Please add a url to enrich." hint). A company with everything
+# filled shows no Retry -- nothing to retry.
 
 def test_company_detail_shows_retry_when_a_field_is_exhausted(client, root):
     company = vault.save_company(root, {'name': 'Exhausted Labs', 'enrichment': {
@@ -1769,10 +1771,16 @@ def test_company_detail_shows_sector_unknown_when_unclassified(client, root):
     assert 'Sector unknown' in html
 
 
-def test_company_detail_hides_retry_for_an_untouched_company(client, root):
+def test_company_detail_shows_retry_with_add_url_hint_for_never_enriched_company(client, root):
+    # Owner click-test 2026-10-12: a real vault company with empty
+    # sectors/size and no flagged states used to show no Retry at all --
+    # the one company that most needs enrichment was locked out. Option B:
+    # keep the gate for filled companies but never-enriched ones get a
+    # Retry with the owner's wording "Please add a url to enrich."
     company = vault.save_company(root, {'name': 'Untouched Labs'})
     html = client.get('/companies/' + company['id']).text
-    assert 'id="retry-company"' not in html
+    assert 'id="retry-company"' in html
+    assert 'Please add a url to enrich.' in html
 
 
 def test_retry_company_endpoint_happy_path_reuses_sector_size_cascade(client, root, monkeypatch):

@@ -1,6 +1,7 @@
 <a href="/companies">← Companies</a><div class="page-header spaced"><h1>{{ company.name }}</h1></div>
 {% set field_states = company.get('enrichment', {}).get('field_states', {}) %}
-{% if company.review_flags or (field_states.values()|selectattr('state', 'in', ('exhausted', 'flagged'))|list) %}<p class="muted">Sector or size enrichment needs another look. <button type="button" id="retry-company">Retry</button></p>{% endif %}
+{% set never_enriched = not company.sectors and not company.size_range and not company.size_class %}
+{% if company.review_flags or (field_states.values()|selectattr('state', 'in', ('exhausted', 'flagged'))|list) %}<p class="muted">Sector or size enrichment needs another look. <button type="button" id="retry-company">Retry</button></p>{% elif never_enriched %}<p class="muted">Please add a url to enrich. <button type="button" id="retry-company">Retry</button></p>{% endif %}
 <a class="card position" href="/companies/{{ company.id|urlencode }}/taxonomy"><h2>Classification</h2><p class="muted">{{ sector_labels|join(', ') or 'Sector unknown' }} · {{ company.size_range or (company.size_class|title if company.size_class else 'Size unknown') }} — edit on the taxonomy sub-page</p></a>
 <form id="company-form" class="card grid">{% for key in ('name','website') %}<label>{{ key|title }}<input name="{{ key }}" value="{{ company[key] or '' }}" {% if key=='name' %}required{% endif %}></label>{% endfor %}
 <label class="wide">Locations (one per line)<textarea name="locations">{{ company.locations|join('\n') }}</textarea></label><label class="wide">Notes<textarea name="notes">{{ company.notes }}</textarea></label><button class="primary">Save profile</button></form>
