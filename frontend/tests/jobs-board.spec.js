@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { loadBoardFixture, mockBoard, mockIntake, mockMove, mockPromote, mockRetry, selectStatus } from './helpers.js';
+import { loadBoardFixture, mockBoard, mockMove, mockRetry, selectStatus } from './helpers.js';
 
 const fixture = loadBoardFixture();
 
@@ -61,28 +61,9 @@ test('needs attention toggle filters to needs_attention entries and back', async
   }
 });
 
-test('function filter narrows to entries tagged with that function', async ({ page }) => {
-  await page.goto('/');
-  const [targetId, targetLabel] = fixture.function_options[0];
-  const matching = fixture.entries.filter((entry) => entry.function.includes(targetId));
-  const nonMatching = fixture.entries.filter((entry) => !entry.function.includes(targetId));
-  expect(matching.length).toBeGreaterThan(0);
-  expect(nonMatching.length).toBeGreaterThan(0);
-
-  await page.getByLabel('Function').selectOption(targetId);
-  for (const entry of matching) {
-    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
-  }
-  for (const entry of nonMatching) {
-    await expect(page.getByText(entry.title, { exact: true })).toHaveCount(0);
-  }
-  expect(targetLabel).toBeTruthy();
-
-  await page.getByLabel('Function').selectOption('all');
-  for (const entry of fixture.entries) {
-    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
-  }
-});
+// The Function chip's own filtering behaviour (and Fit/Location/Industry/
+// Company size/Clear all/result count) moved to tests/filter-bar.spec.js
+// with the JOZ-279 filter bar rebuild; it is no longer a SelectList here.
 
 test('empty state renders the empty message from the API', async ({ page }) => {
   const emptyBoard = { ...fixture, entries: [], empty: 'No jobs match this test fixture.' };
@@ -477,169 +458,7 @@ test('load failure (including background refresh) shows the error with a Retry t
   await expect(page.getByText(fixture.entries[0].title, { exact: true })).toBeVisible();
 });
 
-test('intake adds a job, clears the field, and toasts success', async ({ page }) => {
-  await mockIntake(page, [{ body: { id: 'JOB-NEW', duplicate: false } }]);
-  await page.goto('/');
-
-  const field = page.getByLabel('Posting URL');
-  await field.fill('https://example.com/careers/new-role');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-
-  await expect(page.getByText('Job added')).toBeVisible();
-  await expect(field).toHaveValue('');
-});
-
-test('intake failure is visible with a Retry that resubmits the same URL', async ({ page }) => {
-  const requests = await mockIntake(page, [
-    { status: 500, body: { error: 'Could not reach that posting.' } },
-    { body: { id: 'JOB-NEW', duplicate: false } },
-  ]);
-  await page.goto('/');
-
-  await page.getByLabel('Posting URL').fill('https://example.com/careers/flaky-role');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-
-  // Scoped to the inline error, not the toast: both show the same message.
-  await expect(page.locator('[data-test-id="intake-error"]')).toHaveText('Could not reach that posting.');
-  await page.locator('[data-test-id="intake-retry"]').click();
-
-  await expect(page.getByText('Job added')).toBeVisible();
-
-  expect(requests).toHaveLength(2);
-  expect(requests[0].body).toEqual({ url: 'https://example.com/careers/flaky-role', origin: 'manual' });
-  expect(requests[1].body).toEqual({ url: 'https://example.com/careers/flaky-role', origin: 'manual' });
-});
-
-test('intake retry after a failed "Add anyway" resubmits with force:true preserved', async ({ page }) => {
-  const requests = await mockIntake(page, [
-    {
-      body: {
-        duplicate: true,
-        basis: 'same_url',
-        existing: { id: fixture.entries[0].id, title: fixture.entries[0].title, in_pipeline: true },
-        actions: ['open_existing', 'add_anyway'],
-      },
-    },
-    { status: 500, body: { error: 'Could not reach that posting.' } },
-    { body: { id: 'JOB-NEW', duplicate: false } },
-  ]);
-  await page.goto('/');
-
-  await page.getByLabel('Posting URL').fill('https://example.com/careers/dup');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByText('Possible duplicate')).toBeVisible();
-
-  await page.getByRole('button', { name: 'Add anyway', exact: true }).click();
-  await expect(page.locator('[data-test-id="intake-error"]')).toHaveText('Could not reach that posting.');
-
-  await page.locator('[data-test-id="intake-retry"]').click();
-  await expect(page.getByText('Job added')).toBeVisible();
-
-  expect(requests).toHaveLength(3);
-  expect(requests[1].body.force).toBe(true);
-  expect(requests[2].body.force).toBe(true);
-});
-
-test('duplicate dialog Cancel creates nothing, closes with no toast, and sends no further request', async ({
-  page,
-}) => {
-  const requests = await mockIntake(page, [
-    {
-      body: {
-        duplicate: true,
-        basis: 'same_url',
-        existing: { id: fixture.entries[0].id, title: fixture.entries[0].title, in_pipeline: true },
-        actions: ['open_existing', 'add_anyway'],
-      },
-    },
-  ]);
-  await page.goto('/');
-
-  await page.getByLabel('Posting URL').fill('https://example.com/careers/dup');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-
-  await expect(page.getByText('Possible duplicate')).toBeVisible();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-
-  await expect(page.getByText('Possible duplicate')).toHaveCount(0);
-  await expect(page.getByText('Job added')).toHaveCount(0);
-  expect(requests).toHaveLength(1);
-});
-
-test('duplicate dialog Open existing navigates to the existing job', async ({ page }) => {
-  const existingId = fixture.entries[0].id;
-  await mockIntake(page, [
-    {
-      body: {
-        duplicate: true,
-        basis: 'same_url',
-        existing: { id: existingId, title: fixture.entries[0].title, in_pipeline: true },
-        actions: ['open_existing', 'add_anyway'],
-      },
-    },
-  ]);
-  await page.route(`**/jobs/${existingId}`, (route) =>
-    route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>job detail stub</body></html>' }),
-  );
-  await page.goto('/');
-
-  await page.getByLabel('Posting URL').fill('https://example.com/careers/dup');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByText('Possible duplicate')).toBeVisible();
-
-  await page.getByRole('button', { name: 'Open existing', exact: true }).click();
-  await page.waitForURL(`**/jobs/${existingId}`);
-});
-
-test('duplicate dialog Promote to pipeline promotes and toasts success', async ({ page }) => {
-  const existingId = fixture.entries[2].id;
-  await mockIntake(page, [
-    {
-      body: {
-        duplicate: true,
-        basis: 'same_ats_posting_id',
-        existing: { id: existingId, title: fixture.entries[2].title, in_pipeline: false },
-        actions: ['promote', 'open_existing', 'add_anyway'],
-      },
-    },
-  ]);
-  await mockPromote(page);
-  await page.goto('/');
-
-  await page.getByLabel('Posting URL').fill('https://example.com/careers/dup');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByText('Possible duplicate')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Promote to pipeline', exact: true })).toBeVisible();
-
-  await page.getByRole('button', { name: 'Promote to pipeline', exact: true }).click();
-
-  await expect(page.getByText('Promoted to pipeline')).toBeVisible();
-  await expect(page.getByText('Possible duplicate')).toHaveCount(0);
-});
-
-test('duplicate dialog Add anyway forces the create and toasts success', async ({ page }) => {
-  const requests = await mockIntake(page, [
-    {
-      body: {
-        duplicate: true,
-        basis: 'same_url',
-        existing: { id: fixture.entries[0].id, title: fixture.entries[0].title, in_pipeline: true },
-        actions: ['open_existing', 'add_anyway'],
-      },
-    },
-    { body: { id: 'JOB-NEW', duplicate: false } },
-  ]);
-  await page.goto('/');
-
-  await page.getByLabel('Posting URL').fill('https://example.com/careers/dup');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
-  await expect(page.getByText('Possible duplicate')).toBeVisible();
-
-  await page.getByRole('button', { name: 'Add anyway', exact: true }).click();
-
-  await expect(page.getByText('Possible duplicate')).toHaveCount(0);
-  await expect(page.getByText('Job added')).toBeVisible();
-
-  expect(requests).toHaveLength(2);
-  expect(requests[1].body).toEqual({ url: 'https://example.com/careers/dup', force: true, origin: 'manual' });
-});
+// Intake (success, failure+retry, duplicate "already on your board" and
+// "eligible for promotion", Add anyway) moved to tests/add-job-popup.spec.js
+// with the JOZ-279 popup rebuild: the inline "Posting URL" field and the
+// unconditional duplicate dialog these tests drove no longer exist.
