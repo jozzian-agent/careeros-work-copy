@@ -100,6 +100,10 @@ test('dragging a card over a column highlights it, and an empty column invites t
 
 test('a failed move only rolls back its own card, leaving a different concurrent move intact', async ({ page }) => {
   const requests = [];
+  let unblockSlow;
+  const slowUnblocked = new Promise((resolve) => {
+    unblockSlow = resolve;
+  });
   await page.route('**/api/jobs/*', async (route) => {
     if (route.request().method() !== 'PUT') {
       route.fallback();
@@ -109,11 +113,14 @@ test('a failed move only rolls back its own card, leaving a different concurrent
     const id = route.request().url().split('/').pop();
     requests.push({ id, body });
     if (id === 'JOB-004') {
-      // Resolves after the other move below has already succeeded, so its
-      // failure rollback runs against a board that has already changed.
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // Held open until the other move below has actually started (not just
+      // after a fixed delay, which could race ahead of it), so its failure
+      // rollback is guaranteed to run against a board that has already
+      // changed - the scenario this test exists to cover.
+      await slowUnblocked;
       route.fulfill({ status: 500, json: { error: 'nope' } });
     } else {
+      unblockSlow();
       route.fulfill({ status: 200, json: { ok: true } });
     }
   });
@@ -167,6 +174,56 @@ test('a failed Undo reconciles the card to the moved state and shows a persisten
   await expect(page.getByTestId('board-column-interested').getByTestId(`job-card-${moved.id}`)).toBeVisible();
   await expect(page.getByTestId(`board-column-${moved.status}`).getByTestId(`job-card-${moved.id}`)).toHaveCount(0);
   await expect(page.getByText('Status update failed.')).toBeVisible();
+});
+
+test('a failed Undo does not clobber a newer, already-confirmed move on the same card', async ({ page }) => {
+  // The Undo's own PUT (reverting to "new") is held open until the second
+  // move (to "applied") has actually been observed, so the failure below is
+  // guaranteed to land after that second move already succeeded - not
+  // racing against it on a timer.
+  let unblockUndo;
+  const undoUnblocked = new Promise((resolve) => {
+    unblockUndo = resolve;
+  });
+  await page.route('**/api/jobs/*', async (route) => {
+    if (route.request().method() !== 'PUT') {
+      route.fallback();
+      return;
+    }
+    const body = route.request().postDataJSON();
+    if (body.status === 'new') {
+      await undoUnblocked;
+      route.fulfill({ status: 500, json: { error: 'nope' } });
+    } else if (body.status === 'applied') {
+      route.fulfill({ status: 200, json: { ok: true } });
+      unblockUndo();
+    } else {
+      route.fulfill({ status: 200, json: { ok: true } });
+    }
+  });
+  await page.goto('/');
+
+  const moved = fixture.entries.find((entry) => entry.status === 'new');
+  await page.getByTestId(`job-card-${moved.id}`).dragTo(page.getByTestId('board-column-interested'));
+  await expect(page.getByTestId('board-column-interested').getByTestId(`job-card-${moved.id}`)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  // Undo's optimistic rollback lands immediately; its own PUT is held open.
+  await expect(page.getByTestId(`board-column-${moved.status}`).getByTestId(`job-card-${moved.id}`)).toBeVisible();
+
+  // While that Undo request is still in flight, move the same card again -
+  // this time all the way to Applied - and let it succeed.
+  await page.getByTestId(`job-card-${moved.id}`).dragTo(page.getByTestId('board-column-applied'));
+  await expect(page.getByTestId('board-column-applied').getByTestId(`job-card-${moved.id}`)).toBeVisible();
+  await expect(page.getByText('Moved to Applied')).toBeVisible();
+
+  // Now the stale Undo PUT fails. A generation-blind handler would restore
+  // the card to "interested" (the state Undo was reverting away from),
+  // stomping the newer, already-confirmed Applied move the server actually
+  // has. It must stay on Applied.
+  await expect(page.getByTestId('board-column-applied').getByTestId(`job-card-${moved.id}`)).toBeVisible();
+  await expect(page.getByTestId('board-column-interested').getByTestId(`job-card-${moved.id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`board-column-${moved.status}`).getByTestId(`job-card-${moved.id}`)).toHaveCount(0);
 });
 
 test('a persistent error is not replaced or removed by a later success toast', async ({ page }) => {

@@ -402,9 +402,14 @@ drive (the dashed ring, "Drop here"/"No jobs here yet"), per the README's
 drop is a pure client-side reorder (the board API has no concept of card
 position, only status); a cross-column drop is the real status mutation,
 reusing the same per-job generation counter the status dropdown already had
-for overlapping-request safety. Undo snapshots the whole `entries` array
-before the move and restores it verbatim — exact column *and* position — then
-fires a second `PUT` to actually revert the status server-side.
+for overlapping-request safety. Undo rolls back only the one card — its exact
+column and slot, read from the live `entries` at undo-time, not a frozen
+whole-board snapshot — then fires a second `PUT` to actually revert the
+status server-side. If that second `PUT` fails, the generation counter is
+checked again before reconciling the card back to the moved-to status: if a
+newer move already landed on the same card while the Undo was in flight, the
+counter has moved past the Undo's own generation and the stale failure is
+not allowed to clobber it.
 
 ### Component registry
 

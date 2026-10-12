@@ -371,7 +371,8 @@ export default function JobsBoard() {
 
   function undoMove(id, generation, previousStatus, movedStatus, originalBeforeId) {
     if (moveGenerationRef.current[id] !== generation) return;
-    moveGenerationRef.current[id] = generation + 1;
+    const undoGeneration = generation + 1;
+    moveGenerationRef.current[id] = undoGeneration;
 
     // Captured from inside the same functional update that performs the
     // rollback, so it reflects the card's actual slot at undo-time (not a
@@ -384,10 +385,15 @@ export default function JobsBoard() {
 
     moveJobStatus(id, previousStatus).catch((err) => {
       // The Undo PUT failed: the server kept the moved-to status even
-      // though we already rolled the card back visually above. Put it back
-      // at the moved state so the display matches what the server actually
-      // has, and surface a persistent error rather than a silent mismatch.
-      setBoard((prev) => ({ ...prev, entries: reorderEntries(prev.entries, id, movedStatus, movedBeforeId.current) }));
+      // though we already rolled the card back visually above. Only
+      // reconcile to that moved state if no newer move has touched this
+      // card since the Undo started - otherwise the card's generation has
+      // already moved on (e.g. a second drag while the Undo was in
+      // flight) and restoring movedStatus here would clobber that newer,
+      // already-confirmed move with stale data.
+      if (moveGenerationRef.current[id] === undoGeneration) {
+        setBoard((prev) => ({ ...prev, entries: reorderEntries(prev.entries, id, movedStatus, movedBeforeId.current) }));
+      }
       showToast('error', err.message);
     });
   }
