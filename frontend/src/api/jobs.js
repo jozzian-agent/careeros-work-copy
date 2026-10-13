@@ -93,6 +93,22 @@ export async function retryIngest(id) {
   return response.json();
 }
 
+// POST /api/jobs/<id>/paste-description: the fetch_failed "paste posting
+// text manually" resume path (careeros/server.py paste_description).
+// Resumes extraction through the same worker /extract uses.
+export async function pasteDescription(id, description) {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/paste-description`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || 'Could not save that posting text.');
+  }
+  return data;
+}
+
 // Mirrors careeros/server.py job_intake(): a 200 response whose body has
 // duplicate: true is not an error, it is the warning payload
 // ({ basis, existing: { id, title, in_pipeline }, actions }) the caller
