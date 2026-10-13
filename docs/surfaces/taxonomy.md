@@ -21,12 +21,13 @@ Nav → Taxonomy (`/taxonomy`), backed by `GET /api/taxonomy`
 
 ## Minimal contents
 
-Three sections, each a two-column count table (label, count) sorted by
-count desc then name/label: Skills, Industries, Company size. Skills merges
+Three sections, each a two-column count table (label, count): Skills,
+Industries, Company size. Skills and Industries are sorted by count desc
+then name/label. Skills merges
 the legacy free-text `skills` field with tag tokens on the skill facets
 (`skill/capability`, `skill/domain`), shown by registry label. Company size
 always lists the canonical micro/small/medium/large order plus a trailing
-unknown bucket, even with no companies.
+unknown bucket whenever at least one company exists.
 
 ## States
 
