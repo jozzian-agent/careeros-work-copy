@@ -140,11 +140,11 @@ def test_dedupe(client,monkeypatch):
 
 
 def test_crud_and_routes(client):
-    # JOZ-280: /jobs/<id> and /companies/<id> are React-only detail routes
-    # now (no Jinja coexistence); with CAREEROS_REACT_UI unset in this test
-    # client they 404 regardless of whether the record exists, so this test
-    # covers the list Jinja pages and the JSON API, not those two paths.
-    for route in ['/jobs','/companies','/api/jobs','/api/jobs/JOB-001','/api/companies','/api/companies/CO-001']:
+    # JOZ-283: /, /experiences and /companies list pages joined /jobs/<id>
+    # and /companies/<id> as React-only routes (no Jinja coexistence); with
+    # CAREEROS_REACT_UI unset in this test client they 404 regardless of
+    # whether records exist, so this test covers the JSON API only.
+    for route in ['/api/jobs','/api/jobs/JOB-001','/api/companies','/api/companies/CO-001']:
         assert client.get(route).status_code==200
     result=client.put('/api/jobs/JOB-001',json={'status':'applied','notes':'**Ready** <script>bad()</script>'})
     assert result.status_code==200
@@ -195,9 +195,10 @@ def test_board_badges(client):
     for title in ['Platform Engineering Lead','Developer Tools Manager','Staff Backend Engineer','Engineering Manager']:
         assert title in html
     assert 'Enrichment pending' in html
-    assert '2 open jobs' in client.get('/companies').text
+    company_id = client.get('/api/jobs/JOB-001').json['company_id']
+    assert client.get('/api/companies?view=page').json['counts'][company_id] == 2
     assert client.put('/api/jobs/JOB-001',json={'status':'closed'}).status_code==200
-    assert '1 open jobs' in client.get('/companies').text
+    assert client.get('/api/companies?view=page').json['counts'][company_id] == 1
 
 
 def test_host_path_not_introduced():
@@ -1962,97 +1963,11 @@ def test_refresh_worker_exception_persists_failure(client, monkeypatch):
 # frontend/tests/job-detail.spec.js for the DOM-order assertion.
 
 
-def test_search_one_edit_affordance(client):
-    html = client.get('/search').text
-    assert html.count('Edit criteria') == 1
-    for old in ['Edit roles', 'Edit must-haves', 'Edit nice-to-haves', 'Edit avoid',
-                'Edit notes', 'Save notes', 'cancel-notes']:
-        assert old not in html
-    assert html.count('class="row editor"') == 4
-    assert 'id="save-all" hidden>Done</button>' in html
-    assert 'id="cancel-all" hidden>Cancel</button>' in html
-
-
-@pytest.mark.skipif(NODE is None, reason='Node is required to execute the Search editor JS.')
-def test_search_local_edits_cancel_save_and_rollback(client):
-    html = client.get('/search').text
-    script = next(s for s in re.findall(r'<script>(.*?)</script>', html, re.S)
-                  if 'let criteria=' in s)
-    harness = r'''
-const assert = require('node:assert/strict');
-function element() {
-  return {value:'', hidden:false, disabled:false, children:[],
-          append(...items){this.children.push(...items)},
-          replaceChildren(){this.children=[]}, setAttribute(){}};
-}
-const ids = Object.fromEntries(['edit-criteria','save-all','cancel-all','notes',
-  'notes-heading','notes-view','notes-edit','updated'].map(id=>[id,element()]));
-const sections = ['roles','must_haves','nice_to_haves','avoid'].map(key=>{
-  const parts = Object.fromEntries(['ul','.empty','.editor','input'].map(k=>[k,element()]));
-  parts.form=parts['.editor'];
-  return {dataset:{section:key},parts,querySelector(k){return parts[k]}};
-});
-global.document = {
-  getElementById(id){return ids[id]},createElement:element,
-  querySelectorAll(selector){return selector==='[data-section]'?sections:sections.map(s=>s.parts.input)}
-};
-const calls=[], notices=[];
-let settle, reject;
-global.api=(url,method,data)=>{
-  calls.push({url,method,data:structuredClone(data)});
-  return new Promise((resolve,fail)=>{settle=resolve;reject=fail});
-};
-global.toast=(...args)=>notices.push(args);
-'''
-    checks = r'''
-(async()=>{
-  const initial=structuredClone(criteria);
-  editButton.onclick();
-  for(const section of sections){
-    assert.equal(section.parts['.editor'].hidden,false);
-    section.parts.input.value='New '+section.dataset.section;
-    section.parts.form.onsubmit({preventDefault(){}});
-  }
-  notes.value='Changed notes';notes.oninput();
-  sections[0].parts.ul.children[0].children[0].onclick();
-  assert.equal(calls.length,0);
-  cancelButton.onclick();
-  assert.deepEqual(criteria,initial);
-  assert.equal(calls.length,0);
-  assert.equal(notes.value,initial.notes||'');
-  editButton.onclick();
-  sections[0].parts.input.value='Saved role';
-  sections[0].parts.form.onsubmit({preventDefault(){}});
-  notes.value='Saved notes';notes.oninput();
-  const saving=doneButton.onclick();
-  assert.equal(calls.length,1);
-  assert.equal(calls[0].url,'/api/search');
-  assert.equal(calls[0].method,'POST');
-  assert.equal(calls[0].data.notes,'Saved notes');
-  assert.equal(calls[0].data.roles.at(-1),'Saved role');
-  for(const key of ['must_haves','nice_to_haves','avoid'])assert.deepEqual(calls[0].data[key],initial[key]);
-  // While a save is pending the UI stays in edit mode (busy), so further clicks are no-ops.
-  editButton.onclick();cancelButton.onclick();await doneButton.onclick();
-  assert.equal(editing,true);assert.equal(calls.length,1);
-  settle({...calls[0].data,updated:'2026-10-10'});await saving;
-  assert.equal(busy,false);assert.equal(editing,false);
-  const saved=structuredClone(criteria);
-  editButton.onclick();notes.value='Failing notes';notes.oninput();
-  sections[0].parts.ul.children[0].children[0].onclick();
-  const failing=doneButton.onclick();reject(Error('Save failed'));await failing;
-  // New contract: on save failure the user stays in edit mode with edits intact.
-  assert.equal(editing,true);assert.equal(busy,false);
-  assert.equal(criteria.notes,'Failing notes');
-  assert.equal(criteria.roles.length,saved.roles.length-1);
-  assert.deepEqual(notices.at(-1),['Save failed',true]);
-  assert.equal(editButton.disabled,false);assert.equal(doneButton.disabled,false);
-  // Retry after failure succeeds and leaves edit mode.
-  const retrying=doneButton.onclick();
-  assert.equal(calls.length,3);
-  settle({...calls[2].data,updated:'2026-10-11'});await retrying;
-  assert.equal(editing,false);assert.equal(busy,false);
-})().catch(error=>{console.error(error);process.exitCode=1});
-'''
-    result = subprocess.run([NODE, '-e', harness + script + checks],
-                            capture_output=True, text=True, timeout=10)
-    assert result.returncode == 0, result.stderr
+# JOZ-283: the Jinja search.html page (and its inline edit/save/cancel
+# script, previously exercised here by extracting the <script> block and
+# running it under Node) is removed. Search is now the React
+# SearchCriteria page at "/". The one-edit-affordance markup assertion and
+# the Node-harness script test have no data-level analog; the equivalent
+# behavior (edit mode, add/remove items, save, cancel-restores-backup,
+# save-failure keeps edits) is covered by
+# frontend/tests/search-criteria.spec.js instead.

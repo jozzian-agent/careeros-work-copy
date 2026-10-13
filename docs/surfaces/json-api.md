@@ -20,6 +20,12 @@ detail-page cutover; see [Detail pages](detail-pages.md)). The contracts
 themselves — every field listed below — are unchanged; only the renderer
 consuming them moved.
 
+2026-10-13 (JOZ-283): the Search, Experiences and Companies `view=page`
+contracts below are, likewise, now read by React pages instead of Jinja
+(their Jinja routes/views/templates are removed, same no-coexist decision
+as JOZ-280; see [Search](preferences.md), [Experiences list](experiences.md)
+and [Companies list](companies.md)). No contract field changed.
+
 ## Appears in
 
 The existing Jobs, Search, Companies and Experiences flows. Page views extend

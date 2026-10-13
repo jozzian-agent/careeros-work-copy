@@ -1,9 +1,8 @@
 """Company directory and editable profiles."""
-from flask import abort, current_app
+from flask import abort
 from careeros import vault
 from org_intake import classify as sectors
 from careeros.web.pages.jobs import needs_attention
-from careeros.web.ui import page
 
 EMPTY_STATE = 'No companies yet — add a job to start your directory.'
 
@@ -28,11 +27,6 @@ def directory_context(jobs, entries, isic_sections):
         size_classes=vault.SIZE_CLASSES,
     )
 
-def build_page():
-    root = current_app.config['VAULT_PATH']
-    context = page_context(root)
-    return page('Companies', 'companies', 'companies.html', **context)
-
 def detail_context(root, identifier):
     company = vault.load_company(root, identifier)
     if company is None:
@@ -43,7 +37,7 @@ def detail_context(root, identifier):
 def company_context(company, jobs, experiences, isic_sections):
     identifier = company['id']
     isic_labels = {s['code']: s['label'] for s in isic_sections}
-    # Same read-time label mapping as the directory card (build_page):
+    # Same read-time label mapping as the directory card (page_context):
     # the detail page shows human labels, never bare section codes.
     sector_labels = [isic_labels.get(code, code) for code in company.get('sectors', [])]
     # job_cards.html is shared with the board; every entry it renders must

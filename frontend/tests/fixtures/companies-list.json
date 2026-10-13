@@ -1,0 +1,19 @@
+{
+  "empty": "No companies yet — add a job to start your directory.",
+  "entries": [
+    { "id": "CO-001", "name": "Harbor Labs", "sectors": ["J"], "size_class": "small", "size_range": null },
+    { "id": "CO-002", "name": "Fern Robotics", "sectors": ["C"], "size_class": "large", "size_range": null },
+    { "id": "CO-003", "name": "Lantern Peak", "sectors": ["J", "C"], "size_class": "medium", "size_range": "51-250" }
+  ],
+  "counts": { "CO-001": 3, "CO-002": 1, "CO-003": 0 },
+  "isic_sections": [
+    { "code": "J", "label": "Information and communication" },
+    { "code": "C", "label": "Manufacturing" }
+  ],
+  "sector_labels": {
+    "CO-001": ["Information and communication"],
+    "CO-002": ["Manufacturing"],
+    "CO-003": ["Information and communication", "Manufacturing"]
+  },
+  "size_classes": ["micro", "small", "medium", "large"]
+}

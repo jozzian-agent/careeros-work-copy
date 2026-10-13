@@ -24,7 +24,7 @@ const HARNESS = '/tests/theme-harness.html';
 
 async function openBoard(page) {
   await mockBoard(page, fixture);
-  await page.goto('/');
+  await page.goto('/jobs');
   const boardButton = page.getByRole('button', { name: 'Board', exact: true });
   await expect(boardButton).toHaveAttribute('aria-pressed', 'true');
   return boardButton;

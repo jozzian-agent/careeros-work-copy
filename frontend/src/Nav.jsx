@@ -8,7 +8,7 @@ export default function Nav({ currentPage }) {
   return (
     <Box as="header" padding={4} marginBottom={4} borderStyle="raisedBottomShadow" color="default">
       <Flex gap={6} alignItems="center" wrap>
-        <TapAreaLink href="/search" target="self" fullWidth={false}>
+        <TapAreaLink href="/" target="self" fullWidth={false}>
           <Text weight="bold" size="400">
             CareerOS
           </Text>
@@ -17,10 +17,13 @@ export default function Nav({ currentPage }) {
           <Flex gap={4} wrap>
             {NAV_PAGES.map(([slug, label]) => {
               const isCurrent = slug === currentPage;
+              // The Search tab's page lives at "/". Unlike every other
+              // tab, its slug does not double as its own URL segment.
+              const href = slug === 'search' ? '/' : `/${slug}`;
               return (
                 <TapAreaLink
                   key={slug}
-                  href={`/${slug}`}
+                  href={href}
                   target="self"
                   fullWidth={false}
                   accessibilityCurrent={isCurrent ? 'page' : undefined}

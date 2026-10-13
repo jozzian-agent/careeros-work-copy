@@ -165,7 +165,6 @@ def create_app(vault: str | Path | None = None) -> Flask:
     """Build the app with an explicit, environment, or default vault path."""
     app = Flask(__name__)
     app.config['VAULT_PATH'] = Path(vault if vault is not None else os.environ.get('CAREEROS_VAULT', DEFAULT_VAULT)).expanduser()
-    app.add_url_rule('/', 'index', search.build_page)
     # M0 migration (JOZ-273): with CAREEROS_REACT_UI=1 the Jobs page is
     # served by the built React/Gestalt front end instead of the Jinja
     # template. The SPA fetches the same JSON API either way, so flipping
@@ -174,21 +173,24 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # is missing (a fresh clone has no dist/ until `npm run build`).
     react_dist = Path(os.environ.get('CAREEROS_REACT_DIST') or Path(__file__).resolve().parent.parent / 'frontend' / 'dist')
     react_ui = os.environ.get('CAREEROS_REACT_UI') == '1' and (react_dist / 'index.html').is_file()
-    for module in (search, experiences, jobs, companies):
-        slug = module.__name__.rsplit('.', 1)[-1]
-        if react_ui and slug == 'jobs':
-            continue
-        app.add_url_rule(f'/{slug}', slug, module.build_page)
-    # JOZ-280: the detail-page skeleton (Job, Experience, Company, Company
-    # Classification) is a React/Gestalt rebuild with no Jinja coexistence
-    # (owner decision) -- unlike the list pages above, these routes exist
-    # only when react_ui is on; their Jinja routes, views and templates are
-    # removed rather than kept as a flag-off fallback.
+    if not react_ui:
+        app.add_url_rule('/jobs', 'jobs', jobs.build_page)
+    # JOZ-280/JOZ-283: the detail-page skeleton (Job, Experience, Company,
+    # Company Classification) and, as of JOZ-283, Search (home),
+    # Experiences list and Companies list are a React/Gestalt rebuild with
+    # no Jinja coexistence (owner decision). Unlike /jobs above, these
+    # routes exist only when react_ui is on; their Jinja routes, views and
+    # templates are removed rather than kept as a flag-off fallback. The
+    # Search page's own URL is "/", not "/search"; the redundant second
+    # URL the Jinja template answered to is retired, not carried over.
     if react_ui:
         react_index = lambda **_kwargs: send_from_directory(react_dist, 'index.html')
+        app.add_url_rule('/', 'react_index', react_index)
         app.add_url_rule('/jobs', 'react_jobs', react_index)
         app.add_url_rule('/jobs/<identifier>', 'react_job_detail', react_index)
+        app.add_url_rule('/experiences', 'react_experiences', react_index)
         app.add_url_rule('/experiences/<identifier>', 'react_experience_detail', react_index)
+        app.add_url_rule('/companies', 'react_companies', react_index)
         app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
         app.add_url_rule('/companies/<identifier>/taxonomy', 'react_company_taxonomy', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))

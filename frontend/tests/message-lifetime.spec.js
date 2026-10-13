@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 test('a success message auto-hides after about 4 seconds', async ({ page }) => {
   await page.clock.install();
   await mockMove(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   const card = page.getByTestId(`job-card-${moved.id}`);
@@ -26,7 +26,7 @@ test('a success message auto-hides after about 4 seconds', async ({ page }) => {
 test('an error message stays until the user dismisses it, however long it waits', async ({ page }) => {
   await page.clock.install();
   await mockMove(page, { status: 500, body: { error: 'nope' } });
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   const card = page.getByTestId(`job-card-${moved.id}`);

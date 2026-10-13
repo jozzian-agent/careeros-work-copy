@@ -168,10 +168,15 @@ def fmt1(value: float) -> str:
 
 
 def nav_html(current_page: str) -> str:
-    """The shared nav bar, with ``current_page`` (a slug from NAV_PAGES) highlighted."""
+    """The shared nav bar, with ``current_page`` (a slug from NAV_PAGES) highlighted.
+
+    JOZ-283: the Search page's own URL is ``/``, not ``/search``. Its
+    slug no longer doubles as its own path segment, the one exception in
+    NAV_PAGES.
+    """
     active_class = " class='active' aria-current='page'"
     links = "".join(
-        f"<a href='/{slug}'{active_class if slug == current_page else ''}>{label}</a>"
+        f"<a href='{'/' if slug == 'search' else f'/{slug}'}'{active_class if slug == current_page else ''}>{label}</a>"
         for slug, label in NAV_PAGES
     )
     return f"<nav class='page-nav' aria-label='Main'>{links}</nav>"
@@ -190,7 +195,7 @@ def page_shell(title: str, current_page: str, body: str, extra_css: str = "") ->
         f"<style>{CSS_VARS}{BASE_CSS}{SCROLLBAR_CSS}{extra_css}</style>"
         "</head><body>"
         "<div class='page'><header class='app-header'>"
-        "<a class='wordmark' href='/search'>CareerOS</a></header>"
+        "<a class='wordmark' href='/'>CareerOS</a></header>"
         f"{nav_html(current_page)}<main>{body}</main></div>"
         "</body></html>"
     )

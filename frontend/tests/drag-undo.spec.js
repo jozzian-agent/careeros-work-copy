@@ -27,7 +27,7 @@ test('dropping a card in another column toasts "Moved to X" with an Undo that re
   page,
 }) => {
   const requests = await mockMove(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   const originalOrder = fixture.entries.filter((entry) => entry.status === moved.status).map((entry) => `job-card-${entry.id}`);
@@ -58,7 +58,7 @@ test('reordering two cards within the same column is a pure client-side move: no
   page,
 }) => {
   const requests = await mockMove(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const sameColumn = fixture.entries.filter((entry) => entry.status === 'new');
   expect(sameColumn.length).toBeGreaterThan(1);
@@ -76,7 +76,7 @@ test('reordering two cards within the same column is a pure client-side move: no
 
 test('dragging a card over a column highlights it, and an empty column invites the drop', async ({ page }) => {
   await mockMove(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   const emptyStatus = fixture.statuses.find((status) => !fixture.entries.some((entry) => entry.status === status));
@@ -124,7 +124,7 @@ test('a failed move only rolls back its own card, leaving a different concurrent
       route.fulfill({ status: 200, json: { ok: true } });
     }
   });
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const slow = fixture.entries.find((entry) => entry.id === 'JOB-004'); // status: applied
   const fast = fixture.entries.find((entry) => entry.id === 'JOB-001'); // status: new
@@ -160,7 +160,7 @@ test('a failed Undo reconciles the card to the moved state and shows a persisten
       route.fulfill({ status: 500, json: { error: 'nope' } }); // the Undo's own PUT
     }
   });
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   await page.getByTestId(`job-card-${moved.id}`).dragTo(page.getByTestId('board-column-interested'));
@@ -201,7 +201,7 @@ test('a failed Undo does not clobber a newer, already-confirmed move on the same
       route.fulfill({ status: 200, json: { ok: true } });
     }
   });
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   await page.getByTestId(`job-card-${moved.id}`).dragTo(page.getByTestId('board-column-interested'));
@@ -230,7 +230,7 @@ test('a persistent error is not replaced or removed by a later success toast', a
   await page.clock.install();
   await mockMove(page, { status: 500, body: { error: 'nope' } });
   await mockRetry(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   await page.getByTestId(`job-card-${moved.id}`).dragTo(page.getByTestId('board-column-interested'));

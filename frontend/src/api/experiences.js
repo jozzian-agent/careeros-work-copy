@@ -1,3 +1,13 @@
+// GET /api/experiences?view=page: the library_context payload (entries,
+// empty, companies, labels, tag_labels) the Experiences list page reads.
+export async function fetchExperiencesPage() {
+  const response = await fetch('/api/experiences?view=page');
+  if (!response.ok) {
+    throw new Error('Could not load your experiences.');
+  }
+  return response.json();
+}
+
 // GET /api/experiences/<id>?view=page: the experience_context payload
 // (exp, label, companies, tag_labels, markdown) the Experience detail page
 // and the Edit position popup both read.
