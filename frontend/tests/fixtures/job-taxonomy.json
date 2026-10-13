@@ -1,0 +1,18 @@
+{
+  "job": { "id": "JOB-001", "function": ["engineering"], "tags": ["tool:python"] },
+  "company": { "id": "CO-001", "name": "Northwind Systems", "sectors": ["J"] },
+  "function_options": [
+    ["design", "Design"],
+    ["engineering", "Engineering"]
+  ],
+  "function_labels": { "engineering": { "label": "Engineering", "local": false } },
+  "isic_labels": { "J": "Information and communication" },
+  "tags": ["tool:python"],
+  "tag_labels": { "tool:python": { "label": "Python" } },
+  "tag_registry": {
+    "facets": {
+      "tool": { "label": "Tool", "values": [{ "id": "python", "label": "Python" }, { "id": "sql", "label": "SQL" }] },
+      "skill/capability": { "label": "Capability", "values": [{ "id": "mentoring", "label": "Mentoring" }] }
+    }
+  }
+}

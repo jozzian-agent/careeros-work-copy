@@ -234,7 +234,7 @@ def test_intake_persists_fields(tmp_path, monkeypatch, use_llm):
     assert updated.json['future_field'] == {'nested': [1, 2]}
     assert updated.json['description'] == description
     assert updated.json['keywords'] == ['Python']
-    assert api.get('/jobs/' + job['id']).status_code == 200
+    assert api.get('/api/jobs/' + job['id']).status_code == 200
 
 
 def test_enrichment_legacy_job(tmp_path, monkeypatch):

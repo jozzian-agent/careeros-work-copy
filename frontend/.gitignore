@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Review artifacts, not shipped code (JOZ-280 wireframe gate and any later ones)
+wireframes
+
 # Playwright
 test-results
 playwright-report

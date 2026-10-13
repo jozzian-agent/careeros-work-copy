@@ -61,11 +61,6 @@ def company_context(company, jobs, experiences, isic_sections):
         kinds=vault.KINDS,
     )
 
-def detail(identifier):
-    root = current_app.config['VAULT_PATH']
-    context = detail_context(root, identifier)
-    return page(context['company'].get('name', 'Company'), 'companies', 'company_detail.html', **context)
-
 def taxonomy_context(root, identifier):
     """Taxonomy sub-page (approved wireframe 2026-10-07): kind, ISIC
     sectors, EU size class, and review flags in one focused editor. No
@@ -82,8 +77,3 @@ def classification_context(company, isic_sections):
         size_classes=vault.SIZE_CLASSES,
         kinds=vault.KINDS,
     )
-
-def taxonomy(identifier):
-    root = current_app.config['VAULT_PATH']
-    context = taxonomy_context(root, identifier)
-    return page(f"Classification · {context['company'].get('name', 'Company')}", 'companies', 'company_taxonomy.html', **context)

@@ -2,10 +2,21 @@
 type: Surface
 title: "Job"
 description: "Describe the approved summary-first job detail page."
-timestamp: 2026-10-11
+timestamp: 2026-10-12
 ---
 
 # Job
+
+2026-10-12 (JOZ-280): the Jinja page this file describes is retired. `/jobs/<id>`
+is now the React Job detail page on the shared DetailHeader/SectionCard skeleton
+(Job, Experience, Company, Company Classification); see
+[Detail pages](detail-pages.md) for the shared contract and
+`frontend/BUILD_NOTES.md`'s "Detail pages rebuild (JOZ-280)" for the
+implementation detail. The summary-first ordering this file records
+(Summary, collapsed original text directly below, then the remaining
+sections in their existing relative order) carries over into the React
+page's Content section. The rest of this file is kept for the Jinja-era
+history; its mockup is no longer the live contract.
 
 ## Purpose
 

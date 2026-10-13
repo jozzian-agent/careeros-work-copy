@@ -1,0 +1,17 @@
+{
+  "company": {
+    "id": "CO-001",
+    "name": "Northwind Systems",
+    "kind": "employer",
+    "sectors": ["J"],
+    "size_range": "51-200",
+    "size_class": "medium",
+    "review_flags": ["size-inconsistent"]
+  },
+  "isic_sections": [
+    { "code": "C", "label": "Manufacturing" },
+    { "code": "J", "label": "Information and communication" }
+  ],
+  "size_classes": ["micro", "small", "medium", "large"],
+  "kinds": ["employer", "institution"]
+}

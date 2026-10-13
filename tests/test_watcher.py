@@ -61,14 +61,14 @@ def test_history_api(tmp_path,job):
     assert [e['event'] for e in result['history']] == ['created','status_changed','note_added']
     result=client.put('/api/jobs/'+job['id'],json={'notes':'edited'}).json
     assert len(result['history']) == 3
-    assert b'History' in client.get('/jobs/'+job['id']).data
+    assert client.get('/api/jobs/'+job['id']+'?view=page').json['job']['history'] == result['history']
 
 def test_legacy(tmp_path,job):
     path=next((tmp_path/'jobs').glob('*.yaml'))
     job.pop('history',None)
     vault._write(path,job)
     client=create_app(tmp_path).test_client()
-    assert b'History' not in client.get('/jobs/'+job['id']).data
+    assert not client.get('/api/jobs/'+job['id']+'?view=page').json['job'].get('history')
     assert watcher.scan(tmp_path,fetch=lambda _: 'body') == []
     assert [e['event'] for e in read(tmp_path,job)['history']] == ['watch_started']
 
@@ -103,7 +103,7 @@ def test_endpoint(tmp_path,job,monkeypatch):
     assert response.status_code == 200 and response.json['events'] == []
     assert response.json['watch_status'] == 'error'
     assert client.post('/api/watch/scan?job=missing').status_code == 404
-    assert b'Check posting' in client.get('/jobs/'+job['id']).data
+    assert client.get('/api/jobs/'+job['id']+'?view=page').json['watch_eligible'] is True
 
 @pytest.mark.parametrize('mutation', ['delete','url','status','notes','salary'])
 def test_concurrent_edit(tmp_path,job,mutation):
@@ -231,7 +231,10 @@ def test_lock_rejects_nesting_without_second_flock(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('updates', [{'status': 'closed'}, {'url': ''}])
 def test_ineligible_scan_and_button(tmp_path, job, updates, monkeypatch):
-    from html.parser import HTMLParser
+    # JOZ-280: the job detail page's disabled "Check posting" button with
+    # its title tooltip is a React rendering decision now (DetailHeader's
+    # Details SectionCard); the data behind it is this unchanged API
+    # contract (watch_eligible/watch_reason), which is what this pins.
     job.update(updates)
     vault.save_watch_result(tmp_path, job)
     monkeypatch.setattr(intake, 'fetch_url', lambda _: pytest.fail('ineligible fetched'))
@@ -239,44 +242,6 @@ def test_ineligible_scan_and_button(tmp_path, job, updates, monkeypatch):
     data = client.post('/api/watch/scan?job=' + job['id']).json
     assert data['watch_status'] == 'not_watched'
     assert data['reason'] == 'Only jobs with status New/Interested/Applied/Interviewing and a posting URL are watched'
-    buttons = []
-    class Buttons(HTMLParser):
-        def handle_starttag(self, tag, attrs):
-            if tag == 'button':
-                buttons.append(dict(attrs))
-    parser = Buttons()
-    parser.feed(client.get('/jobs/' + job['id']).text)
-    button = next(b for b in buttons if b.get('id') == 'check-posting')
-    assert 'disabled' in button and button['title'] == data['reason']
-
-
-def test_check_posting_summary_placement(tmp_path, job):
-    html = create_app(tmp_path).test_client().get('/jobs/' + job['id']).text
-    assert html.index('id="check-posting"') < html.index('id="job-form"')
-    assert 'Chunk' not in html
-
-
-@pytest.mark.parametrize('data, reloads, message', [
-    ({'events': [{'event': 'posting_changed', 'detail': 'changed'}]}, 1, ''),
-    ({'events': [], 'watch_status': 'ok'}, 0, 'Unchanged'),
-    ({'events': [], 'watch_status': 'not_watched', 'reason': 'Not eligible'}, 0, 'Not eligible'),
-])
-def test_check_posting_client_behavior(tmp_path, job, data, reloads, message):
-    import json
-    import re
-    import subprocess
-    html = create_app(tmp_path).test_client().get('/jobs/' + job['id']).text
-    script = next(s for s in re.findall(r'<script>(.*?)</script>', html, re.S) if 'const checkPosting=' in s)
-    harness = '''
-const result={textContent:''}, button={disabled:false}; let reloads=0;
-const document={getElementById:id=>id==='check-posting'?button:result};
-const location={reload:()=>reloads++}; const sessionStorage={setItem:()=>{}};
-const api=async()=>(DATA);
-SCRIPT
-(async()=>{await button.onclick();console.log(JSON.stringify({reloads,message:result.textContent}));})();
-'''.replace('DATA', json.dumps(data)).replace('SCRIPT', script)
-    completed = subprocess.run(['node', '-e', harness], capture_output=True, text=True, check=True)
-    actual = json.loads(completed.stdout)
-    assert actual['reloads'] == reloads
-    if not reloads:
-        assert actual['message'] == message
+    page = client.get('/api/jobs/' + job['id'] + '?view=page').json
+    assert page['watch_eligible'] is False
+    assert page['watch_reason'] == data['reason']

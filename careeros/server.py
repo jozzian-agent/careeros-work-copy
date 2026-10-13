@@ -179,17 +179,23 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if react_ui and slug == 'jobs':
             continue
         app.add_url_rule(f'/{slug}', slug, module.build_page)
+    # JOZ-280: the detail-page skeleton (Job, Experience, Company, Company
+    # Classification) is a React/Gestalt rebuild with no Jinja coexistence
+    # (owner decision) -- unlike the list pages above, these routes exist
+    # only when react_ui is on; their Jinja routes, views and templates are
+    # removed rather than kept as a flag-off fallback.
     if react_ui:
-        app.add_url_rule('/jobs', 'react_jobs', lambda: send_from_directory(react_dist, 'index.html'))
+        react_index = lambda **_kwargs: send_from_directory(react_dist, 'index.html')
+        app.add_url_rule('/jobs', 'react_jobs', react_index)
+        app.add_url_rule('/jobs/<identifier>', 'react_job_detail', react_index)
+        app.add_url_rule('/experiences/<identifier>', 'react_experience_detail', react_index)
+        app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
+        app.add_url_rule('/companies/<identifier>/taxonomy', 'react_company_taxonomy', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
     app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
-    app.add_url_rule('/experiences/<identifier>', 'experience_detail', experiences.detail)
     app.add_url_rule('/experiences/<identifier>/edit', 'experience_edit', experiences.form)
-    app.add_url_rule('/jobs/<identifier>', 'job_detail', jobs.detail)
     app.add_url_rule('/jobs/<identifier>/taxonomy', 'job_taxonomy', jobs.taxonomy)
-    app.add_url_rule('/companies/<identifier>', 'company_detail', companies.detail)
-    app.add_url_rule('/companies/<identifier>/taxonomy', 'company_taxonomy', companies.taxonomy)
     write_lock = storage.WriteLock(app.config['VAULT_PATH'], RLock())
 
     # JOZ-265: idempotent, additive-only; safe to run on every startup.

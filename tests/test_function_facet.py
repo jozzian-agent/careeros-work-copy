@@ -190,11 +190,13 @@ def test_heuristic_extract_never_guesses_function():
 
 def test_job_detail_renders_function_tags(client, root):
     # The canonical registry label ("Financial product manager") must be
-    # rendered verbatim, not a title-cased reformatting of the id slug,
-    # and the local-extension marker must be visible since this entry has
-    # no ESCO concept (decision 25).
+    # served verbatim, not a title-cased reformatting of the id slug, and
+    # the local-extension marker must be present since this entry has no
+    # ESCO concept (decision 25).
     seed_function_facet(root)
     vault.save_job(root, {'function': ['financial-product-manager']}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'Financial product manager' in html
-    assert 'chip-local' in html
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    assert page['job']['function'] == ['financial-product-manager']
+    entry = page['function_labels']['financial-product-manager']
+    assert entry['label'] == 'Financial product manager'
+    assert entry['local'] is True

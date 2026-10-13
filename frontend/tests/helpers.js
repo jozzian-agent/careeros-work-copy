@@ -7,6 +7,78 @@ export function loadBoardFixture() {
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8'));
 }
 
+export function loadFixture(name) {
+  return JSON.parse(readFileSync(fileURLToPath(new URL(`./fixtures/${name}.json`, import.meta.url)), 'utf8'));
+}
+
+// Mocks GET /api/jobs/<id>?view=page (the Job detail page's load).
+export async function mockJobPage(page, body) {
+  await page.route('**/api/jobs/*?view=page', (route) => route.fulfill({ json: body }));
+}
+
+// Mocks GET/PUT /api/jobs/<id>/taxonomy (the Edit criteria popup).
+export async function mockJobTaxonomy(page, body) {
+  await page.route('**/api/jobs/*/taxonomy', (route) => {
+    if (route.request().method() !== 'GET') {
+      route.fallback();
+      return;
+    }
+    route.fulfill({ json: body });
+  });
+}
+
+// Mocks GET /api/experiences/<id>?view=page (the Experience detail page).
+export async function mockExperiencePage(page, body) {
+  await page.route('**/api/experiences/*?view=page', (route) => route.fulfill({ json: body }));
+}
+
+// Mocks GET /api/experiences/new (the Edit position popup's tag registry).
+export async function mockExperienceTagsRegistry(page, body) {
+  await page.route('**/api/experiences/new', (route) => route.fulfill({ json: body }));
+}
+
+// Mocks GET /api/companies/<id>?view=page (the Company detail page).
+export async function mockCompanyPage(page, body) {
+  await page.route('**/api/companies/*?view=page', (route) => route.fulfill({ json: body }));
+}
+
+// Mocks GET /api/companies/<id>/taxonomy (the Company Classification page's load).
+export async function mockCompanyTaxonomy(page, body) {
+  await page.route('**/api/companies/*/taxonomy', (route) => {
+    if (route.request().method() !== 'GET') {
+      route.fallback();
+      return;
+    }
+    route.fulfill({ json: body });
+  });
+}
+
+// Mocks PUT /api/jobs/<id>, PUT /api/experiences/<id> or PUT
+// /api/companies/<id> (every edit popup's save), recording each request.
+export async function mockUpdate(page, urlGlob, { status = 200, body = {} } = {}) {
+  const requests = [];
+  await page.route(urlGlob, (route) => {
+    if (route.request().method() !== 'PUT') {
+      route.fallback();
+      return;
+    }
+    requests.push(route.request().postDataJSON());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
+// Mocks DELETE /api/jobs/<id>, /api/experiences/<id> or /api/companies/<id>.
+export async function mockDelete(page, urlGlob, { status = 200, body = { deleted: true } } = {}) {
+  await page.route(urlGlob, (route) => {
+    if (route.request().method() !== 'DELETE') {
+      route.fallback();
+      return;
+    }
+    route.fulfill({ status, json: body });
+  });
+}
+
 function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
@@ -70,6 +142,12 @@ export async function mockIntake(page, responses) {
     route.fulfill({ status: next.status ?? 200, json: next.body });
   });
   return requests;
+}
+
+// Mocks POST /api/watch/scan?job=<id> (the Job detail page's Check posting
+// watcher action).
+export async function mockCheckPosting(page, { status = 200, body = { events: [], watch_status: 'unchanged' } } = {}) {
+  await page.route('**/api/watch/scan*', (route) => route.fulfill({ status, json: body }));
 }
 
 // Mocks POST /api/jobs/<id>/promote.

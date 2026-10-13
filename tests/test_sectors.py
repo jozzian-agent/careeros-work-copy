@@ -1719,33 +1719,43 @@ def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
 # a "Please add a url to enrich." hint). A company with everything
 # filled shows no Retry -- nothing to retry.
 
+# JOZ-280: the company detail page's "show Retry" decision (any field
+# exhausted/flagged, a review flag present, or the company never enriched)
+# moves from Jinja template logic to the React CompanyDetail page, computed
+# client-side from the same fields the JSON API already exposes unchanged;
+# see frontend/tests/company-detail.spec.js for the rendered-button
+# assertion. These tests now pin that the JSON API still carries the exact
+# fields that decision depends on.
 def test_company_detail_shows_retry_when_a_field_is_exhausted(client, root):
     company = vault.save_company(root, {'name': 'Exhausted Labs', 'enrichment': {
         'field_states': {'sectors': {'state': 'exhausted'}, 'size': {'state': 'exhausted'}}}})
-    html = client.get('/companies/' + company['id']).text
-    assert 'id="retry-company"' in html
+    data = client.get('/api/companies/' + company['id']).json
+    assert data['enrichment']['field_states']['sectors']['state'] == 'exhausted'
+    assert data['enrichment']['field_states']['size']['state'] == 'exhausted'
 
 
 def test_company_detail_shows_retry_when_a_field_is_flagged(client, root):
     company = vault.save_company(root, {'name': 'Flagged Labs', 'enrichment': {
         'field_states': {'sectors': {'state': 'flagged'}}}})
-    html = client.get('/companies/' + company['id']).text
-    assert 'id="retry-company"' in html
+    data = client.get('/api/companies/' + company['id']).json
+    assert data['enrichment']['field_states']['sectors']['state'] == 'flagged'
 
 
 def test_company_detail_shows_retry_when_review_flags_present(client, root):
     company = vault.save_company(root, {'name': 'Review Flagged Labs',
                                         'review_flags': [company_lookup.FLAG_SECTOR_AMBIGUOUS]})
-    html = client.get('/companies/' + company['id']).text
-    assert 'id="retry-company"' in html
+    data = client.get('/api/companies/' + company['id']).json
+    assert data['review_flags'] == [company_lookup.FLAG_SECTOR_AMBIGUOUS]
 
 
 def test_company_detail_hides_retry_when_fields_are_filled(client, root):
     company = vault.save_company(root, {'name': 'Filled Labs', 'sectors': ['J'],
                                         'size_range': '1-10', 'size_class': 'micro', 'enrichment': {
         'field_states': {'sectors': {'state': 'filled'}, 'size': {'state': 'filled'}}}})
-    html = client.get('/companies/' + company['id']).text
-    assert 'id="retry-company"' not in html
+    data = client.get('/api/companies/' + company['id']).json
+    assert data['enrichment']['field_states']['sectors']['state'] == 'filled'
+    assert data['enrichment']['field_states']['size']['state'] == 'filled'
+    assert not data['review_flags']
 
 
 # --- Owner click-test follow-up 2026-10-09: sector label on detail page -----
@@ -1755,20 +1765,17 @@ def test_company_detail_hides_retry_when_fields_are_filled(client, root):
 def test_company_detail_shows_sector_label_not_code(client, root):
     company = vault.save_company(root, {'name': 'Label Detail Labs', 'sectors': ['D'],
                                         'size_class': 'large'})
-    html = client.get('/companies/' + company['id']).text
+    page = client.get('/api/companies/' + company['id'] + '?view=page').json
+    # Section 3 display rule (same as the directory card): the detail page
+    # view carries the human label, never the bare ISIC code.
     label = next(s['label'] for s in sectors.load_isic_sections() if s['code'] == 'D')
-    assert label in html
-    # The Classification card line must carry the label, never the bare
-    # code (Section 3 display rule, same as the directory card).
-    classification = html.split('<h2>Classification</h2>')[1].split('</a>')[0]
-    assert label in classification
-    assert 'D ·' not in classification and 'D</p' not in classification
+    assert page['sector_labels'] == [label]
 
 
 def test_company_detail_shows_sector_unknown_when_unclassified(client, root):
     company = vault.save_company(root, {'name': 'Unknown Detail Labs'})
-    html = client.get('/companies/' + company['id']).text
-    assert 'Sector unknown' in html
+    page = client.get('/api/companies/' + company['id'] + '?view=page').json
+    assert page['sector_labels'] == []
 
 
 def test_company_detail_shows_retry_with_add_url_hint_for_never_enriched_company(client, root):
@@ -1776,11 +1783,11 @@ def test_company_detail_shows_retry_with_add_url_hint_for_never_enriched_company
     # sectors/size and no flagged states used to show no Retry at all --
     # the one company that most needs enrichment was locked out. Option B:
     # keep the gate for filled companies but never-enriched ones get a
-    # Retry with the owner's wording "Please add a url to enrich."
+    # Retry with the owner's wording "Please add a url to enrich." (now a
+    # React CompanyDetail decision; see frontend/tests/company-detail.spec.js).
     company = vault.save_company(root, {'name': 'Untouched Labs'})
-    html = client.get('/companies/' + company['id']).text
-    assert 'id="retry-company"' in html
-    assert 'Please add a url to enrich.' in html
+    data = client.get('/api/companies/' + company['id']).json
+    assert not data['sectors'] and not data['size_range'] and not data['size_class']
 
 
 def test_retry_company_endpoint_happy_path_reuses_sector_size_cascade(client, root, monkeypatch):

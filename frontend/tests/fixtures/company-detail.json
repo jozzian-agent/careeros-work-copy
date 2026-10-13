@@ -1,0 +1,22 @@
+{
+  "company": {
+    "id": "CO-001",
+    "name": "Northwind Systems",
+    "website": "https://northwind.example",
+    "locations": ["Zurich", "CH"],
+    "notes": "Fictional company notes for test fixtures only.",
+    "kind": "employer",
+    "sectors": ["J"],
+    "size_range": "51-200",
+    "size_class": "medium",
+    "review_flags": [],
+    "enrichment": { "field_states": { "sectors": { "state": "filled" }, "size": { "state": "filled" } } }
+  },
+  "sector_labels": ["Information and communication"],
+  "entries": [{ "id": "JOB-001", "title": "Senior Platform Engineer" }],
+  "experiences": [{ "id": "EXP-001", "title": "Guest Lecturer, Fictional Data Strategy Course" }],
+  "companies": { "CO-001": { "id": "CO-001", "name": "Northwind Systems" } },
+  "isic_sections": [{ "code": "J", "label": "Information and communication" }],
+  "size_classes": ["micro", "small", "medium", "large"],
+  "kinds": ["employer", "institution"]
+}

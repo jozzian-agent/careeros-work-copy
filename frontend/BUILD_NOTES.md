@@ -3,7 +3,7 @@
 ## Gestalt 160 → 177 delta
 
 JOZ-277 pinned `gestalt` to exactly `177.0.12` (from `^160.0.0`) to match the
-owner's design handoff, which states its component facts were checked against
+owner's approved design brief, which states its component facts were checked against
 that version's TypeScript definitions. Everything below was verified against
 the installed package in `node_modules/gestalt`, not recalled.
 
@@ -40,7 +40,7 @@ Two call sites used it, and both became `color="default"`:
 
 `"default"` is the right replacement rather than a workaround: it resolves
 through `--color-background-default`, which `design/theme.css` maps to the
-handoff's `--color-background-card`. So the nav and the cards are `#ffffff` in
+approved design brief's `--color-background-card`. So the nav and the cards are `#ffffff` in
 light and `#191919` in dark, instead of being pinned to white in both. Because
 Vite does not type-check JSX against a dependency's `.d.ts`, this would not
 have failed the build — it would have shipped as cards with no background at
@@ -113,7 +113,7 @@ stylesheet, that it really does declare Gestalt's own
   `SortableHeaderCell` adapter in `JobsBoard.jsx` is still required. Its
   comment was updated from "gestalt@160" to say so.
 
-### Checked against the handoff BRIEF.md "Gestalt facts"
+### Checked against BRIEF.md's "Gestalt facts"
 
 **No contradiction found.** Every fact in the brief's checked-facts list that
 this batch touches matches the installed type definitions:
@@ -156,7 +156,7 @@ pre-existing and is about bundling Gestalt as one chunk.
 
 ### One canonical token form
 
-The handoff ships both `tokens.json` (version 3) and a `tokens.css` generated
+The approved design brief ships both `tokens.json` (version 3) and a `tokens.css` generated
 from it. The repo vendors **only the CSS**, as `src/design/tokens.css`, because
 the CSS is the form the app actually consumes; keeping the JSON as well would
 mean two sources of truth that could drift. Values are a verbatim port. The
@@ -167,8 +167,8 @@ only deviations, both documented in the file's own header:
 2. `font-display: swap` added to the two `@font-face` rules, so text is not
    invisible while the woff2 files load.
 
-Dark mode keys off `:root[data-theme="dark"]`, exactly as the handoff's CSS
-specifies. `ThemeProvider.jsx` sets that attribute from Gestalt's own
+Dark mode keys off `:root[data-theme="dark"]`, exactly as the approved design
+brief's CSS specifies. `ThemeProvider.jsx` sets that attribute from Gestalt's own
 `useColorScheme()` context in a layout effect, so `ColorSchemeProvider` stays
 the single control point for the scheme (including `userPreference`) and a dark
 mount never flashes light values before paint. `:root[data-theme="dark"]`
@@ -181,9 +181,9 @@ self-hosted and referenced by `@font-face` in `tokens.css` — no external font
 service. Vite fingerprints and emits both into `dist/assets/`.
 
 **Provenance note.** The sandbox blocks reads and copies across the
-design-handoff directory boundary, so the two binaries could not be copied out
-of the handoff directly (the text files there are readable, which is how the
-tokens, README, brief and licence were ported). The handoff's own licence file
+approved design brief's directory boundary, so the two binaries could not be
+copied out of it directly (the text files there are readable, which is how the
+tokens, README, brief and licence were ported). The brief's own licence file
 names its source exactly — "packaged by Fontsource
 (@fontsource/atkinson-hyperlegible 5.3.0, latin subset)" — so the identical
 files were taken from that exact package and version instead, which ships them
@@ -191,8 +191,8 @@ under the same filenames. The package was installed with `--no-save`, the two
 files copied out, and the package then pruned by a plain `npm install`, so it
 is not a dependency of this app.
 
-`src/design/LICENSE-atkinson-hyperlegible.md` carries the handoff's own licence
-paragraph verbatim plus the full SIL OFL 1.1 text, copyright 2020 Braille
+`src/design/LICENSE-atkinson-hyperlegible.md` carries the approved design
+brief's own licence paragraph verbatim plus the full SIL OFL 1.1 text, copyright 2020 Braille
 Institute of America, Inc.
 
 ### Typeface and line heights
@@ -203,19 +203,20 @@ Hyperlegible across every Gestalt component. `--font-family-default-japanese`
 is deliberately left alone: the bundled subset is latin-only.
 `--font-weight-semibold` is set to `700` because only 400 and 700 exist in the
 typeface and Gestalt classic sets headings and standalone links to semibold —
-this is the handoff's "Gestalt's classic headings are semibold, so here they
-are bold".
+this is the approved design brief's "Gestalt's classic headings are semibold,
+so here they are bold".
 
 Line heights were the one genuinely awkward part. Gestalt classic defines
 **no** line-height for `Text` or `Heading` (it has `--font-lineheight-*` only
-for the datepicker), which is what the handoff means by "Line heights 44, 36,
-28, 24, 20 — Gestalt classic sets none of its own in the type CSS". Two
+for the datepicker), which is what the approved design brief means by "Line
+heights 44, 36, 28, 24, 20 — Gestalt classic sets none of its own in the type
+CSS". Two
 approaches were tried and rejected before the one that shipped:
 
 1. **Keyed on heading tag** (`h1 { line-height: 44px }` …). Rejected: Gestalt's
    `PageHeader` renders its title as an `h1` at 20px, so the board's own page
-   title would have got a 44px line height on 20px text. The handoff pairs each
-   line height with a font *size*, not with a heading level.
+   title would have got a 44px line height on 20px text. The approved design
+   brief pairs each line height with a font *size*, not with a heading level.
 2. **A single `em` formula on `#root *`.** Correct typographically, but
    declaring `line-height` on the structural wrappers as well perturbed layout
    enough that **Chromium stopped starting a native drag on the job cards
@@ -247,9 +248,10 @@ structural wrapper, whatever the scope. The two drag specs in
 `tests/jobs-board.spec.js` still pass.
 
 `em` in `line-height` resolves against the element's own font size, and the
-piecewise `min()` reproduces the handoff's entire type scale exactly:
+piecewise `min()` reproduces the approved design brief's entire type scale
+exactly:
 
-| font-size | `1em + 8px` | `2em - 8px` | result | handoff style |
+| font-size | `1em + 8px` | `2em - 8px` | result | brief style |
 | --- | --- | --- | --- | --- |
 | 12px | 20 | **16** | 16px | text-100 |
 | 14px | 22 | **20** | 20px | text-200 |
@@ -269,7 +271,7 @@ font size. `tests/theme.spec.js` asserts all six pairs.
 board picks up the brand with no markup change — a `Button color="red"` renders
 brand blue because the primary-button tokens are brand blue:
 
-| Handoff token | Bound to |
+| Brief token | Bound to |
 | --- | --- |
 | `color-brand-primary` / `-strong` | `--color-background-button-primary-{default,hover,active}`, `--color-background-button-selected-default`, `--color-background-primary-{base,strong}`, `--color-background-info-{base,strong}`, `--color-icon-info` |
 | `color-brand-violet` | `--color-background-recommendation-base`, `--color-icon-recommendation` |
@@ -301,7 +303,7 @@ dark brand blue is `#75bfff`, i.e. **1.97:1**, far under WCAG AA's 4.5:1. An
 earlier version of this file claimed the stock pairings were already correct in
 both schemes; that was wrong — only the light one was.
 
-The handoff already has the answer in `color-brand-on-color`, the foreground it
+The approved design brief already has the answer in `color-brand-on-color`, the foreground it
 pairs with brand fills (`#ffffff` light, `#111111` dark). `design/theme.css`
 binds *both* tokens Button can reach for to it, scoped to the fill itself:
 
@@ -339,29 +341,29 @@ test-only page, served by the Vite dev server and not an entry point of
 `ColorSchemeProvider`, `DesignTokensProvider` and the `Button` all re-render —
 and it is what the dark-mode specs drive.
 
-### Handoff tokens NOT wired, and why
+### Brief tokens NOT wired, and why
 
 - **`color-brand-accent` (teal) and `color-brand-wash-teal`.** Defined and
-  available, but not bound to any Gestalt component token. The handoff uses
-  teal for the Live badge, filled fit segments and completed rounds — none of
-  which exist on the current board. Binding it to Gestalt's `success` tokens
-  was considered and rejected: the handoff explicitly inherits Gestalt's status
-  colours ("spacing, rounding, elevation, status colours and borders" from
-  `gestalt-design-tokens`) and `tokens.json` does not redefine success, so
-  turning the "Salary disclosed" badge teal would be a design decision this
-  batch has no mandate for. It lands with the components that need it in
-  JOZ-278.
+  available, but not bound to any Gestalt component token. The approved design
+  brief uses teal for the Live badge, filled fit segments and completed rounds
+  — none of which exist on the current board. Binding it to Gestalt's
+  `success` tokens was considered and rejected: the brief explicitly inherits
+  Gestalt's status colours ("spacing, rounding, elevation, status colours and
+  borders" from `gestalt-design-tokens`) and `tokens.json` does not redefine
+  success, so turning the "Salary disclosed" badge teal would be a design
+  decision this batch has no mandate for. It lands with the components that
+  need it in JOZ-278.
 - **Focus ring geometry.** The *colour* is wired
-  (`--color-border-focus`, the handoff's solid value replacing Gestalt's 50%
-  blue). The handoff's "3px with a 2px offset" geometry is not: Gestalt draws
+  (`--color-border-focus`, the brief's solid value replacing Gestalt's 50%
+  blue). The brief's "3px with a 2px offset" geometry is not: Gestalt draws
   its own focus outline widths per component, and changing them globally would
   be a visual change beyond the token swap this batch is scoped to.
 - **`space-*` / `rounding-*` / `elevation-*`.** Declared, and they override
-  Gestalt's identically-named tokens, but every value the handoff specifies is
+  Gestalt's identically-named tokens, but every value the brief specifies is
   already Gestalt's own value, so they are no-ops today. They exist so JOZ-278
   can reference them, and so a future divergence is a one-line edit.
 - **Density modes** ("Guided" vs "Workbench" from `directions.md`) are not
-  tokenised at all — the handoff lists that as an open decision.
+  tokenised at all — the brief lists that as an open decision.
 
 ## Jobs board rebuild (JOZ-278)
 
@@ -386,7 +388,8 @@ three reasons:
    would work but is a new dependency, with its own sensor/collision-detection
    model to learn and audit, to replace code that already existed and worked.
 3. **The mockup agrees.** `pages/Main.dc.html`'s own reference implementation
-   (`support.js` is referenced but does not exist in the handoff; the drag
+   (`support.js` is referenced but does not exist in the approved design
+   brief; the drag
    logic is inline in the page's `<script>`) is itself hand-rolled native
    HTML5 drag-and-drop with the identical shape this batch uses: a dragged
    card fades to 40% opacity, the hovered column gets a dashed primary
@@ -587,3 +590,235 @@ anyway/Cancel. Dropping either path, or the popup's own "Add anyway" for the
 on-board case, would regress working backend-supported actions with no
 replacement — the same reasoning BUILD_NOTES.md already records for
 JOZ-278's kept badges and ingest-retry affordance.
+
+## Detail pages rebuild (JOZ-280)
+
+Rebuilds Job, Experience, Company and Company Classification on the shared
+DetailHeader/SectionCard skeleton, adds client-side routing
+(`react-router-dom`, pinned `^7.18.4`), and cuts the four Jinja detail pages
+over to React with no coexistence (owner decision). Phase A (wireframes for
+the four edit popups and the delete confirmation) was approved before this
+batch started; the four flagged defaults from that approval are honored as
+given (Edit job excludes Status/Fit/classification, Edit position carries
+the full form into the popup, Edit criteria is job-detail-only with Company
+Classification staying a full page, and the company delete 409 renders
+inline in the `ModalAlert`).
+
+### Routing: no Jinja fallback for detail pages, unlike the list pages
+
+`server.py` already gated `/jobs` on `CAREEROS_REACT_UI` with a Jinja
+fallback whenever the flag is off or the build is missing (JOZ-273). The
+owner decision for this batch is narrower for the four detail routes
+(`/jobs/<id>`, `/experiences/<id>`, `/companies/<id>`,
+`/companies/<id>/taxonomy`): they exist **only** behind the same flag, with
+their Jinja routes, view functions and templates removed outright rather
+than kept as a fallback. `tests/test_react_ui_flag.py` pins both directions
+explicitly (`test_flag_on_serves_react_for_every_detail_route`,
+`test_flag_off_detail_routes_404_with_no_jinja_fallback`): flag off means a
+genuine 404, not a degraded page. List pages (`jobs.html` and friends) are
+untouched and keep the dual-mode behavior.
+
+One bug this surfaced that no existing test caught: the shared
+`react_index` lambda the four new `add_url_rule` calls point at took no
+arguments, but Flask calls a `<identifier>`-carrying route's view function
+with that value as a keyword argument — every detail route 500'd until the
+lambda became `lambda **_kwargs: send_from_directory(...)`. Caught by
+manually exercising the built `dist/` against the flag before writing the
+regression test above, not by the view layer itself.
+
+`/jobs/<id>/taxonomy` (the pre-existing standalone job classification
+page) is deliberately **not** part of this cutover and stays Jinja,
+unconditionally, regardless of the flag: the routing list this ticket
+specifies names only `/jobs`, `/jobs/:id`, `/experiences/:id`,
+`/companies/:id` and the company classification route, and the Phase A
+wireframe reads job classification as owned by the new Edit criteria popup
+instead of a navigated-to sub-page. The page's own JSON API
+(`/api/jobs/<id>/taxonomy`) is unchanged and is what the popup actually
+reads and writes through — the Jinja page itself is simply no longer
+linked from anywhere once `job_detail.html` is gone, not removed.
+
+`/experiences/new` and `/experiences/<id>/edit` (the full-page Jinja
+add/edit form) are also untouched: the ticket's routing list doesn't name
+them, the Experiences list page (out of scope, still Jinja) links to
+`/experiences/new` for Add, and nothing demanded deleting the edit route
+just because the Edit position popup now duplicates its fields.
+
+### Backend removal: routes, views and templates, not the context builders
+
+Removed: the four Jinja view functions (`jobs.detail`, `companies.detail`,
+`companies.taxonomy`, `experiences.detail`) and their four templates
+(`job_detail.html`, `company_detail.html`, `company_taxonomy.html`,
+`detail.html`). Kept, because the JSON `view=page`/`/taxonomy` API
+endpoints still call them: `detail_context`/`job_context` (jobs),
+`detail_context`/`company_context`/`classification_context` (companies),
+`detail_context`/`experience_context` (experiences). None of the record
+read/write logic changed — only the Jinja-rendering wrapper functions and
+their templates are gone.
+
+### Component registry
+
+| Component | Gestalt building blocks | Notes |
+| --- | --- | --- |
+| `DetailHeader.jsx` | `Link`+`arrow-back` `Icon`, `Heading` size 600, `Text`, `Button`, `location` `Icon` | Back link's accessible name is `Back to <label>` (not the bare label), set via `Link`'s `accessibilityLabel` — the visible text still matches the brief's "← Jobs", but the bare label collides with the Nav tab of the same name for assistive tech and for Playwright's role queries alike. |
+| `SectionCard.jsx` | `Box`, `Heading` size 300, `Badge` | Also exports `DividerList`, `KeyValueGrid`, `EmptyState`, the three body shapes the README lists (paragraph is just `Text`, no wrapper needed). One definition of each, reused by every detail page. |
+| `FitSelect.jsx` | `Box`, `Button` (`size="sm"`), `Dropdown`/`Dropdown.Item` | The Job detail page's Fit control. No fit-editing UI existed anywhere before this ticket (JOZ-278 left the board's `FitChip` read-only), so this is new, built as the exact same sm-Button-opens-Dropdown recipe as `StatusSelect` rather than inventing a second control shape. The job record's `fit` field gets its first writer here — written through the existing generic `PUT /api/jobs/<id>`, no new endpoint or schema change, since the vault's job record is schema-less. |
+| `EditJobPopup.jsx` / `EditCompanyPopup.jsx` / `EditPositionPopup.jsx` / `EditCriteriaPopup.jsx` | `Modal`, `TextField`, `TextArea`, `Checkbox`, `Fieldset`, `SelectList`, `BannerSlim` | One component per approved Phase A wireframe; field sets match the wireframes exactly. All four save through existing PUT endpoints (`/api/jobs/<id>`, `/api/companies/<id>`, `/api/experiences/<id>`); `EditPositionPopup` also calls the existing `POST /api/experiences/<id>/link-company` for its company field, including the fuzzy-match suggestion round-trip (surfaced via `window.confirm`, matching `experience_form.html`'s own prompt rather than inventing a second confirmation UI for one edge case). |
+| `DeleteConfirmModal.jsx` | `ModalAlert`, `BannerSlim` | One template, three copy variants (job/experience/company), per the approved wireframe. The company variant's 409 "still linked" response renders as a `BannerSlim` inside the still-open alert rather than closing it — the brief's "failures are visible states" rule, applied literally. |
+
+### Notes editing consolidated into the Edit popup, not left inline too
+
+Earlier reference mockups (not part of the approved design brief, and not
+shipped in this repo) show an inline, always-editable Notes `<textarea>`
+with its own "Save notes" button directly on the detail page. The approved
+JOZ-280 Phase A wireframes
+*also* put a notes field in the Edit job and Edit company popups. Gestalt's
+`SectionCard` README only lists four body shapes (paragraph, divider list,
+key/value grid, empty state) — an inline editable-textarea-with-its-own-save
+body is not one of them. Read together, the mockups are describing the
+pre-existing Jinja behavior carried into the reference image, not a second
+intentional editing surface; this batch picked one editing path (fewest
+elements), so the Notes `SectionCard` on Job and Company detail renders the
+stored value read-only (job notes rendered from the markdown the backend
+already computes; company notes as plain text, since company notes were
+never markdown-rendered anywhere even in Jinja), and the popup is the only
+way to change it.
+
+### Company detail's "show Retry" decision moves client-side
+
+`company_detail.html`'s Jinja template computed, inline, whether to show a
+Retry affordance (any enrichment field `exhausted`/`flagged`, a review flag
+present, or the company never enriched at all — three different messages).
+None of that decision was exposed as a precomputed field on the JSON
+`view=page` payload; `CompanyDetail.jsx`'s `retryState()` reproduces the
+exact same condition from the same underlying fields
+(`enrichment.field_states`, `review_flags`, `sectors`/`size_range`/
+`size_class`), scoped to `kind === 'employer'` like the backend
+`retry_company` endpoint already is. `tests/test_sectors.py`'s six
+Jinja-button-presence tests were rewritten to pin that the JSON API still
+carries exactly those fields, since the rendering decision itself is no
+longer backend-testable.
+
+### Known gap, flagged rather than silently dropped: company-review resolution
+
+`job_detail.html` had an inline "Company needs your input" card letting the
+owner pick a candidate or create a new company
+(`POST /api/jobs/<id>/resolve-review`) when `company_link_state ===
+'needs_review'`. This ticket's `JobDetail.jsx` shows that state (so it is
+never silently invisible, per the product's "failures and unknowns are
+visible states" rule) but does not yet implement picking a candidate or
+creating a company from the React page — that resolution UI has its own
+candidate list, score display and inline create-company form, which is
+scope beyond "rebuild the detail-page skeleton." The API the Jinja page
+used is untouched and reachable directly; porting the resolution UI itself
+is left for a follow-up ticket.
+
+### Ingest failure/pending states carried over, enrichment retry card too
+
+Unlike the company-review gap above, the job's own ingest-failure/pending
+messaging (`fetch_failed`/`extract_failed`/`stub`/`fetched`) and its Retry
+button (`POST /api/jobs/<id>/extract`) are implemented in `JobDetail.jsx` —
+this is the product's "never silent" rule applied to the one state that
+most needed it (a stuck or failed ingest with no visible way to retry would
+be a real regression, not just a visual gap). The Jinja page's live-polling
+behavior while extraction is pending (`checkEnrichment`'s 4s interval) is
+not ported; the page shows the pending state from the loaded snapshot and
+the owner can reload or use the Retry button, rather than this batch adding
+a second polling mechanism alongside the board's own refresh-on-focus
+pattern.
+
+### Test suite: Jinja-rendering tests converted to API-level tests, not just deleted
+
+Removing four templates breaks every existing test that asserted on their
+rendered HTML. Per the ticket's explicit instruction, each was handled one
+of two ways, never a blanket skip:
+
+- **Converted to assert the same underlying data via the JSON `view=page`/
+  `/taxonomy` endpoints**, wherever the Jinja assertion was really pinning
+  record state the API exposes unchanged (e.g. `summary_source`,
+  `has_description`, `watch_eligible`, `show_remote_chip`, `sector_labels`,
+  `enrichment.field_states`). This is the large majority — `test_jobs.py`,
+  `test_company_kind.py`, `test_sectors.py`, `test_function_facet.py`,
+  `test_watcher.py`, `test_vault.py`, `test_fix261.py`, `test_ingest.py`,
+  `test_company_resolve.py`, plus two renamed in place in
+  `test_taxonomy_pages.py` (`test_detail_pages_link_to_taxonomy` →
+  `test_job_detail_omits_standalone_taxonomy_link`) and `test_jobs.py`
+  (`test_job_detail_description_escapes_html` →
+  `test_job_detail_description_round_trips_exactly`), each now asserting
+  the same underlying fact through the JSON API instead of rendered HTML.
+- **Removed outright**, only where the assertion was about Jinja/vanilla-JS
+  mechanics with no data-level analog — exact `<dialog>` markup and its
+  inline `onclick` strings (`test_delete_detail_buttons`, 2 parametrized
+  cases), the idle/pending re-enrich button markup
+  (`test_job_detail_no_reenrich_button_when_idle`,
+  `test_job_detail_polls_only_while_pending`), the 1200/1201-character
+  description-collapse boundary markup
+  (`test_job_detail_description_boundary_1200_collapsible`,
+  `test_job_detail_description_boundary_1201_reconstructs_exactly`), the
+  editable-title markup (`test_job_detail_has_editable_title`), running an
+  extracted `<script>` block under Node to test polling logic
+  (`test_check_posting_client_behavior`, 3 parametrized cases), and DOM
+  element ordering on a page that no longer has Jinja-rendered DOM at all
+  (`test_batch_d_job_card_order`, `test_check_posting_summary_placement`).
+  Section ordering and the delete flow are covered instead by the new
+  Playwright specs below, which test the thing that actually renders them
+  now.
+
+Net effect on the suite: 919 → 909. Nine test functions were removed
+outright, expanding to twelve collected cases once their
+`@pytest.mark.parametrize` lists are counted (`test_delete_detail_buttons`
+and `test_check_posting_client_behavior` each cover more than one case);
+two cases were added in `test_react_ui_flag.py` for the routing regression
+caught during manual verification
+(`test_flag_on_serves_react_for_every_detail_route`,
+`test_flag_off_detail_routes_404_with_no_jinja_fallback`); the two renames
+above are a like-for-like swap and net zero. 12 − 2 = 10, matching
+919 − 909. This is moved coverage for the renamed/converted cases, but a
+real, uncompensated loss of backend-level coverage for the twelve removed
+outright — the Playwright specs that now exercise the equivalent UI mock
+every API call (`page.route`), so they confirm the React page renders and
+wires up correctly against a scripted response, not that the real Flask
+view and vault logic underneath still behaves the way the removed tests
+pinned.
+
+### Frontend Playwright specs
+
+New fixtures (`frontend/tests/fixtures/job-detail.json`,
+`job-taxonomy.json`, `experience-detail.json`,
+`experience-tags-registry.json`, `company-detail.json`,
+`company-taxonomy.json`) and four spec files (`job-detail.spec.js`,
+`experience-detail.spec.js`, `company-detail.spec.js`,
+`company-classification.spec.js`, plus edit/delete coverage folded into
+each rather than separate files, since every popup is page-specific),
+45 tests total, cover: header rendering (type label, title, subtitle,
+chip, actions), the back link's navigation, SectionCard ordering via
+heading order, the Status and Fit dropdowns' PUT payloads, every edit
+popup's open/fill/save/cancel round-trip, and the delete `ModalAlert`'s
+confirm/keep/409-inline-error paths. `tests/helpers.js` gained matching `mockJobPage`/`mockJobTaxonomy`/
+`mockExperiencePage`/`mockExperienceTagsRegistry`/`mockCompanyPage`/
+`mockCompanyTaxonomy`/`mockUpdate`/`mockDelete` helpers, following the
+existing `mockBoard`/`mockMove` pattern (intercept the real fetch path,
+never a dev-only mock branch in application code).
+
+Two authoring pitfalls worth recording for the next batch using this same
+pattern: a bare `page.getByRole('heading').allTextContents()` right after
+`page.goto()` races the mocked fetch's resolution (fixed by waiting for the
+title heading first), and reusing a record's bare label text for a visible
+back-link ties it to the Nav tab's identical text — both are now avoided
+via `DetailHeader`'s `accessibilityLabel` (see the component registry
+entry above) plus an explicit wait before reading heading order.
+
+### `moveJobStatus` deliberately not refactored onto the new generic `updateJob`
+
+The Fit dropdown and the edit popups needed a generic job PUT helper
+(`updateJob`, added to `frontend/src/api/jobs.js`), and the obvious
+simplification was to make the existing `moveJobStatus` call it instead of
+duplicating the fetch. That broke three pre-existing JOZ-278 specs
+(`jobs-board.spec.js`, `drag-undo.spec.js`, `message-lifetime.spec.js`):
+they mock a failing move with `{ error: 'nope' }` and assert the fixed
+toast text `"Status update failed."`, which `moveJobStatus` has always
+thrown verbatim regardless of the response body. `updateJob` instead
+surfaces the server's actual `error` message, which is the right behavior
+for a popup save but would have silently changed the board's own toast
+copy to `"nope"`. Reverted to keeping `moveJobStatus` self-contained with
+its own fixed message; `updateJob` is a separate function for the new call
+sites only.

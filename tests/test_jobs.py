@@ -140,20 +140,22 @@ def test_dedupe(client,monkeypatch):
 
 
 def test_crud_and_routes(client):
-    for route in ['/jobs','/jobs/JOB-001','/companies','/companies/CO-001','/api/jobs','/api/jobs/JOB-001','/api/companies','/api/companies/CO-001']:
+    # JOZ-280: /jobs/<id> and /companies/<id> are React-only detail routes
+    # now (no Jinja coexistence); with CAREEROS_REACT_UI unset in this test
+    # client they 404 regardless of whether the record exists, so this test
+    # covers the list Jinja pages and the JSON API, not those two paths.
+    for route in ['/jobs','/companies','/api/jobs','/api/jobs/JOB-001','/api/companies','/api/companies/CO-001']:
         assert client.get(route).status_code==200
     result=client.put('/api/jobs/JOB-001',json={'status':'applied','notes':'**Ready** <script>bad()</script>'})
     assert result.status_code==200
     assert result.json['status_changed']==date.today().isoformat()
     assert result.json['title']=='Platform Engineering Lead'
-    html=client.get('/jobs/JOB-001').text
-    assert '<strong>Ready</strong>' in html and '<script>bad()</script>' not in html
+    page=client.get('/api/jobs/JOB-001?view=page').json
+    assert '<strong>Ready</strong>' in page['markdown'] and '<script>bad()</script>' not in page['markdown']
     assert client.put('/api/jobs/JOB-001',json={'status':'bogus'}).status_code==400
     assert client.put('/api/companies/CO-001',json={'sector':'Tools','locations':['Remote'],'notes':'**Studio**'}).status_code==200
-    # M1 audit batch A: the duplicate read-only markdown Notes card is gone;
-    # notes now appear only as raw text in the one editable textarea.
-    company_html=client.get('/companies/CO-001').text
-    assert '**Studio**' in company_html and '<strong>Studio</strong>' not in company_html
+    # Company notes are stored as the raw markdown source, never rendered.
+    assert client.get('/api/companies/CO-001').json['notes']=='**Studio**'
     assert client.delete('/api/jobs/JOB-001').status_code==200
     for route in ['/api/jobs/JOB-001','/jobs/JOB-001','/api/companies/CO-999','/companies/CO-999']:
         assert client.get(route).status_code==404
@@ -267,29 +269,30 @@ def test_fetch_deadline_fallback(client, monkeypatch):
 @pytest.mark.parametrize('salary', [True, False])
 def test_curated_job_detail(client, salary):
     client.put('/api/jobs/JOB-001', json={'salary_info': salary, 'remote_ok': True, 'salary_note': '<b>Pay</b>'})
-    html = client.get('/jobs/JOB-001').text
-    for value in ['Platform Engineering Lead', 'Harbourline', 'pebbleorbit.example', '2026-09-25', '2026-10-01', 'Posted date', 'Added date', '>Remote<', 'Enrichment pending']:
-        assert value in html
-    for value in ['<dt>Custom</dt>', 'Salary Info', '<dd>True</dd>', '<dd>False</dd>', '<dt>Company Id</dt>', '<dt>Url</dt>']:
-        assert value not in html
-    assert ('Salary disclosed' in html) is salary
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    job = page['job']
+    assert job['title'] == 'Platform Engineering Lead'
+    assert job['location'] == 'Harbourline'
+    assert 'pebbleorbit.example' in job['url']
+    assert job['posted_date'] == '2026-09-25'
+    assert job['added'] == '2026-10-01'
+    assert page['show_remote_chip'] is True
+    assert job['enriched'] is False
+    assert job['salary_info'] is salary
     if salary:
-        assert '&lt;b&gt;Pay&lt;/b&gt;' in html
+        assert job['salary_note'] == '<b>Pay</b>'
 
 
 def test_external_link_markup(client):
-    html = client.get('/jobs/JOB-001').text
-    assert ('href="https://pebbleorbit.example/careers/platform-engineering-lead" '
-            'target="_blank" rel="noopener noreferrer" class="external"') in html
-    internal_link = '<a href="/companies/CO-001">Pebbleorbit Studio</a>'
-    assert internal_link in html
+    job = client.get('/api/jobs/JOB-001?view=page').json['job']
+    assert job['url'] == 'https://pebbleorbit.example/careers/platform-engineering-lead'
+    company = client.get('/api/jobs/JOB-001?view=page').json['company']
+    assert company['id'] == 'CO-001' and company['name'] == 'Pebbleorbit Studio'
 
 
 def test_external_link_markup_both_urls(client):
-    html = client.get('/jobs/JOB-005').text
-    assert html.count('class="external"') == 2
-    assert html.count('target="_blank"') == 2
-    assert 'Open posting' in html and 'Original posting' in html
+    job = client.get('/api/jobs/JOB-005?view=page').json['job']
+    assert job.get('url') and job.get('original_url')
 
 
 def schema_html(**values):
@@ -372,7 +375,6 @@ def test_enrich_merge(client,monkeypatch):
     assert client.get('/api/companies/CO-001').json['name'] == 'Pebbleorbit Studio'
     assert job['company_link_state'] == 'needs_review'
     assert job['employer_named_in_posting'] == 'Lanternpeak Labs'
-    assert 'id="enrich-job"' not in client.get('/jobs/JOB-001').text
 
 
 def test_enrich_failure_unchanged(client,monkeypatch):
@@ -406,18 +408,14 @@ def test_job_views(client):
 
 
 def test_m1_audit_removed_enrichment_buttons_do_not_render(client):
-    # M1 audit: Enrich pending (jobs toolbar), Enrich with AI and per-job
-    # Enrich (job detail) are merged into the existing retry-ingest Retry
-    # chip; enrichment already starts on ingest, so none of these manual
-    # triggers should ever render again, on any job in any state.
+    # M1 audit: Enrich pending (jobs toolbar) and per-job Enrich are merged
+    # into the existing retry-ingest Retry chip; enrichment already starts
+    # on ingest, so neither manual trigger should ever render again on the
+    # jobs board. The job detail page itself is a React page now (JOZ-280,
+    # no Jinja markup left to assert on here).
     jobs_html = client.get('/jobs').text
     assert 'id="enrich-pending"' not in jobs_html
     assert 'Enrich pending' not in jobs_html
-    for job_id in ('JOB-001', 'JOB-002'):
-        detail_html = client.get('/jobs/' + job_id).text
-        assert 'id="extract-job"' not in detail_html and 'Enrich with AI' not in detail_html
-        assert 'id="enrich-job"' not in detail_html
-        assert 'aria-label="Enrich"' not in detail_html
 
 
 def test_enrich_company_dedupe_and_exclusive_rename(client,monkeypatch):
@@ -635,25 +633,11 @@ def test_delete_company_api_roundtrip(client):
     assert client.delete('/api/companies/'+cid).status_code == 404
 
 
-@pytest.mark.parametrize('kind,identifier,label', [('jobs','JOB-001','Delete job'), ('companies','CO-001','Delete company')])
-def test_delete_detail_buttons(client, kind, identifier, label):
-    html = client.get('/'+kind+'/'+identifier).text
-    assert label in html and 'class="danger"' in html
-    singular = 'job' if kind == 'jobs' else 'company'
-    record = client.get('/api/'+kind+'/'+identifier).json
-    name = record['title' if kind == 'jobs' else 'name']
-    assert '<dialog id="confirm">' in html
-    assert f'Are you sure you want to delete this {singular}?' in html
-    assert f'This removes {name} from your {kind}.' in html
-    assert f'<button id="cancel-delete" autofocus>Keep {singular}</button>' in html
-    assert f'<button class="danger" id="confirm-delete">{label}</button>' in html
-    assert f"document.getElementById('delete-{singular}').onclick=()=>dialog.showModal()" in html
-    assert "document.getElementById('cancel-delete').onclick=()=>dialog.close()" in html
-    assert f"await api('/api/{kind}/'+" in html and "'DELETE'" in html
-    assert f"location.href='/{kind}'" in html
-    assert 'dialog.close();toast(err.message,true)' in html
-    assert 'confirm(' not in html
-    assert label not in client.get('/'+kind).text
+# JOZ-280: the Jinja detail pages' <dialog>-based delete confirmation is
+# retired along with the templates themselves; the React pages use a
+# Gestalt ModalAlert instead, covered by frontend/tests Playwright specs
+# (DELETE /api/jobs/<id> and /api/companies/<id> contract tests remain in
+# test_crud_and_routes and test_company_kind.py).
 
 
 def rich_schema(employees=125):
@@ -738,14 +722,9 @@ def test_show_remote_chip(location, remote_ok, expected):
 def test_job_detail_location_and_header(client, location, remote_ok, mentions, chip):
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'location': location, 'remote_ok': remote_ok}, 'JOB-001')
-    response = client.get('/jobs/JOB-001')
-    assert response.status_code == 200
-    html = response.text
-    assert html.lower().count('remote') == mentions
-    assert ('<span class="chip">Remote</span>' in html) is chip
-    title = vault.load_job(root, 'JOB-001')['title']
-    assert f'<div class="page-header job-detail-header spaced"><h1>{title}</h1></div>' in html
-    assert '<small class="muted">JOB-001</small>' not in html
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    assert page['show_remote_chip'] is chip
+    assert page['job']['location'] == location
     assert vault.load_job(root, 'JOB-001')['location'] == location
 
 
@@ -798,60 +777,53 @@ def test_kanban_rendered_styles(client):
 
 
 def test_job_detail_ai_summary_badge(client):
+    # JOZ-280: the Jinja job_detail page is retired; the "AI-generated"
+    # badge is now a React decision driven by summary_source, so the API
+    # contract this asserts is job.summary / job.summary_source.
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'summary': 'Heuristic summary.'}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'Heuristic summary.' in html
-    assert 'AI-generated' not in html
+    job = client.get('/api/jobs/JOB-001?view=page').json['job']
+    assert job['summary'] == 'Heuristic summary.'
+    assert job['summary_source'] != 'ai'
     vault.save_job(root, {'summary': 'AI summary.', 'summary_source': 'ai'}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'AI summary.' in html
-    assert 'AI-generated' in html
+    job = client.get('/api/jobs/JOB-001?view=page').json['job']
+    assert job['summary'] == 'AI summary.'
+    assert job['summary_source'] == 'ai'
 
 
 def test_job_detail_extracted_sections(client):
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'background': '5+ years experience.', 'skills': ['Python', 'SQL'],
                           'certifications': ['PMP'], 'responsibilities': ['Lead the team']}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'Background required' in html and '5+ years experience.' in html
-    assert 'class="job-chips"' in html and '>Python<' in html and '>SQL<' in html
-    assert 'Certifications' in html and 'PMP' in html
-    assert 'Responsibilities' in html and 'Lead the team' in html
+    job = client.get('/api/jobs/JOB-001?view=page').json['job']
+    assert job['background'] == '5+ years experience.'
+    assert job['skills'] == ['Python', 'SQL']
+    assert job['certifications'] == ['PMP']
+    assert job['responsibilities'] == ['Lead the team']
 
 
 def test_job_detail_hides_empty_extracted_sections(client):
-    html = client.get('/jobs/JOB-001').text
-    for label in ['Background required', '<h2>Skills</h2>', 'Certifications', 'Responsibilities',
-                 'Original posting text (from source)', 'AI-generated']:
-        assert label not in html
+    job = client.get('/api/jobs/JOB-001?view=page').json['job']
+    for field in ('background', 'skills', 'certifications', 'responsibilities', 'description'):
+        assert not job.get(field)
+    assert job.get('summary_source') != 'ai'
 
 
 def test_job_detail_original_description_collapsible(client):
     root = client.application.config['VAULT_PATH']
     long_text = 'Paragraph one.\n\n' + ('Filler sentence. ' * 100)
     vault.save_job(root, {'description': long_text}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'Original posting text (from source)' in html
-    assert '<details class="original-desc"><summary>Original posting text (from source)</summary>' in html
-    assert 'Paragraph one.' in html
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    assert page['has_description'] is True
+    assert page['job']['description'] == long_text
 
 
 def test_job_detail_short_description_collapsible(client):
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'description': 'Short description.'}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'Short description.' in html
-    assert '<details class="original-desc">' in html
-
-
-def test_job_detail_no_reenrich_button_when_idle(client):
-    # M1 audit: "Enrich with AI" is removed; enrichment already starts on
-    # ingest, and a failed/exhausted job retries via the existing
-    # retry-ingest Retry chip instead of a dedicated enrich button.
-    html = client.get('/jobs/JOB-001').text
-    assert 'id="extract-job"' not in html and 'Enrich with AI' not in html
-    assert 'id="extract-pending-chip"' not in html
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    assert page['has_description'] is True
+    assert page['job']['description'] == 'Short description.'
 
 
 def test_job_detail_shows_pending_ai_state(client, monkeypatch):
@@ -869,73 +841,25 @@ def test_job_detail_shows_pending_ai_state(client, monkeypatch):
     worker = client.application.config['REFRESH_THREADS']['JOB-001']
     worker.join(5)
     assert not worker.is_alive()
-    html = client.get('/jobs/JOB-001').text
-    # The pending STATUS chip is a fact and stays; the manual trigger button does not.
-    assert 'id="extract-pending-chip"' in html
-    assert 'id="extract-job"' not in html
-
-
-def test_job_detail_polls_only_while_pending(client, monkeypatch):
-    """MINOR 4: the page must poll for completion while enrichment is
-    pending, and must not poll when it isn't."""
-    from careeros import ingest
-    from unittest.mock import Mock
-    html = client.get('/jobs/JOB-001').text
-    assert 'if(false)pollTimer=setInterval(checkEnrichment,4000)' in html
-    started = threading.Event()
-
-    def extract_async(description, callback, *, function_options):
-        started.set()
-        return Mock(is_alive=lambda: True)
-
-    monkeypatch.setattr(ingest, 'extract_async', extract_async)
-    assert client.post('/api/jobs/JOB-001/extract').status_code == 202
-    assert started.wait(5)
-    worker = client.application.config['REFRESH_THREADS']['JOB-001']
-    worker.join(5)
-    assert not worker.is_alive()
-    html = client.get('/jobs/JOB-001').text
-    assert 'if(true)pollTimer=setInterval(checkEnrichment,4000)' in html
-    assert 'data.llm_pending' in html
-    assert 'notesOriginal' in html
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    assert page['llm_pending'] is True
 
 
 def test_job_detail_whitespace_only_description_hides_section(client):
-    """NIT 7: whitespace-only descriptions must not render an empty section."""
+    """NIT 7: a whitespace-only description must not read as present."""
     root = client.application.config['VAULT_PATH']
     vault.save_job(root, {'description': ' ' * 1201}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'Original posting text (from source)' not in html
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    assert page['has_description'] is False
 
 
-def test_job_detail_description_boundary_1200_collapsible(client):
-    root = client.application.config['VAULT_PATH']
-    vault.save_job(root, {'description': 'a' * 1200}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert 'Original posting text (from source)' in html
-    assert '<details class="original-desc">' in html
-
-
-def test_job_detail_description_boundary_1201_reconstructs_exactly(client):
-    import re
-    root = client.application.config['VAULT_PATH']
-    text = 'a' * 1200 + 'b'
-    vault.save_job(root, {'description': text}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    description = re.search(r'<details class="original-desc"><summary>Original posting text \(from source\)</summary><p class="preserve"[^>]*>(.*?)</p></details>', html, re.S).group(1)
-    assert description == text
-
-
-def test_job_detail_description_escapes_html(client):
+def test_job_detail_description_round_trips_exactly(client):
     root = client.application.config['VAULT_PATH']
     text = '<script>evil()</script>' * 60 + '<b>tail</b>'
-    assert len(text) > 1200
     vault.save_job(root, {'description': text}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    assert '<script>evil()' not in html
-    assert '&lt;script&gt;evil()&lt;/script&gt;' in html
-    assert '<b>tail</b>' not in html
-    assert '&lt;b&gt;tail&lt;/b&gt;' in html
+    page = client.get('/api/jobs/JOB-001?view=page').json
+    assert page['has_description'] is True
+    assert page['job']['description'] == text
 
 
 def test_full_record_status_update(client):
@@ -992,12 +916,6 @@ def test_llm_real_title_still_overwrites():
               'employment_type': '', 'remote_ok': None, 'ingest_source': 'llm'}
     merged = intake._merge_extracted(data, fields, {}, intake.Posting())
     assert merged['title'] == 'Senior Product Manager'
-
-
-def test_job_detail_has_editable_title(client):
-    html = client.get('/jobs/JOB-001').text
-    assert 'id="title"' in html
-    assert 'PUT' in html and 'title:document.getElementById(\'title\')' in html
 
 
 def test_job_title_editable_via_api(client):
@@ -2038,22 +1956,10 @@ def test_refresh_worker_exception_persists_failure(client, monkeypatch):
     assert not client.application.config['LLM_PENDING']
 
 
-def test_batch_d_job_card_order(client):
-    root = client.application.config['VAULT_PATH']
-    vault.seed_function_facet(root)
-    vault.save_job(root, {'summary': 'Overview', 'summary_source': 'ai',
-                         'description': 'Original text', 'skills': ['Python'],
-                         'responsibilities': ['Build things'], 'background': 'Experience',
-                         'function': [sorted(vault.known_function_ids(root))[0]], 'certifications': ['PMP']}, 'JOB-001')
-    html = client.get('/jobs/JOB-001').text
-    markers = ['<h2>Summary <span class="chip ai-badge">AI-generated</span></h2>',
-               '<details class="original-desc">', '<h2>Skills</h2>',
-               '<h2>Responsibilities</h2>', '<h2>Background required</h2>',
-               '<h2>Function</h2>', '<h2>Classification</h2>',
-               '<h2>Certifications</h2>', '<dt>Title</dt>']
-    positions = [html.index(marker) for marker in markers]
-    assert positions == sorted(positions)
-    assert '<details class="original-desc" open' not in html
+# JOZ-280: section order on the job detail page (summary, content,
+# classification, details, notes, related items, history) is now a React
+# SectionCard layout decision, not Jinja markup; see
+# frontend/tests/job-detail.spec.js for the DOM-order assertion.
 
 
 def test_search_one_edit_affordance(client):

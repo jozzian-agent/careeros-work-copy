@@ -1,0 +1,16 @@
+{
+  "exp": {},
+  "companies": [{ "id": "CO-002", "name": "Fictional University" }],
+  "tags": {
+    "facets": {
+      "skill/capability": {
+        "label": "Capability",
+        "values": [
+          { "id": "public-speaking", "label": "Public speaking" },
+          { "id": "stakeholder-management", "label": "Stakeholder management" }
+        ]
+      },
+      "function": { "label": "Function", "values": [] }
+    }
+  }
+}
