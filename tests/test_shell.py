@@ -8,10 +8,15 @@ import yaml
 
 from careeros.server import create_app
 from careeros.web import theme, ui
-from careeros.web.pages import companies, experiences, jobs, search
+from careeros.web.pages import jobs
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGES = (search, experiences, jobs, companies)
+
+
+def _nav_href(slug):
+    # JOZ-283: the Search tab's own URL is "/", not "/search". It is the
+    # one slug in theme.NAV_PAGES whose href does not match its own name.
+    return '/' if slug == 'search' else f'/{slug}'
 
 
 @pytest.fixture
@@ -21,17 +26,21 @@ def client(tmp_path):
     return app.test_client()
 
 
-@pytest.mark.parametrize('route,module', [('/', search)] + [(f'/{m.__name__.split(".")[-1]}', m) for m in PAGES])
-def test_routes(client, route, module):
-    response = client.get(route)
+# Search (home), Experiences list and Companies list have no Jinja
+# coexistence (JOZ-283, same no-coexist decision as the JOZ-280 detail
+# pages). Only /jobs still has a Jinja page to assert nav/shell markup
+# against here; see tests/test_react_ui_flag.py for the flag-on/flag-off
+# routing coverage of the other three.
+def test_jobs_route(client):
+    response = client.get('/jobs')
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    slug = module.__name__.split('.')[-1]
-    assert module.EMPTY_STATE in html
-    assert f"href='/{slug}' class='active' aria-current='page'" in html
+    assert jobs.EMPTY_STATE in html
+    assert "href='/jobs' class='active' aria-current='page'" in html
     assert 'CareerOS' in html
     assert html.count("aria-current='page'") == 1
-    assert [html.index(f"href='/{s}'", html.index('<nav')) for s, _ in theme.NAV_PAGES] == sorted(html.index(f"href='/{s}'", html.index('<nav')) for s, _ in theme.NAV_PAGES)
+    assert [html.index(f"href='{_nav_href(s)}'", html.index('<nav')) for s, _ in theme.NAV_PAGES] == sorted(
+        html.index(f"href='{_nav_href(s)}'", html.index('<nav')) for s, _ in theme.NAV_PAGES)
 
 
 def test_not_found(client):
@@ -49,7 +58,9 @@ def test_empty_or_missing_vault(tmp_path, exists):
     if exists:
         vault.mkdir()
     app = create_app(vault)
-    for route in ['/', '/search', '/experiences', '/jobs', '/companies']:
+    # Search (home), Experiences list and Companies list have no Jinja
+    # coexistence (JOZ-283); only /jobs is reachable with the flag off.
+    for route in ['/jobs']:
         assert app.test_client().get(route).status_code == 200
     assert list(vault.iterdir()) == [] if exists else not vault.exists()
     assert app.config['VAULT_PATH'] == vault
@@ -79,7 +90,7 @@ def test_viewport_meta_tag_present(client):
 
 
 def test_mobile_breakpoint_css_in_served_stylesheet(client):
-    response = client.get('/companies')
+    response = client.get('/jobs')
     html = response.get_data(as_text=True)
     assert f'@media (max-width: {theme.MOBILE_BREAKPOINT}px)' in html
     assert f'@media(max-width:{theme.MOBILE_BREAKPOINT}px)' in html

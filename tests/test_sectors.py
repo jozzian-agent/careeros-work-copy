@@ -1087,28 +1087,25 @@ def test_backfill_sectors_and_size_are_independent_cascades(root):
 
 
 # --- Companies page: sector/size filter controls (engineering item 8) -----
+#
+# JOZ-283: the Jinja companies.html page (its filter <select> markup,
+# data-sectors/data-size-class attributes, and absence of a Backfill
+# button) is removed. Companies is now the React CompaniesList page.
+# Those three mechanics-only assertions have no data-level analog; the
+# underlying facts they protected stay pinned by test_api_companies.py's
+# DIRECTORY_SHAPE contract (isic_sections, sector_labels, size_classes),
+# and the equivalent client-side filter behavior (sector, size, both,
+# empty result) is covered by frontend/tests/companies-list.spec.js. The
+# sweep-all-companies Backfill button was removed from the product in the
+# M1 audit well before this page existed in React at all. Nothing here
+# renders a backend-internal action, structurally, so there is nothing
+# left to assert.
 
-def test_companies_page_renders_sector_and_size_filter_controls(client, root):
-    vault.save_company(root, {'name': 'Filterable Labs', 'sectors': ['J'], 'size_class': 'small'})
-    html = client.get('/companies').text
-    assert 'id="sector-filter"' in html and 'id="size-filter"' in html
-    assert 'value="J"' in html  # ISIC section option present
-    assert 'data-sectors="J"' in html and 'data-size-class="small"' in html
-
-
-def test_companies_page_card_shows_sector_label_not_bare_code(client, root):
+def test_companies_directory_sector_labels_are_human_not_bare_codes(client, root):
     vault.save_company(root, {'name': 'Labeled Labs', 'sectors': ['J']})
-    html = client.get('/companies').text
-    assert 'Information and communication' in html  # the ISIC label for J, not the bare code "J"
-
-
-def test_companies_page_has_no_backfill_action(client, root):
-    # M1 audit: the sweep-all-companies Backfill button is removed; retrying
-    # one company's sector/size enrichment now happens on that company's own
-    # page via the Retry control (see test_company_detail_shows_retry_*).
-    html = client.get('/companies').text
-    assert 'id="backfill-sector-size"' not in html
-    assert 'Backfill sector/size' not in html
+    page = client.get('/api/companies?view=page').json
+    company_id = next(c['id'] for c in page['entries'] if c['name'] == 'Labeled Labs')
+    assert page['sector_labels'][company_id] == ['Information and communication']
 
 
 def test_backfill_endpoint_is_explicit_and_never_runs_automatically(client, root, monkeypatch):

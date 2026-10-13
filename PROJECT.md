@@ -22,6 +22,8 @@ As of 2026-10-09 the product is a personal tool for one owner. It runs on the ow
 
 2026-10-12: the Job, Experience, Company and Company Classification detail pages were rebuilt on a shared DetailHeader/SectionCard skeleton in React (JOZ-280; [sketch](docs/surfaces/detail-pages.md)), replacing the four Jinja pages with no coexistence — those routes now exist only behind CAREEROS_REACT_UI, with the Jinja routes, views and templates removed rather than kept as a flag-off fallback (an owner decision narrower than the Jobs board's own dual-mode cutover). Client-side routing (`react-router-dom`) was added to the SPA for this. Four edit popups and one delete confirmation, designed and owner-approved in this ticket's own Phase A (not in the original design brief), write through existing PUT/DELETE endpoints with no backend schema change; the job record's `fit` field gets its first writer (a new Fit dropdown under the Job header) through the existing generic job PUT. Two gaps are flagged rather than silently dropped: the company-review resolution UI (picking a candidate or creating a company for a `needs_review` job) is not yet ported from the old Jinja page, and the old page's live-polling for in-progress enrichment is not carried over. Converting the many Jinja-markup-rendering tests this cutover broke moved most of their coverage to the unchanged JSON API instead of deleting it outright; see `frontend/BUILD_NOTES.md` "Detail pages rebuild (JOZ-280)" for the full accounting and implementation detail.
 
+2026-10-13: Search (home), Experiences list and Companies list were migrated to React (JOZ-283; [sketches](docs/surfaces/experiences.md), [companies](docs/surfaces/companies.md), [search/preferences](docs/surfaces/preferences.md)), the same no-coexist cutover JOZ-280 used for the detail pages: `/`, `/experiences` and `/companies` exist only behind CAREEROS_REACT_UI, with the three Jinja templates, their views and the redundant `/search` URL removed rather than kept as a flag-off fallback. No backend API or JSON contract changed, since all three pages read the existing `view=page` endpoints unmodified. `/experiences/new`, `/experiences/<id>/edit` and the taxonomy pages are untouched. See `frontend/BUILD_NOTES.md` "List pages rebuild (JOZ-283)" for implementation detail and the test-conversion accounting.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -326,8 +328,8 @@ The React plan uses R0–R6, distinct from the product milestones M1–M7.
 
 - R0: Toolchain and Jobs board proof — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
 - R1: JSON API parity — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
-- R2: Search page — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R2: Search page — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md). Search page itself done 2026-10-13 (JOZ-283).
 - R3: Job detail — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
-- R4: Companies and company detail — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
-- R5: Experiences, forms and taxonomy pages — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
+- R4: Companies and company detail — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md). Company detail done 2026-10-12 (JOZ-280); Companies list done 2026-10-13 (JOZ-283).
+- R5: Experiences, forms and taxonomy pages — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md). Experience detail done 2026-10-12 (JOZ-280); Experiences list done 2026-10-13 (JOZ-283). Forms and taxonomy pages stay Jinja, out of scope for both tickets.
 - R6: Component registry and retirement of absorbed styling work — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).

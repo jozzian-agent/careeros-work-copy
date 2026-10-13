@@ -1,3 +1,14 @@
+// GET /api/companies?view=page: the directory_context payload (entries,
+// counts, empty, isic_sections, sector_labels, size_classes) the
+// Companies list page reads.
+export async function fetchCompaniesPage() {
+  const response = await fetch('/api/companies?view=page');
+  if (!response.ok) {
+    throw new Error('Could not load your companies.');
+  }
+  return response.json();
+}
+
 // GET /api/companies/<id>?view=page: the company_context payload (company,
 // sector_labels, entries, experiences, companies, isic_sections,
 // size_classes, kinds) the Company detail page reads.

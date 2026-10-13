@@ -39,11 +39,6 @@ def library_context(entries, companies_by_id, tag_labels):
         tag_labels=tag_labels,
     )
 
-def build_page():
-    root = current_app.config['VAULT_PATH']
-    context = page_context(root)
-    return page('Experiences', 'experiences', 'experiences.html', **context)
-
 def detail_context(root, identifier):
     return experience_context(get(root, identifier), _companies_by_id(root),
                               vault.tag_label_map(root))

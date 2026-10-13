@@ -35,7 +35,7 @@ def test_search_api(client, root):
     response = client.post('/api/search', json=data)
     assert response.status_code == 200
     assert response.json == vault.load_search(root) == client.get('/api/search').json
-    assert 'Invented lead' in client.get('/search').text
+    assert 'Invented lead' in client.get('/api/search?view=page').json['data']['roles']
     assert client.post('/api/search', json={'roles': 'bad'}).status_code == 400
     assert client.post('/api/search', data='{', content_type='application/json').status_code == 400
 
@@ -76,8 +76,8 @@ def test_empty_ui_and_env(tmp_path, monkeypatch):
     app = create_app()
     assert app.config['VAULT_PATH'] == tmp_path/'missing'
     client = app.test_client()
-    assert 'Create criteria' in client.get('/search').text
-    assert 'No positions yet — add your first one' in client.get('/experiences').text
+    assert client.get('/api/search?view=page').json['data'] is None
+    assert client.get('/api/experiences?view=page').json['entries'] == []
     assert client.get('/experiences/new').status_code == 200
     assert create_app(tmp_path).config['VAULT_PATH'] == tmp_path
 
@@ -109,10 +109,10 @@ def test_corrupt_and_nonmapping_yaml_never_crash(root, client):
     # a corrupt search.yaml
     (root / 'search.yaml').write_text('roles: [unclosed\n')
     # listings and pages still serve, ignoring the poison files
-    assert client.get('/experiences').status_code == 200
+    assert client.get('/api/experiences?view=page').status_code == 200
     listed = client.get('/api/experiences').get_json()
     assert len(listed) == 3, 'corrupt/non-mapping files must be skipped, not fatal'
-    assert client.get('/search').status_code == 200
+    assert client.get('/api/search?view=page').status_code == 200
     assert client.get('/api/search').status_code == 200
     # the good entries are all still individually reachable
     for entry in listed:

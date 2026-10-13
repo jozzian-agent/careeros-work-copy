@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('the board holds one fixed 320px column per status and never wraps', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
 
   for (const status of fixture.statuses) {
     const box = await page.getByTestId(`column-header-${status}`).boundingBox();
@@ -22,7 +22,7 @@ test('the board holds one fixed 320px column per status and never wraps', async 
 });
 
 test('the row scrolls horizontally instead of wrapping the columns', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const row = page.getByTestId('board-row');
   const overflowX = await row.evaluate((el) => getComputedStyle(el).overflowX);
@@ -37,7 +37,7 @@ test('the row scrolls horizontally instead of wrapping the columns', async ({ pa
 });
 
 test('each column header sits outside its own scrolling body', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const status = fixture.statuses[0];
   const body = page.getByTestId(`column-body-${status}`);
@@ -60,7 +60,7 @@ test('each column header sits outside its own scrolling body', async ({ page }) 
 });
 
 test('an empty column renders "No jobs here yet" and still shows its status heading', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const emptyStatus = fixture.statuses.find((status) => !fixture.entries.some((entry) => entry.status === status));
   const column = page.getByTestId(`board-column-${emptyStatus}`);

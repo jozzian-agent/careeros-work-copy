@@ -209,16 +209,16 @@ def test_experience_card_label_updates_on_company_rename_without_experience_writ
     vault.save_company(root, {'name': 'Renamed Co'}, company['id'])
     after = vault.load_experience(root, exp['id'])
     assert before == after  # the stored experience record itself never changes
-    html = client.get('/experiences').text
-    assert 'Renamed Co' in html and 'Original Name' not in html
+    library = client.get('/api/experiences?view=page').json
+    assert library['labels'][exp['id']] == 'Renamed Co'
     page = client.get('/api/experiences/' + exp['id'] + '?view=page').json
     assert page['label'] == 'Renamed Co'
 
 
 def test_unlinked_experience_falls_back_to_cached_company_text(client, root):
-    vault.save_experience(root, {'company': 'Cached Text Co', 'title': 'Builder', 'start': '2020-01', 'end': 'present'})
-    html = client.get('/experiences').text
-    assert 'Cached Text Co' in html
+    exp = vault.save_experience(root, {'company': 'Cached Text Co', 'title': 'Builder', 'start': '2020-01', 'end': 'present'})
+    library = client.get('/api/experiences?view=page').json
+    assert library['labels'][exp['id']] == 'Cached Text Co'
 
 
 # --- Engineering item 7: experience form company combobox + create-inline -

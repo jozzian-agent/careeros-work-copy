@@ -1,0 +1,40 @@
+{
+  "empty": "No positions yet — add your first one",
+  "entries": [
+    {
+      "id": "EXP-001",
+      "title": "Platform Lead",
+      "company": "Frozen Label Co",
+      "company_id": "CO-001",
+      "start": "2022-01",
+      "end": "present",
+      "location": "Zurich",
+      "skills": ["Kubernetes"],
+      "tags": ["experience-type:employment", "function:local-extension"],
+      "people_led": 6
+    },
+    {
+      "id": "EXP-002",
+      "title": "Freelance Builder",
+      "company": "Cached Text Studio",
+      "company_id": null,
+      "start": "2020-03",
+      "end": "2021-12",
+      "location": "Remote",
+      "skills": [],
+      "tags": [],
+      "people_led": null
+    }
+  ],
+  "companies": {
+    "CO-001": { "id": "CO-001", "name": "Renamed Harbor Labs" }
+  },
+  "labels": {
+    "EXP-001": "Renamed Harbor Labs",
+    "EXP-002": "Cached Text Studio"
+  },
+  "tag_labels": {
+    "experience-type:employment": { "label": "Employment", "local": false },
+    "function:local-extension": { "label": "Local Extension", "local": true }
+  }
+}

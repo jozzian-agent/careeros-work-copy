@@ -807,6 +807,165 @@ back-link ties it to the Nav tab's identical text — both are now avoided
 via `DetailHeader`'s `accessibilityLabel` (see the component registry
 entry above) plus an explicit wait before reading heading order.
 
+## List pages rebuild (JOZ-283)
+
+Migrates the three remaining Jinja pages (Search/home, Experiences list
+and Companies list) to React, the same no-coexist cutover JOZ-280 used for
+the detail pages. No backend API or JSON contract changed: all three read
+the existing `view=page` endpoints (`experiences.page_context`,
+`companies.page_context`, `search.page_context`) exactly as they stood.
+
+### Component registry
+
+| Component | Gestalt building blocks | Notes |
+| --- | --- | --- |
+| `ExperiencesList.jsx` | `PageHeader`, `ButtonLink`, `Box`, `Flex`, `Heading`, `Link`, `Badge`, `Text` | Card frame matches `SectionCard`'s own (`rounding={4}`, `borderStyle="sm"`), built inline rather than through `SectionCard` itself, since a card here is a link to a different record, not a titled content section. |
+| `CompaniesList.jsx` | `PageHeader`, `SelectList`, `Box`, `Flex`, `Heading`, `Link`, `Badge`, `Text` | The sector/size filters are two plain `SelectList`s, matching the Jinja page's own two `<select>` controls. They are not the Jobs board's Popover-based `FilterBar`/`FilterChip`, which is a different, heavier filter UI this page's brief never asked for. |
+| `SearchCriteria.jsx` | `PageHeader`, `SectionCard`, `DividerList`, `TextField`, `TextArea`, `BannerSlim`, `Box`, `Flex`, `Button`, `Text` | One `SectionCard` per criteria section plus a Notes `SectionCard`; the remove-× button is a plain native `<button>` (styled inline), the same precedent `FilterChip`'s chevron and `EditCriteriaPopup`'s tag chips already set for a small custom control with no exact Gestalt equivalent. |
+
+No new files under `src/components/`; every new piece above is either a
+direct Gestalt primitive or an existing shared component (`SectionCard`,
+`DividerList`), reused rather than duplicated.
+
+### API shape: no flattening, despite the suggestion to consider it
+
+The ticket brief suggested flattening `experiences.page_context`'s
+`companies` field from an id→record dict to an id→name dict, mirroring
+the Jobs board's own `view=board` flattening. This batch did not: the
+list page only ever needs to know whether a given `company_id` resolves
+to a real record (to decide whether to render a link), and the `labels`
+field already carries the exact display text, and the dict's values are
+never read for anything else. Flattening would have been a backend
+change with no behavioral benefit, and would have broken the pinned
+`test_api_experiences.py` contract (`LIBRARY_SHAPE`'s `companies` field)
+for no reason beyond the suggestion itself. Reuse ladder step 1 ("is it
+needed at all?") says no.
+
+### Routing: "/" retires the redundant "/search" URL, not a dual-mode fallback
+
+Unlike `/jobs` (JOZ-273's own dual-mode cutover, kept as-is and untouched
+by this ticket), Search, Experiences list and Companies list get the same
+no-coexist treatment JOZ-280 gave the four detail pages: `server.py`
+mounts the SPA index at `/`, `/experiences` and `/companies` only when
+`CAREEROS_REACT_UI=1`, with the three Jinja `add_url_rule` registrations
+(the module loop's `search`/`experiences`/`companies` entries, plus the
+separate `/` → `search.build_page` index rule) removed outright rather
+than kept as a flag-off fallback. With the flag off, all three now 404;
+`tests/test_react_ui_flag.py` pins both directions, mirroring the detail
+pages' own two tests.
+
+The Jinja `search.html` template answered to both `/` and `/search` (the
+module loop registered the second). That redundancy is retired, not
+carried over: the Search page's only URL is now `/`. `Nav.jsx` (and the
+Jinja `nav_html()`/`page_shell()` wordmark link in `theme.py`, still used
+by `/jobs` when the flag is off and by the untouched `/experiences/new`,
+`/experiences/<id>/edit` and `/jobs/<id>/taxonomy` pages) both special-case
+the `search` slug's href to `/` instead of `/{slug}`, since fewest-elements
+says one URL per page rather than two that happen to render the same
+thing. One consequence, flagged rather than silently accepted: with the
+flag off, those Jinja pages' own Search nav link now points at `/`, which
+404s (no Jinja fallback), the same already-accepted degradation the
+JOZ-280 detail-page links carry when the flag is off.
+
+The three now-unused Jinja view functions (`search.build_page`,
+`experiences.build_page`, `companies.build_page`) are deleted, along with
+their now-unused imports (`flask.current_app`/`flask.render_template` via
+`careeros.web.ui.page`). The `page_context`/`library_context`/
+`directory_context`/`criteria_context` functions they called stay, since
+the JSON API routes still call them directly.
+
+### Companies list: client-side filtering, no "no results" state
+
+The Jinja `companies.html` filter script never rendered a dedicated empty
+state for a filter combination that matches nothing. It simply hid every
+non-matching card via `card.hidden = true`, leaving a blank grid. The
+React page reproduces this exactly (it renders the filtered subset, not
+the full list with a `hidden` flag, since there is no requirement for the
+non-matching DOM nodes to persist) rather than inventing a "no results"
+message the Jinja page never had. The filter semantics themselves, that
+sector matches ANY of the company's sectors and size matches `size_class`
+exactly, are also copied verbatim from the Jinja inline script.
+
+### Search criteria: edit/save/cancel ported verbatim from the Jinja script
+
+`SearchCriteria.jsx`'s state machine (`backup`/`editing`/`busy`) is a
+direct port of `search.html`'s own inline script: Edit snapshots a
+`structuredClone` backup; Cancel restores it with no network call; Done
+POSTs the whole payload and, on failure, keeps the edits and stays in
+edit mode rather than reverting, so the owner can retry (the JOZ-280
+round-3 lesson about never dismissing/reverting a view while its own save
+request is still in flight, applied here to Cancel-and-Done rather than a
+popup's dismiss). Edit/Done/Cancel are all disabled while `busy`, exactly
+as `editButton.disabled=doneButton.disabled=cancelButton.disabled=busy`
+did.
+
+### Test suite: Jinja-rendering tests converted or removed, same policy as JOZ-280
+
+Removing the three templates breaks every test asserting their rendered
+HTML. Each was handled the same two ways BUILD_NOTES already documents
+for JOZ-280:
+
+- **Converted to assert the same underlying data via the JSON `view=page`
+  endpoints**: `test_vault.py` (criteria/empty-library checks),
+  `test_company_kind.py` (live company-label resolution, now read from
+  `labels`), `test_jobs.py` (`/companies` open-jobs count, now read from
+  `counts`), `test_sectors.py` (directory sector labels resolve to human
+  text, now read from `sector_labels`; added as a new focused test rather
+  than silently dropped, since the removed Jinja test was the only place
+  pinning the directory-level *value*, not just its shape).
+- **Removed outright**: `test_shell.py`'s `test_routes` parametrization
+  for `search`/`experiences`/`companies` (folded down to `/jobs` only,
+  with the nav-ordering assertion taught the `/` exception),
+  `test_sectors.py`'s three Jinja-filter-markup tests (`id="sector-filter"`,
+  `data-sectors`, the no-backfill-button check), and `test_jobs.py`'s
+  `test_search_one_edit_affordance` and
+  `test_search_local_edits_cancel_save_and_rollback` (the latter extracted
+  `search.html`'s inline `<script>` and ran it under Node, the exact
+  precedent JOZ-280 set for `test_check_posting_client_behavior`). The
+  equivalent behavior for all of these is now exercised by the three new
+  Playwright specs below, against the real React page instead of
+  extracted/reimplemented markup.
+
+Net effect on the pytest suite: two tests removed with a replacement
+added in the same batch (`test_sectors.py`), plus `test_routes`'s three
+removed parametrize cases and the two whole-test removals in
+`test_jobs.py`, a real, uncompensated loss of backend-level coverage for
+those two, exactly as JOZ-280 recorded for its own twelve removed cases.
+The new Playwright specs confirm only that the React pages render and
+behave correctly against mocked data, not that the Flask view layer
+underneath still behaves identically in every edge case the removed
+tests pinned: all three specs intercept their own GET `view=page` read
+with `page.route` (`mockExperiencesPage`/`mockCompaniesPage`/
+`mockSearchPage`), and the Search criteria spec also intercepts every
+POST `/api/search` write (`mockSaveSearch` and the spec's own
+in-flight/failure routes), so none of the three specs exercises the real
+Flask view layer at all.
+
+Separately, and against the real Flask app rather than a mock: a
+synthetic vault was served on a throwaway port with `CAREEROS_REACT_UI=1`
+to confirm `/`, `/experiences` and `/experiences/new` (still Jinja),
+`/companies`, and `/jobs` each answered with the expected content before
+this batch was called done. This is a manual, one-time check, not part
+of the automated suite, and carries no route-level regression coverage
+of its own going forward.
+
+### Frontend Playwright specs
+
+New fixtures (`frontend/tests/fixtures/experiences-list.json`,
+`companies-list.json`, `search-criteria.json`) and three spec files
+(`experiences-list.spec.js`, `companies-list.spec.js`,
+`search-criteria.spec.js`) cover: the Experiences card list (title,
+company link only when `company_id` resolves, skill/tag chips, the local
+tag's tooltip marker, the people-led chip, the empty state) and its own
+Add position links; the Companies filters (sector alone, size alone,
+both together, and a combination matching nothing); and Search's full
+edit flow (add an item, remove an item, edit notes, Done posts the saved
+payload, Cancel restores the pre-edit backup, a save failure keeps the
+edits and stays in edit mode, and the Create criteria empty state).
+`tests/helpers.js` gained `mockExperiencesPage`/`mockCompaniesPage`/
+`mockSearchPage`/`mockSaveSearch`, following the existing
+`mockJobPage`/`mockCompanyPage` pattern.
+
 ### `moveJobStatus` deliberately not refactored onto the new generic `updateJob`
 
 The Fit dropdown and the edit popups needed a generic job PUT helper

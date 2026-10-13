@@ -1,0 +1,17 @@
+{
+  "empty": "No criteria yet — define your next role.",
+  "sections": [
+    ["roles", "Roles"],
+    ["must_haves", "Must-haves"],
+    ["nice_to_haves", "Nice-to-haves"],
+    ["avoid", "Avoid"]
+  ],
+  "data": {
+    "roles": ["Platform engineering lead"],
+    "must_haves": ["Remote-friendly"],
+    "nice_to_haves": [],
+    "avoid": ["On-call rotation"],
+    "notes": "Prefer teams that ship in small batches.",
+    "updated": "2026-10-10"
+  }
+}

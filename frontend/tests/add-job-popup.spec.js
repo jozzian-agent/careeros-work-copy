@@ -16,7 +16,7 @@ function dialog(page) {
 }
 
 test('the plus button opens the add-job popup with a link field, Cancel and Add job', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   await expect(dialog(page)).toHaveCount(0);
 
   await openPopup(page);
@@ -32,7 +32,7 @@ test('the plus button opens the add-job popup with a link field, Cancel and Add 
 });
 
 test('Escape dismisses the popup, and reopening preserves the typed link', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   await dialog(page).getByLabel('Posting link').fill('https://example.com/careers/role');
 
@@ -45,7 +45,7 @@ test('Escape dismisses the popup, and reopening preserves the typed link', async
 
 test('a non-link value shows the field error and does not call the intake API', async ({ page }) => {
   const requests = await mockIntake(page, [{ body: { id: 'JOB-NEW', duplicate: false } }]);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('not a link');
@@ -65,7 +65,7 @@ test('submitting shows "Reading this posting" with the field disabled', async ({
     await held;
     route.fulfill({ status: 200, json: { id: 'JOB-NEW', duplicate: false } });
   });
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/role');
@@ -80,7 +80,7 @@ test('submitting shows "Reading this posting" with the field disabled', async ({
 
 test('intake success closes the popup, clears the field, and toasts "Added to New"', async ({ page }) => {
   const requests = await mockIntake(page, [{ body: { id: 'JOB-NEW', duplicate: false } }]);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/new-role');
@@ -102,7 +102,7 @@ test('a fetch failure shows the "couldn\'t read" error state with Try again, whi
     { status: 500, body: { error: 'Could not reach that posting.' } },
     { body: { id: 'JOB-NEW', duplicate: false } },
   ]);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/flaky-role');
@@ -135,7 +135,7 @@ test('a duplicate already on the board shows an info message with Show job, whic
   await page.route(`**/jobs/${existingId}`, (route) =>
     route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>job detail stub</body></html>' }),
   );
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/dup');
@@ -160,7 +160,7 @@ test('Add anyway from the duplicate state forces the create and toasts success',
     },
     { body: { id: 'JOB-NEW', duplicate: false } },
   ]);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/dup');
@@ -186,7 +186,7 @@ test('editing the URL after a duplicate response resets the shown actions', asyn
       },
     },
   ]);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/dup');
@@ -215,7 +215,7 @@ test('editing the URL after a failed forced add clears the force flag on the nex
     { status: 500, body: { error: 'Could not add that posting.' } },
     { body: { id: 'JOB-NEW', duplicate: false } },
   ]);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/dup');
@@ -257,7 +257,7 @@ test('a real posting-read failure (201 with a failed ingest_state) keeps the pop
     extractRequests.push(route.request().url());
     route.fulfill({ status: 202, json: { id: 'JOB-NEW', llm_pending: true, accepted: true } });
   });
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/unreachable');
@@ -301,7 +301,7 @@ test('a 503 (saved job, extraction could not start) keeps the popup open and ret
     extractRequests.push(route.request().url());
     route.fulfill({ status: 202, json: { id: 'JOB-NEW', llm_pending: true, accepted: true } });
   });
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/no-worker');
@@ -350,7 +350,7 @@ test('a forced-then-503 retry on the same URL does not resubmit intake a second 
     extractRequests.push(route.request().url());
     route.fulfill({ status: 202, json: { id: 'JOB-NEW', llm_pending: true, accepted: true } });
   });
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/dup-no-worker');
@@ -388,7 +388,7 @@ test('a failed "Add anyway" from the off-board duplicate dialog shows the popup 
     { status: 500, body: { error: 'Could not add that posting.' } },
     { body: { id: 'JOB-NEW', duplicate: false } },
   ]);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/off-board-dup');
@@ -426,7 +426,7 @@ test('a duplicate eligible for promotion closes the popup and opens the separate
     },
   ]);
   await mockPromote(page);
-  await page.goto('/');
+  await page.goto('/jobs');
   await openPopup(page);
   const box = dialog(page);
   await box.getByLabel('Posting link').fill('https://example.com/careers/dup');

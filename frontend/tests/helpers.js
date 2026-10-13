@@ -27,6 +27,13 @@ export async function mockJobTaxonomy(page, body) {
   });
 }
 
+// Mocks GET /api/experiences?view=page (the Experiences list page). The
+// glob excludes the detail route's own /api/experiences/<id>?view=page
+// (no extra path segment between "experiences" and the query string).
+export async function mockExperiencesPage(page, body) {
+  await page.route('**/api/experiences?view=page', (route) => route.fulfill({ json: body }));
+}
+
 // Mocks GET /api/experiences/<id>?view=page (the Experience detail page).
 export async function mockExperiencePage(page, body) {
   await page.route('**/api/experiences/*?view=page', (route) => route.fulfill({ json: body }));
@@ -35,6 +42,12 @@ export async function mockExperiencePage(page, body) {
 // Mocks GET /api/experiences/new (the Edit position popup's tag registry).
 export async function mockExperienceTagsRegistry(page, body) {
   await page.route('**/api/experiences/new', (route) => route.fulfill({ json: body }));
+}
+
+// Mocks GET /api/companies?view=page (the Companies list page). The glob
+// excludes the detail route's own /api/companies/<id>?view=page.
+export async function mockCompaniesPage(page, body) {
+  await page.route('**/api/companies?view=page', (route) => route.fulfill({ json: body }));
 }
 
 // Mocks GET /api/companies/<id>?view=page (the Company detail page).
@@ -51,6 +64,32 @@ export async function mockCompanyTaxonomy(page, body) {
     }
     route.fulfill({ json: body });
   });
+}
+
+// Mocks GET /api/search?view=page (the Search criteria page's load).
+export async function mockSearchPage(page, body) {
+  await page.route('**/api/search?view=page', (route) => {
+    if (route.request().method() !== 'GET') {
+      route.fallback();
+      return;
+    }
+    route.fulfill({ json: body });
+  });
+}
+
+// Mocks POST /api/search (Create criteria, and Done in edit mode),
+// recording each request's parsed body.
+export async function mockSaveSearch(page, { status = 200, body = {} } = {}) {
+  const requests = [];
+  await page.route('**/api/search', (route) => {
+    if (route.request().method() !== 'POST') {
+      route.fallback();
+      return;
+    }
+    requests.push(route.request().postDataJSON());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
 }
 
 // Mocks PUT /api/jobs/<id>, PUT /api/experiences/<id> or PUT

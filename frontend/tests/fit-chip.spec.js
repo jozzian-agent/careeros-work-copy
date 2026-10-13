@@ -11,7 +11,7 @@ const CHIP_LABEL = {
 
 test('every rated fit level renders its own label on the board', async ({ page }) => {
   await mockBoard(page, fixture);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const levelsPresent = new Set(fixture.entries.map((entry) => entry.fit).filter(Boolean));
   expect(levelsPresent).toEqual(new Set(['no_fit', 'lucky', 'excellent']));
@@ -32,7 +32,7 @@ test('every rated fit level renders its own label on the board', async ({ page }
 test('an unrated job defaults to the "Needs your input" chip, never a blank fit chip', async ({ page }) => {
   const unrated = { ...fixture, entries: [{ ...fixture.entries[0], fit: undefined }] };
   await mockBoard(page, unrated);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const card = page.getByTestId(`job-card-${unrated.entries[0].id}`);
   await expect(card.getByText('Needs your input', { exact: true })).toBeVisible();

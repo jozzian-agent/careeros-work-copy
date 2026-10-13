@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('chip order is Fit, Function, Location, More filters, Needs attention', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   const chips = page.locator('[data-testid^="filter-chip-"]');
   await expect(chips).toHaveCount(5);
   const testIds = await chips.evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
@@ -24,7 +24,7 @@ test('chip order is Fit, Function, Location, More filters, Needs attention', asy
 test('a Function chip selection opens its panel, filters the board, and shows a removable active-filter Tag', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   const [targetId, targetLabel] = fixture.function_options[0];
   const matching = fixture.entries.filter((entry) => entry.function.includes(targetId));
   const nonMatching = fixture.entries.filter((entry) => !entry.function.includes(targetId));
@@ -64,7 +64,7 @@ test('a Function chip selection opens its panel, filters the board, and shows a 
 });
 
 test('Location and Fit filters combine, and Clear all resets every group and the result count', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
 
   await page.getByTestId('filter-chip-fit').click();
   await page.getByRole('checkbox', { name: 'Excellent fit' }).check();
@@ -99,7 +99,7 @@ test('Location and Fit filters combine, and Clear all resets every group and the
 });
 
 test('Needs attention alone shows Clear all, and clearing it resets the toggle', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   const toggle = page.getByRole('button', { name: 'Needs attention', exact: true });
 
   await expect(page.getByText('Active filters')).toHaveCount(0);
@@ -117,7 +117,7 @@ test('Needs attention alone shows Clear all, and clearing it resets the toggle',
 });
 
 test('Clear all resets Needs attention together with a group filter', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   const toggle = page.getByRole('button', { name: 'Needs attention', exact: true });
   await toggle.click();
 
@@ -137,7 +137,7 @@ test('Clear all resets Needs attention together with a group filter', async ({ p
 });
 
 test('More filters opens Industry and Company size, and a selection narrows the board', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   const target = fixture.entries.find((entry) => entry.industries?.length);
   expect(target).toBeTruthy();
   const matching = fixture.entries.filter((entry) => (entry.industries || []).includes(target.industries[0]));
@@ -159,7 +159,7 @@ test('More filters opens Industry and Company size, and a selection narrows the 
 });
 
 test('a Company size selection in More filters narrows the board by the matching bucket', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   const target = fixture.entries.find((entry) => typeof entry.employee_count === 'number' && entry.employee_count <= 10);
   expect(target).toBeTruthy();
 

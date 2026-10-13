@@ -8,7 +8,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('board columns render, one per status, with baseline card count', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   for (const status of fixture.statuses) {
     const label = status.charAt(0).toUpperCase() + status.slice(1);
     await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
@@ -25,7 +25,7 @@ test('board columns render, one per status, with baseline card count', async ({ 
 });
 
 test('list view switch shows the same entries in a table', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   await expect(page.getByRole('table')).toHaveCount(0);
   await page.getByRole('button', { name: 'List', exact: true }).click();
   await expect(page.getByRole('button', { name: 'List', exact: true })).toHaveAttribute('aria-pressed', 'true');
@@ -35,7 +35,7 @@ test('list view switch shows the same entries in a table', async ({ page }) => {
 });
 
 test('needs attention toggle filters to needs_attention entries and back', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   const toggle = page.getByRole('button', { name: 'Needs attention', exact: true });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
@@ -68,7 +68,7 @@ test('needs attention toggle filters to needs_attention entries and back', async
 test('empty state renders the empty message from the API', async ({ page }) => {
   const emptyBoard = { ...fixture, entries: [], empty: 'No jobs match this test fixture.' };
   await mockBoard(page, emptyBoard);
-  await page.goto('/');
+  await page.goto('/jobs');
   await expect(page.getByText('No jobs match this test fixture.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
 });
@@ -78,7 +78,7 @@ test('empty state renders the empty message from the API', async ({ page }) => {
 // a dropped field on one card cannot hide behind another card's content.
 for (const entry of fixture.entries) {
   test(`board card ${entry.id} reflects every fixture field for "${entry.title}"`, async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/jobs');
     const card = page.getByTestId(`job-card-${entry.id}`);
     await expect(card).toBeVisible();
 
@@ -155,7 +155,7 @@ test('a tentative company_name + company_id alongside needs_review renders both 
   );
   expect(tentative).toBeTruthy();
 
-  await page.goto('/');
+  await page.goto('/jobs');
   const card = page.getByTestId(`job-card-${tentative.id}`);
   await expect(card.getByRole('link', { name: tentative.company_name, exact: true })).toHaveAttribute(
     'href',
@@ -166,7 +166,7 @@ test('a tentative company_name + company_id alongside needs_review renders both 
 });
 
 test('list view links point job titles at /jobs/<id> and company names at /companies/<id>', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   await page.getByRole('button', { name: 'List', exact: true }).click();
 
   const linked = fixture.entries.find((entry) => entry.company_name && entry.company_id);
@@ -186,7 +186,7 @@ test('list view links point job titles at /jobs/<id> and company names at /compa
 });
 
 test('list rows show ingest failure, reason, and Retry like board cards', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   await page.getByRole('button', { name: 'List', exact: true }).click();
 
   const failed = fixture.entries.find((entry) => ['fetch_failed', 'extract_failed'].includes(entry.ingest_state));
@@ -197,7 +197,7 @@ test('list rows show ingest failure, reason, and Retry like board cards', async 
 
 test('list rows render on a mobile viewport (390x844), not just the sort select', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/jobs');
   await page.getByRole('button', { name: 'List', exact: true }).click();
 
   await expect(page.getByLabel('Sort by')).toBeVisible();
@@ -210,7 +210,7 @@ test('list rows render on a mobile viewport (390x844), not just the sort select'
 });
 
 test('list header cells expose aria-sort through the adapter', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   await page.getByRole('button', { name: 'List', exact: true }).click();
 
   const titleHeader = page.locator('th', { hasText: 'Title' });
@@ -231,7 +231,7 @@ test('list header cells expose aria-sort through the adapter', async ({ page }) 
 
 test('status select move updates the board, toasts success, and sends the correct method/payload', async ({ page }) => {
   const requests = await mockMove(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'applied');
   const card = page.getByTestId(`job-card-${moved.id}`);
@@ -247,7 +247,7 @@ test('status select move updates the board, toasts success, and sends the correc
 
 test('status select failure reverts the move and toasts the error', async ({ page }) => {
   const requests = await mockMove(page, { status: 500, body: { error: 'nope' } });
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'applied');
   const card = page.getByTestId(`job-card-${moved.id}`);
@@ -285,7 +285,7 @@ test('an older failed move does not overwrite a newer successful move on the sam
       releaseFirst();
     }
   });
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const card = page.getByTestId(`job-card-${moved.id}`);
   await selectStatus(page, card, moved.title, 'interested');
@@ -306,7 +306,7 @@ test('an older failed move does not overwrite a newer successful move on the sam
 
 test('drag-and-drop moves a card between columns through the same handler as the select', async ({ page }) => {
   await mockMove(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   const card = page.getByTestId(`job-card-${moved.id}`);
@@ -319,7 +319,7 @@ test('drag-and-drop moves a card between columns through the same handler as the
 
 test('drag-and-drop failure reverts the card to its origin column and toasts the error', async ({ page }) => {
   await mockMove(page, { status: 500, body: { error: 'nope' } });
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const moved = fixture.entries.find((entry) => entry.status === 'new');
   const card = page.getByTestId(`job-card-${moved.id}`);
@@ -333,7 +333,7 @@ test('drag-and-drop failure reverts the card to its origin column and toasts the
 
 test('ingest Retry on a card re-fetches the board and toasts success', async ({ page }) => {
   await mockRetry(page);
-  await page.goto('/');
+  await page.goto('/jobs');
 
   const failed = fixture.entries.find((entry) => entry.ingest_state === 'fetch_failed');
   const card = page.getByTestId(`job-card-${failed.id}`);
@@ -343,7 +343,7 @@ test('ingest Retry on a card re-fetches the board and toasts success', async ({ 
 });
 
 test('Board/List view and Needs attention persist across reload via localStorage', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/jobs');
   await page.getByRole('button', { name: 'List', exact: true }).click();
   await page.getByRole('button', { name: 'Needs attention', exact: true }).click();
 
@@ -369,7 +369,7 @@ test('auto-refreshes when the tab regains focus after more than 30s hidden', asy
     route.fulfill({ json: fixture });
   });
 
-  await page.goto('/');
+  await page.goto('/jobs');
   await expect(page.getByText(fixture.entries[0].title, { exact: true })).toBeVisible();
   const baseline = fetchCount;
 
@@ -394,7 +394,7 @@ test('does not refresh when the tab regains focus after less than 30s hidden', a
     route.fulfill({ json: fixture });
   });
 
-  await page.goto('/');
+  await page.goto('/jobs');
   await expect(page.getByText(fixture.entries[0].title, { exact: true })).toBeVisible();
   const baseline = fetchCount;
 
@@ -419,7 +419,7 @@ test('auto-refreshes on pageshow with persisted (bfcache) restore', async ({ pag
     route.fulfill({ json: fixture });
   });
 
-  await page.goto('/');
+  await page.goto('/jobs');
   await expect(page.getByText(fixture.entries[0].title, { exact: true })).toBeVisible();
   const baseline = fetchCount;
 
@@ -443,7 +443,7 @@ test('load failure (including background refresh) shows the error with a Retry t
     route.fulfill({ json: fixture });
   });
 
-  await page.goto('/');
+  await page.goto('/jobs');
   await expect(page.getByText(fixture.entries[0].title, { exact: true })).toBeVisible();
 
   fail = true;
