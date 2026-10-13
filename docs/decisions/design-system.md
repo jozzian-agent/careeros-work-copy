@@ -100,3 +100,18 @@ JOZ-274/275 immediately as CSS-only passes.
 card, button, message/toast, input — plus chip, dialog, layout
 primitives, each with its allowed variants and the rule: new UI picks from
 the registry first; additions need a recorded reason.
+
+## Badge usage
+
+Owner decision 2026-10-13: colored badges are reserved for two cases.
+The first is an owner-action signal, such as the "Needs your input"
+recommendation badge on a job's company link. The second is a
+provenance marker on a detail page, such as the "AI-generated" info
+badge on the job detail page.
+
+Board cards carry only neutral information tags, such as industry,
+size, function and salary, and quiet chips for machine-state notices,
+such as extraction failed, details filling in, and company details
+pending. A quiet chip must never alarm: it uses subtle text, a
+transparent or secondary-base background, and a container-level border
+at most, never a colored badge type.

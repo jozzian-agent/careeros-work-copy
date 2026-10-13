@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python*)",
+      "Bash(python3*)",
+      "Bash(npm*)",
+      "Bash(npx*)",
+      "Bash(node*)",
+      "Bash(grep*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(ls*)",
+      "Bash(find*)",
+      "Bash(wc*)",
+      "Bash(cat*)",
+      "Bash(head*)",
+      "Bash(tail*)",
+      "Bash(curl*)",
+      "Bash(ss *)",
+      "Bash(kill*)",
+      "Bash(sleep*)"
+    ],
+    "deny": [
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(rm -rf*)"
+    ]
+  }
+}

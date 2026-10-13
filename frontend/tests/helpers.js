@@ -189,7 +189,23 @@ export async function mockCheckPosting(page, { status = 200, body = { events: []
   await page.route('**/api/watch/scan*', (route) => route.fulfill({ status, json: body }));
 }
 
+// Mocks POST /api/jobs/<id>/paste-description (the fetch_failed manual
+// paste resume path), recording each request's parsed body.
+export async function mockPasteDescription(page, { status = 200, body = { ok: true } } = {}) {
+  const requests = [];
+  await page.route('**/api/jobs/*/paste-description', (route) => {
+    requests.push(route.request().postDataJSON());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
 // Mocks POST /api/jobs/<id>/promote.
 export async function mockPromote(page, { status = 200, body = { ok: true } } = {}) {
   await page.route('**/api/jobs/*/promote', (route) => route.fulfill({ status, json: body }));
+}
+
+// Mocks GET /api/taxonomy (the Taxonomy page's load).
+export async function mockTaxonomy(page, body) {
+  await page.route('**/api/taxonomy', (route) => route.fulfill({ json: body }));
 }

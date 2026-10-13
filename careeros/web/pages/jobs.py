@@ -34,6 +34,21 @@ def board_context(entries, companies, function_labels):
         function_options=function_options,
     )
 
+def company_summaries(companies, isic_sections):
+    """One board-card-sized summary per company, keyed by id: a display
+    name, an industry label (the company's FIRST ISIC sector, human-
+    labeled, None when it has no sectors or an unknown code), and its raw
+    size_class (micro/small/medium/large, may be None). Pure and
+    testable without I/O so the board route's shape can be pinned without
+    a vault fixture."""
+    isic_labels = {section['code']: section['label'] for section in isic_sections}
+    summaries = {}
+    for key, company in companies.items():
+        sector_codes = company.get('sectors') or []
+        industry = isic_labels.get(sector_codes[0]) if sector_codes else None
+        summaries[key] = {'name': company.get('name'), 'industry': industry, 'size_class': company.get('size_class')}
+    return summaries
+
 def build_page():
     root = current_app.config['VAULT_PATH']
     context = page_context(root)

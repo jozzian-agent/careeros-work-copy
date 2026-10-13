@@ -1,6 +1,6 @@
 """Offline structured ingestion contracts."""
 import json
-from time import monotonic
+from time import monotonic, sleep
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -122,17 +122,65 @@ def test_unconfigured_fallback():
 
 
 def test_total_deadline(monkeypatch):
+    """JOZ-267 fix round 2, R2-A: once a call has actually started
+    executing, nothing here imposes a second, separate deadline on top
+    of the queue-wait phase -- the old combined-deadline design abandoned
+    ownership of a call that was still genuinely running (round 2's
+    probe: 'timeout returned while execution had started and not
+    finished'). A slow call that eventually returns must be waited for
+    and its result used, never discarded in favor of the heuristic
+    fallback just because it took a while."""
     release = Event()
+    go = Event()
+    content = json.dumps({'title': 'Slow Engineer'})
+
+    def slow(**kwargs):
+        release.wait(2)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
     client = client_for()
-    client.chat.completions.create.side_effect = lambda **kwargs: release.wait(2)
+    client.chat.completions.create.side_effect = slow
     monkeypatch.setattr(ingest, 'TIMEOUT', .02)
-    try:
-        started = monotonic()
-        assert ingest.extract('Engineer', client=client, model=object())['ingest_source'] == 'heuristic'
-        assert monotonic() - started < 1.0
-        assert not release.is_set()
-    finally:
-        release.set()
+    # R3-T2: start the release timer only once `started` has actually been
+    # recorded -- starting it right after Thread.start() (the old version)
+    # has no guaranteed ordering against that monotonic() read, so on a
+    # slow or busy scheduler the 0.1s countdown could already be well
+    # underway (or even finished) before `started` is captured, making
+    # `elapsed >= 0.1` fail for a perfectly correct implementation.
+    Thread(target=lambda: (go.wait(2), sleep(0.1), release.set()), daemon=True).start()
+    started = monotonic()
+    go.set()
+    result = ingest.extract('Engineer', client=client, model=object())
+    assert result['ingest_source'] == 'llm'
+    assert result['title'] == 'Slow Engineer'
+    assert monotonic() - started >= 0.1
+
+
+def test_sync_extract_total_deadline_fails_cleanly(monkeypatch):
+    """R3-A2: extract() runs synchronously on the caller's own thread --
+    in production, the /enrich Flask request handler -- unlike
+    extract_async, which runs the same unbounded-execution-phase wait on
+    its own background thread where hanging is harmless. Without an
+    outer bound here, a stuck model call could hang that request
+    handler forever. SYNC_TOTAL_DEADLINE must give up and fall back to
+    the heuristic result instead, well before the test's own margin."""
+    stuck = Event()
+
+    def never_returns(**kwargs):
+        # Nothing ever reads this call's result (it is abandoned once the
+        # outer deadline below fires); block briefly rather than forever
+        # so the daemon thread running it does not linger past this test.
+        stuck.wait(5)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{}'))])
+
+    client = client_for()
+    client.chat.completions.create.side_effect = never_returns
+    monkeypatch.setattr(ingest, 'SYNC_TOTAL_DEADLINE', .05)
+    started = monotonic()
+    result = ingest.extract('Senior Engineer at Example Labs. ' * 5, client=client, model=object())
+    assert monotonic() - started < 2, 'the synchronous caller must not hang past its outer deadline'
+    assert result['ingest_source'] == 'heuristic'
+    stuck.set()
 
 
 @pytest.mark.parametrize('layout,expected', [
@@ -656,13 +704,22 @@ def test_async_company_correction_and_email(tmp_path, monkeypatch, matched):
     assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
 
 
-def test_async_total_deadline_clears_pending(tmp_path, monkeypatch, capsys):
+def test_async_total_deadline_clears_pending(tmp_path, monkeypatch):
+    """JOZ-267 fix round 2, R2-A: the configured budget only ever bounds
+    the queue-wait phase. Ownership (llm_pending, the worker thread) must
+    stay held for as long as the model call is genuinely still running,
+    however long that takes -- releasing it early (the old combined
+    deadline) is exactly what let Retry start a second, concurrent
+    extraction for the same job while the first was still in flight."""
     release = Event()
-    monkeypatch.setenv('LLM_TIMEOUT', '.03')
+    entered = Event()
+    timeout = .03
+    monkeypatch.setenv('LLM_TIMEOUT', str(timeout))
     client = client_for()
     def slow(**kwargs):
+        entered.set()
         release.wait(2)
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"title":"Too late"}'))])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"title":"Finally"}'))])
     client.chat.completions.create.side_effect = slow
     monkeypatch.setattr(ingest, 'get_llm_client', lambda: client)
     monkeypatch.setattr(ingest, 'get_llm_model', object)
@@ -670,21 +727,30 @@ def test_async_total_deadline_clears_pending(tmp_path, monkeypatch, capsys):
     app = create_app(tmp_path)
     api = app.test_client()
     try:
-        start = monotonic()
         baseline = api.post('/api/jobs/intake', json={'url': 'https://posting.example/role'}).json['job']
         thread = app.config['LLM_THREADS'][baseline['id']]
-        thread.join(1)
-        assert not thread.is_alive()
-        assert monotonic() - start < 1
-        job = api.get('/api/jobs/' + baseline['id']).json
-        assert job['llm_pending'] is False
-        assert job['title'] == baseline['title']
-        assert job['ingest_source'] == 'heuristic'
-        assert capsys.readouterr().err == 'ingest: TimeoutError\n'
-        release.set()
-        assert api.get('/api/jobs/' + baseline['id']).json['title'] == baseline['title']
+        assert entered.wait(2), 'the model call must actually have started'
+        # R3-T2: prove the configured budget has actually elapsed with an
+        # explicit monotonic measurement, rather than just trusting that
+        # the incidental overhead of the calls above already ate more than
+        # .03s -- that assumption has no synchronization behind it and can
+        # go either way on a fast or heavily loaded machine.
+        deadline_passed = monotonic() + timeout
+        while monotonic() < deadline_passed:
+            sleep(0.005)
+        # The budget has now provably elapsed for the queue-wait phase,
+        # yet the model call is still genuinely running: ownership must
+        # still be held, not abandoned to a premature heuristic fallback.
+        assert thread.is_alive()
+        assert api.get('/api/jobs/' + baseline['id']).json['llm_pending'] is True
     finally:
         release.set()
+    thread.join(2)
+    assert not thread.is_alive()
+    job = api.get('/api/jobs/' + baseline['id']).json
+    assert job['llm_pending'] is False
+    assert job['title'] == 'Finally'
+    assert job['ingest_source'] == 'llm'
 
 
 def test_thread_start_failure_clears_pending(tmp_path, monkeypatch, capsys):

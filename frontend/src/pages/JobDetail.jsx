@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Accordion, BannerSlim, Badge, Box, Button, Flex, Link, Text } from 'gestalt';
-import { checkPosting, deleteJob, fetchJobPage, fetchJobTaxonomy, retryIngest, updateJob } from '../api/jobs.js';
+import {
+  checkPosting,
+  deleteJob,
+  fetchJobPage,
+  fetchJobTaxonomy,
+  pasteDescription,
+  retryIngest,
+  updateJob,
+} from '../api/jobs.js';
 import DetailHeader from '../components/DetailHeader.jsx';
 import SectionCard, { DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
 import FitChip from '../components/FitChip.jsx';
@@ -9,6 +17,7 @@ import StatusSelect from '../components/StatusSelect.jsx';
 import FitSelect from '../components/FitSelect.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
 import EditCriteriaPopup from '../components/EditCriteriaPopup.jsx';
+import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 
 const INGEST_MESSAGE = {
@@ -16,6 +25,36 @@ const INGEST_MESSAGE = {
   extract_failed: 'Extraction failed.',
   stub: 'Details filling in…',
   fetched: 'Details filling in…',
+};
+
+// JOZ-267 fix round 1 finding 4: a terminal ingest_state means nothing is
+// ever going to advance a still-pending field again on its own (the owner
+// must act, via Retry or Paste); a pending field_status left over from a
+// past bug, or from a terminal failure that landed between page loads,
+// must not poll forever once nothing can change it.
+const TERMINAL_INGEST_STATES = ['complete', 'fetch_failed', 'extract_failed'];
+
+// JOZ-267 Section 3: field_status values the job detail page must show,
+// one row per covered field. Order matches careeros/ingest.py STATUS_FIELDS.
+const FIELD_LABELS = {
+  title: 'Title',
+  company: 'Company',
+  location: 'Location',
+  function: 'Function',
+  seniority: 'Seniority',
+  employment_type: 'Employment type',
+  skills: 'Skills',
+  description_structured: 'Description',
+};
+const STATUS_ORDER = Object.keys(FIELD_LABELS);
+const STATUS_BADGE = {
+  pending: { type: 'info', text: 'Pending' },
+  done: { type: 'success', text: 'Done' },
+  failed: { type: 'error', text: 'Failed' },
+  not_evidenced: { type: 'warning', text: 'Not evidenced' },
+};
+const POSTING_QUALITY_NOTICE = {
+  thin: 'This posting has very little text; extraction will be limited.',
 };
 
 export default function JobDetail() {
@@ -32,6 +71,7 @@ export default function JobDetail() {
   const [actionError, setActionError] = useState(null);
   const [checkBusy, setCheckBusy] = useState(false);
   const [checkResult, setCheckResult] = useState(null);
+  const [pasteOpen, setPasteOpen] = useState(false);
 
   const load = useCallback(() => {
     fetchJobPage(id)
@@ -45,6 +85,20 @@ export default function JobDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // JOZ-267 Section 7: extraction progress must be visible without a
+  // manual reload. Polling is the cheap mechanism the spec allows; it
+  // stops on its own once nothing is pending, so a settled job never
+  // keeps polling.
+  useEffect(() => {
+    if (!page) return undefined;
+    const hasPendingField = Object.values(page.job.field_status || {}).includes('pending');
+    const pending = page.llm_pending
+      || (hasPendingField && !TERMINAL_INGEST_STATES.includes(page.job.ingest_state));
+    if (!pending) return undefined;
+    const timer = setTimeout(load, 3000);
+    return () => clearTimeout(timer);
+  }, [page, load]);
 
   if (loadError) {
     return (
@@ -116,6 +170,12 @@ export default function JobDetail() {
     } catch (err) {
       setActionError(err.message);
     }
+  }
+
+  async function handlePasteDescription(description) {
+    await pasteDescription(id, description);
+    setPasteOpen(false);
+    await load();
   }
 
   async function handleCheckPosting() {
@@ -202,6 +262,56 @@ export default function JobDetail() {
               {(job.ingest_state === 'fetch_failed' || job.ingest_state === 'extract_failed') && (
                 <Button text="Retry" size="sm" onClick={handleRetry} />
               )}
+              {job.ingest_state === 'fetch_failed' && (
+                <Button text="Paste posting text manually" size="sm" color="gray" onClick={() => setPasteOpen(true)} />
+              )}
+            </Flex>
+          </SectionCard>
+        ) : null}
+        {job.posting_quality && POSTING_QUALITY_NOTICE[job.posting_quality] ? (
+          <BannerSlim type="warning" message={POSTING_QUALITY_NOTICE[job.posting_quality]} />
+        ) : null}
+        {job.field_status && Object.keys(job.field_status).length ? (
+          <SectionCard title="Extraction">
+            <Flex direction="column" gap={3}>
+              <Flex gap={2} wrap>
+                {STATUS_ORDER.filter((field) => job.field_status[field]).map((field) => {
+                  const badge = STATUS_BADGE[job.field_status[field]];
+                  return (
+                    <Flex key={field} gap={1} alignItems="center">
+                      <Text size="200">{FIELD_LABELS[field]}</Text>
+                      {badge ? <Badge type={badge.type} text={badge.text} /> : null}
+                    </Flex>
+                  );
+                })}
+              </Flex>
+              {job.description_structured?.requirements?.length || job.description_structured?.nice_to_have?.length ? (
+                <>
+                  {job.description_structured.method === 'llm'
+                  && job.field_provenance?.description_structured !== 'user' ? (
+                    <Flex gap={2} alignItems="center">
+                      <Badge type="info" text="AI-generated" />
+                      <Button text="Edit" size="sm" color="gray" onClick={() => setEditOpen(true)} />
+                    </Flex>
+                  ) : null}
+                  {job.description_structured.requirements?.length ? (
+                    <Box>
+                      <Text weight="bold" size="200">
+                        Requirements
+                      </Text>
+                      <DividerList items={job.description_structured.requirements} />
+                    </Box>
+                  ) : null}
+                  {job.description_structured.nice_to_have?.length ? (
+                    <Box>
+                      <Text weight="bold" size="200">
+                        Nice to have
+                      </Text>
+                      <DividerList items={job.description_structured.nice_to_have} />
+                    </Box>
+                  ) : null}
+                </>
+              ) : null}
             </Flex>
           </SectionCard>
         ) : null}
@@ -312,6 +422,9 @@ export default function JobDetail() {
       {editOpen ? <EditJobPopup job={job} onSave={handleSaveJob} onDismiss={() => setEditOpen(false)} /> : null}
       {criteriaOpen && criteria ? (
         <EditCriteriaPopup taxonomy={criteria} onSave={handleSaveCriteria} onDismiss={() => setCriteriaOpen(false)} />
+      ) : null}
+      {pasteOpen ? (
+        <PasteDescriptionPopup onSave={handlePasteDescription} onDismiss={() => setPasteOpen(false)} />
       ) : null}
       {deleteOpen ? (
         <DeleteConfirmModal

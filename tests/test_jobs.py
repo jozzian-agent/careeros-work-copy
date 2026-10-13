@@ -108,9 +108,15 @@ def test_intake(client,monkeypatch,html,expected_final_state,expected_reason,set
     assert after['ingest_state'] == expected_final_state
     if settles_synchronously:
         # Already final in the very first response; the background worker
-        # (still started, per the LLM_THREADS contract above) is a no-op.
+        # (still started, per the LLM_THREADS contract above) makes no
+        # further ingest_state/data change, but it does settle any field
+        # still pending to failed once it runs (JOZ-267 fix round 1
+        # finding 4) -- field_status is excluded from the snapshot
+        # comparison below for exactly that reason.
         assert data['job']['ingest_state'] == expected_final_state
-        assert after == data['job'] | {'llm_pending': False}
+        assert {k: v for k, v in after.items() if k != 'field_status'} == \
+               {k: v for k, v in (data['job'] | {'llm_pending': False}).items() if k != 'field_status'}
+        assert 'pending' not in after['field_status'].values()
         if expected_reason:
             assert data['job']['ingest_error']['reason'] == expected_reason
     else:
@@ -124,9 +130,15 @@ def test_intake(client,monkeypatch,html,expected_final_state,expected_reason,set
         after_events = [event['event'] for event in after['history']]
         assert after_events[:len(before_events)] == before_events
         assert after_events[len(before_events):] == ['extract_failed']
-        ignore = {'ingest_state', 'ingest_error', 'history', 'llm_pending'}
+        ignore = {'ingest_state', 'ingest_error', 'history', 'llm_pending', 'field_status'}
         assert {k: v for k, v in after.items() if k not in ignore} == \
                {k: v for k, v in data['job'].items() if k not in ignore}
+        # JOZ-267: a total extraction failure turns every covered field
+        # still pending (no heuristic/scrape value had filled it either)
+        # into failed, visibly distinct from done/not_evidenced.
+        for field in ('employment_type', 'function', 'seniority', 'skills'):
+            assert data['job']['field_status'][field] == 'pending'
+            assert after['field_status'][field] == 'failed'
     if html is None:
         assert data['job']['title']=='platform builder'
 

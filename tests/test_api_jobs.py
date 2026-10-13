@@ -1,6 +1,6 @@
 """Pinned JSON page contracts against an isolated fixture vault."""
 
-BOARD_SHAPE = {'companies': {'CO-001': 'str'},
+BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_class': 'str'}},
  'empty': 'str',
  'entries': [{'added': 'str',
               'ats_posting_id': 'NoneType',
@@ -10,18 +10,22 @@ BOARD_SHAPE = {'companies': {'CO-001': 'str'},
               'certifications': [],
               'company': 'str',
               'company_id': 'str',
+              'company_industry': 'str',
               'company_link_reason': 'NoneType',
               'company_link_state': 'str',
               'company_name': 'str',
               'company_review': 'NoneType',
+              'company_size_class': 'str',
               'contact_email': 'str',
               'custom': {},
               'description': 'str',
+              'description_structured': 'NoneType',
               'employee_count': 'NoneType',
               'employer_named_in_posting': 'NoneType',
               'employment_type': 'str',
               'enriched': 'bool',
               'field_provenance': {},
+              'field_status': {},
               'function': ['str'],
               'history': [{'detail': 'str', 'event': 'str', 'ts': 'str'}],
               'id': 'str',
@@ -36,10 +40,12 @@ BOARD_SHAPE = {'companies': {'CO-001': 'str'},
               'needs_attention': 'bool',
               'normalized_url': 'NoneType',
               'notes': 'str',
+              'occupation_code': 'NoneType',
               'origin': 'str',
               'original_url': 'NoneType',
               'pending': 'bool',
               'posted_date': 'NoneType',
+              'posting_quality': 'NoneType',
               'refresh': 'str',
               'remote_ok': 'NoneType',
               'responsibilities': [],
@@ -48,6 +54,7 @@ BOARD_SHAPE = {'companies': {'CO-001': 'str'},
               'sector': 'NoneType',
               'sectors': [],
               'seniority': 'str',
+              'skill_codes': 'NoneType',
               'skills': [],
               'source': 'str',
               'source_id': 'NoneType',
@@ -109,11 +116,13 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'contact_email': 'str',
          'custom': {},
          'description': 'str',
+         'description_structured': 'NoneType',
          'employee_count': 'NoneType',
          'employer_named_in_posting': 'NoneType',
          'employment_type': 'str',
          'enriched': 'bool',
          'field_provenance': {},
+         'field_status': {},
          'function': ['str'],
          'history': [{'detail': 'str', 'event': 'str', 'ts': 'str'}],
          'id': 'str',
@@ -127,9 +136,11 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'location': 'str',
          'normalized_url': 'NoneType',
          'notes': 'str',
+         'occupation_code': 'NoneType',
          'origin': 'str',
          'original_url': 'NoneType',
          'posted_date': 'NoneType',
+         'posting_quality': 'NoneType',
          'refresh': 'str',
          'remote_ok': 'NoneType',
          'responsibilities': [],
@@ -138,6 +149,7 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'sector': 'NoneType',
          'sectors': [],
          'seniority': 'str',
+         'skill_codes': 'NoneType',
          'skills': [],
          'source': 'str',
          'source_id': 'NoneType',
@@ -165,15 +177,19 @@ def test_detail_contract(api_client, assert_json_shape):
 def test_board_values_and_default_collection(api_client, assert_json_shape):
     board = api_client.get('/api/jobs?view=board').get_json()
     job = board['entries'][0]
-    assert board['companies'] == {'CO-001': 'Contract Studio'}
+    assert board['companies'] == {'CO-001': {'name': 'Contract Studio', 'industry': 'Information and communication',
+                                              'size_class': 'small'}}
     assert board['function_options'] == [['builder', 'Builder']]
     assert job['company_name'] == 'Contract Studio'
+    assert job['company_industry'] == 'Information and communication'
+    assert job['company_size_class'] == 'small'
     assert job['needs_attention'] is True
     assert job['pending'] is True
     raw = api_client.get('/api/jobs').get_json()
     assert_json_shape(raw, [DETAIL_SHAPE['job']])
     assert raw[0] == {k: v for k, v in job.items()
-                      if k not in ('company_name', 'needs_attention', 'pending')}
+                      if k not in ('company_name', 'company_industry', 'company_size_class',
+                                   'needs_attention', 'pending')}
 
 
 def test_detail_values_pending_and_mutations(api_client, assert_json_shape):
@@ -202,6 +218,8 @@ def test_board_empty_and_unlinked(api_client):
                           'enriched': True, 'ingest_state': 'complete', 'ingest_error': None}, 'JOB-001')
     data = api_client.get('/api/jobs?view=board').get_json()['entries'][0]
     assert data['company_name'] is None
+    assert data['company_industry'] is None
+    assert data['company_size_class'] is None
     assert data['pending'] is False
     assert data['needs_attention'] is False
     vault.delete_job(root, 'JOB-001')

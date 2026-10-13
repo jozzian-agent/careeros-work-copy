@@ -24,6 +24,13 @@ test('header renders type label, title, subtitle and actions', async ({ page }) 
   await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
 });
 
+test('skills from the experience record render as badges in the Summary section', async ({ page }) => {
+  await page.goto('/experiences/EXP-001');
+  for (const skill of fixture.exp.skills) {
+    await expect(page.getByText(skill, { exact: true })).toBeVisible();
+  }
+});
+
 test('back link navigates to the experiences list', async ({ page }) => {
   await page.goto('/experiences/EXP-001');
   await page.getByRole('link', { name: 'Back to Experiences' }).click();

@@ -11,6 +11,7 @@
     "summary": "Fictional guest lecture summary for test fixtures only.",
     "highlights": ["Taught two sessions on data strategy."],
     "detail": "**Fictional** detail paragraph for test fixtures only.",
+    "skills": ["Data storytelling"],
     "tags": ["skill/capability:public-speaking"],
     "custom": { "Clearance": "None" },
     "salary": null

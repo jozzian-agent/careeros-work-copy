@@ -21,7 +21,7 @@ from careeros.intake import posting_ats
 from careeros import dedupe
 import difflib
 
-from careeros.web.pages import companies, experiences, jobs, search
+from careeros.web.pages import companies, experiences, jobs, search, taxonomy
 from careeros.web.theme import page_shell
 
 _ATS_FEED_URL = {
@@ -135,6 +135,40 @@ _PROVENANCE_EXCLUDED_FIELDS = frozenset({
 })
 
 
+def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
+    """Per-field extraction status (JOZ-267 Section 3). A covered field
+    this attempt actually filled becomes done. A covered field this
+    attempt found nothing for becomes unfilled -- 'pending' while a
+    further attempt (the LLM, after an instant heuristic pass) is still
+    to come, 'not_evidenced' once no further attempt is coming and the
+    text genuinely did not support it -- unless an earlier attempt
+    already marked it done, which this never downgrades. A field whose
+    provenance is already 'user' is never touched (global rule 1)."""
+    provenance = job.get('field_provenance', {})
+    status = dict(job.get('field_status', {}))
+    for field in ingest.STATUS_FIELDS:
+        if provenance.get(field) == 'user':
+            continue
+        if filled_fields.get(field):
+            status[field] = 'done'
+        elif status.get(field) != 'done':
+            status[field] = unfilled
+    return status
+
+
+def fail_pending_field_status(job):
+    """A total extraction failure (no fields at all came back) turns any
+    field still pending into failed: visibly distinct from not_evidenced
+    (the text was read and found wanting) and from done (an earlier
+    heuristic or scrape pass already filled it)."""
+    provenance = job.get('field_provenance', {})
+    status = dict(job.get('field_status', {}))
+    for field in ingest.STATUS_FIELDS:
+        if provenance.get(field) != 'user' and status.get(field) == 'pending':
+            status[field] = 'failed'
+    return status
+
+
 def _netloc(value):
     if not value:
         return ''
@@ -193,6 +227,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         app.add_url_rule('/companies', 'react_companies', react_index)
         app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
         app.add_url_rule('/companies/<identifier>/taxonomy', 'react_company_taxonomy', react_index)
+        app.add_url_rule('/taxonomy', 'react_taxonomy', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
     app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
@@ -222,6 +257,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # Guards llm_pending reservation so intake and /extract can never both
     # win a worker slot for the same job, and so a stale callback can never
     # clear a slot a newer run holds.
+    # Lock order (JOZ-267 fix round 3, R3-C2): whenever both are needed,
+    # acquire write_lock first and nest pending_lock inside it, never the
+    # reverse -- every site below that holds both follows this order, so
+    # two threads can never deadlock waiting on each other's lock.
     pending_lock = RLock()
 
     def prune_cascade_threads():
@@ -451,7 +490,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
         values automation wrote; fresh owner provenance always takes priority."""
         fillable = ('title', 'company', 'location', 'employment_type', 'seniority',
                     'remote_ok', 'keywords', 'contact_email',
-                    'background', 'skills', 'certifications', 'responsibilities', 'function')
+                    'background', 'skills', 'certifications', 'responsibilities', 'function',
+                    'description_structured')
         if llm_pending.get(baseline['id']) is not token:
             return
         job = storage.load_job(root, baseline['id'])
@@ -465,6 +505,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if 'function' in fields:
             known = storage.known_function_ids(root)
             fields['function'] = [value for value in fields['function'] if value in known]
+        if fields.get('requirements') or fields.get('nice_to_have') or fields.get('summary'):
+            fields['description_structured'] = {
+                'summary': fields.get('summary') or '', 'requirements': fields.get('requirements') or [],
+                'nice_to_have': fields.get('nice_to_have') or [], 'method': 'llm'}
         updates = {key: fields[key] for key in fillable
                    if fields.get(key) not in (None, '', [])
                    and job.get(key) == baseline.get(key)
@@ -510,6 +554,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     new_provenance['company_id'] = 'llm'
                 if resolution.get('company_link_reason') == 'new_company':
                     new_company_id = resolution['company_id']
+        updates['field_status'] = apply_field_status(job, updates)
         updates['enriched'] = True
         detail = None
         if changed_company:
@@ -532,16 +577,27 @@ def create_app(vault: str | Path | None = None) -> Flask:
         prune_threads()
         prune_cascade_threads()
 
-    def mark_ingest_state(root, job_id, state, *, stage=None, reason=None, history=None, locked=False):
+    def mark_ingest_state(root, job_id, state, *, stage=None, reason=None, history=None, locked=False,
+                          settle_fields=False):
         """Re-read current state under the write lock and apply the ingest
         state transition; never called while holding the lock across a
-        network or LLM call. Returns None if the job no longer exists."""
+        network or LLM call. Returns None if the job no longer exists.
+
+        settle_fields flips any still-pending covered field to failed in
+        the same write. Pass it at every terminal-failure call site (a
+        worker that never even started, or any other failure after which
+        no further attempt can ever reach that field) so a field never
+        stays pending forever with nothing left to advance it (JOZ-267 fix
+        round 1 finding 4)."""
         error = {'stage': stage, 'reason': reason, 'at': storage.timestamp()} if stage else None
         with nullcontext() if locked else write_lock:
-            if storage.load_job(root, job_id) is None:
+            current = storage.load_job(root, job_id)
+            if current is None:
                 return None
-            return storage.save_job(root, {'ingest_state': state, 'ingest_error': error}, job_id,
-                                    history_event=history)
+            updates = {'ingest_state': state, 'ingest_error': error}
+            if settle_fields:
+                updates['field_status'] = fail_pending_field_status(current)
+            return storage.save_job(root, updates, job_id, history_event=history)
 
     def reserve_enrichment(job_id):
         """Atomically claim the right to start a worker for this job.
@@ -556,6 +612,25 @@ def create_app(vault: str | Path | None = None) -> Flask:
             token = object()
             llm_pending[job_id] = token
             return token
+
+    def settle_and_release(root, job_id, token, current):
+        """Settle any still-pending covered field and release the caller's
+        extraction ownership token as one step (JOZ-267 fix round 3,
+        R3-C1/R3-C2): every early return that abandons a job without ever
+        reaching a terminal ingest_state write must leave neither a
+        settled-but-still-owned nor an owned-but-abandoned gap for a
+        concurrent reader to observe.
+
+        Callers must already hold write_lock; this nests pending_lock
+        inside it, per the module's documented lock order, and must
+        itself be the last thing done before returning from that
+        write_lock scope -- not deferred to an outer finally -- so no
+        reader can acquire write_lock in between the settle and the
+        release."""
+        storage.save_job(root, {'field_status': fail_pending_field_status(current)}, job_id)
+        with pending_lock:
+            if llm_pending.get(job_id) is token:
+                llm_pending.pop(job_id, None)
 
     def start_llm_enrichment(root, baseline, description, token, on_started=None):
         """Start the background worker for a reserved token.
@@ -574,19 +649,42 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         if llm_pending.get(job_id) is not token:
                             return
                     current = storage.load_job(root, job_id)
-                    if current is None or any(current.get(k) != baseline.get(k) for k in ('url', 'original_url')):
+                    if current is None:
+                        return
+                    if any(current.get(k) != baseline.get(k) for k in ('url', 'original_url')):
+                        # JOZ-267 fix round 2 finding 4 gap (R2-C): the url
+                        # changed while this ran, so the result itself is
+                        # for a posting that no longer matches the record
+                        # and must be discarded -- but whatever fields this
+                        # attempt was the last chance to settle must not be
+                        # left pending forever with nothing left to advance
+                        # them. The PUT path that changed the url already
+                        # set the terminal ingest_state; this only settles
+                        # the fields that terminal state leaves stranded.
+                        # R3-C2: settle and release together, still under
+                        # write_lock, so no reader can observe the fields
+                        # settled while this run still shows as the owner.
+                        settle_and_release(root, job_id, token, current)
                         return
 
                     if fields:
                         new_company_id = apply_llm_update(root, baseline, fields, token)
                         mark_ingest_state(root, job_id, 'complete', history=('extracted', 'Extraction completed.'), locked=True)
-                    elif (current.get('ingest_state') != 'fetch_failed'
-                          and (current.get('ingest_error') or {}).get('reason') != 'empty_content'):
-                        # Preserve an existing empty-content failure, but make
-                        # every otherwise unusable callback a terminal failure.
-                        mark_ingest_state(root, job_id, 'extract_failed', stage='extract',
-                                          reason=reason or 'no_usable_fields',
-                                          history=('extract_failed', 'Extraction failed.'), locked=True)
+                    else:
+                        # JOZ-267 fix round 1 finding 4: settle any still-
+                        # pending field every time, even when a more
+                        # specific fetch/empty-content failure already
+                        # explains why there is nothing to show -- that
+                        # more specific reason is still worth preserving
+                        # (below), but it must never come at the cost of
+                        # leaving a field pending forever with no further
+                        # attempt able to reach it.
+                        storage.save_job(root, {'field_status': fail_pending_field_status(current)}, job_id)
+                        if (current.get('ingest_state') != 'fetch_failed'
+                                and (current.get('ingest_error') or {}).get('reason') != 'empty_content'):
+                            mark_ingest_state(root, job_id, 'extract_failed', stage='extract',
+                                              reason=reason or 'no_usable_fields',
+                                              history=('extract_failed', 'Extraction failed.'), locked=True)
                 if new_company_id is not None:
                     schedule_company_cascade(root, new_company_id)
             except Exception as error:
@@ -597,16 +695,64 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 try:
                     mark_ingest_state(root, job_id, 'extract_failed', stage='extract',
                                       reason=type(error).__name__,
-                                      history=('extract_failed', 'Extraction failed.'))
+                                      history=('extract_failed', 'Extraction failed.'), settle_fields=True)
                 except Exception:
                     # Storage itself is unavailable; the root cause is
                     # already logged above, so this is not a second,
                     # independent failure worth logging again.
                     pass
             finally:
+                # JOZ-267 fix round 2 finding 3 (R2-B): a Paste that landed
+                # after this run already chose its own extraction input
+                # (fetched text, or whatever description this run started
+                # with) could never reserve a slot of its own while this
+                # one was still running, and would otherwise be silently
+                # ignored -- the owner's text sits saved with 'user'
+                # provenance, but nothing ever extracts it. Once this run's
+                # own reservation is released, detect that drift and give
+                # the fresh text its own extraction with explicit, fresh
+                # ownership.
+                #
+                # R3-B2/R3-B3: release of the old token and reservation of
+                # the replacement token must be one atomic step under
+                # pending_lock -- not release-then-separately-reserve --
+                # or a GET in between sees complete/llm_pending False/no
+                # pending fields (stops polling before the replacement
+                # starts), and an intervening Retry can win its own
+                # reservation in that same gap and duplicate the
+                # extraction. Swapping the dict entry directly from token
+                # to replacement_token, with no pop in between, means
+                # llm_pending never has a moment without an entry for
+                # job_id when a replacement is actually warranted.
+                latest, replacement_token = None, None
+                try:
+                    latest = storage.load_job(root, job_id)
+                except Exception as error:
+                    ingest.warn(error)
+                needs_replacement = (latest is not None
+                                     and latest.get('field_provenance', {}).get('description') == 'user'
+                                     and latest.get('description') != description)
                 with pending_lock:
-                    if llm_pending.get(job_id) is token:
+                    owns_slot = llm_pending.get(job_id) is token
+                    if owns_slot and needs_replacement:
+                        replacement_token = object()
+                        llm_pending[job_id] = replacement_token
+                    elif owns_slot:
                         llm_pending.pop(job_id, None)
+                if replacement_token is not None:
+                    try:
+                        # R3-B1: a replacement that fails to start must not
+                        # be silently ignored -- the pasted text would
+                        # otherwise never be extracted while the job still
+                        # reads back as complete with no error and no owner.
+                        started = start_llm_enrichment(
+                            root, latest, latest.get('description') or '', replacement_token)
+                        if not started:
+                            mark_ingest_state(root, job_id, 'extract_failed', stage='extract',
+                                              reason='worker_start_failed', settle_fields=True,
+                                              history=('extract_failed', 'Could not start extraction.'))
+                    except Exception as error:
+                        ingest.warn(error)
 
         callback_lock = RLock()
         ready = False
@@ -799,6 +945,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
                             company = storage.save_company(root, {'website': website or posting_origin}, company['id'])
                     candidate = data | {'url': url, 'sector': metadata['sector'],
                                         'employee_count': metadata['employee_count'], **resolution}
+                    structured_fallback = ingest.heuristic_structured_description(data.get('description') or '')
+                    if (structured_fallback['summary'] or structured_fallback['requirements']
+                            or structured_fallback['nice_to_have']):
+                        candidate['description_structured'] = structured_fallback
                     # M2: a concurrent owner edit made to the stub while the
                     # fetch was in flight must survive. Re-read the current
                     # record and only let an automated field land if it still
@@ -813,6 +963,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     updates = {key: value for key, value in candidate.items()
                               if current.get(key) == job.get(key) and provenance.get(key) != 'user'}
                     new_provenance = {**provenance, **{key: 'scrape' for key in updates}}
+                    # JOZ-267 Section 3: posting_quality is informational
+                    # (never provenance-tracked); field_status reflects this
+                    # heuristic pass, with 'pending' (not not_evidenced) for
+                    # a covered field it did not fill, since the queued LLM
+                    # extraction below still gets a chance at it.
+                    updates['posting_quality'] = ingest.classify_posting_quality(data.get('description') or '')
+                    updates['field_status'] = apply_field_status(current, updates, unfilled='pending')
                     automation_baseline = job | updates
                     job = storage.save_job(root, updates | ingest_fields | {'field_provenance': new_provenance},
                                            job['id'], history_event=history)
@@ -834,7 +991,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             started = start_llm_enrichment(root, automation_baseline, data['description'], token)
             if not started:
                 job = mark_ingest_state(root, job['id'], 'extract_failed', stage='extract',
-                                        reason='worker_start_failed',
+                                        reason='worker_start_failed', settle_fields=True,
                                         history=('extract_failed', 'Could not start extraction.')) or job
                 # O2 (fix round 2): a worker that never started is a truthful
                 # failure, not the same outcome as the normal 201 this route
@@ -950,7 +1107,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                            'employment_type', 'valid_through', 'description', 'company',
                            'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
                            'background', 'skills', 'certifications', 'responsibilities',
-                           'employee_count', 'function')
+                           'employee_count', 'function', 'description_structured')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
             updates = {key: extracted[key] for key in fill_fields
@@ -958,6 +1115,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                            (key == 'salary_info' and job.get(key) is False))
                        and extracted.get(key) not in (None, '')
                        and job.get('field_provenance', {}).get(key) != 'user'}
+            updates['posting_quality'] = ingest.classify_posting_quality(extracted.get('description') or '')
             if 'summary' in updates:
                 # extracted['summary'] can be the heuristic fallback even when
                 # other fields came from the model; trust the field-specific
@@ -1037,16 +1195,62 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         fetch_error = error
                 with write_lock:
                     current = storage.load_job(root, identifier)
-                    if current is None or any(current.get(key) != job.get(key)
-                                              for key in ('url', 'original_url', 'description')):
+                    if current is None:
+                        return
+                    if any(current.get(key) != job.get(key) for key in ('url', 'original_url')):
+                        # R3-C1: this retry is abandoning the job (the url
+                        # changed under it), so settle whatever covered
+                        # fields it was the last chance to advance and
+                        # release ownership in the same step, or a reader
+                        # could see them still pending with no owner left.
+                        settle_and_release(root, identifier, token, current)
+                        return
+                    # JOZ-267 fix round 1 finding 3: a paste that lands while
+                    # this retry's own fetch is still in flight cannot
+                    # reserve a second worker slot (this retry already holds
+                    # the only one), so it saves the pasted text with owner
+                    # provenance and waits -- it never starts an extraction
+                    # of its own. Recognize that here by its signature (the
+                    # description changed and is now owner-provenance) and
+                    # hand the pasted text to THIS already-reserved
+                    # operation instead of discarding it as an unrelated
+                    # concurrent edit, which would otherwise leave nothing
+                    # ever processing it.
+                    pasted_while_running = (current.get('description') != job.get('description')
+                                            and current.get('field_provenance', {}).get('description') == 'user')
+                    if current.get('description') != job.get('description') and not pasted_while_running:
+                        # R3-C1: an unrelated concurrent change invalidated
+                        # this retry's fetched text; settle and release
+                        # together rather than abandoning the job with its
+                        # covered fields left pending and no owner.
+                        settle_and_release(root, identifier, token, current)
                         return
                     with pending_lock:
                         if llm_pending.get(identifier) is not token:
                             return
+                    if pasted_while_running:
+                        description = current['description']
                     updates = {'refresh': outcome}
                     if outcome == 'ok':
                         if current.get('field_provenance', {}).get('description') != 'user':
                             updates['description'] = description
+                        else:
+                            # Fetched text is discarded in favor of the
+                            # owner's own text; quality below must reflect
+                            # what extraction will actually run against.
+                            description = current.get('description') or ''
+                    # JOZ-267 fix round 1 finding 5: recompute posting_quality
+                    # from the description extraction is actually about to
+                    # run against, on every retry outcome -- otherwise a
+                    # thin-classified failed fetch stays thin forever after
+                    # a rich paste or a later successful refetch.
+                    updates['posting_quality'] = ingest.classify_posting_quality(description)
+                    # JOZ-267: a retry re-queues extraction, so every covered
+                    # field not already done (user-set or filled earlier)
+                    # goes back to pending, visibly in flight again rather
+                    # than showing a stale failed/not_evidenced from the
+                    # previous attempt.
+                    updates['field_status'] = apply_field_status(current, {}, unfilled='pending')
                     # A job that never got past the stub (first fetch still
                     # pending/failed) drives ingest_state through this same
                     # retry path; a job already fetched once keeps its state
@@ -1077,12 +1281,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 handed_off = start_llm_enrichment(root, job, description, token, on_started=accepted)
                 if not handed_off:
                     mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
-                                      reason='worker_start_failed',
+                                      reason='worker_start_failed', settle_fields=True,
                                       history=('extract_failed', 'Could not start extraction.'))
             except Exception as error:
                 ingest.warn(error)
                 mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
-                                  reason=type(error).__name__,
+                                  reason=type(error).__name__, settle_fields=True,
                                   history=('extract_failed', 'Refresh worker failed.'))
             finally:
                 if not handed_off:
@@ -1100,9 +1304,49 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 if llm_pending.get(identifier) is token:
                     llm_pending.pop(identifier, None)
             job = mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
-                                    reason='refresh_worker_start_failed',
+                                    reason='refresh_worker_start_failed', settle_fields=True,
                                     history=('extract_failed', 'Could not start refresh.')) or job
             return jsonify(job | {'llm_pending': False, 'error': 'Could not start refresh.'}), 503
+        return jsonify(job | {'llm_pending': True, 'accepted': True}), 202
+
+    @app.post('/api/jobs/<identifier>/paste-description')
+    def paste_description(identifier):
+        """Spec Section 3 step 5: fetch failure keeps the stub and offers
+        Retry fetch plus Paste posting text manually; pasted text resumes
+        at extraction through the same worker /extract uses (scope item 6).
+        Only valid while the posting itself was never fetched (stub or
+        fetch_failed); once fetched, the owner edits description through
+        the generic job PUT instead."""
+        root = app.config['VAULT_PATH']
+        payload = request.get_json()
+        if not isinstance(payload, dict) or not str(payload.get('description') or '').strip():
+            raise ValueError('Provide posting text.')
+        text = payload['description'].strip()
+        with write_lock:
+            job = storage.load_job(root, identifier)
+            if job is None:
+                return jsonify(error='Job not found.'), 404
+            if job.get('ingest_state') not in ('stub', 'fetch_failed'):
+                return jsonify(error='This job already has a fetched posting.'), 409
+            provenance = {**job.get('field_provenance', {}), 'description': 'user'}
+            updates = {'description': text, 'ingest_state': 'fetched', 'ingest_error': None,
+                      'field_provenance': provenance,
+                      # JOZ-267 fix round 1 finding 5: a rich paste over a
+                      # thin-classified failed fetch must reclassify, not
+                      # keep showing the old fetch's limited-extraction notice.
+                      'posting_quality': ingest.classify_posting_quality(text),
+                      'field_status': apply_field_status(job, {}, unfilled='pending')}
+            job = storage.save_job(root, updates, identifier,
+                                   history_event=('fetched', 'Posting text pasted manually.'))
+            token = reserve_enrichment(identifier)
+        if token is None:
+            return jsonify(job | {'llm_pending': True}), 202
+        started = start_llm_enrichment(root, job, text, token)
+        if not started:
+            job = mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
+                                    reason='worker_start_failed', settle_fields=True,
+                                    history=('extract_failed', 'Could not start extraction.')) or job
+            return jsonify(job=job, error='Could not start extraction.'), 503
         return jsonify(job | {'llm_pending': True, 'accepted': True}), 202
 
     @app.post('/api/companies/<identifier>/enrich')
@@ -1135,10 +1379,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def job_collection():
         if request.args.get('view') == 'board':
             context = jobs.page_context(app.config['VAULT_PATH'])
-            names = {key: company['name'] for key, company in context['companies'].items()}
+            summaries = jobs.company_summaries(context['companies'], sectors.load_isic_sections())
             return jsonify(context | {
-                'companies': names,
-                'entries': [job | {'company_name': names.get(job.get('company_id')),
+                'companies': summaries,
+                'entries': [job | {'company_name': summaries.get(job.get('company_id'), {}).get('name'),
+                                   'company_industry': summaries.get(job.get('company_id'), {}).get('industry'),
+                                   'company_size_class': summaries.get(job.get('company_id'), {}).get('size_class'),
                                    'pending': not bool(job.get('enriched'))}
                             for job in context['entries']],
             })
@@ -1157,6 +1403,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
     @app.get('/api/companies/<identifier>/taxonomy')
     def company_taxonomy_api(identifier):
         return jsonify(companies.taxonomy_context(app.config['VAULT_PATH'], identifier))
+
+    @app.get('/api/taxonomy')
+    def taxonomy_api():
+        return jsonify(taxonomy.taxonomy_context(app.config['VAULT_PATH']))
 
     @app.get('/api/experiences/new')
     @app.get('/api/experiences/<identifier>/edit')
@@ -1226,6 +1476,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
             marked = {key: 'user' for key in payload if key not in _PROVENANCE_EXCLUDED_FIELDS}
             if marked:
                 payload['field_provenance'] = {**data.get('field_provenance', {}), **payload.get('field_provenance', {}), **marked}
+                # An owner edit to a covered field is itself a confident,
+                # final value: field_status must say done, never a stale
+                # pending/not_evidenced/failed left over from automation.
+                touched = set(marked) & set(ingest.STATUS_FIELDS)
+                if touched:
+                    payload['field_status'] = {**data.get('field_status', {}),
+                                               **{field: 'done' for field in touched}}
             return jsonify(storage.save_job(root, payload, identifier))
 
     @app.route('/api/companies/<identifier>', methods=['GET', 'PUT', 'DELETE'])

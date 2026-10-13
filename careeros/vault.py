@@ -20,6 +20,9 @@ COMPANY_LINK_REASONS = ('ats_tenant', 'domain', 'name_exact', 'fuzzy_name',
                         'ambiguous_exact')
 IDENTIFIER_TYPES = ('domain', 'ats_tenant', 'wikidata', 'name_variant')
 SOURCE_KINDS = ('careers_page', 'ats_feed')
+FIELD_STATUS_VALUES = ('pending', 'done', 'failed', 'not_evidenced')
+POSTING_QUALITY_VALUES = ('thin', 'ok', 'rich')
+DESCRIPTION_STRUCTURED_METHODS = ('llm', 'heuristic', 'raw')
 TAG_FACETS = ('skill/capability', 'skill/domain', 'function', 'experience-type', 'tool')
 TAG_TOKEN_RE = re.compile(r'([a-z0-9/_-]+):([a-z0-9-]+)')
 
@@ -428,7 +431,9 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                      ingest_state='complete', ingest_error=None, field_provenance={},
                      ats_provider=None, ats_tenant=None, ats_posting_id=None,
                      company_link_state='pending', company_link_reason=None,
-                     employer_named_in_posting=None, company_review=None) if job else
+                     employer_named_in_posting=None, company_review=None,
+                     field_status={}, posting_quality=None, description_structured=None,
+                     occupation_code=None, skill_codes=None) if job else
                 dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                      contact_email='', notes='', custom={}, enrichment={},
                      kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
@@ -523,6 +528,27 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
             raise ValueError('Invalid company_link_reason.')
         if result['employer_named_in_posting'] is not None and not isinstance(result['employer_named_in_posting'], str):
             raise ValueError('employer_named_in_posting must be text or null.')
+        if not isinstance(result['field_status'], dict) or any(
+                not isinstance(k, str) or v not in FIELD_STATUS_VALUES for k, v in result['field_status'].items()):
+            raise ValueError('field_status must map field names to pending, done, failed, or not_evidenced.')
+        if result['posting_quality'] is not None and result['posting_quality'] not in POSTING_QUALITY_VALUES:
+            raise ValueError('Invalid posting_quality.')
+        if result['description_structured'] is not None:
+            structured = result['description_structured']
+            if (not isinstance(structured, dict) or set(structured) != {'summary', 'requirements', 'nice_to_have', 'method'}
+                    or not isinstance(structured['summary'], str)
+                    or not isinstance(structured['requirements'], list)
+                    or any(not isinstance(x, str) for x in structured['requirements'])
+                    or not isinstance(structured['nice_to_have'], list)
+                    or any(not isinstance(x, str) for x in structured['nice_to_have'])
+                    or structured['method'] not in DESCRIPTION_STRUCTURED_METHODS):
+                raise ValueError('description_structured must have summary, requirements, nice_to_have, method.')
+        if result['occupation_code'] is not None and not isinstance(result['occupation_code'], str):
+            raise ValueError('occupation_code must be text or null.')
+        if result['skill_codes'] is not None and (
+                not isinstance(result['skill_codes'], list)
+                or any(not isinstance(x, str) for x in result['skill_codes'])):
+            raise ValueError('skill_codes must be a list of text values or null.')
         if result['company_review'] is not None:
             review = result['company_review']
             if not isinstance(review, dict) or set(review) != {'candidates', 'at', 'token'}:
@@ -566,6 +592,14 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
             append_event(result, 'company_correction', correction_detail)
         if history_event:
             append_event(result, *history_event)
+        # JOZ-267 Section 4.1: every ingest_state transition is history-
+        # logged. Callers that already describe the transition (fetched,
+        # fetch_failed, extract_failed, ...) pass history_event above; this
+        # is the backstop for any save that changes ingest_state without
+        # one, so no transition can land silently.
+        if existing and not history_event and result['ingest_state'] != existing[1].get('ingest_state'):
+            append_event(result, result['ingest_state'],
+                        f"Ingest state: {existing[1].get('ingest_state')} -> {result['ingest_state']}.")
         if not existing:
             append_event(result, 'created', 'Job created')
         if result.get('notes') and not (existing and existing[1].get('notes')):
@@ -734,6 +768,16 @@ def _migrate_one_job(data):
     if isinstance(review, dict) and not review.get('token'):
         review['token'] = uuid.uuid4().hex
         changed = True
+    # JOZ-267: per-field status/provenance, posting_quality and the
+    # structured description block are additive, like every field above;
+    # occupation_code/skill_codes are reserved (Section 5) and stay null
+    # for a pre-JOZ-267 record exactly as for a brand new one.
+    for key, default in (('field_status', {}), ('posting_quality', None),
+                         ('description_structured', None), ('occupation_code', None),
+                         ('skill_codes', None)):
+        if key not in data:
+            data[key] = default
+            changed = True
     return changed
 
 

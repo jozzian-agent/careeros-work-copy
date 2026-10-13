@@ -28,6 +28,26 @@
     "company_link_state": "linked",
     "ingest_state": "complete",
     "ingest_error": null,
+    "field_status": {
+      "title": "done",
+      "company": "done",
+      "location": "done",
+      "function": "done",
+      "seniority": "done",
+      "employment_type": "done",
+      "skills": "done",
+      "description_structured": "done"
+    },
+    "field_provenance": { "title": "llm", "company": "llm" },
+    "posting_quality": "rich",
+    "description_structured": {
+      "summary": "Fictional role summary for test fixtures only.",
+      "requirements": ["5+ years of platform experience", "Strong Kubernetes skills"],
+      "nice_to_have": ["Rust experience"],
+      "method": "llm"
+    },
+    "occupation_code": null,
+    "skill_codes": [],
     "history": [
       { "ts": "2026-09-01T00:00:00+00:00", "event": "created", "detail": "Added to New" }
     ]
