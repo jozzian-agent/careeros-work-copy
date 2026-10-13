@@ -50,15 +50,20 @@ record endpoints cannot supply their choices and derived labels alone.
 | GET | `/api/experiences/<id>?view=page` | Experience detail (`detail.html`) | Extended detail |
 | GET | `/api/experiences/new` | Add experience | New |
 | GET | `/api/experiences/<id>/edit` | Edit experience | New |
+| GET | `/api/taxonomy` | Taxonomy | New |
 
 All existing default record responses and write methods retain their contracts.
 `view` selects GET representations only; writes still return records. JSON
 converts template tuples to arrays and rendered Markdown to strings.
 
 - Board: `statuses`, `entries`, `companies`, `function_options`, `empty`.
-  Entries retain record fields and add `needs_attention`, `company_name` and
-  `pending`. Companies maps IDs to names. Pending means not enriched, matching
-  the existing card attribute; it is distinct from active detail enrichment.
+  Entries retain record fields and add `needs_attention`, `company_name`,
+  `company_industry`, `company_size_class` and `pending`. Companies maps IDs
+  to `{name, industry, size_class}`: `industry` is the company's first ISIC
+  sector, human-labeled (`None` with no sectors or an unknown code);
+  `size_class` is the raw micro/small/medium/large value (`None` when unset).
+  Pending means not enriched, matching the existing card attribute; it is
+  distinct from active detail enrichment.
 - Job detail: `job`, `company`, `statuses`, `function_labels`, `markdown`,
   `has_description`, `show_remote_chip`, `watch_eligible`, `watch_reason`,
   `llm_pending`. The record includes source description, summary provenance,
@@ -84,6 +89,15 @@ converts template tuples to arrays and rendered Markdown to strings.
 - Experience detail: `exp`, `label`, `companies`, `tag_labels`, `markdown`.
 - Experience forms: `exp`, `companies`, `tags`. The add form uses an empty
   `exp`; edit uses the stored record including its company link.
+- Taxonomy: `skills`, `industries`, `sizes`, `tag_labels`. `skills` merges two
+  sources per experience — the legacy free-text `skills` field (kept as-is)
+  and `tags` tokens on the skill facets (`skill/capability`, `skill/domain`),
+  shown by registry label, falling back to the slug when unknown — each a
+  `{skill, count}` row, deduplicated per experience, sorted by count desc
+  then name. `industries` is `{code, label, count}` per ISIC section any
+  company's `sectors` carries, deduplicated per company. `sizes` is
+  `{size_class, count}` in canonical micro/small/medium/large order plus a
+  trailing `unknown` bucket, always present even when no companies exist.
 
 Pure assembly functions in the four existing page modules receive explicit
 record snapshots. Shared read-only loaders supply them to HTML and JSON.

@@ -15,18 +15,34 @@ def aggregate_context(experiences, companies, isic_sections, tag_labels):
     """Build the aggregate counts without I/O, so the breakdown logic is
     testable against plain lists of records."""
     return dict(
-        skills=skill_counts(experiences),
+        skills=skill_counts(experiences, tag_labels),
         industries=industry_counts(companies, isic_sections),
         sizes=size_counts(companies),
         tag_labels=tag_labels,
     )
 
-def skill_counts(experiences):
-    """Every skill string used across experiences' `skills` field, with
-    how many experiences carry it, sorted by count desc then name."""
+def skill_counts(experiences, tag_labels):
+    """Every skill used across experiences, merging two sources per
+    experience: the legacy free-text `skills` field (kept verbatim, since
+    it is free text with no registry entry to label it) and `tags` tokens
+    whose facet is one of the skill facets (`skill/capability`,
+    `skill/domain` -- the registry's `skill/*` facets, per vault.TAG_FACETS;
+    read dynamically from tag_labels rather than hardcoded here, so a
+    future facet rename or addition is picked up automatically). A
+    tag-derived skill displays as its registry label, falling back to the
+    slug portion of the id when the token has no registry entry, so the
+    same skill named identically by both sources merges into one row
+    instead of appearing twice. Each experience is deduplicated before
+    counting, so a repeated value within one record contributes at most
+    one count. Sorted by count desc then name."""
     counts = {}
     for exp in experiences:
-        for skill in exp.get('skills') or []:
+        seen = set(exp.get('skills') or [])
+        for tag in exp.get('tags') or []:
+            facet, _, value_id = tag.partition(':')
+            if facet.startswith('skill/'):
+                seen.add(tag_labels.get(tag, {}).get('label') or value_id)
+        for skill in seen:
             counts[skill] = counts.get(skill, 0) + 1
     return [{'skill': skill, 'count': count}
             for skill, count in sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))]
@@ -34,11 +50,12 @@ def skill_counts(experiences):
 def industry_counts(companies, isic_sections):
     """Every ISIC section code any company's `sectors` field carries,
     human-labeled, with how many companies carry it, sorted by count
-    desc then label."""
+    desc then label. Each company is deduplicated before counting, so a
+    repeated code within one record contributes at most one count."""
     isic_labels = {section['code']: section['label'] for section in isic_sections}
     counts = {}
     for company in companies:
-        for code in company.get('sectors') or []:
+        for code in set(company.get('sectors') or []):
             counts[code] = counts.get(code, 0) + 1
     return [{'code': code, 'label': isic_labels.get(code, code), 'count': count}
             for code, count in sorted(counts.items(),

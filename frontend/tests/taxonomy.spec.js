@@ -62,6 +62,16 @@ test('a load failure shows the error with a Retry that recovers', async ({ page 
   await expect(page.getByRole('heading', { name: 'Taxonomy', exact: true })).toBeVisible();
 });
 
+test('empty sections render a quiet per-section message instead of a header-only table', async ({ page }) => {
+  const empty = loadFixture('taxonomy-empty');
+  await mockTaxonomy(page, empty);
+  await page.goto('/taxonomy');
+  await expect(page.getByText('No skills recorded yet.')).toBeVisible();
+  await expect(page.getByText('No companies with industry data yet.')).toBeVisible();
+  await expect(page.getByText('No companies yet.')).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(0);
+});
+
 test('nav links to /taxonomy and marks it current', async ({ page }) => {
   await page.goto('/taxonomy');
   const nav = page.getByRole('navigation', { name: 'Main' });

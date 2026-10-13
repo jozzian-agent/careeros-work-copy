@@ -6,7 +6,14 @@ function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
-function CountTable({ accessibilityLabel, labelHeading, rows, getKey, getLabel }) {
+function CountTable({ accessibilityLabel, labelHeading, rows, getKey, getLabel, emptyMessage, isEmpty }) {
+  if (isEmpty ?? !rows.length) {
+    return (
+      <Text size="200" color="subtle">
+        {emptyMessage}
+      </Text>
+    );
+  }
   return (
     <Box overflow="auto">
       <Table accessibilityLabel={accessibilityLabel}>
@@ -93,6 +100,7 @@ export default function Taxonomy() {
             rows={skills}
             getKey={(row) => row.skill}
             getLabel={(row) => row.skill}
+            emptyMessage="No skills recorded yet."
           />
         </Box>
         <Box>
@@ -106,6 +114,7 @@ export default function Taxonomy() {
             rows={industries}
             getKey={(row) => row.code}
             getLabel={(row) => row.label}
+            emptyMessage="No companies with industry data yet."
           />
         </Box>
         <Box>
@@ -119,6 +128,8 @@ export default function Taxonomy() {
             rows={sizes}
             getKey={(row) => row.size_class}
             getLabel={(row) => titleCase(row.size_class)}
+            emptyMessage="No companies yet."
+            isEmpty={sizes.every((row) => row.count === 0)}
           />
         </Box>
       </Flex>

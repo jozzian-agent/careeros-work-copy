@@ -9,9 +9,63 @@ ISIC_SECTIONS = [{'code': 'J', 'label': 'Information and communication'},
 
 def test_skill_counts_sorted_by_count_desc_then_name():
     experiences = [{'skills': ['Python', 'SQL']}, {'skills': ['Python']}, {'skills': []}, {}]
-    assert taxonomy.skill_counts(experiences) == [
+    assert taxonomy.skill_counts(experiences, {}) == [
         {'skill': 'Python', 'count': 2},
         {'skill': 'SQL', 'count': 1},
+    ]
+
+
+def test_skill_counts_includes_tag_derived_skills_with_registry_label():
+    experiences = [{'tags': ['skill/capability:python']}, {'tags': ['skill/domain:finance']}]
+    tag_labels = {'skill/capability:python': {'label': 'Python', 'local': False},
+                  'skill/domain:finance': {'label': 'Finance', 'local': False}}
+    assert taxonomy.skill_counts(experiences, tag_labels) == [
+        {'skill': 'Finance', 'count': 1},
+        {'skill': 'Python', 'count': 1},
+    ]
+
+
+def test_skill_counts_falls_back_to_the_slug_for_an_unknown_tag():
+    experiences = [{'tags': ['skill/capability:public-speaking']}]
+    assert taxonomy.skill_counts(experiences, {}) == [{'skill': 'public-speaking', 'count': 1}]
+
+
+def test_skill_counts_ignores_non_skill_facets():
+    experiences = [{'tags': ['function:builder', 'tool:python', 'experience-type:employment']}]
+    assert taxonomy.skill_counts(experiences, {}) == []
+
+
+def test_skill_counts_merges_legacy_and_tag_derived_skill_named_the_same():
+    experiences = [{'skills': ['Python']}, {'tags': ['skill/capability:python']}]
+    tag_labels = {'skill/capability:python': {'label': 'Python', 'local': False}}
+    assert taxonomy.skill_counts(experiences, tag_labels) == [{'skill': 'Python', 'count': 2}]
+
+
+def test_skill_counts_keeps_legacy_skills_as_is_free_text():
+    """Legacy `skills` strings are free text: unlike tag-derived skills,
+    they are never relabeled against the registry, even if a value
+    happens to look like a slug."""
+    experiences = [{'skills': ['public-speaking']}]
+    assert taxonomy.skill_counts(experiences, {}) == [{'skill': 'public-speaking', 'count': 1}]
+
+
+def test_skill_counts_dedupes_repeated_values_within_one_experience():
+    experiences = [{'skills': ['Python', 'Python'],
+                    'tags': ['skill/capability:python', 'skill/domain:python']}]
+    tag_labels = {'skill/capability:python': {'label': 'Python', 'local': False},
+                  'skill/domain:python': {'label': 'Python', 'local': False}}
+    assert taxonomy.skill_counts(experiences, tag_labels) == [{'skill': 'Python', 'count': 1}]
+
+
+def test_skill_counts_legacy_only_record():
+    experiences = [{'skills': ['Excel']}, {}]
+    assert taxonomy.skill_counts(experiences, {}) == [{'skill': 'Excel', 'count': 1}]
+
+
+def test_industry_counts_dedupes_repeated_codes_within_one_company():
+    companies = [{'sectors': ['J', 'J']}]
+    assert taxonomy.industry_counts(companies, ISIC_SECTIONS) == [
+        {'code': 'J', 'label': 'Information and communication', 'count': 1},
     ]
 
 

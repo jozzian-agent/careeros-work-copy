@@ -1,0 +1,12 @@
+{
+  "skills": [],
+  "industries": [],
+  "sizes": [
+    { "size_class": "micro", "count": 0 },
+    { "size_class": "small", "count": 0 },
+    { "size_class": "medium", "count": 0 },
+    { "size_class": "large", "count": 0 },
+    { "size_class": "unknown", "count": 0 }
+  ],
+  "tag_labels": {}
+}

@@ -128,14 +128,14 @@ export default function JobCard({ job, statuses, functionLabels, onMove, onRetry
             ) : null}
           </Flex>
           <Flex gap={2} wrap>
-            {job.salary_info ? <Badge type="success" text="Salary disclosed" /> : null}
+            {job.salary_info ? <Badge type="neutral" text="Salary disclosed" /> : null}
             {job.company_industry ? <Badge type="neutral" text={job.company_industry} /> : null}
             {job.company_size_class ? (
               <Badge type="neutral" text={SIZE_CLASS_LABELS[job.company_size_class] || job.company_size_class} />
             ) : null}
             {!job.company_industry && !job.company_size_class ? <QuietChip text="Company details pending" /> : null}
             {job.function.map((functionId) => (
-              <Badge key={functionId} type="info" text={functionLabels[functionId] || functionId} />
+              <Badge key={functionId} type="neutral" text={functionLabels[functionId] || functionId} />
             ))}
           </Flex>
           <IngestIndicator job={job} onRetry={onRetry} />
