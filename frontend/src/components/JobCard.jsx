@@ -1,6 +1,12 @@
 import { Badge, Box, Button, Flex, Heading, Icon, Link, Text } from 'gestalt';
 import FitChip from './FitChip.jsx';
+import QuietChip from './QuietChip.jsx';
 import StatusSelect from './StatusSelect.jsx';
+
+// Label text only, per the owner's 2026-10-13 decision (design-system.md
+// "Badge usage"): the board shows a size class, never the numeric range
+// JobsBoard's own COMPANY_SIZE_BUCKETS pairs with it for filtering.
+const SIZE_CLASS_LABELS = { micro: 'Micro', small: 'Small', medium: 'Medium', large: 'Large' };
 
 function jobHref(id) {
   return `/jobs/${encodeURIComponent(id)}`;
@@ -46,23 +52,25 @@ export function CompanyDisplay({ job }) {
 
 // Also kept from the pre-rebuild board for the same reason: ingest retry is
 // real functionality (not an informational badge) with no replacement
-// surfaced anywhere else yet.
+// surfaced anywhere else yet. Every state here renders as a quiet chip, not
+// a colored badge (design-system.md "Badge usage"): a machine-state notice
+// like a failed extraction must never alarm.
 export function IngestIndicator({ job, onRetry }) {
   if (job.ingest_state === 'fetch_failed' || job.ingest_state === 'extract_failed') {
     const label = job.ingest_state === 'fetch_failed' ? 'Fetch failed' : 'Extraction failed';
     const reason = job.ingest_error?.reason;
     return (
       <Flex gap={2} alignItems="center" wrap>
-        <Badge type="error" text={reason ? `${label}, ${reason}` : label} />
-        <Button size="sm" color="red" text="Retry" onClick={() => onRetry(job.id)} />
+        <QuietChip text={reason ? `${label}, ${reason}` : label} />
+        <Button size="sm" color="gray" text="Retry" onClick={() => onRetry(job.id)} />
       </Flex>
     );
   }
   if (!job.enriched && (job.ingest_state === 'stub' || job.ingest_state === 'fetched')) {
-    return <Badge type="warning" text="Details filling in…" />;
+    return <QuietChip text="Details filling in…" />;
   }
   if (!job.enriched) {
-    return <Badge type="neutral" text="Enrichment pending" />;
+    return <QuietChip text="Enrichment pending" />;
   }
   return null;
 }
@@ -72,8 +80,12 @@ export function IngestIndicator({ job, onRetry }) {
 //    right.
 // 2. Title (bold, two lines max) and the company link, 4px apart.
 // 3. Location with a pin, then the dates, 6px apart.
-// The pre-existing source/salary/function badges and ingest indicator are
-// kept below those three groups; see CompanyDisplay/IngestIndicator above.
+// The salary/industry/size/function badges and ingest indicator are kept
+// below those three groups; see CompanyDisplay/IngestIndicator above. No
+// source badge and no AI-generated badge here (design-system.md "Badge
+// usage"): the company name already identifies the posting, and
+// provenance badges are a detail-page-only signal -- JobDetail keeps its
+// own AI-generated badge untouched.
 export default function JobCard({ job, statuses, functionLabels, onMove, onRetry, dragHandlers, isDragging }) {
   return (
     <div
@@ -116,9 +128,12 @@ export default function JobCard({ job, statuses, functionLabels, onMove, onRetry
             ) : null}
           </Flex>
           <Flex gap={2} wrap>
-            <Badge type="neutral" text={job.source || 'Unknown source'} />
             {job.salary_info ? <Badge type="success" text="Salary disclosed" /> : null}
-            {job.summary_source === 'ai' ? <Badge type="info" text="AI-generated" /> : null}
+            {job.company_industry ? <Badge type="neutral" text={job.company_industry} /> : null}
+            {job.company_size_class ? (
+              <Badge type="neutral" text={SIZE_CLASS_LABELS[job.company_size_class] || job.company_size_class} />
+            ) : null}
+            {!job.company_industry && !job.company_size_class ? <QuietChip text="Company details pending" /> : null}
             {job.function.map((functionId) => (
               <Badge key={functionId} type="info" text={functionLabels[functionId] || functionId} />
             ))}

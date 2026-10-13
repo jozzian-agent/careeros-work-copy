@@ -141,9 +141,16 @@ export default function ExperienceDetail() {
           onDelete={() => setDeleteOpen(true)}
         />
         {actionError ? <BannerSlim type="error" message={actionError} onDismiss={() => setActionError(null)} /> : null}
-        {exp.summary || skillTags.length ? (
+        {exp.summary || skillTags.length || exp.skills?.length ? (
           <SectionCard title="Summary">
             {exp.summary ? <Text>{exp.summary}</Text> : null}
+            {exp.skills?.length ? (
+              <Flex gap={2} wrap>
+                {exp.skills.map((skill) => (
+                  <Badge key={skill} text={skill} />
+                ))}
+              </Flex>
+            ) : null}
             {skillTags.length ? (
               <Flex gap={2} wrap>
                 {skillTags.map((tag) => (

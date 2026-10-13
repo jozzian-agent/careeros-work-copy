@@ -21,7 +21,7 @@ from careeros.intake import posting_ats
 from careeros import dedupe
 import difflib
 
-from careeros.web.pages import companies, experiences, jobs, search
+from careeros.web.pages import companies, experiences, jobs, search, taxonomy
 from careeros.web.theme import page_shell
 
 _ATS_FEED_URL = {
@@ -227,6 +227,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         app.add_url_rule('/companies', 'react_companies', react_index)
         app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
         app.add_url_rule('/companies/<identifier>/taxonomy', 'react_company_taxonomy', react_index)
+        app.add_url_rule('/taxonomy', 'react_taxonomy', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
     app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
@@ -1378,10 +1379,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def job_collection():
         if request.args.get('view') == 'board':
             context = jobs.page_context(app.config['VAULT_PATH'])
-            names = {key: company['name'] for key, company in context['companies'].items()}
+            summaries = jobs.company_summaries(context['companies'], sectors.load_isic_sections())
             return jsonify(context | {
-                'companies': names,
-                'entries': [job | {'company_name': names.get(job.get('company_id')),
+                'companies': summaries,
+                'entries': [job | {'company_name': summaries.get(job.get('company_id'), {}).get('name'),
+                                   'company_industry': summaries.get(job.get('company_id'), {}).get('industry'),
+                                   'company_size_class': summaries.get(job.get('company_id'), {}).get('size_class'),
                                    'pending': not bool(job.get('enriched'))}
                             for job in context['entries']],
             })
@@ -1400,6 +1403,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
     @app.get('/api/companies/<identifier>/taxonomy')
     def company_taxonomy_api(identifier):
         return jsonify(companies.taxonomy_context(app.config['VAULT_PATH'], identifier))
+
+    @app.get('/api/taxonomy')
+    def taxonomy_api():
+        return jsonify(taxonomy.taxonomy_context(app.config['VAULT_PATH']))
 
     @app.get('/api/experiences/new')
     @app.get('/api/experiences/<identifier>/edit')

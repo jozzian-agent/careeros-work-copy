@@ -204,3 +204,8 @@ export async function mockPasteDescription(page, { status = 200, body = { ok: tr
 export async function mockPromote(page, { status = 200, body = { ok: true } } = {}) {
   await page.route('**/api/jobs/*/promote', (route) => route.fulfill({ status, json: body }));
 }
+
+// Mocks GET /api/taxonomy (the Taxonomy page's load).
+export async function mockTaxonomy(page, body) {
+  await page.route('**/api/taxonomy', (route) => route.fulfill({ json: body }));
+}

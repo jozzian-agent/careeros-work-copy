@@ -9,6 +9,7 @@ import ExperienceDetail from './pages/ExperienceDetail.jsx';
 import CompaniesList from './pages/CompaniesList.jsx';
 import CompanyDetail from './pages/CompanyDetail.jsx';
 import CompanyClassification from './pages/CompanyClassification.jsx';
+import Taxonomy from './pages/Taxonomy.jsx';
 
 // JOZ-280: the SPA now owns the detail-page URLs too (server.py mounts the
 // same built index.html at each of these paths once CAREEROS_REACT_UI is
@@ -38,6 +39,7 @@ function App() {
           path="/companies/:id/taxonomy"
           element={<Page currentPage="companies"><CompanyClassification /></Page>}
         />
+        <Route path="/taxonomy" element={<Page currentPage="taxonomy"><Taxonomy /></Page>} />
       </Routes>
     </ThemeProvider>
   );

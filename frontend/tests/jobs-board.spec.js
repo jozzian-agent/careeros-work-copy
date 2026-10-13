@@ -116,7 +116,11 @@ for (const entry of fixture.entries) {
       await expect(card.getByText(/^Posted /)).toHaveCount(0);
     }
 
-    await expect(card.getByText(entry.source, { exact: true })).toBeVisible();
+    // No source badge and no AI-generated badge on the card (design-
+    // system.md "Badge usage"): the company name already identifies the
+    // posting, and provenance is a detail-page-only signal.
+    await expect(card.getByText(entry.source, { exact: true })).toHaveCount(0);
+    await expect(card.getByText('AI-generated')).toHaveCount(0);
 
     if (entry.salary_info) {
       await expect(card.getByText('Salary disclosed')).toBeVisible();
@@ -124,10 +128,17 @@ for (const entry of fixture.entries) {
       await expect(card.getByText('Salary disclosed')).toHaveCount(0);
     }
 
-    if (entry.summary_source === 'ai') {
-      await expect(card.getByText('AI-generated')).toBeVisible();
+    if (entry.company_industry) {
+      await expect(card.getByText(entry.company_industry, { exact: true })).toBeVisible();
+    }
+    if (entry.company_size_class) {
+      const sizeLabel = entry.company_size_class.charAt(0).toUpperCase() + entry.company_size_class.slice(1);
+      await expect(card.getByText(sizeLabel, { exact: true })).toBeVisible();
+    }
+    if (!entry.company_industry && !entry.company_size_class) {
+      await expect(card.getByText('Company details pending')).toBeVisible();
     } else {
-      await expect(card.getByText('AI-generated')).toHaveCount(0);
+      await expect(card.getByText('Company details pending')).toHaveCount(0);
     }
 
     for (const [functionId, label] of fixture.function_options) {

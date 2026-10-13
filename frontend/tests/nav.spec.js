@@ -10,6 +10,7 @@ const NAV_PAGES = [
   ['experiences', 'Experiences', '/experiences'],
   ['jobs', 'Jobs', '/jobs'],
   ['companies', 'Companies', '/companies'],
+  ['taxonomy', 'Taxonomy', '/taxonomy'],
 ];
 
 test.beforeEach(async ({ page }) => {
@@ -38,7 +39,7 @@ test('Search is marked as the current page on /, others are not', async ({ page 
   await page.goto('/');
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav.getByRole('link', { name: 'Search', exact: true })).toHaveAttribute('aria-current', 'page');
-  for (const label of ['Jobs', 'Experiences', 'Companies']) {
+  for (const label of ['Jobs', 'Experiences', 'Companies', 'Taxonomy']) {
     await expect(nav.getByRole('link', { name: label, exact: true })).not.toHaveAttribute('aria-current');
   }
 });
@@ -47,7 +48,7 @@ test('Jobs is marked as the current page on /jobs', async ({ page }) => {
   await page.goto('/jobs');
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav.getByRole('link', { name: 'Jobs', exact: true })).toHaveAttribute('aria-current', 'page');
-  for (const label of ['Search', 'Experiences', 'Companies']) {
+  for (const label of ['Search', 'Experiences', 'Companies', 'Taxonomy']) {
     await expect(nav.getByRole('link', { name: label, exact: true })).not.toHaveAttribute('aria-current');
   }
 });

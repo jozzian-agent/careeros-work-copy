@@ -37,11 +37,31 @@
     ]
   ],
   "companies": {
-    "CO-001": "Northwind Systems",
-    "CO-002": "Vector Analytics",
-    "CO-003": "Helviva AG",
-    "CO-004": "Studio Alpine",
-    "CO-005": "Beacon Robotics"
+    "CO-001": {
+      "name": "Northwind Systems",
+      "industry": "Software and IT",
+      "size_class": "medium"
+    },
+    "CO-002": {
+      "name": "Vector Analytics",
+      "industry": "Banking and finance",
+      "size_class": "large"
+    },
+    "CO-003": {
+      "name": "Helviva AG",
+      "industry": null,
+      "size_class": null
+    },
+    "CO-004": {
+      "name": "Studio Alpine",
+      "industry": "Design and creative",
+      "size_class": "micro"
+    },
+    "CO-005": {
+      "name": "Beacon Robotics",
+      "industry": "Industrial robotics",
+      "size_class": null
+    }
   },
   "entries": [
     {
@@ -112,7 +132,9 @@
           "at": "2026-09-01T08:00:00Z"
         }
       ],
-      "status_changed": "2026-09-01T08:00:00Z"
+      "status_changed": "2026-09-01T08:00:00Z",
+      "company_industry": "Software and IT",
+      "company_size_class": "medium"
     },
     {
       "id": "JOB-002",
@@ -180,7 +202,9 @@
           "at": "2026-09-02T08:00:00Z"
         }
       ],
-      "status_changed": "2026-09-02T08:00:00Z"
+      "status_changed": "2026-09-02T08:00:00Z",
+      "company_industry": "Industrial robotics",
+      "company_size_class": null
     },
     {
       "id": "JOB-003",
@@ -249,7 +273,9 @@
           "at": "2026-09-03T08:00:00Z"
         }
       ],
-      "status_changed": "2026-09-03T08:00:00Z"
+      "status_changed": "2026-09-03T08:00:00Z",
+      "company_industry": null,
+      "company_size_class": null
     },
     {
       "id": "JOB-004",
@@ -321,7 +347,9 @@
           "at": "2026-09-04T10:00:00Z"
         }
       ],
-      "status_changed": "2026-09-04T10:00:00Z"
+      "status_changed": "2026-09-04T10:00:00Z",
+      "company_industry": null,
+      "company_size_class": null
     },
     {
       "id": "JOB-005",
@@ -391,7 +419,9 @@
           "at": "2026-09-05T09:00:00Z"
         }
       ],
-      "status_changed": "2026-09-05T09:00:00Z"
+      "status_changed": "2026-09-05T09:00:00Z",
+      "company_industry": "Design and creative",
+      "company_size_class": "micro"
     },
     {
       "id": "JOB-006",
@@ -463,7 +493,9 @@
           "at": "2026-09-06T11:30:00Z"
         }
       ],
-      "status_changed": "2026-09-06T11:30:00Z"
+      "status_changed": "2026-09-06T11:30:00Z",
+      "company_industry": "Software and IT",
+      "company_size_class": "medium"
     },
     {
       "id": "JOB-007",
@@ -533,7 +565,9 @@
           "at": "2026-09-07T08:00:00Z"
         }
       ],
-      "status_changed": "2026-09-07T08:00:00Z"
+      "status_changed": "2026-09-07T08:00:00Z",
+      "company_industry": "Banking and finance",
+      "company_size_class": "large"
     },
     {
       "id": "JOB-008",
@@ -601,7 +635,9 @@
           "at": "2026-08-15T08:00:00Z"
         }
       ],
-      "status_changed": "2026-08-15T08:00:00Z"
+      "status_changed": "2026-08-15T08:00:00Z",
+      "company_industry": "Banking and finance",
+      "company_size_class": "large"
     }
   ]
 }
