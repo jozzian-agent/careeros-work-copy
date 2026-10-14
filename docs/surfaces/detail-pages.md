@@ -252,11 +252,14 @@ the accounting of converted vs. removed tests), Playwright 106 (was 78).
 - Edit job shows the grouped requirements as two lists by level, not as
   five lists by group, so the owner cannot move a line from one group to
   another there. Re-extracting the job is what regroups it today.
-- Re-extract with no model configured leaves the job in its failed-reading
-  state (the rule-based groups are stored, and the queued extraction has
-  nothing to answer with), which reads as "the posting text is here, but
-  no details could be read out of it". That is truthful and it is also
-  the owner's own machine's normal state only when the model is down.
+- Re-extract with no model reachable stores the rule-based groups and the
+  queued reading then comes back with nothing. A job that was already
+  read keeps that reading: its state does not change, the fields the
+  earlier reading settled keep what they settled on, and the attempt
+  shows up as its own history line ("Reading the posting again found
+  nothing new") with one sentence in the extraction popup. A job whose
+  reading never succeeded keeps the ordinary failure path and its card,
+  because there is no earlier reading to protect.
 
 The company-review resolution UI (picking a candidate or creating a
 company for a `needs_review` job), flagged as a known gap at the JOZ-280

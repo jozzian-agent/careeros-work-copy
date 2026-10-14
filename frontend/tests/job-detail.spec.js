@@ -468,6 +468,44 @@ test('the extraction row says when the posting was read and what was not found',
   await expect(page.getByText(/Not found: Seniority\./)).toBeVisible();
 });
 
+test('the popup says a re-read found nothing, and still shows the reading that worked', async ({ page }) => {
+  await mockJobPage(page, {
+    ...fixture,
+    history: [
+      ...fixture.history,
+      {
+        ts: '2026-10-15T09:00:00+00:00',
+        label: 'Reading the posting again found nothing new',
+        detail: 'Reading the stored text again found nothing new.',
+      },
+    ],
+  });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const modal = page.getByRole('dialog', { name: 'How this was extracted' });
+  await expect(modal.getByText(/Nothing new came of reading the stored text again on 15 Oct 2026/)).toBeVisible();
+  // The job keeps the reading it had, so the row above still names it.
+  await expect(modal.getByText(/Read from the posting on 14 Oct 2026/)).toBeVisible();
+});
+
+test('a re-read that failed before a reading that worked says nothing', async ({ page }) => {
+  await mockJobPage(page, {
+    ...fixture,
+    history: [
+      {
+        ts: '2026-10-13T09:00:00+00:00',
+        label: 'Reading the posting again found nothing new',
+        detail: 'Reading the stored text again found nothing new.',
+      },
+      ...fixture.history,
+    ],
+  });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const modal = page.getByRole('dialog', { name: 'How this was extracted' });
+  await expect(modal.getByText(/Nothing new came of reading/)).toHaveCount(0);
+});
+
 test('the extraction popup lists each field with its result and source', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
   await page.getByRole('button', { name: 'How this was extracted' }).click();

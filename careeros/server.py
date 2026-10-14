@@ -172,6 +172,29 @@ def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
     return status
 
 
+def reread_field_status(job, filled_fields):
+    """Per-field status for a re-read of text that was already read once
+    (package 2's Re-extract).
+
+    A field an earlier reading settled keeps what it settled on. A field
+    marked not_evidenced was read and genuinely was not in the posting,
+    and a re-read that fails does not turn that into a failure: it is the
+    same text, and the answer about that field has not changed. Only a
+    field this attempt just filled, and a field nothing has settled yet,
+    move. `apply_field_status` is the first reading's rule, where every
+    covered field is still open."""
+    provenance = job.get('field_provenance', {})
+    status = dict(job.get('field_status', {}))
+    for field in ingest.STATUS_FIELDS:
+        if provenance.get(field) == 'user':
+            continue
+        if filled_fields.get(field):
+            status[field] = 'done'
+        elif status.get(field) not in ('done', 'not_evidenced'):
+            status[field] = 'pending'
+    return status
+
+
 def fail_pending_field_status(job):
     """A total extraction failure (no fields at all came back) turns any
     field still pending into failed: visibly distinct from not_evidenced
@@ -648,6 +671,27 @@ def create_app(vault: str | Path | None = None) -> Flask:
             llm_pending[job_id] = token
             return token
 
+    def settle_failed_reread(root, job_id, *, locked=False):
+        """Record a failed re-read of text that was already read, and
+        return the saved job, or None when this job has no earlier reading
+        to keep.
+
+        The owner pressed Re-extract on a job whose details were read
+        once. That reading still stands: downgrading the record to
+        extract_failed would raise the card that asks for a posting text
+        the job already stores, and would call a complete job unread. So
+        the attempt gets its own event instead of the state change, and
+        the fields this attempt moved back to pending settle, since
+        nothing further will reach them. A job that never had a reading
+        keeps the ordinary failure path, card and all."""
+        with nullcontext() if locked else write_lock:
+            current = storage.load_job(root, job_id)
+            if current is None or current.get('ingest_state') != 'complete':
+                return None
+            return storage.save_job(
+                root, {'field_status': fail_pending_field_status(current)}, job_id,
+                history_event=('re_extract_failed', 'Reading the stored text again found nothing new.'))
+
     def release_enrichment(job_id, token):
         """Give back a reservation whose run never started, if it is still
         this caller's. The token identity check is what keeps a caller
@@ -675,12 +719,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if llm_pending.get(job_id) is token:
                 llm_pending.pop(job_id, None)
 
-    def start_llm_enrichment(root, baseline, description, token, on_started=None):
+    def start_llm_enrichment(root, baseline, description, token, on_started=None, reread=False):
         """Start the background worker for a reserved token.
 
         Returns True if a worker thread actually started. The callback only
         clears llm_pending if it still owns the slot (token identity check),
         so a slow/stale run can never clobber a newer run's pending state.
+
+        reread says this run is reading text the job was already read
+        from, which changes only what a failure means: see
+        settle_failed_reread.
         """
         job_id = baseline['id']
 
@@ -713,6 +761,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     if fields:
                         new_company_id = apply_llm_update(root, baseline, fields, token)
                         mark_ingest_state(root, job_id, 'complete', history=('extracted', 'Extraction completed.'), locked=True)
+                    elif reread and settle_failed_reread(root, job_id, locked=True) is not None:
+                        # A re-read of a job that already has its reading
+                        # keeps that reading, and says what happened in its
+                        # own words (package 2 fix round, F6).
+                        pass
                     else:
                         # JOZ-267 fix round 1 finding 4: settle any still-
                         # pending field every time, even when a more
@@ -1394,11 +1447,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
         field the owner has set, and pressing Re-extract is the owner
         themselves asking for it to be read again. A list the owner has
         written lines into is left exactly as it is. Everything else is the same
-        machinery /extract uses: one reservation per job, every covered
-        field back to pending while the attempt runs, and the attempt's
-        own history event. A job whose reading is already running is a
-        409: there is one reservation per job, and this request did not
-        get it.
+        machinery /extract uses: one reservation per job, the covered
+        fields that are still open back to pending while the attempt runs,
+        and the attempt's own history event. A job whose reading is
+        already running is a 409: there is one reservation per job, and
+        this request did not get it.
+
+        What a failure means here is its own thing, because the text was
+        already read once: see settle_failed_reread.
         """
         root = app.config['VAULT_PATH']
         with write_lock:
@@ -1433,7 +1489,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         updates['field_provenance'] = {
                             **provenance,
                             'requirement_groups': 'llm' if structured.get('method') == 'llm' else 'scrape'}
-                updates['field_status'] = apply_field_status(job, updates, unfilled='pending')
+                updates['field_status'] = reread_field_status(job, updates)
                 job = storage.save_job(root, updates, identifier,
                                        history_event=('re_extracted', 'Stored posting text read again.'))
             except Exception:
@@ -1444,10 +1500,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 # owner, through the app's own error handler.
                 release_enrichment(identifier, token)
                 raise
-        if not start_llm_enrichment(root, job, job.get('description') or '', token):
-            job = mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
-                                    reason='worker_start_failed', settle_fields=True,
-                                    history=('extract_failed', 'Could not start extraction.')) or job
+        if not start_llm_enrichment(root, job, job.get('description') or '', token, reread=True):
+            job = (settle_failed_reread(root, identifier)
+                   or mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
+                                        reason='worker_start_failed', settle_fields=True,
+                                        history=('extract_failed', 'Could not start extraction.'))
+                   or job)
             return jsonify(job | {'llm_pending': False, 'error': 'Could not start extraction.'}), 503
         return jsonify(job | {'llm_pending': True}), 202
 

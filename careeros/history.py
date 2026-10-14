@@ -30,6 +30,11 @@ REGISTRY = {
     # read label: the owner wants to see that they asked, and when, beside
     # what the reading then produced.
     're_extracted':       ('Posting read again', True),
+    # That reading not having produced anything. Its own label, and not
+    # the read-failure one: the posting was read before and those details
+    # still stand, so this says the latest attempt found nothing new
+    # rather than that reading the posting failed.
+    're_extract_failed':  ('Reading the posting again found nothing new', True),
     # The label is built from the stored detail ('new -> interested').
     'status_changed':     (None, True),
     'note_added':         ('Note added', True),

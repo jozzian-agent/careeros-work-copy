@@ -19,7 +19,7 @@ import StatusSelect from '../components/StatusSelect.jsx';
 import NeedsInputCard, { NeedsInputChip } from '../components/NeedsInputCard.jsx';
 import Requirements, { requirementEntries } from '../components/Requirements.jsx';
 import ExtractionPopup, {
-  extractionRows, notFoundLabels, readSentence, readTimestamp,
+  extractionRows, notFoundLabels, readSentence, readTimestamp, reReadFailedTimestamp,
 } from '../components/ExtractionPopup.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
 import NotesSection from '../components/NotesSection.jsx';
@@ -278,6 +278,7 @@ export default function JobDetail() {
   const rows = extractionRows(job);
   const notFound = notFoundLabels(rows);
   const readAt = readTimestamp(history);
+  const reReadFailedAt = reReadFailedTimestamp(history);
   const sector = classification?.sector || {};
   const functions = (classification?.function || []).map(
     (key) => functionLabels?.[key]?.label || prettifyTag(key),
@@ -529,6 +530,7 @@ export default function JobDetail() {
         <ExtractionPopup
           job={job}
           readAt={readAt}
+          reReadFailedAt={reReadFailedAt}
           onDismiss={() => setExtractionOpen(false)}
           onOpenSetter={openSetter}
         />

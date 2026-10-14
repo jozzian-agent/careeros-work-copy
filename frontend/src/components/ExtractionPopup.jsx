@@ -30,10 +30,26 @@ const FIELDS = [
 // value this surface depends on.
 const READ_LABEL = 'Details read from the posting';
 
+// The owner having pressed Re-extract without anything coming of it.
+// Owned by careeros/history.py's registry entry for 're_extract_failed';
+// the job keeps the reading it already had, so this is the only place
+// that says the latest attempt produced nothing.
+const RE_READ_FAILED_LABEL = 'Reading the posting again found nothing new';
+
 // When the posting was last read, out of the resolved history, or null.
 export function readTimestamp(history) {
   const entry = (history || []).filter((item) => item.label === READ_LABEL).pop();
   return entry ? entry.ts : null;
+}
+
+// When the last re-read came back with nothing, or null. Only the latest
+// attempt is worth a sentence: an earlier one that failed before a
+// reading that worked is answered by the reading.
+export function reReadFailedTimestamp(history) {
+  const entry = (history || [])
+    .filter((item) => item.label === READ_LABEL || item.label === RE_READ_FAILED_LABEL)
+    .pop();
+  return entry && entry.label === RE_READ_FAILED_LABEL ? entry.ts : null;
 }
 
 // The one sentence about the last read. The extraction row and this
@@ -82,7 +98,7 @@ export function notFoundLabels(rows) {
 // a surface that exists rather than naming a field they cannot reach.
 const SETTERS = { job: 'Set it in Edit job', classification: 'Set it in Edit classification' };
 
-export default function ExtractionPopup({ job, readAt, onDismiss, onOpenSetter }) {
+export default function ExtractionPopup({ job, readAt, reReadFailedAt, onDismiss, onOpenSetter }) {
   const rows = extractionRows(job);
   return (
     <Modal
@@ -101,6 +117,15 @@ export default function ExtractionPopup({ job, readAt, onDismiss, onOpenSetter }
             asked the same question the extraction row answers, so the
             popup answers it too instead of only listing fields. */}
         <Text color="subtle">{readSentence(readAt)}</Text>
+        {/* The owner asked for the text to be read again and nothing came
+            of it. The rows below still describe the reading that worked,
+            so without this the popup would answer a question the owner
+            did not ask and stay silent about the one they did. */}
+        {reReadFailedAt ? (
+          <Text color="subtle">
+            {`Nothing new came of reading the stored text again on ${localDate(reReadFailedAt)}.`}
+          </Text>
+        ) : null}
         {rows.length ? (
           <DividerList
             items={rows.map((row) => ({ ...row, key: row.key }))}

@@ -10,6 +10,7 @@ import pytest
 
 from careeros import history, ingest, vault
 from careeros.server import apply_field_status, create_app
+from careeros.web.pages import jobs
 
 
 def client_for(content):
@@ -403,7 +404,66 @@ def test_a_failed_extraction_keeps_the_rule_based_groups(tmp_path):
     assert stored['requirement_groups'] == [
         {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
         {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
+
+
+def test_a_failed_re_read_leaves_a_read_job_read(tmp_path):
+    """The owner's own machine with the model down. The job was read
+    before and its details are on the page, so a re-read that produces
+    nothing must not call the posting unread: no downgrade to
+    extract_failed, and so no card asking for text the job already
+    stores. The attempt says what happened in its own line of history."""
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    assert job['ingest_state'] == 'complete'
+    api = app.test_client()
+    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['ingest_state'] == 'complete'
+    assert stored['ingest_error'] is None
+    assert jobs.job_needs_input(stored) is None
+    assert [entry['detail'] for entry in stored['history']
+            if entry['event'] == 're_extract_failed'] == ['Reading the stored text again found nothing new.']
+    assert history.label_for('re_extract_failed') == 'Reading the posting again found nothing new'
+
+
+def test_a_failed_re_read_leaves_an_unread_posting_asking(tmp_path):
+    """The other side of the same rule: a job whose reading never
+    succeeded keeps the ordinary failure path, card and all, because
+    there is no earlier reading to protect."""
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path, ingest_state='extract_failed',
+                     ingest_error={'stage': 'extract', 'reason': 'no_usable_fields',
+                                   'at': '2026-10-14T12:00:00+00:00'})
+    api = app.test_client()
+    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    stored = vault.load_job(tmp_path, job['id'])
     assert stored['ingest_state'] == 'extract_failed'
+    # The ask stands, and it names this attempt's own reason.
+    assert jobs.job_needs_input(stored) == {'kind': 'read_failed', 'error_reason': 'not_configured'}
+
+
+def test_a_re_read_leaves_the_fields_the_first_reading_settled(tmp_path):
+    """A field the first reading found nothing for was read already, and
+    the same text has not changed its mind. A re-read must not move it to
+    pending and then to failed, which is how the one click turned every
+    "Not found in posting" row into "Failed"."""
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path, field_status={'title': 'done', 'seniority': 'not_evidenced',
+                                             'skills': 'failed'})
+    api = app.test_client()
+    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    pending = vault.load_job(tmp_path, job['id'])['field_status']
+    assert pending['seniority'] == 'not_evidenced'
+    assert pending['title'] == 'done'
+    # A field an earlier attempt left failed is open again: a re-read is
+    # the further attempt it was waiting for.
+    assert pending['skills'] == 'pending'
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    settled = vault.load_job(tmp_path, job['id'])['field_status']
+    assert settled['seniority'] == 'not_evidenced'
+    assert settled['skills'] == 'failed'
 
 
 def test_re_extract_replaces_the_rule_based_groups_with_the_model_groups(tmp_path, monkeypatch):
