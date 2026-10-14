@@ -230,7 +230,32 @@ lists (a company with no jobs or experiences) show the dashed empty state.
 
 ## Verification
 
-2026-10-14 (package 2, grouped requirements, after the review round):
+2026-10-14 (package 2, grouped requirements, after the second review
+round):
+
+- `.venv/bin/python -m pytest tests/ -q` (1136, was 1126: six tests
+  written in `tests/test_requirement_groups.py` for refilling a list the
+  owner emptied in the shape that has no lines left to regroup, who the
+  regrouped lines belong to when the owner typed them, the two of those
+  meeting, a re-read that never started, and the two halves of the
+  field-status rule the one test used to assert in one run; the level
+  table gained four cases for a level that denies the word it names).
+- `cd frontend && npx playwright test` (237, was 234): `job-detail.spec.js`
+  is 81 (was 78), with Edit job sending neither requirement field when an
+  unrelated one changed, the AI label staying on a grouped section whose
+  every line comes from the groups, and a skill the model grouped
+  elsewhere showing once.
+- `cd frontend && npm run build`.
+- The field-status test the review round found load-flaky (the queued
+  reading could answer before the assertion read the record) is split in
+  two and holds the reading still for the snapshot half: 20 consecutive
+  runs of the file clean, and 25 runs under two concurrent full suites
+  clean, where the pre-fix shape still failed 1 of 25 under that same
+  load.
+- Owner click-test on the live instance: pending.
+
+Earlier, 2026-10-14 (package 2, grouped requirements, after the first
+review round):
 
 - `.venv/bin/python -m pytest tests/ -q` (1126, was 1052: 47 tests
   written in the new `tests/test_requirement_groups.py` for the
