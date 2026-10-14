@@ -1473,7 +1473,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # sets as owner-provenance, so Phase B and the LLM callback
             # never overwrite it later, regardless of whether it happens to
             # still equal whatever baseline they were snapshotting against.
-            marked = {key: 'user' for key in payload if key not in _PROVENANCE_EXCLUDED_FIELDS}
+            # B2: only keys the vault actually persists. A payload key the
+            # whitelist drops (a stray `fit: null` from a client, a typo)
+            # changes nothing on the record, so claiming the owner set it
+            # would freeze a field against automation that never got a value.
+            marked = {key: 'user' for key in payload
+                      if key not in _PROVENANCE_EXCLUDED_FIELDS and key in storage.job_field_names()}
             if marked:
                 payload['field_provenance'] = {**data.get('field_provenance', {}), **payload.get('field_provenance', {}), **marked}
                 # An owner edit to a covered field is itself a confident,
@@ -1507,8 +1512,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Record must be an object.')
+            # B2: same rule as the job PUT -- provenance only for keys the
+            # vault persists, never for keys it drops.
+            accepted = storage.company_field_names()
             payload['field_provenance'] = {**data.get('field_provenance', {}),
-                **{key: 'user' for key in payload if key != 'field_provenance'}}
+                **{key: 'user' for key in payload if key != 'field_provenance' and key in accepted}}
             return jsonify(storage.save_company(root, payload | {'name_source': 'owner'}, identifier))
 
     @app.route('/api/search', methods=['GET', 'POST'])

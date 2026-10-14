@@ -415,6 +415,47 @@ def next_job_id(root):
 def next_company_id(root):
     return _next(root, 'companies', 'CO-')
 
+def _record_defaults(kind):
+    """Every field a record of this kind stores, with its empty value.
+
+    `_save_record` builds each saved record from this dict and silently
+    drops payload keys it does not name, which makes it the one true list
+    of fields a write can persist. Callers that need that list (the API
+    PUTs, which must not stamp provenance for keys they drop) read it
+    through `job_field_names` / `company_field_names` rather than keeping a
+    second copy that could drift.
+    """
+    job = kind == 'jobs'
+    return (dict(company_id=None, title='', url='', original_url=None, source='', status='new', posted_date=None,
+                 added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
+                 notes='', enriched=False, employment_type='', valid_through='', custom={},
+                 description='', company='', seniority='', keywords=[], summary='', contact_email='',
+                 ingest_source='', sector=None, sectors=[], industry=None, industries=[],
+                 background='', skills=[], certifications=[], responsibilities=[], summary_source='', refresh='skipped',
+                 employee_count=None, function=[], tags=[],
+                 normalized_url=None, in_pipeline=True, origin='manual', source_id=None,
+                 ingest_state='complete', ingest_error=None, field_provenance={},
+                 ats_provider=None, ats_tenant=None, ats_posting_id=None,
+                 company_link_state='pending', company_link_reason=None,
+                 employer_named_in_posting=None, company_review=None,
+                 field_status={}, posting_quality=None, description_structured=None,
+                 occupation_code=None, skill_codes=None) if job else
+            dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
+                 contact_email='', notes='', custom={}, enrichment={},
+                 kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
+                 identifiers=[], sources=[], field_provenance={}))
+
+
+def job_field_names():
+    """Payload keys `save_job` persists. Any other key is dropped."""
+    return frozenset(_record_defaults('jobs'))
+
+
+def company_field_names():
+    """Payload keys `save_company` persists. Any other key is dropped."""
+    return frozenset(_record_defaults('companies'))
+
+
 def _save_record(root, kind, data, identifier=None, *, correction_detail=None, history_event=None):
     from careeros.intake import check_url_format
     if not isinstance(data, dict):
@@ -423,24 +464,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
     if identifier and not existing:
         raise KeyError(identifier)
     job = kind == 'jobs'
-    defaults = (dict(company_id=None, title='', url='', original_url=None, source='', status='new', posted_date=None,
-                     added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
-                     notes='', enriched=False, employment_type='', valid_through='', custom={},
-                     description='', company='', seniority='', keywords=[], summary='', contact_email='',
-                     ingest_source='', sector=None, sectors=[], industry=None, industries=[],
-                     background='', skills=[], certifications=[], responsibilities=[], summary_source='', refresh='skipped',
-                     employee_count=None, function=[], tags=[],
-                     normalized_url=None, in_pipeline=True, origin='manual', source_id=None,
-                     ingest_state='complete', ingest_error=None, field_provenance={},
-                     ats_provider=None, ats_tenant=None, ats_posting_id=None,
-                     company_link_state='pending', company_link_reason=None,
-                     employer_named_in_posting=None, company_review=None,
-                     field_status={}, posting_quality=None, description_structured=None,
-                     occupation_code=None, skill_codes=None) if job else
-                dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
-                     contact_email='', notes='', custom={}, enrichment={},
-                     kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
-                     identifiers=[], sources=[], field_provenance={}))
+    defaults = _record_defaults(kind)
     result = defaults | (existing[1] if existing else {})
     result.update({k:v for k,v in data.items() if k in defaults})
     if not isinstance(result['field_provenance'], dict) or any(
