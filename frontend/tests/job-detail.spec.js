@@ -414,7 +414,9 @@ test('a requirement list the owner emptied does not bring the flat lists back', 
   await expect(page.getByRole('heading', { name: 'Responsibilities' })).toBeVisible();
   await expect(page.getByText('5+ years of platform experience')).toHaveCount(0);
   await expect(page.getByText('Rust experience')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Requirements' })).toHaveCount(0);
+  // The skills list is its own field with its own editor, and this edit
+  // did not touch it, so its tags are still the posting's own asks.
+  await expect(page.getByTestId('section-requirements').getByText('Must-have: Python')).toBeVisible();
 });
 
 test('Edit job opens an emptied requirement list empty', async ({ page }) => {
@@ -424,6 +426,16 @@ test('Edit job opens an emptied requirement list empty', async ({ page }) => {
   const modal = page.getByRole('dialog', { name: 'Edit job' });
   await expect(modal.getByRole('textbox', { name: 'Requirements, must have' })).toHaveValue('');
   await expect(modal.getByRole('textbox', { name: 'Requirements, nice to have' })).toHaveValue('');
+});
+
+test('a stored skill the Skills group does not carry still shows', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
+  // The job stores Python and Kubernetes as skills; only Kubernetes is in
+  // the Skills group, so Python would otherwise be stored and invisible.
+  await expect(requirements.getByText('Must-have: Python')).toBeVisible();
+  await expect(requirements.getByText('Must-have: Kubernetes')).toHaveCount(1);
 });
 
 test('requirements the rules grouped carry no AI label', async ({ page }) => {

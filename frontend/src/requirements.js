@@ -22,10 +22,12 @@ export const GROUP_LABELS = {
 // Groups whose entries are short facets, shown as tags. The prose groups
 // are shown as rows, because a sentence in a pill does not read.
 export const TAG_GROUPS = ['skills', 'languages', 'certifications'];
-// Where a line the extractor cannot place goes, and with it a line the
-// owner has just written or reworded: one fallback group, so no surface
-// can invent a sixth heading.
-export const FALLBACK_GROUP = 'skills';
+// The group a short skill belongs in, which is also where a line nothing
+// else fits goes: a line the extractor cannot place, and a line the owner
+// has just written or reworded. One fallback, the extractor's own, so no
+// surface can invent a sixth heading.
+export const SKILLS_GROUP = 'skills';
+export const FALLBACK_GROUP = SKILLS_GROUP;
 // Languages have their own editor in Edit job, because a language is a
 // word rather than a sentence, so they are never one of the lines in its
 // two requirement fields.
@@ -72,6 +74,25 @@ function legacyRequirementEntries(job) {
   ].filter(usableEntry);
 }
 
+// A stored skill the Skills group does not already carry, as a must-have
+// tag in that group, because a skill the posting names is something it
+// asks for.
+//
+// The job's `skills` list and the Skills group overlap on purpose (the
+// extraction fills both) but they are edited by two different controls,
+// so they drift. Reading the group alone left a skill that is in the
+// list and not in the group stored and invisible, which is the one thing
+// the page must never do with a value it holds.
+function unplacedSkills(job, groups) {
+  const placed = new Set(groups.filter((entry) => entry.group === SKILLS_GROUP)
+    .map((entry) => entry.text.trim().toLowerCase()));
+  return (job.skills || [])
+    .filter((text) => typeof text === 'string' && text.trim() && !placed.has(text.trim().toLowerCase()))
+    .map((text) => ({ group: SKILLS_GROUP, level: 'must', text }));
+}
+
 export function requirementEntries(job) {
-  return isGrouped(job) ? groupedEntries(job) : legacyRequirementEntries(job);
+  if (!isGrouped(job)) return legacyRequirementEntries(job);
+  const groups = groupedEntries(job);
+  return [...groups, ...unplacedSkills(job, groups)];
 }

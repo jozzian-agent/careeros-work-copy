@@ -52,9 +52,11 @@ below. Top to bottom it is now:
    asked for, in the owner's order (Education, Experience, Skills,
    Languages, Certifications), each line carrying its level. Skills,
    Languages and Certifications read as tags, the two prose groups as
-   must-have and nice-to-have rows. A job with no grouped requirements
-   yet shows its flat must-have and nice-to-have lines with its
-   extracted skills as must-have tags, which is the package-1 shape.
+   must-have and nice-to-have rows. A stored skill the Skills group does
+   not already carry joins that group as a must-have tag, so a skill the
+   list holds is never invisible. A job with no grouped requirements yet
+   shows its flat must-have and nice-to-have lines with its extracted
+   skills as must-have tags, which is the package-1 shape.
 6. Responsibilities, labeled "AI-extracted".
 7. One extraction row: when the posting was last read, which fields were
    not found in it, "How this was extracted", and "Re-extract". The popup
@@ -256,12 +258,11 @@ the accounting of converted vs. removed tests), Playwright 106 (was 78).
   employment type) have no owner-editing surface anywhere, so their rows
   name the result without linking to a setter. Whether they get one is a
   product decision, not a gap in this package.
-- A job's `skills` list and the Skills requirement group now overlap: the
-  extraction fills both, and the grouped Requirements section renders the
-  group, not the list. The list is still a reported field with its own
-  row in the extraction popup and its own editor, so nothing is a dead
-  end, but whether `skills` is retired into the group is an owner
-  decision this round did not take.
+- A job's `skills` list and the Skills requirement group overlap: the
+  extraction fills both, and each has its own editor, so the two drift.
+  The owner decided to keep the list (2026-10-14), so the Requirements
+  section renders the group plus any stored skill the group does not
+  carry, and nothing the record holds goes unshown.
 - Edit job shows the grouped requirements as two lists by level, not as
   five lists by group, so the owner cannot move a line from one group to
   another there. Re-extracting the job is what regroups it today.
