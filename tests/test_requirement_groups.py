@@ -222,6 +222,36 @@ def test_an_invalid_group_entry_is_refused(tmp_path, groups):
                                   'requirement_groups': groups})
 
 
+def test_the_vault_normalises_whatever_a_writer_hands_it(tmp_path):
+    """The invariant belongs to the record, not to one writer: an owner
+    edit arrives through the job PUT and the extraction through its
+    callback, and both have to land stripped, deduplicated text."""
+    job = vault.save_job(tmp_path, {
+        'title': 'Engineer', 'url': 'https://posting.example/role',
+        'requirement_groups': [{'group': 'skills', 'level': 'nice', 'text': '  Kubernetes  '},
+                               {'group': 'skills', 'level': 'must', 'text': 'kubernetes'},
+                               {'group': 'languages', 'level': 'must', 'text': 'German '}]})
+    assert job['requirement_groups'] == [
+        # The same line in the same group, once, at the stronger level and
+        # in the position it first arrived in.
+        {'group': 'skills', 'level': 'must', 'text': 'kubernetes'},
+        {'group': 'languages', 'level': 'must', 'text': 'German'}]
+
+
+def test_invalid_stored_groups_are_refused_on_the_way_in_and_read_back_as_stored(tmp_path):
+    """A record a hand edit broke must not be silently rewritten by a
+    read: migration is the owner's own action (owner decision 2), so a
+    read hands the bad value on and the next write is what refuses it."""
+    (tmp_path / 'jobs').mkdir()
+    (tmp_path / 'jobs' / 'broken-JOB-002.yaml').write_text(
+        'id: JOB-002\ntitle: Engineer\nurl: https://posting.example/role\n'
+        'requirement_groups:\n- group: tooling\n  level: must\n  text: Terraform\n')
+    stored = vault.load_job(tmp_path, 'JOB-002')
+    assert stored['requirement_groups'] == [{'group': 'tooling', 'level': 'must', 'text': 'Terraform'}]
+    with pytest.raises(ValueError):
+        vault.save_job(tmp_path, {'title': 'Engineer'}, 'JOB-002')
+
+
 def test_the_migration_backfills_an_empty_list_and_leaves_flat_lists_alone(tmp_path):
     """Owner decision: a job written before the groups keeps its flat
     must/nice lists until the owner re-extracts it. The additive backfill

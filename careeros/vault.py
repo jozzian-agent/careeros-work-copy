@@ -545,6 +545,36 @@ def validate_note_list(notes):
     return notes
 
 
+def validate_requirement_groups(groups):
+    """Check a grouped requirement list against the one stored shape, and
+    return it normalized (package 2).
+
+    The invariant is the record's, not one writer's: text stripped, one
+    entry per group and text ignoring case, and a must-have winning over a
+    nice-to-have for the same line, because the stronger claim is the one
+    the posting makes. Entry order is the order the entries arrived in,
+    which is the posting's own. Every writer goes through `_save_record`,
+    so an owner edit, the extraction callback and the offline rules all
+    land the same list; `careeros.ingest.requirement_groups` applies this
+    same function to a model answer before it ever gets here.
+    """
+    if not isinstance(groups, list) or any(
+            not isinstance(entry, dict) or set(entry) != {'group', 'level', 'text'}
+            or entry['group'] not in REQUIREMENT_GROUPS
+            or entry['level'] not in REQUIREMENT_LEVELS
+            or not isinstance(entry['text'], str) or not entry['text'].strip()
+            for entry in groups):
+        raise ValueError('requirement_groups must be a list of {group, level, text}, where group is one of '
+                         + ', '.join(REQUIREMENT_GROUPS) + ' and level is must or nice.')
+    seen = {}
+    for entry in groups:
+        normalized = {'group': entry['group'], 'level': entry['level'], 'text': entry['text'].strip()}
+        key = (normalized['group'], normalized['text'].casefold())
+        if key not in seen or (normalized['level'] == 'must' and seen[key]['level'] == 'nice'):
+            seen[key] = normalized
+    return list(seen.values())
+
+
 def _record_defaults(kind):
     """Every field a record of this kind stores, with its empty value.
 
@@ -709,15 +739,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         # is what keeps a pre-package-2 record readable without a rewrite
         # (owner decision: migration is the per-job Re-extract action, and
         # nothing else).
-        groups = result['requirement_groups']
-        if not isinstance(groups, list) or any(
-                not isinstance(entry, dict) or set(entry) != {'group', 'level', 'text'}
-                or entry['group'] not in REQUIREMENT_GROUPS
-                or entry['level'] not in REQUIREMENT_LEVELS
-                or not isinstance(entry['text'], str) or not entry['text'].strip()
-                for entry in groups):
-            raise ValueError('requirement_groups must be a list of {group, level, text}, where group is one of '
-                             + ', '.join(REQUIREMENT_GROUPS) + ' and level is must or nice.')
+        result['requirement_groups'] = validate_requirement_groups(result['requirement_groups'])
         if result['occupation_code'] is not None and not isinstance(result['occupation_code'], str):
             raise ValueError('occupation_code must be text or null.')
         if result['skill_codes'] is not None and (

@@ -10,7 +10,7 @@ from threading import Event, Lock, Thread
 
 from careeros.extraction_worker import extraction_queue
 from careeros.llm_client import TIMEOUT, get_llm_client, get_llm_model
-from careeros.vault import REQUIREMENT_GROUPS, REQUIREMENT_LEVELS
+from careeros.vault import REQUIREMENT_GROUPS, REQUIREMENT_LEVELS, validate_requirement_groups
 
 MAX_DESCRIPTION_CHARS = 32_000
 
@@ -195,12 +195,12 @@ def requirement_groups(groups=None, requirements=(), nice_to_have=()):
     into the Skills group instead: that is the rule-based fallback, and it
     is also the shape every job written before the groups existed has.
 
-    One entry per group and text: a line a posting lists as both required
-    and preferred stays where the stronger claim puts it, a must-have,
-    rather than being rendered twice under one heading. Entry order is the
-    order it arrived in, which is the posting's own.
+    One entry per group and text, with a must-have winning over a
+    nice-to-have for the same line, is the record's own invariant, applied
+    here by the vault's `validate_requirement_groups` so a model answer is
+    already in the shape a record stores.
     """
-    entries, seen = [], {}
+    entries = []
     for item in groups or []:
         if not isinstance(item, dict):
             continue
@@ -215,11 +215,7 @@ def requirement_groups(groups=None, requirements=(), nice_to_have=()):
                 text = redact(str(value or '').strip())
                 if text:
                     entries.append({'group': REQUIREMENT_GROUP_FALLBACK, 'level': level, 'text': text})
-    for entry in entries:
-        key = (entry['group'], entry['text'].casefold())
-        if key not in seen or (entry['level'] == 'must' and seen[key]['level'] == 'nice'):
-            seen[key] = entry
-    return list(seen.values())
+    return validate_requirement_groups(entries)
 
 
 def build_prompt(description, function_options=None):
