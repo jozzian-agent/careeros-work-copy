@@ -74,18 +74,21 @@ function legacyRequirementEntries(job) {
   ].filter(usableEntry);
 }
 
-// A stored skill the Skills group does not already carry, as a must-have
-// tag in that group, because a skill the posting names is something it
-// asks for.
+// A stored skill no group carries, as a must-have tag in the Skills
+// group, because a skill the posting names is something it asks for.
 //
 // The job's `skills` list and the Skills group overlap on purpose (the
 // extraction fills both) but they are edited by two different controls,
 // so they drift. Reading the group alone left a skill that is in the
 // list and not in the group stored and invisible, which is the one thing
 // the page must never do with a value it holds.
-function unplacedSkills(job, groups) {
-  const placed = new Set(groups.filter((entry) => entry.group === SKILLS_GROUP)
-    .map((entry) => entry.text.trim().toLowerCase()));
+//
+// Every group's lines are matched, not the Skills group's alone: a skill
+// the model placed under Experience or Certifications is already on the
+// page, and adding it again rendered the same word twice under two
+// headings.
+export function unplacedSkills(job, groups = groupedEntries(job)) {
+  const placed = new Set(groups.map((entry) => entry.text.trim().toLowerCase()));
   return (job.skills || [])
     .filter((text) => typeof text === 'string' && text.trim() && !placed.has(text.trim().toLowerCase()))
     .map((text) => ({ group: SKILLS_GROUP, level: 'must', text }));

@@ -28,7 +28,7 @@ import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 import { prettifyTag } from '../tags.js';
 import { localDate } from '../dates.js';
-import { isGrouped, requirementEntries } from '../requirements.js';
+import { isGrouped, requirementEntries, unplacedSkills } from '../requirements.js';
 
 // JOZ-267 fix round 1 finding 4: a terminal ingest_state means nothing is
 // ever going to advance a still-pending field again on its own (the owner
@@ -269,11 +269,14 @@ export default function JobDetail() {
   // job has been extracted since package 2, and the flat block plus the
   // skills list for a job that has not been.
   const grouped = isGrouped(job);
-  // The skills list is in both: the grouped section shows any stored
-  // skill the Skills group does not carry, so an owner correction to
-  // either field takes the label off the section they can see it in.
+  // The skills list is in the section too, but only when it holds a skill
+  // no group carries: those lines are the owner's once they correct the
+  // list, so the label goes. A section whose every line comes from the
+  // groups answers to the groups alone -- counting skills there let a
+  // correction to a list the section is not showing unlabel requirements
+  // a model wrote.
   const requirementKeys = grouped
-    ? ['requirement_groups', 'skills']
+    ? ['requirement_groups', ...(unplacedSkills(job).length ? ['skills'] : [])]
     : ['description_structured', 'skills'];
   // The rules can group requirements with no model involved (the
   // Re-extract fallback), and that is not AI-extracted, so the label

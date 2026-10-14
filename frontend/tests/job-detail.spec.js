@@ -428,7 +428,11 @@ test('Edit job opens an emptied requirement list empty', async ({ page }) => {
   await expect(modal.getByRole('textbox', { name: 'Requirements, nice to have' })).toHaveValue('');
 });
 
-test('a corrected skills list takes the AI label off the grouped section', async ({ page }) => {
+// The section shows the stored skills list only where it holds a skill no
+// group carries (Python, here), and the AI label answers for what the
+// section shows: a correction to a list it is showing takes the label,
+// and a correction to one it is not leaves it.
+test('a corrected skills list the grouped section shows takes its AI label off', async ({ page }) => {
   await mockJobPage(page, {
     ...grouped,
     job: {
@@ -437,17 +441,51 @@ test('a corrected skills list takes the AI label off the grouped section', async
     },
   });
   await page.goto('/jobs/JOB-001');
-  await expect(page.getByRole('heading', { name: 'Requirements' })).toBeVisible();
+  await expect(page.getByText('Must-have: Python')).toBeVisible();
   await expect(page.getByText('AI-extracted')).toHaveCount(1); // responsibilities only
 });
 
-test('a stored skill the Skills group does not carry still shows', async ({ page }) => {
+test('a corrected skills list every group already carries leaves the AI label on', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      skills: ['Kubernetes'],
+      field_provenance: { ...grouped.job.field_provenance, skills: 'user' },
+    },
+  });
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: 'Requirements' })).toBeVisible();
+  // Every line of the section comes from the groups, and a model grouped
+  // them, so the label still answers for what the owner is looking at.
+  await expect(page.getByText('AI-extracted')).toHaveCount(2); // requirements and responsibilities
+});
+
+test('a stored skill the groups do not carry still shows', async ({ page }) => {
   await mockJobPage(page, grouped);
   await page.goto('/jobs/JOB-001');
   const requirements = page.getByTestId('section-requirements');
   // The job stores Python and Kubernetes as skills; only Kubernetes is in
   // the Skills group, so Python would otherwise be stored and invisible.
   await expect(requirements.getByText('Must-have: Python')).toBeVisible();
+  await expect(requirements.getByText('Must-have: Kubernetes')).toHaveCount(1);
+});
+
+test('a skill the model grouped somewhere else is not shown twice', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      // Kubernetes is a certification here, not a skills-group line, and
+      // it is still on the page: reading the Skills group alone to decide
+      // what the list adds rendered the same word under two headings.
+      requirement_groups: grouped.job.requirement_groups.map((entry) => (
+        entry.text === 'Kubernetes' ? { ...entry, group: 'certifications' } : entry
+      )),
+    },
+  });
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
   await expect(requirements.getByText('Must-have: Kubernetes')).toHaveCount(1);
 });
 
