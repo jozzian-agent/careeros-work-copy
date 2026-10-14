@@ -32,15 +32,17 @@ A job stores `requirement_groups`, a list of `{group, level, text}` over
 a fixed five-group vocabulary (Education, Experience, Skills, Languages,
 Certifications), where a requirement the extractor cannot place lands in
 Skills, so no sixth group can appear. The extraction prompt and parser
-emit the groups and the offline rules map the flat lists into the Skills
-group, which means the field fills with or without the model. Migration
+emit the groups, and the flat must/nice lists fold in behind whatever the
+model grouped, under Skills, so the field fills with or without the model
+and a partial answer loses no line the posting asked for. Migration
 is the owner's own per-job action and nothing else: a job written before
 this round keeps its flat lists and keeps rendering them, until the owner
 presses Re-extract on that job (`POST /api/jobs/<id>/re-extract`, which
 reads the stored posting text and fetches nothing). Languages get their
 first stored home, and with it an editor in Edit job. The `skills` field
-and the Skills group now overlap; retiring one into the other is an open
-question, not a decision this round took.
+and the Skills group overlap, and the owner's decision is to keep both,
+so the Requirements section shows the group plus any stored skill the
+group does not carry.
 
 ## Product rules that shape the flows
 

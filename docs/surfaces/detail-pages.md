@@ -215,18 +215,23 @@ lists (a company with no jobs or experiences) show the dashed empty state.
 
 ## Verification
 
-2026-10-14 (package 2, grouped requirements):
+2026-10-14 (package 2, grouped requirements, after the review round):
 
-- `.venv/bin/python -m pytest tests/ -q` (1106, was 1052: 31 tests
+- `.venv/bin/python -m pytest tests/ -q` (1126, was 1052: 47 tests
   written in the new `tests/test_requirement_groups.py` for the
-  vocabulary, the prompt, the parser, the rule-based fallback, the stored
-  field and its validation, the additive migration and the re-extract
-  endpoint; parametrized, they run as 54 cases).
-- `cd frontend && npx playwright test` (224, was 210): `job-detail.spec.js`
-  is 68 (was 54), covering the grouped render and its level tags, the
-  legacy flat-list fallback, the AI label following the recorded source,
-  the extraction popup's Requirements row, the Re-extract button (enabled,
-  disabled without posting text, and its error) and the languages editor.
+  vocabulary, the prompt, the parser, the fold of the flat lists, the
+  stored field with its validation and its normalizing, the additive
+  migration, the re-extract endpoint with its reservation and its failed
+  re-read, and the other three write paths; parametrized, they run as 74
+  cases).
+- `cd frontend && npx playwright test` (233, was 210): `job-detail.spec.js`
+  is 77 (was 54), covering the grouped render and its level tags, a
+  stored skill the group does not carry, the legacy flat-list fallback,
+  a list the owner emptied, the AI label following the recorded source,
+  the extraction popup's Requirements row and its failed-re-read
+  sentence, the Re-extract button (enabled, disabled without posting
+  text, and its error), the languages editor, and which requirement
+  field Edit job writes in each of the three cases.
 - `cd frontend && npm run build`.
 - Owner click-test on the live instance: pending.
 

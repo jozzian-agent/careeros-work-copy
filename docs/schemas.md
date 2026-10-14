@@ -2,7 +2,7 @@
 type: Surface
 title: "Vault schemas — Chunk 3"
 description: "Describe vault records and their JSON API representation."
-timestamp: 2026-10-11
+timestamp: 2026-10-14
 ---
 
 # Vault schemas — Chunk 3
