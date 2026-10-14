@@ -1,5 +1,6 @@
 import { Button, Flex, Modal, Text } from 'gestalt';
 import { DividerList } from './SectionCard.jsx';
+import { localDate } from '../dates.js';
 
 // "How this was extracted": one row per field the reader covers, with
 // what came of it and where that came from. This replaces the Extraction
@@ -17,6 +18,26 @@ const FIELDS = [
   { key: 'skills', label: 'Skills', setter: 'job' },
   { key: 'description_structured', label: 'Description', setter: 'job' },
 ];
+
+// The one label the extraction row reads out of the resolved history, so
+// it can say when the posting was last read. Owned by
+// careeros/history.py READ_LABEL; tests/test_history_registry.py pins the
+// value this surface depends on.
+const READ_LABEL = 'Details read from the posting';
+
+// When the posting was last read, out of the resolved history, or null.
+export function readTimestamp(history) {
+  const entry = (history || []).filter((item) => item.label === READ_LABEL).pop();
+  return entry ? entry.ts : null;
+}
+
+// The one sentence about the last read. The extraction row and this
+// popup's header both read it from here, so they cannot disagree about
+// when the posting was read -- the owner asked for the same fact in both
+// places, which makes it one fact with one home.
+export function readSentence(ts) {
+  return ts ? `Read from the posting on ${localDate(ts)}.` : 'This posting has not been read yet.';
+}
 
 // field_status values, in the words the page uses for them.
 const RESULTS = {
@@ -56,7 +77,7 @@ export function notFoundLabels(rows) {
 // a surface that exists rather than naming a field they cannot reach.
 const SETTERS = { job: 'Set it in Edit job', classification: 'Set it in Edit classification' };
 
-export default function ExtractionPopup({ job, onDismiss, onOpenSetter }) {
+export default function ExtractionPopup({ job, readAt, onDismiss, onOpenSetter }) {
   const rows = extractionRows(job);
   return (
     <Modal
@@ -70,33 +91,39 @@ export default function ExtractionPopup({ job, onDismiss, onOpenSetter }) {
         </Flex>
       }
     >
-      {rows.length ? (
-        <DividerList
-          items={rows.map((row) => ({ ...row, key: row.key }))}
-          renderItem={(row) => (
-            <Flex direction="column" gap={1}>
-              <Flex gap={3} justifyContent="between" alignItems="center" wrap>
-                <Text weight="bold" size="200">
-                  {row.label}
-                </Text>
-                <Text size="200" color="subtle">
-                  {row.source ? `${row.result} · ${row.source}` : row.result}
-                </Text>
+      <Flex direction="column" gap={3}>
+        {/* When the posting was read, above the per-field rows: the owner
+            asked the same question the extraction row answers, so the
+            popup answers it too instead of only listing fields. */}
+        <Text color="subtle">{readSentence(readAt)}</Text>
+        {rows.length ? (
+          <DividerList
+            items={rows.map((row) => ({ ...row, key: row.key }))}
+            renderItem={(row) => (
+              <Flex direction="column" gap={1}>
+                <Flex gap={3} justifyContent="between" alignItems="center" wrap>
+                  <Text weight="bold" size="200">
+                    {row.label}
+                  </Text>
+                  <Text size="200" color="subtle">
+                    {row.source ? `${row.result} · ${row.source}` : row.result}
+                  </Text>
+                </Flex>
+                {row.status === 'not_evidenced' && row.setter ? (
+                  <Button
+                    text={SETTERS[row.setter]}
+                    size="sm"
+                    color="transparent"
+                    onClick={() => onOpenSetter(row.setter)}
+                  />
+                ) : null}
               </Flex>
-              {row.status === 'not_evidenced' && row.setter ? (
-                <Button
-                  text={SETTERS[row.setter]}
-                  size="sm"
-                  color="transparent"
-                  onClick={() => onOpenSetter(row.setter)}
-                />
-              ) : null}
-            </Flex>
-          )}
-        />
-      ) : (
-        <Text color="subtle">This posting has not been read yet.</Text>
-      )}
+            )}
+          />
+        ) : (
+          <Text color="subtle">Nothing was reported field by field.</Text>
+        )}
+      </Flex>
     </Modal>
   );
 }

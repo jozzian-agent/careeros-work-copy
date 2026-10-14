@@ -19,12 +19,15 @@ import FitChip from '../components/FitChip.jsx';
 import StatusSelect from '../components/StatusSelect.jsx';
 import NeedsInputCard, { NeedsInputChip } from '../components/NeedsInputCard.jsx';
 import Requirements, { requirementEntries } from '../components/Requirements.jsx';
-import ExtractionPopup, { extractionRows, notFoundLabels } from '../components/ExtractionPopup.jsx';
+import ExtractionPopup, {
+  extractionRows, notFoundLabels, readSentence, readTimestamp,
+} from '../components/ExtractionPopup.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
 import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 import { prettifyTag } from '../tags.js';
+import { localDate } from '../dates.js';
 
 // JOZ-267 fix round 1 finding 4: a terminal ingest_state means nothing is
 // ever going to advance a still-pending field again on its own (the owner
@@ -45,23 +48,8 @@ const FIT_PLACEHOLDER = 'Not calculated yet';
 // What a section says while the posting is still being read.
 const PENDING_TEXT = 'Being read from the posting.';
 
-// The one label the extraction row reads out of the resolved history, so
-// it can say when the posting was last read. Owned by
-// careeros/history.py READ_LABEL; tests/test_history_registry.py pins the
-// value this page depends on.
-const READ_LABEL = 'Details read from the posting';
-
 // A field with no value says so in the posting's terms, not with a blank.
 const NOT_FOUND = 'Not found in posting';
-
-// The owner's locale format, per the canvas: "14 Oct 2026, 14:10".
-function localDate(ts) {
-  const parsed = new Date(ts);
-  if (!ts || Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleString('en-GB', {
-    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
-}
 
 // Paragraph breaks in the stored posting text are content: they are how
 // the posting was written. One Text per paragraph keeps them.
@@ -267,7 +255,7 @@ export default function JobDetail() {
   const requirements = requirementEntries(job);
   const rows = extractionRows(job);
   const notFound = notFoundLabels(rows);
-  const readEntry = (history || []).filter((entry) => entry.label === READ_LABEL).pop();
+  const readAt = readTimestamp(history);
   const sector = classification?.sector || {};
   const functions = (classification?.function || []).map(
     (key) => functionLabels?.[key]?.label || prettifyTag(key),
@@ -380,7 +368,7 @@ export default function JobDetail() {
             replaces lived on the page permanently. */}
         <Flex gap={3} alignItems="center" wrap>
           <Text color="subtle">
-            {readEntry ? `Read from the posting on ${localDate(readEntry.ts)}.` : 'This posting has not been read yet.'}
+            {readSentence(readAt)}
             {notFound.length ? ` Not found: ${notFound.join(', ')}.` : ''}
           </Text>
           <Button
@@ -531,7 +519,12 @@ export default function JobDetail() {
         />
       ) : null}
       {extractionOpen ? (
-        <ExtractionPopup job={job} onDismiss={() => setExtractionOpen(false)} onOpenSetter={openSetter} />
+        <ExtractionPopup
+          job={job}
+          readAt={readAt}
+          onDismiss={() => setExtractionOpen(false)}
+          onOpenSetter={openSetter}
+        />
       ) : null}
       {pasteOpen ? (
         <PasteDescriptionPopup onSave={handlePasteDescription} onDismiss={() => setPasteOpen(false)} />

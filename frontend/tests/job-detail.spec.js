@@ -337,6 +337,15 @@ test('the extraction popup lists each field with its result and source', async (
   await expect(modal.getByText('Found · Not recorded').first()).toBeVisible();
 });
 
+// Owner round C1: the row's "when" was only on the row, so the popup
+// answered how each field was read without saying when the posting was.
+test('the extraction popup carries the read timestamp above the field rows', async ({ page }) => {
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const modal = page.getByRole('dialog', { name: 'How this was extracted' });
+  await expect(modal.getByText(/^Read from the posting on 14 Oct 2026, \d\d:\d\d\.$/)).toBeVisible();
+});
+
 test('a not-found field links to where it can be set, and that surface opens', async ({ page }) => {
   await mockJobPage(page, {
     ...fixture,
