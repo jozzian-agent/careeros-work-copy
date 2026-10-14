@@ -31,7 +31,12 @@ below. Top to bottom it is now:
    is something to ask: either which company this job is at (candidates
    as radio rows, "Link to this company", "None of these, create new",
    both through `POST /api/jobs/<id>/resolve-review`) or that the posting
-   could not be read ("Paste the posting text", "Try again").
+   could not be read ("Try again", through
+   `POST /api/jobs/<id>/extract`, plus "Paste the posting text" while the
+   posting itself was never fetched, which is the only state the paste
+   endpoint accepts). A failed extraction raises the card even when the
+   posting text is stored: retrying is the only way its details ever
+   arrive, and the text is corrected in Edit job.
 4. Summary, labeled "AI-generated" when a model wrote it.
 5. Requirements, labeled "AI-extracted": must-have and nice-to-have
    lines, with extracted skills as must-have tags.

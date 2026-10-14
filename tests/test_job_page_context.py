@@ -99,12 +99,22 @@ def test_needs_input_company_review_wins_over_read_failure():
     assert result['needs_input']['kind'] == 'company'
 
 
-def test_needs_input_null_when_a_failed_read_still_produced_text():
+def test_needs_input_null_when_a_failed_fetch_produced_text():
     """A posting pasted by hand after a failed fetch leaves the failure
-    state behind but nothing left to ask for."""
+    state behind but nothing left to ask for: text is all the fetch was
+    for."""
+    result = context({'ingest_state': 'fetch_failed', 'description': 'The real posting text.',
+                      'ingest_error': {'stage': 'fetch', 'reason': 'http_404', 'at': 'x'}})
+    assert result['needs_input'] is None
+
+
+def test_needs_input_read_failed_when_extraction_failed_on_stored_text():
+    """A posting whose text arrived and whose extraction then failed has no
+    details and no way to get them without the owner, so the ask stands.
+    Without this the page showed empty sections and no action anywhere."""
     result = context({'ingest_state': 'extract_failed', 'description': 'The real posting text.',
                       'ingest_error': {'stage': 'extract', 'reason': 'empty_content', 'at': 'x'}})
-    assert result['needs_input'] is None
+    assert result['needs_input'] == {'kind': 'read_failed', 'error_reason': 'empty_content'}
 
 
 def test_needs_input_null_on_a_healthy_job():

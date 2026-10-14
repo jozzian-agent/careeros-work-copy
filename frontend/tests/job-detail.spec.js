@@ -40,6 +40,24 @@ const readFailed = {
   needs_input: { kind: 'read_failed', error_reason: 'HTTPError' },
 };
 
+// The other reading failure: the posting text arrived and extraction
+// still produced nothing out of it, so the sections are empty and only a
+// retry can fill them.
+const extractFailed = {
+  ...fixture,
+  job: {
+    ...fixture.job,
+    summary: '',
+    description_structured: null,
+    skills: [],
+    responsibilities: [],
+    ingest_state: 'extract_failed',
+    ingest_error: { stage: 'extract', reason: 'empty_content', at: '2026-10-14T12:00:00+00:00' },
+  },
+  summary_effective: '',
+  needs_input: { kind: 'read_failed', error_reason: 'empty_content' },
+};
+
 test.beforeEach(async ({ page }) => {
   await mockJobPage(page, fixture);
   await mockJobTaxonomy(page, taxonomy);
@@ -176,6 +194,20 @@ test('a reading failure asks for the posting text and offers another try', async
   await modal.getByRole('button', { name: 'Save and extract' }).click();
   await expect.poll(() => requests.length).toBe(1);
   expect(requests[0]).toEqual({ description: 'Senior Engineer role. Build things.' });
+});
+
+test('a failed extraction over stored posting text still offers a retry', async ({ page }) => {
+  await mockJobPage(page, extractFailed);
+  const retries = await mockRetry(page, { body: { ok: true } });
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: 'Needs your input' })).toBeVisible();
+  await expect(page.getByText('The posting text is here, but no details could be read out of it.')).toBeVisible();
+  // Pasting is not one of the ways out here: the endpoint only accepts a
+  // paste while the posting itself was never fetched.
+  await expect(page.getByRole('button', { name: 'Paste the posting text' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect.poll(() => retries.length).toBe(1);
+  expect(retries[0]).toContain('/api/jobs/JOB-001/extract');
 });
 
 // --- While the posting is being read ---

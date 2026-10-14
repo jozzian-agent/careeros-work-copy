@@ -136,11 +136,18 @@ def job_needs_input(job):
     unresolved, so it must raise the company ask with a null review (the
     page then offers creating a company) rather than fall through to a
     read failure, which is not what the owner has to decide.
+
+    Stored posting text settles a failed fetch and not a failed
+    extraction. Text that arrived is all a fetch was ever for, so there is
+    nothing left to ask. An extraction that failed read that same text and
+    still produced no details, and nothing moves that on again by itself,
+    so the ask stands however much text is stored.
     """
     if job.get('company_link_state') == 'needs_review':
         return {'kind': 'company', 'review': job.get('company_review')}
     description = (job.get('description') or '').strip()
-    if job.get('ingest_state') in ('fetch_failed', 'extract_failed') and not description:
+    state = job.get('ingest_state')
+    if state == 'extract_failed' or (state == 'fetch_failed' and not description):
         return {'kind': 'read_failed',
                 'error_reason': (job.get('ingest_error') or {}).get('reason')}
     return None

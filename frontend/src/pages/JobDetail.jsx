@@ -336,6 +336,7 @@ export default function JobDetail() {
             needsInput={needsInput}
             employerName={job.employer_named_in_posting}
             errorStage={job.ingest_error?.stage}
+            hasText={hasDescription}
             busy={resolveBusy}
             onLink={(companyId) => handleResolveReview({ company_id: companyId })}
             onCreate={(name) => handleResolveReview({ create: { name } })}

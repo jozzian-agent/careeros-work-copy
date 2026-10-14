@@ -40,7 +40,7 @@ function readFailureText(reason, stage) {
 }
 
 export default function NeedsInputCard({
-  needsInput, employerName, errorStage, busy, onLink, onCreate, onPaste, onRetry,
+  needsInput, employerName, errorStage, hasText, busy, onLink, onCreate, onPaste, onRetry,
 }) {
   const candidates = needsInput.kind === 'company' ? needsInput.review?.candidates || [] : [];
   const [picked, setPicked] = useState(candidates[0]?.company_id || '');
@@ -48,18 +48,35 @@ export default function NeedsInputCard({
   const [newName, setNewName] = useState(employerName || '');
 
   if (needsInput.kind === 'read_failed') {
+    // Pasting the text is only accepted while the posting itself was never
+    // fetched (careeros/server.py paste_description: stub or fetch_failed,
+    // and a fetch failure is the only one of the two that reaches this
+    // card). Once the text is stored, a failed extraction is retried and
+    // the text itself is corrected in Edit job, so Try again is the one
+    // recovery, and it takes the primary place the paste would have held.
+    const canPaste = errorStage === 'fetch';
     return (
       <SectionCard
         title={NEEDS_INPUT_TITLE}
         variant="needs-input"
         anchorId={NEEDS_INPUT_ANCHOR}
         actions={[
-          <Button key="paste" text="Paste the posting text" color="red" onClick={onPaste} />,
-          <Button key="retry" text="Try again" color="gray" disabled={busy} onClick={onRetry} />,
-        ]}
+          canPaste ? <Button key="paste" text="Paste the posting text" color="red" onClick={onPaste} /> : null,
+          <Button
+            key="retry"
+            text="Try again"
+            color={canPaste ? 'gray' : 'red'}
+            disabled={busy}
+            onClick={onRetry}
+          />,
+        ].filter(Boolean)}
       >
         <Flex direction="column" gap={2}>
-          <Text>Nothing could be read from this posting yet.</Text>
+          <Text>
+            {hasText
+              ? 'The posting text is here, but no details could be read out of it.'
+              : 'Nothing could be read from this posting yet.'}
+          </Text>
           <Text color="subtle">{readFailureText(needsInput.error_reason, errorStage)}</Text>
         </Flex>
       </SectionCard>

@@ -94,8 +94,11 @@ converts template tuples to arrays and rendered Markdown to strings.
   - `needs_input`: the one thing the page asks for, or null. Either
     `{kind: 'company', review}` when `job.company_link_state` is
     `needs_review` (`review` is `job.company_review`, which may be null),
-    or `{kind: 'read_failed', error_reason}` when the posting text never
-    arrived. The company ask always wins.
+    or `{kind: 'read_failed', error_reason}` when reading the posting
+    failed and only the owner can move it on: `extract_failed` whatever
+    text is stored, since the text was read and still produced no details,
+    and `fetch_failed` only while no text arrived at all, since stored
+    text is all the fetch was ever for. The company ask always wins.
   - `reading`: true while the posting is still being read (`llm_pending`,
     or `ingest_state` `fetching`).
   - `summary_effective`: `job.summary`, or null when that summary is just

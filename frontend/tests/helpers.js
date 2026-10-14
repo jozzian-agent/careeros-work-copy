@@ -149,9 +149,16 @@ export async function mockMove(page, { status = 200, body = { ok: true } } = {})
   return requests;
 }
 
-// Mocks POST /api/jobs/<id>/extract (ingest retry).
+// Mocks POST /api/jobs/<id>/extract (ingest retry), recording each
+// request's URL so a spec can assert the retry reached the endpoint for
+// the job it was shown on.
 export async function mockRetry(page, { status = 200, body = { ok: true } } = {}) {
-  await page.route('**/api/jobs/*/extract', (route) => route.fulfill({ status, json: body }));
+  const requests = [];
+  await page.route('**/api/jobs/*/extract', (route) => {
+    requests.push(route.request().url());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
 }
 
 // Mocks POST /api/jobs/intake. `responses` is an array consumed in order,
