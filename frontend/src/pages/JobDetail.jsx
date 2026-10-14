@@ -28,7 +28,7 @@ import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 import { prettifyTag } from '../tags.js';
 import { localDate } from '../dates.js';
-import { requirementEntries } from '../requirements.js';
+import { isGrouped, requirementEntries } from '../requirements.js';
 
 // JOZ-267 fix round 1 finding 4: a terminal ingest_state means nothing is
 // ever going to advance a still-pending field again on its own (the owner
@@ -268,7 +268,7 @@ export default function JobDetail() {
   // whose provenance its AI label answers to: the grouped field once the
   // job has been extracted since package 2, and the flat block plus the
   // skills list for a job that has not been.
-  const grouped = Boolean((job.requirement_groups || []).length);
+  const grouped = isGrouped(job);
   const requirementKeys = grouped ? ['requirement_groups'] : ['description_structured', 'skills'];
   // The rules can group requirements with no model involved (the
   // Re-extract fallback), and that is not AI-extracted, so the label

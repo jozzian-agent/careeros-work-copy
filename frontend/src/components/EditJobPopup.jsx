@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { BannerSlim, Button, Checkbox, Flex, Modal, Tag, Text, TextArea, TextField } from 'gestalt';
-import { FALLBACK_GROUP, LANGUAGES_GROUP, LEVEL_LABELS } from '../requirements.js';
+import { FALLBACK_GROUP, isGrouped, LANGUAGES_GROUP, LEVEL_LABELS } from '../requirements.js';
 
 function linesToList(text) {
   return text.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -53,7 +53,7 @@ function groupFor(groups, text) {
 export default function EditJobPopup({ job, onSave, onDismiss }) {
   const structured = job.description_structured;
   const groups = job.requirement_groups || [];
-  const grouped = groups.length > 0;
+  const grouped = isGrouped(job);
   const storedLanguages = groups.filter((entry) => entry.group === LANGUAGES_GROUP);
   const [title, setTitle] = useState(job.title || '');
   const [url, setUrl] = useState(job.url || '');

@@ -396,6 +396,36 @@ test('grouped requirements replace the flat lists rather than joining them', asy
   await expect(requirements.getByText('Rust experience')).toHaveCount(0);
 });
 
+// The owner emptying the grouped list is a decision, not an absence: the
+// job is still a grouped job, so the flat lists that edit replaced must
+// not come back.
+const emptiedByOwner = {
+  ...grouped,
+  job: {
+    ...grouped.job,
+    requirement_groups: [],
+    field_provenance: { ...grouped.job.field_provenance, requirement_groups: 'user' },
+  },
+};
+
+test('a requirement list the owner emptied does not bring the flat lists back', async ({ page }) => {
+  await mockJobPage(page, emptiedByOwner);
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: 'Responsibilities' })).toBeVisible();
+  await expect(page.getByText('5+ years of platform experience')).toHaveCount(0);
+  await expect(page.getByText('Rust experience')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Requirements' })).toHaveCount(0);
+});
+
+test('Edit job opens an emptied requirement list empty', async ({ page }) => {
+  await mockJobPage(page, emptiedByOwner);
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await expect(modal.getByRole('textbox', { name: 'Requirements, must have' })).toHaveValue('');
+  await expect(modal.getByRole('textbox', { name: 'Requirements, nice to have' })).toHaveValue('');
+});
+
 test('requirements the rules grouped carry no AI label', async ({ page }) => {
   await mockJobPage(page, {
     ...grouped,

@@ -44,6 +44,21 @@ export function groupedEntries(job) {
   return (job.requirement_groups || []).filter(usableEntry);
 }
 
+// Whether this job's requirements are the grouped ones. The one answer,
+// because the section renders one shape, Edit job writes the shape the
+// section renders, and the AI label answers for that same shape.
+//
+// The stored list alone cannot say. Every job carries the key, empty
+// until something writes it, so an owner who clears the list in Edit job
+// would watch the flat lists their edit was meant to replace come back,
+// and pressing Save would write the field they had just emptied. What
+// tells "emptied on purpose" from "not grouped yet" is whether anything
+// ever wrote the field, and field_provenance is the record of that: it
+// only carries a key some writer stamped.
+export function isGrouped(job) {
+  return Boolean(groupedEntries(job).length || (job.field_provenance || {}).requirement_groups);
+}
+
 // The grouped requirements the job stores, or, for a job that has none,
 // the pre-package-2 adapter. `requirements` is what the posting insists
 // on, `nice_to_have` what it would like, and an extracted skill is
@@ -58,6 +73,5 @@ function legacyRequirementEntries(job) {
 }
 
 export function requirementEntries(job) {
-  const groups = groupedEntries(job);
-  return groups.length ? groups : legacyRequirementEntries(job);
+  return isGrouped(job) ? groupedEntries(job) : legacyRequirementEntries(job);
 }
