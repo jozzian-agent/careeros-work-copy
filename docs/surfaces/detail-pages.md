@@ -13,11 +13,54 @@ Surface: `/jobs/<id>`, `/experiences/<id>`, `/companies/<id>`,
 Status: implemented 2026-10-12 (JOZ-280). Owner click-test pending.
 
 2026-10-14 (detail-pages realignment): `/companies/<id>/taxonomy` is
-removed, page and JSON endpoint both, so the Company detail page's
-Classification card is read-only and links nowhere; inline editing of
-sector and size arrives with a later frontend round. Everything below
-about that sub-page is history. The job and company detail JSON contracts
-the pages read are in [JSON page contracts](json-api.md).
+removed, page and JSON endpoint both. Everything below about that
+sub-page is history. The job and company detail JSON contracts the pages
+read are in [JSON page contracts](json-api.md).
+
+2026-10-14 (detail-pages realignment, package 1): the Job page is rebuilt
+to the approved canvas and no longer follows the shared section order
+below. Top to bottom it is now:
+
+1. `DetailHeader`: back link, the JOB label with the "Needs your input"
+   chip beside it (shown only when the card below is, and linking to it),
+   title, company link, then location, added date and the posting link.
+   Edit job and Delete are both gray secondary.
+2. Status (`StatusSelect`) and Fit, where Fit reads "Not calculated yet":
+   scoring is not built, so there is no control.
+3. The one needs-input card, when the backend's `needs_input` says there
+   is something to ask: either which company this job is at (candidates
+   as radio rows, "Link to this company", "None of these, create new",
+   both through `POST /api/jobs/<id>/resolve-review`) or that the posting
+   could not be read ("Paste the posting text", "Try again").
+4. Summary, labeled "AI-generated" when a model wrote it.
+5. Requirements, labeled "AI-extracted": must-have and nice-to-have
+   lines, with extracted skills as must-have tags.
+6. Responsibilities, labeled "AI-extracted".
+7. One extraction row: when the posting was last read, which fields were
+   not found in it, and "How this was extracted", which opens a popup
+   listing every covered field with its result (Found, Not found in
+   posting, Failed, Pending) and its source (Page data, AI, You). A field
+   that was not found links to the surface that can set it. This popup
+   replaced the permanent Extraction card and its eight status badges.
+8. Original posting, collapsed, one card, the posting's own paragraphs.
+9. Details, collapsed: source, posted date and "Check if still online"
+   with its result line.
+10. Classification: the sector, marked "From the company" when it is
+    inherited from the linked company, the function and the tags, each
+    reading "Not found in posting" when the posting named none. "Edit
+    classification" opens the shared popup.
+11. Notes, with a dashed "Add a note" box when there are none, which
+    opens Edit job at the notes field.
+12. History: the visible events only, with local dates.
+
+While the posting is being read, a strip sits under Status and Fit and
+the sections with nothing in them yet say "Being read from the posting."
+The strip is gone once reading is done.
+
+Edit job now carries every machine-made field the page labels (summary,
+both requirement lists, responsibilities, skills as removable tags), so
+no AI label points at a field the owner cannot correct. The per-section
+Edit button beside the AI label is gone; there is one editing surface.
 
 ## Purpose
 

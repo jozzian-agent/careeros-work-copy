@@ -189,6 +189,18 @@ export async function mockPasteDescription(page, { status = 200, body = { ok: tr
   return requests;
 }
 
+// Mocks POST /api/jobs/<id>/resolve-review (the owner settling which
+// company a needs_review job belongs to), recording each request's parsed
+// body so specs can assert the candidate id and the review token sent.
+export async function mockResolveReview(page, { status = 200, body = { ok: true } } = {}) {
+  const requests = [];
+  await page.route('**/api/jobs/*/resolve-review', (route) => {
+    requests.push(route.request().postDataJSON());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
 // Mocks POST /api/jobs/<id>/promote.
 export async function mockPromote(page, { status = 200, body = { ok: true } } = {}) {
   await page.route('**/api/jobs/*/promote', (route) => route.fulfill({ status, json: body }));

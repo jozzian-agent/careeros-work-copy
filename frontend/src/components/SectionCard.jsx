@@ -21,6 +21,9 @@ export default function SectionCard({ title, aiLabel, variant = 'default', actio
   return (
     <Box
       id={anchorId}
+      // Lets a spec assert about one section's own contents, the same way
+      // the board's job cards are addressed.
+      data-testid={`section-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
       rounding={4}
       borderStyle={needsInput ? 'none' : 'sm'}
       padding={6}

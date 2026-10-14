@@ -1,42 +1,67 @@
-import { useState } from 'react';
-import { BannerSlim, Button, Checkbox, Flex, Modal, TextArea, TextField } from 'gestalt';
+import { useEffect, useRef, useState } from 'react';
+import { BannerSlim, Button, Checkbox, Flex, Modal, Tag, Text, TextArea, TextField } from 'gestalt';
 
 function linesToList(text) {
   return text.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
-// Edit job: title, posting link, location, remote, notes -- the record's
-// directly owner-editable text fields with no dedicated control elsewhere
-// on the Job detail page (Status and Fit are their own dropdowns under the
-// header; Function/tags are Edit criteria). Per the approved JOZ-280 Phase
-// A wireframe (frontend/wireframes/joz280/edit-job.html). Saves via the
-// existing PUT /api/jobs/<id>.
+// Edit job: every owner-editable field of a job record that has no
+// dedicated control elsewhere on the Job detail page (Status is its own
+// control under the header; function and tags are Edit classification).
 //
-// JOZ-267 fix round 1 finding 6: generated requirements/nice_to_have have
-// no edit surface of their own, so a wrong AI-generated line can never be
-// corrected. This is the existing edit surface every other owner-editable
-// job field already saves through, extended with the same two lists; only
-// description_structured's requirements/nice_to_have change here, so
+// The page labels the machine-made fields (summary, requirements,
+// responsibilities, skills) as AI-made, so the owner must be able to
+// correct every one of them: an AI label on a field with no edit surface
+// is a dead end. The label disappears on its own once a correction saves,
+// because the PUT stamps owner provenance on the keys it carries.
+//
+// Only description_structured's requirement lists change here, so
 // summary/method are carried over unchanged and the whole key is omitted
 // when neither list actually changed, to avoid marking owner provenance
-// on an untouched field.
-export default function EditJobPopup({ job, onSave, onDismiss }) {
+// on an untouched field. The same rule applies to the summary,
+// responsibilities and skills.
+//
+// `focus` names the field the page wants the owner to land on ('notes'
+// from the empty Notes section's "Add a note").
+export default function EditJobPopup({ job, focus, onSave, onDismiss }) {
   const structured = job.description_structured;
   const [title, setTitle] = useState(job.title || '');
   const [url, setUrl] = useState(job.url || '');
   const [location, setLocation] = useState(job.location || '');
   const [remoteOk, setRemoteOk] = useState(Boolean(job.remote_ok));
   const [notes, setNotes] = useState(job.notes || '');
+  const [summary, setSummary] = useState(job.summary || '');
   const [requirements, setRequirements] = useState((structured?.requirements || []).join('\n'));
   const [niceToHave, setNiceToHave] = useState((structured?.nice_to_have || []).join('\n'));
+  const [responsibilities, setResponsibilities] = useState((job.responsibilities || []).join('\n'));
+  const [skills, setSkills] = useState(job.skills || []);
+  const [newSkill, setNewSkill] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const notesRef = useRef(null);
+
+  useEffect(() => {
+    if (focus === 'notes' && notesRef.current) notesRef.current.focus();
+  }, [focus]);
+
+  function addSkill() {
+    const value = newSkill.trim();
+    if (!value || skills.includes(value)) return;
+    setSkills((prev) => [...prev, value]);
+    setNewSkill('');
+  }
 
   async function handleSave() {
     setBusy(true);
     setError(null);
     try {
       const payload = { title: title.trim(), url: url.trim(), location, remote_ok: remoteOk, notes };
+      if (summary !== (job.summary || '')) payload.summary = summary;
+      const newResponsibilities = linesToList(responsibilities);
+      if (newResponsibilities.join('\n') !== (job.responsibilities || []).join('\n')) {
+        payload.responsibilities = newResponsibilities;
+      }
+      if (skills.join('\n') !== (job.skills || []).join('\n')) payload.skills = skills;
       if (structured) {
         const newRequirements = linesToList(requirements);
         const newNiceToHave = linesToList(niceToHave);
@@ -90,17 +115,17 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
           onChange={({ checked }) => setRemoteOk(checked)}
         />
         <TextArea
-          id="edit-job-notes"
-          label="Notes"
-          placeholder="Your private notes about this job"
-          rows={4}
-          value={notes}
-          onChange={({ value }) => setNotes(value)}
+          id="edit-job-summary"
+          label="Summary"
+          helperText="What the role is, in your own words."
+          rows={3}
+          value={summary}
+          onChange={({ value }) => setSummary(value)}
         />
         {structured ? (
           <TextArea
             id="edit-job-requirements"
-            label="Requirements"
+            label="Requirements, must have"
             helperText="One requirement per line."
             rows={4}
             value={requirements}
@@ -110,15 +135,61 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
         {structured ? (
           <TextArea
             id="edit-job-nice-to-have"
-            label="Nice to have"
+            label="Requirements, nice to have"
             helperText="One item per line."
             rows={3}
             value={niceToHave}
             onChange={({ value }) => setNiceToHave(value)}
           />
         ) : null}
+        <TextArea
+          id="edit-job-responsibilities"
+          label="Responsibilities"
+          helperText="One responsibility per line."
+          rows={3}
+          value={responsibilities}
+          onChange={({ value }) => setResponsibilities(value)}
+        />
+        <Flex direction="column" gap={2}>
+          <Text size="200" weight="bold">
+            Skills
+          </Text>
+          {skills.length ? (
+            <Flex gap={2} wrap>
+              {skills.map((skill) => (
+                <Tag
+                  key={skill}
+                  text={skill}
+                  accessibilityRemoveIconLabel={`Remove ${skill}`}
+                  onRemove={() => setSkills((prev) => prev.filter((value) => value !== skill))}
+                />
+              ))}
+            </Flex>
+          ) : (
+            <Text color="subtle" size="200">
+              No skills yet.
+            </Text>
+          )}
+          <Flex gap={2} alignItems="end">
+            <TextField
+              id="edit-job-new-skill"
+              label="Add a skill"
+              value={newSkill}
+              onChange={({ value }) => setNewSkill(value)}
+            />
+            <Button text="Add" color="gray" disabled={!newSkill.trim()} onClick={addSkill} />
+          </Flex>
+        </Flex>
+        <TextArea
+          ref={notesRef}
+          id="edit-job-notes"
+          label="Notes"
+          placeholder="Your private notes about this job"
+          rows={4}
+          value={notes}
+          onChange={({ value }) => setNotes(value)}
+        />
       </Flex>
     </Modal>
   );
 }
-

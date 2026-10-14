@@ -18,6 +18,7 @@
     "enriched": true,
     "summary": "Fictional role summary for test fixtures only.",
     "summary_source": "ai",
+    "ingest_source": "llm",
     "description": "Fictional original posting text, long enough to show the collapsible section in tests.",
     "skills": ["Python", "Kubernetes"],
     "responsibilities": ["Own the platform roadmap", "Mentor two engineers"],
@@ -61,6 +62,18 @@
   "watch_eligible": true,
   "watch_reason": "",
   "llm_pending": false,
+  "history": [
+    { "ts": "2026-09-01T12:05:00+00:00", "label": "Job added", "detail": "Added to New" },
+    { "ts": "2026-10-14T12:10:00+00:00", "label": "Details read from the posting", "detail": null }
+  ],
+  "classification": {
+    "sector": { "value": "Information and communication", "source": "company" },
+    "function": ["engineering"],
+    "tags": ["tool:python"]
+  },
+  "needs_input": null,
+  "reading": false,
+  "summary_effective": "Fictional role summary for test fixtures only.",
   "fit": null,
   "fit_placeholder": "Not calculated yet"
 }

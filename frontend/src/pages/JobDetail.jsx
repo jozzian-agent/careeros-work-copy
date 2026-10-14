@@ -1,30 +1,30 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Accordion, BannerSlim, Badge, Box, Button, Flex, Link, Text } from 'gestalt';
+import { Accordion, Badge, BannerSlim, Box, Button, Flex, Link, Text } from 'gestalt';
 import {
   checkPosting,
   deleteJob,
   fetchJobPage,
   fetchJobTaxonomy,
   pasteDescription,
+  resolveReview,
   retryIngest,
   updateJob,
 } from '../api/jobs.js';
 import DetailHeader from '../components/DetailHeader.jsx';
-import SectionCard, { DETAIL_MAX_WIDTH, DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
+import SectionCard, {
+  DETAIL_MAX_WIDTH, DividerList, EmptyState, KeyValueGrid,
+} from '../components/SectionCard.jsx';
 import FitChip from '../components/FitChip.jsx';
 import StatusSelect from '../components/StatusSelect.jsx';
+import NeedsInputCard, { NEEDS_INPUT_ANCHOR, NEEDS_INPUT_TITLE } from '../components/NeedsInputCard.jsx';
+import Requirements, { requirementEntries } from '../components/Requirements.jsx';
+import ExtractionPopup, { extractionRows, notFoundLabels } from '../components/ExtractionPopup.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
-import EditCriteriaPopup from '../components/EditCriteriaPopup.jsx';
+import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
-
-const INGEST_MESSAGE = {
-  fetch_failed: 'Fetching the posting failed.',
-  extract_failed: 'Extraction failed.',
-  stub: 'Details filling in…',
-  fetched: 'Details filling in…',
-};
+import { prettifyTag } from '../tags.js';
 
 // JOZ-267 fix round 1 finding 4: a terminal ingest_state means nothing is
 // ever going to advance a still-pending field again on its own (the owner
@@ -33,25 +33,6 @@ const INGEST_MESSAGE = {
 // must not poll forever once nothing can change it.
 const TERMINAL_INGEST_STATES = ['complete', 'fetch_failed', 'extract_failed'];
 
-// JOZ-267 Section 3: field_status values the job detail page must show,
-// one row per covered field. Order matches careeros/ingest.py STATUS_FIELDS.
-const FIELD_LABELS = {
-  title: 'Title',
-  company: 'Company',
-  location: 'Location',
-  function: 'Function',
-  seniority: 'Seniority',
-  employment_type: 'Employment type',
-  skills: 'Skills',
-  description_structured: 'Description',
-};
-const STATUS_ORDER = Object.keys(FIELD_LABELS);
-const STATUS_BADGE = {
-  pending: { type: 'info', text: 'Pending' },
-  done: { type: 'success', text: 'Done' },
-  failed: { type: 'error', text: 'Failed' },
-  not_evidenced: { type: 'warning', text: 'Not evidenced' },
-};
 const POSTING_QUALITY_NOTICE = {
   thin: 'This posting has very little text; extraction will be limited.',
 };
@@ -61,14 +42,53 @@ const POSTING_QUALITY_NOTICE = {
 // older payload that does not carry the key yet.
 const FIT_PLACEHOLDER = 'Not calculated yet';
 
+// What a section says while the posting is still being read.
+const PENDING_TEXT = 'Being read from the posting.';
+
+// The one label the extraction row reads out of the resolved history, so
+// it can say when the posting was last read. Owned by
+// careeros/history.py READ_LABEL; tests/test_history_registry.py pins the
+// value this page depends on.
+const READ_LABEL = 'Details read from the posting';
+
+// A field with no value says so in the posting's terms, not with a blank.
+const NOT_FOUND = 'Not found in posting';
+
+// The owner's locale format, per the canvas: "14 Oct 2026, 14:10".
+function localDate(ts) {
+  const parsed = new Date(ts);
+  if (!ts || Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// Paragraph breaks in the stored posting text are content: they are how
+// the posting was written. One Text per paragraph keeps them.
+function paragraphs(text) {
+  return String(text || '').split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+}
+
+// A machine wrote this section unless the owner has since corrected it.
+// `machine` is what the extractor recorded about how the text was
+// produced (summary_source, description_structured.method,
+// ingest_source); field_provenance records who last touched it, and the
+// owner always wins, so a corrected field loses its label.
+function aiLabel(job, keys, machine, kind) {
+  const provenance = job.field_provenance || {};
+  const corrected = keys.some((key) => provenance[key] === 'user');
+  return machine && !corrected ? kind : null;
+}
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [page, setPage] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [criteriaOpen, setCriteriaOpen] = useState(false);
-  const [criteria, setCriteria] = useState(null);
+  const [editFocus, setEditFocus] = useState(null);
+  const [classificationOpen, setClassificationOpen] = useState(false);
+  const [taxonomy, setTaxonomy] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -76,6 +96,8 @@ export default function JobDetail() {
   const [checkBusy, setCheckBusy] = useState(false);
   const [checkResult, setCheckResult] = useState(null);
   const [pasteOpen, setPasteOpen] = useState(false);
+  const [extractionOpen, setExtractionOpen] = useState(false);
+  const [resolveBusy, setResolveBusy] = useState(false);
 
   const load = useCallback(() => {
     fetchJobPage(id)
@@ -125,6 +147,8 @@ export default function JobDetail() {
   const {
     job, company, statuses, markdown, has_description: hasDescription,
     watch_eligible: watchEligible, watch_reason: watchReason,
+    history, classification, needs_input: needsInput, reading,
+    summary_effective: summaryEffective, function_labels: functionLabels,
   } = page;
 
   async function handleStatusChange(status) {
@@ -139,23 +163,40 @@ export default function JobDetail() {
   async function handleSaveJob(fields) {
     await updateJob(id, fields);
     setEditOpen(false);
+    setEditFocus(null);
     load();
   }
 
-  async function openCriteria() {
+  function openEdit(focus = null) {
+    setEditFocus(focus);
+    setEditOpen(true);
+  }
+
+  async function openClassification() {
     try {
       const data = await fetchJobTaxonomy(id);
-      setCriteria(data);
-      setCriteriaOpen(true);
+      setTaxonomy(data);
+      setClassificationOpen(true);
     } catch (err) {
       setActionError(err.message);
     }
   }
 
-  async function handleSaveCriteria(fields) {
+  async function handleSaveClassification(fields) {
     await updateJob(id, fields);
-    setCriteriaOpen(false);
+    setClassificationOpen(false);
     load();
+  }
+
+  // The extraction popup sends the owner to whichever surface can set the
+  // field it could not find.
+  function openSetter(setter) {
+    setExtractionOpen(false);
+    if (setter === 'classification') {
+      openClassification();
+      return;
+    }
+    openEdit();
   }
 
   async function handleRetry() {
@@ -173,6 +214,22 @@ export default function JobDetail() {
     await load();
   }
 
+  // Both company answers go through the same endpoint with the review
+  // revision the owner actually saw, so a review that moved on in the
+  // meantime fails loudly instead of linking the wrong company.
+  async function handleResolveReview(payload) {
+    setResolveBusy(true);
+    setActionError(null);
+    try {
+      await resolveReview(id, { ...payload, review_token: needsInput?.review?.token });
+      await load();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setResolveBusy(false);
+    }
+  }
+
   async function handleCheckPosting() {
     setCheckBusy(true);
     setCheckResult(null);
@@ -184,7 +241,7 @@ export default function JobDetail() {
       }
       const messages = {
         not_watched: data.reason,
-        error: 'Error: posting unreachable; will retry on the next scan.',
+        error: 'Error: posting unreachable.',
         gone: 'Gone: posting previously unavailable.',
       };
       setCheckResult(messages[data.watch_status] || 'Unchanged');
@@ -206,8 +263,16 @@ export default function JobDetail() {
     }
   }
 
-  const dates = job.added ? `Added ${job.added}` : null;
-  const ingestMessage = INGEST_MESSAGE[job.ingest_state];
+  const structured = job.description_structured || {};
+  const requirements = requirementEntries(job);
+  const rows = extractionRows(job);
+  const notFound = notFoundLabels(rows);
+  const readEntry = (history || []).filter((entry) => entry.label === READ_LABEL).pop();
+  const sector = classification?.sector || {};
+  const functions = (classification?.function || []).map(
+    (key) => functionLabels?.[key]?.label || prettifyTag(key),
+  );
+  const tags = (classification?.tags || []).map(prettifyTag);
 
   return (
     <Box padding={6}>
@@ -216,12 +281,22 @@ export default function JobDetail() {
           type="JOB"
           backHref="/jobs"
           backLabel="Jobs"
+          chip={needsInput ? (
+            <Link href={`#${NEEDS_INPUT_ANCHOR}`} display="inlineBlock">
+              <Badge type="recommendation" text={NEEDS_INPUT_TITLE} />
+            </Link>
+          ) : null}
           title={job.title}
           subtitle={company ? <Link href={`/companies/${encodeURIComponent(company.id)}`}>{company.name}</Link> : null}
           location={job.location}
-          dates={dates}
+          dates={job.added ? `Added ${job.added}` : null}
+          meta={job.url ? (
+            <Link href={job.url} target="blank" display="inlineBlock" externalLinkIcon="default">
+              <Text color="link">Open posting</Text>
+            </Link>
+          ) : null}
           editLabel="Edit job"
-          onEdit={() => setEditOpen(true)}
+          onEdit={() => openEdit()}
           onDelete={() => setDeleteOpen(true)}
         />
         {actionError ? <BannerSlim type="error" message={actionError} onDismiss={() => setActionError(null)} /> : null}
@@ -249,145 +324,168 @@ export default function JobDetail() {
             </Box>
           </Box>
         </Flex>
-        {ingestMessage ? (
-          <SectionCard title="Posting status">
-            <Flex gap={3} alignItems="center" wrap>
-              <Text color="subtle">{ingestMessage}</Text>
-              {(job.ingest_state === 'fetch_failed' || job.ingest_state === 'extract_failed') && (
-                <Button text="Retry" size="sm" onClick={handleRetry} />
-              )}
-              {job.ingest_state === 'fetch_failed' && (
-                <Button text="Paste posting text manually" size="sm" color="gray" onClick={() => setPasteOpen(true)} />
-              )}
-            </Flex>
-          </SectionCard>
+        {/* The reading strip: present only while the posting is being read,
+            gone the moment it is done, so it is never a permanent fixture. */}
+        {reading ? (
+          <Box
+            padding={3}
+            rounding={4}
+            dangerouslySetInlineStyle={{ __style: { background: 'var(--color-brand-wash-blue)' } }}
+          >
+            <Text>Reading the posting now. The sections below fill in as the details arrive.</Text>
+          </Box>
+        ) : null}
+        {needsInput ? (
+          <NeedsInputCard
+            needsInput={needsInput}
+            employerName={job.employer_named_in_posting}
+            errorStage={job.ingest_error?.stage}
+            busy={resolveBusy}
+            onLink={(companyId) => handleResolveReview({ company_id: companyId })}
+            onCreate={(name) => handleResolveReview({ create: { name } })}
+            onPaste={() => setPasteOpen(true)}
+            onRetry={handleRetry}
+          />
         ) : null}
         {job.posting_quality && POSTING_QUALITY_NOTICE[job.posting_quality] ? (
           <BannerSlim type="warning" message={POSTING_QUALITY_NOTICE[job.posting_quality]} />
         ) : null}
-        {job.field_status && Object.keys(job.field_status).length ? (
-          <SectionCard title="Extraction">
-            <Flex direction="column" gap={3}>
-              <Flex gap={2} wrap>
-                {STATUS_ORDER.filter((field) => job.field_status[field]).map((field) => {
-                  const badge = STATUS_BADGE[job.field_status[field]];
-                  return (
-                    <Flex key={field} gap={1} alignItems="center">
-                      <Text size="200">{FIELD_LABELS[field]}</Text>
-                      {badge ? <Badge type={badge.type} text={badge.text} /> : null}
-                    </Flex>
-                  );
-                })}
-              </Flex>
-              {job.description_structured?.requirements?.length || job.description_structured?.nice_to_have?.length ? (
-                <>
-                  {job.description_structured.method === 'llm'
-                  && job.field_provenance?.description_structured !== 'user' ? (
-                    <Flex gap={2} alignItems="center">
-                      <Badge type="info" text="AI-generated" />
-                      <Button text="Edit" size="sm" color="gray" onClick={() => setEditOpen(true)} />
-                    </Flex>
-                  ) : null}
-                  {job.description_structured.requirements?.length ? (
-                    <Box>
-                      <Text weight="bold" size="200">
-                        Requirements
-                      </Text>
-                      <DividerList items={job.description_structured.requirements} />
-                    </Box>
-                  ) : null}
-                  {job.description_structured.nice_to_have?.length ? (
-                    <Box>
-                      <Text weight="bold" size="200">
-                        Nice to have
-                      </Text>
-                      <DividerList items={job.description_structured.nice_to_have} />
-                    </Box>
-                  ) : null}
-                </>
-              ) : null}
-            </Flex>
+        {summaryEffective || reading ? (
+          <SectionCard
+            title="Summary"
+            aiLabel={aiLabel(job, ['summary'], job.summary_source === 'ai', 'generated')}
+          >
+            {summaryEffective ? <Text>{summaryEffective}</Text> : <Text color="subtle">{PENDING_TEXT}</Text>}
           </SectionCard>
         ) : null}
-        {job.company_link_state === 'needs_review' ? (
-          <SectionCard title="Company needs your input">
-            <Text color="subtle">Confirm which company this job belongs to.</Text>
+        {requirements.length || reading ? (
+          <SectionCard
+            title="Requirements"
+            aiLabel={aiLabel(job, ['description_structured', 'skills'], structured.method === 'llm', 'extracted')}
+          >
+            {requirements.length ? <Requirements entries={requirements} /> : <Text color="subtle">{PENDING_TEXT}</Text>}
           </SectionCard>
         ) : null}
-        {job.summary ? (
-          <SectionCard title="Summary" aiLabel={job.summary_source === 'ai' ? 'generated' : null}>
-            <Text>{job.summary}</Text>
+        {job.responsibilities?.length || reading ? (
+          <SectionCard
+            title="Responsibilities"
+            aiLabel={aiLabel(job, ['responsibilities'], job.ingest_source === 'llm', 'extracted')}
+          >
+            {job.responsibilities?.length ? (
+              <DividerList items={job.responsibilities} />
+            ) : (
+              <Text color="subtle">{PENDING_TEXT}</Text>
+            )}
           </SectionCard>
         ) : null}
-        {hasDescription ? (
-          <SectionCard title="Content">
-            <Accordion id="original-posting-text" title="Original posting text (from source)">
-              <Text>{job.description}</Text>
-            </Accordion>
-          </SectionCard>
-        ) : null}
-        {job.skills?.length ? (
-          <SectionCard title="Skills">
-            <Flex gap={2} wrap>
-              {job.skills.map((skill) => (
-                <Badge key={skill} text={skill} />
-              ))}
-            </Flex>
-          </SectionCard>
-        ) : null}
-        {job.responsibilities?.length ? (
-          <SectionCard title="Responsibilities">
-            <DividerList items={job.responsibilities} />
-          </SectionCard>
-        ) : null}
-        {job.background ? (
-          <SectionCard title="Background required">
-            <Text>{job.background}</Text>
-          </SectionCard>
-        ) : null}
-        {job.certifications?.length ? (
-          <SectionCard title="Certifications">
-            <DividerList items={job.certifications} />
-          </SectionCard>
-        ) : null}
-        <SectionCard title="Classification">
-          {job.function?.length || job.tags?.length ? (
-            <Text>Function, sector and tags are set.</Text>
-          ) : (
-            <Text color="subtle">Function, sector and tags are not set yet.</Text>
-          )}
-          <Box>
-            <Button text="Edit classification" color="gray" size="sm" onClick={openCriteria} />
-          </Box>
-        </SectionCard>
-        <SectionCard title="Details">
-          <KeyValueGrid
-            entries={[
-              ['Location', job.location || 'Unknown'],
-              ['Source', job.source || 'Unknown'],
-              ['Posted date', job.posted_date || 'Unknown'],
-              ['Added date', job.added || 'Unknown'],
-            ]}
+        {/* The extraction row: one line about the last read, and the way
+            into the detail. The eight per-field status badges this
+            replaces lived on the page permanently. */}
+        <Flex gap={3} alignItems="center" wrap>
+          <Text color="subtle">
+            {readEntry ? `Read from the posting on ${localDate(readEntry.ts)}.` : 'This posting has not been read yet.'}
+            {notFound.length ? ` Not found: ${notFound.join(', ')}.` : ''}
+          </Text>
+          <Button
+            text="How this was extracted"
+            size="sm"
+            color="transparent"
+            onClick={() => setExtractionOpen(true)}
           />
-          {job.url ? (
-            <Box>
-              <Link href={job.url} target="blank" display="inlineBlock">
-                <Text color="link">Open posting</Text>
-              </Link>
-            </Box>
-          ) : null}
-          <Flex gap={3} alignItems="center" wrap>
-            <Button
-              text="Check posting"
-              size="sm"
-              color="gray"
-              disabled={!watchEligible || checkBusy}
-              accessibilityLabel={!watchEligible ? watchReason : 'Check posting'}
-              onClick={handleCheckPosting}
-            />
-            <div role="status" aria-live="polite">
-              {checkBusy ? <Text color="subtle">Checking…</Text> : checkResult ? <Text color="subtle">{checkResult}</Text> : null}
-            </div>
+        </Flex>
+        {/* Collapsed by default, and each in its own Accordion.Expandable:
+            one instance only ever keeps one item open, and opening the
+            posting must not close Details. No wrapper card around either,
+            since the accordion is itself the card. */}
+        {hasDescription ? (
+          <Accordion.Expandable
+            id="original-posting"
+            // Gestalt names the toggle "Expand section" by default, which
+            // is the same name on both accordions here.
+            accessibilityExpandLabel="Show the original posting"
+            accessibilityCollapseLabel="Hide the original posting"
+            items={[{
+              title: 'Original posting',
+              children: (
+                <Flex direction="column" gap={3}>
+                  {paragraphs(job.description).map((paragraph, index) => (
+                    <Text key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</Text>
+                  ))}
+                </Flex>
+              ),
+            }]}
+          />
+        ) : null}
+        <Accordion.Expandable
+          id="job-details"
+          accessibilityExpandLabel="Show details"
+          accessibilityCollapseLabel="Hide details"
+          items={[{
+            title: 'Details',
+            children: (
+              <Flex direction="column" gap={3}>
+                <KeyValueGrid
+                  entries={[
+                    ['Source', job.source || 'Unknown'],
+                    ['Posted', job.posted_date || 'Unknown'],
+                  ]}
+                />
+                <Flex gap={3} alignItems="center" wrap>
+                  <Button
+                    text="Check if still online"
+                    size="sm"
+                    color="gray"
+                    disabled={!watchEligible || checkBusy}
+                    accessibilityLabel={!watchEligible ? watchReason : 'Check if still online'}
+                    onClick={handleCheckPosting}
+                  />
+                  <div role="status" aria-live="polite">
+                    {checkBusy ? <Text color="subtle">Checking…</Text>
+                      : checkResult ? <Text color="subtle">{checkResult}</Text> : null}
+                  </div>
+                </Flex>
+              </Flex>
+            ),
+          }]}
+        />
+        <SectionCard
+          title="Classification"
+          actions={<Button text="Edit classification" color="gray" size="sm" onClick={openClassification} />}
+        >
+          <Flex direction="column" gap={3}>
+            <Flex direction="column" gap={1}>
+              <Text size="200" color="subtle">
+                Sector
+              </Text>
+              <Text>{sector.value || NOT_FOUND}</Text>
+              {/* Sector belongs to the company, not the posting: a job
+                  with none of its own inherits it, and says so. */}
+              {sector.source === 'company' ? <Text size="200" color="subtle">From the company</Text> : null}
+            </Flex>
+            <Flex direction="column" gap={1}>
+              <Text size="200" color="subtle">
+                Function
+              </Text>
+              {functions.length ? (
+                <Flex gap={2} wrap>
+                  {functions.map((label) => <Badge key={label} text={label} />)}
+                </Flex>
+              ) : (
+                <Text>{NOT_FOUND}</Text>
+              )}
+            </Flex>
+            <Flex direction="column" gap={1}>
+              <Text size="200" color="subtle">
+                Tags
+              </Text>
+              {tags.length ? (
+                <Flex gap={2} wrap>
+                  {tags.map((label) => <Badge key={label} text={label} />)}
+                </Flex>
+              ) : (
+                <Text>{NOT_FOUND}</Text>
+              )}
+            </Flex>
           </Flex>
         </SectionCard>
         <SectionCard title="Notes">
@@ -396,26 +494,47 @@ export default function JobDetail() {
               <span dangerouslySetInnerHTML={{ __html: markdown }} />
             </Box>
           ) : (
-            <Text color="subtle">No notes yet.</Text>
+            <EmptyState
+              text="No notes yet."
+              action={<Button text="Add a note" size="sm" color="gray" onClick={() => openEdit('notes')} />}
+            />
           )}
         </SectionCard>
-        {job.history?.length ? (
+        {history?.length ? (
           <SectionCard title="History">
             <DividerList
-              items={job.history.slice().reverse()}
+              items={history.slice().reverse()}
               renderItem={(entry) => (
-                <Flex justifyContent="between" gap={3}>
-                  <Text>{entry.detail || entry.event}</Text>
-                  <Text color="subtle">{entry.ts}</Text>
+                <Flex justifyContent="between" gap={3} wrap>
+                  <Text>{entry.label}</Text>
+                  <Text color="subtle">{localDate(entry.ts)}</Text>
                 </Flex>
               )}
             />
           </SectionCard>
         ) : null}
       </Flex>
-      {editOpen ? <EditJobPopup job={job} onSave={handleSaveJob} onDismiss={() => setEditOpen(false)} /> : null}
-      {criteriaOpen && criteria ? (
-        <EditCriteriaPopup taxonomy={criteria} onSave={handleSaveCriteria} onDismiss={() => setCriteriaOpen(false)} />
+      {editOpen ? (
+        <EditJobPopup
+          job={job}
+          focus={editFocus}
+          onSave={handleSaveJob}
+          onDismiss={() => {
+            setEditOpen(false);
+            setEditFocus(null);
+          }}
+        />
+      ) : null}
+      {classificationOpen && taxonomy ? (
+        <EditClassificationPopup
+          mode="job"
+          taxonomy={taxonomy}
+          onSave={handleSaveClassification}
+          onDismiss={() => setClassificationOpen(false)}
+        />
+      ) : null}
+      {extractionOpen ? (
+        <ExtractionPopup job={job} onDismiss={() => setExtractionOpen(false)} onOpenSetter={openSetter} />
       ) : null}
       {pasteOpen ? (
         <PasteDescriptionPopup onSave={handlePasteDescription} onDismiss={() => setPasteOpen(false)} />
