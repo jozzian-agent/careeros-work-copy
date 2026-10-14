@@ -165,6 +165,11 @@ REQUIREMENT_GROUP_FALLBACK = 'skills'
 # demote a requirement the posting states outright.
 MUST_LEVEL_WORDS = ('must', 'require', 'essential', 'mandatory')
 NICE_LEVEL_WORDS = ('nice', 'prefer', 'bonus', 'plus', 'optional', 'desirable', 'advantage')
+# Words that turn the one after them into its opposite, so a level word
+# they precede is named to be denied: 'preferred but not essential'
+# insists on nothing, and reading 'essential' there as insisting is how
+# the strongest word in the sentence won over what the sentence says.
+NEGATION_WORDS = ('no', 'not', 'non')
 
 
 def requirement_group(value):
@@ -173,16 +178,41 @@ def requirement_group(value):
     return REQUIREMENT_GROUP_ALIASES.get(name, REQUIREMENT_GROUP_FALLBACK)
 
 
+def _level_names(level, words):
+    """Whether this prose names one of `words`, and whether it names one
+    only to deny it. Word by word, because the denial sits on the word
+    before: 'not essential' names the insisting word and says it does not
+    apply, where 'essential' on its own does apply."""
+    names = denies = False
+    tokens = re.findall(r'[a-z]+', level)
+    for index, token in enumerate(tokens):
+        if not any(word in token for word in words):
+            continue
+        previous = tokens[index - 1] if index else ''
+        if previous in NEGATION_WORDS or token.startswith('non'):
+            denies = True
+        else:
+            names = True
+    return names, denies
+
+
 def requirement_level(value):
     """must or nice. A posting insists on a requirement unless it says
     otherwise, so an unreadable or missing level is a must-have: the
-    opposite default would quietly demote a real requirement."""
+    opposite default would quietly demote a real requirement.
+
+    Saying a requirement is not insisted on is the posting saying
+    otherwise, so a level that only denies the insisting words
+    ('not essential') is a nice-to-have even with no preferring word in
+    it."""
     level = str(value or '').strip().casefold()
     if level in REQUIREMENT_LEVELS:
         return level
-    if any(word in level for word in MUST_LEVEL_WORDS):
+    insists, denies_insisting = _level_names(level, MUST_LEVEL_WORDS)
+    if insists:
         return 'must'
-    return 'nice' if any(word in level for word in NICE_LEVEL_WORDS) else 'must'
+    prefers, _ = _level_names(level, NICE_LEVEL_WORDS)
+    return 'nice' if prefers or denies_insisting else 'must'
 
 
 def requirement_groups(groups=None, requirements=(), nice_to_have=()):

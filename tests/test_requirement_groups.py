@@ -71,6 +71,15 @@ def test_every_answered_group_lands_in_the_vocabulary(answered, expected):
     ('required, and a plus if recent', 'must'),
     ('essential', 'must'),
     ('mandatory', 'must'),
+    # Denying the insisting word is the posting saying otherwise, however
+    # strong the word it denies: reading the word and not the denial is
+    # how a nice-to-have became a must-have.
+    ('preferred but not essential', 'nice'),
+    ('not required', 'nice'),
+    ('non-essential', 'nice'),
+    # The same rule the other way round: a denied preferring word leaves
+    # the posting insisting, which is the default anyway.
+    ('not optional', 'must'),
     # A posting insists on a requirement unless it says otherwise.
     ('', 'must'),
     (None, 'must'),
