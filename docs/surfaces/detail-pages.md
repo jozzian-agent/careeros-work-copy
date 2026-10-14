@@ -158,12 +158,14 @@ lists (a company with no jobs or experiences) show the dashed empty state.
 
 ## Verification
 
-2026-10-14 (package 1, the two rebuilt pages):
+2026-10-14 (package 1, the two rebuilt pages, after the review fix
+round):
 
-- `.venv/bin/python -m pytest tests/ -q` (1031, was 1030: one contract
-  test for the history label the Job page matches on).
-- `cd frontend && npx playwright test` (191, was 174): `job-detail.spec.js`
-  (44), `company-detail.spec.js` (21) and the shared
+- `.venv/bin/python -m pytest tests/ -q` (1033, was 1030: one contract
+  test for the history label the Job page matches on, then two for the
+  review round's `needs_input` and `reading` rules).
+- `cd frontend && npx playwright test` (193, was 174): `job-detail.spec.js`
+  (46), `company-detail.spec.js` (21) and the shared
   `detail-pages.spec.js` (7: Delete gray and the back arrow blue on both
   pages, the 390px layout, the retired classification route).
 - `cd frontend && npm run build`.
