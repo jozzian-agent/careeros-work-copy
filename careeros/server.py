@@ -134,6 +134,11 @@ _PROVENANCE_EXCLUDED_FIELDS = frozenset({
     'company_review',
 })
 
+# The company link is these three fields together: every writer sets them
+# in one breath, every owner lock covers all three, and their provenance
+# moves as a group (B3).
+COMPANY_LINK_GROUP = ('company_id', 'company_link_state', 'company_link_reason')
+
 
 def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
     """Per-field extraction status (JOZ-267 Section 3). A covered field
@@ -541,8 +546,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 and provenance.get('employer_named_in_posting') != 'user'):
             updates['employer_named_in_posting'] = correction
             new_provenance['employer_named_in_posting'] = 'llm'
-            owner_locked = any(provenance.get(key) == 'user'
-                               for key in ('company_id', 'company_link_state', 'company_link_reason'))
+            owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
             if not owner_locked:
                 resolution = resolve_company(
                     root, url=job.get('url') or '', employer_name=correction,
@@ -1133,11 +1137,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
             name, website = extracted['company'], _company_website(extracted['website'])
             provenance = job.get('field_provenance', {})
             employer_evidence = extracted.get('employer_named_in_posting')
+            # Set only when THIS call brings new employer evidence, and then
+            # to the source extraction credits it to ('llm' after a model
+            # pass, 'scrape' after the offline rules). The link group below
+            # is stamped with the same source when that evidence moves it.
+            evidence_source = None
             if employer_evidence and employer_evidence != job.get('employer_named_in_posting') \
                     and provenance.get('employer_named_in_posting') != 'user':
+                evidence_source = extracted.get('field_provenance', {}).get(
+                    'employer_named_in_posting', 'scrape')
                 updates['employer_named_in_posting'] = employer_evidence
-                updates['field_provenance'] = {**provenance, 'employer_named_in_posting':
-                    extracted.get('field_provenance', {}).get('employer_named_in_posting', 'scrape')}
+                updates['field_provenance'] = {**provenance,
+                                               'employer_named_in_posting': evidence_source}
             # M3: route through the SAME shared ladder every other
             # resolution entry point uses -- same owner-link-group
             # protection (M1), same fuzzy/ambiguity/shared-tenant
@@ -1149,14 +1160,26 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # too (existing[0] falsy there), which still gets full rungs
             # 1-5 treatment via resolve_and_link.
             new_company_id = None
-            owner_locked = any(provenance.get(key) == 'user'
-                               for key in ('company_id', 'company_link_state', 'company_link_reason'))
+            owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
             if not owner_locked:
                 resolution = resolve_company(
                     root, url=url, employer_name=employer_evidence, fallback_name=name,
                     legacy_hint=legacy_hint(root, name, url),
                     existing=(job.get('company_id'), job.get('company_link_reason')))
                 updates.update(resolution)
+                # B3, second path: the link group is written in one breath
+                # here too, so its provenance has to move in one breath --
+                # otherwise a link this evidence just replaced keeps reading
+                # as whatever set it last. Only the keys this call actually
+                # changed are restamped: a resolution that re-confirms the
+                # stored link leaves the provenance of whoever established
+                # it alone.
+                if evidence_source:
+                    relinked = {key: evidence_source for key in COMPANY_LINK_GROUP
+                                if resolution.get(key) != job.get(key)}
+                    if relinked:
+                        updates['field_provenance'] = {
+                            **updates.get('field_provenance', provenance), **relinked}
                 if resolution.get('company_link_reason') == 'new_company':
                     new_company_id = resolution['company_id']
             target_id = updates.get('company_id', job.get('company_id'))

@@ -370,6 +370,47 @@ def test_enrich_uses_shared_ladder_no_duplicate_company(client, monkeypatch):
     assert len(client.get('/api/companies').json) == before
 
 
+def test_enrich_relink_stamps_link_group_provenance(client, monkeypatch):
+    """B3, second path: the synchronous /enrich resolution writes the whole
+    link group, so the provenance of every key it moves has to move with
+    it. Before the fix the new link state read as 'scrape' (the intake that
+    first set it), while the state it described had just been replaced by
+    model evidence."""
+    root = client.application.config['VAULT_PATH']
+    company = vault.save_company(root, {'name': 'Acme GmbH'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Initial Labs'))
+    job = client.post('/api/jobs/intake',
+                      json={'url': 'https://unrelated.example/b3-role'}).json['job']
+    assert job['company_link_reason'] == 'new_company'
+    assert job['field_provenance']['company_link_state'] == 'scrape'
+
+    extracted = dict(
+        title='Role', location='', source='', posted_date=None, employment_type='', valid_through='',
+        description='Remote.', company='Acme', website=None, seniority='', summary='', summary_source='',
+        keywords=[], ingest_source='llm', remote_ok=None, sector=None, background='', skills=[],
+        certifications=[], responsibilities=[], employee_count=None, function=[], salary_info=False,
+        salary_note='', contact_email='', employer_named_in_posting='Acme',
+        field_provenance={'employer_named_in_posting': 'llm'})
+    monkeypatch.setattr(intake, 'ingest_posting',
+                        lambda url, html, function_options=None: dict(extracted))
+    data = client.post('/api/jobs/' + job['id'] + '/enrich').json
+    assert data['company_link_state'] == 'needs_review'
+    assert data['company_link_reason'] == 'fuzzy_name'
+    assert data['company_review']['candidates'][0]['company_id'] == company['id']
+    for field in ('employer_named_in_posting', 'company_link_state', 'company_link_reason'):
+        assert data['field_provenance'][field] == 'llm', field
+    # company_id did not move (the job keeps the record intake created while
+    # the match is in review), so the writer that set it keeps it: only the
+    # keys this resolution actually changed are restamped.
+    assert data['company_id'] == job['company_id']
+    assert data['field_provenance']['company_id'] == 'scrape'
+
+    # A second pass with the same evidence resolves the same link again and
+    # must leave provenance alone: no new evidence, nothing to re-attribute.
+    again = client.post('/api/jobs/' + job['id'] + '/enrich').json
+    assert again['field_provenance'] == data['field_provenance']
+
+
 # --- M4: legacy website matching can no longer manufacture a tenant -------
 
 def test_cross_tenant_refline_website_not_promoted_to_ats_link(client, monkeypatch):
