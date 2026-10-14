@@ -224,8 +224,8 @@ lists (a company with no jobs or experiences) show the dashed empty state.
   migration, the re-extract endpoint with its reservation and its failed
   re-read, and the other three write paths; parametrized, they run as 74
   cases).
-- `cd frontend && npx playwright test` (233, was 210): `job-detail.spec.js`
-  is 77 (was 54), covering the grouped render and its level tags, a
+- `cd frontend && npx playwright test` (234, was 210): `job-detail.spec.js`
+  is 78 (was 54), covering the grouped render and its level tags, a
   stored skill the group does not carry, the legacy flat-list fallback,
   a list the owner emptied, the AI label following the recorded source,
   the extraction popup's Requirements row and its failed-re-read
