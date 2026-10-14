@@ -12,6 +12,13 @@ Surface: `/jobs/<id>`, `/experiences/<id>`, `/companies/<id>`,
 `detail.html`, `company_detail.html`, `company_taxonomy.html`).
 Status: implemented 2026-10-12 (JOZ-280). Owner click-test pending.
 
+2026-10-14 (detail-pages realignment): `/companies/<id>/taxonomy` is
+removed, page and JSON endpoint both, so the Company detail page's
+Classification card is read-only and links nowhere; inline editing of
+sector and size arrives with a later frontend round. Everything below
+about that sub-page is history. The job and company detail JSON contracts
+the pages read are in [JSON page contracts](json-api.md).
+
 ## Purpose
 
 One shared skeleton for every record detail page, so a friend always knows

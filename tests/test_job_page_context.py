@@ -71,6 +71,26 @@ def test_needs_input_read_failed():
     assert result['needs_input'] == {'kind': 'read_failed', 'error_reason': 'http_404'}
 
 
+def test_needs_input_company_ask_without_a_review_block():
+    """The link state alone raises the company ask: a needs_review record
+    with no review block is still a record whose company is unresolved, and
+    must not fall through to the read failure under it."""
+    result = context({'company_link_state': 'needs_review',
+                      'ingest_state': 'fetch_failed',
+                      'ingest_error': {'stage': 'fetch', 'reason': 'http_404', 'at': 'x'}})
+    assert result['needs_input'] == {'kind': 'company', 'review': None}
+
+
+def test_needs_input_read_failed_when_no_review_is_pending():
+    """The other side of that precedence: a review block left behind on a
+    link that no longer needs one is not a pending ask, so the failed read
+    is what the page surfaces."""
+    result = context({'company_link_state': 'linked', 'company_review': REVIEW,
+                      'ingest_state': 'fetch_failed',
+                      'ingest_error': {'stage': 'fetch', 'reason': 'http_404', 'at': 'x'}})
+    assert result['needs_input'] == {'kind': 'read_failed', 'error_reason': 'http_404'}
+
+
 def test_needs_input_company_review_wins_over_read_failure():
     """One ask at a time: the unresolved link comes first."""
     result = context({'company_link_state': 'needs_review', 'company_review': REVIEW,
@@ -123,6 +143,16 @@ def test_summary_is_copy_false_below_the_length_floor():
     short = 'This team builds planning tools.'
     assert len(short) < jobs.SUMMARY_COPY_MIN
     assert jobs.summary_is_copy(short, short + ' And much more text follows here.') is False
+
+
+def test_summary_is_copy_false_when_the_summary_runs_past_the_description():
+    """The prefix test runs one way only. A summary that opens with the
+    whole of a short description is not a copy of it, and would read as one
+    if the two arguments were ever compared the other way round."""
+    description = 'This team builds planning tools for warehouse operators.'
+    summary = description + ' Senior engineer, hybrid in Zurich, mostly backend.'
+    assert jobs.summary_is_copy(summary, description) is False
+    assert jobs.summary_is_copy(description, summary) is True, 'the other direction is a copy'
 
 
 def test_summary_is_copy_false_without_a_description():

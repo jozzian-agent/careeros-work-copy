@@ -172,4 +172,3 @@ def company_context(company, jobs, experiences, isic_sections):
         size_classes=vault.SIZE_CLASSES,
         kinds=vault.KINDS,
     )
-

@@ -168,7 +168,7 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'valid_through': 'str'},
  'llm_pending': 'bool',
  'markdown': 'str',
- 'needs_input': 'NoneType',
+ 'needs_input': {'kind': 'str', 'review': 'NoneType'},
  'reading': 'bool',
  'show_remote_chip': 'bool',
  'statuses': ['str'],
@@ -210,6 +210,10 @@ def test_detail_values_pending_and_mutations(api_client, assert_json_shape):
     assert data['job']['description'] == 'Original source text'
     assert data['job']['summary_source'] == 'ai'
     assert data['job']['ingest_error']['reason'] == 'empty_content'
+    # The fixture job's link is needs_review with no review block stored,
+    # which is the company ask all the same: the link state alone decides
+    # it, ahead of the read failure its ingest_error would otherwise raise.
+    assert data['needs_input'] == {'kind': 'company', 'review': None}
     assert '<strong>Owner notes</strong>' in data['markdown']
     assert_json_shape(api_client.get(route).get_json(), DETAIL_SHAPE['job'] | {'llm_pending': 'bool'})
     response = api_client.put(route, json={'summary': 'Owner summary', 'notes': 'Edited'})

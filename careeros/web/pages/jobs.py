@@ -130,9 +130,15 @@ def job_needs_input(job):
     the record's identity, which matters more than a posting whose text
     never arrived. Review candidates pass through as stored, however many
     there are.
+
+    The link state alone decides the company ask. A needs_review record
+    whose review block is missing is still a record whose company is
+    unresolved, so it must raise the company ask with a null review (the
+    page then offers creating a company) rather than fall through to a
+    read failure, which is not what the owner has to decide.
     """
-    if job.get('company_link_state') == 'needs_review' and job.get('company_review'):
-        return {'kind': 'company', 'review': job['company_review']}
+    if job.get('company_link_state') == 'needs_review':
+        return {'kind': 'company', 'review': job.get('company_review')}
     description = (job.get('description') or '').strip()
     if job.get('ingest_state') in ('fetch_failed', 'extract_failed') and not description:
         return {'kind': 'read_failed',
