@@ -383,6 +383,16 @@ test('the original posting is one collapsed card that opens with its paragraphs'
   await expect(page.getByText('Second fictional paragraph.')).toBeVisible();
 });
 
+// Owner round C2: the stored text is a copy, so the card it sits in
+// carries the way back to the live posting, header link or not.
+test('the expanded original posting links to the posting at its source', async ({ page }) => {
+  await page.goto('/jobs/JOB-001');
+  const link = page.getByRole('link', { name: 'Open the posting at its source' });
+  await expect(link).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show the original posting' }).click();
+  await expect(link).toHaveAttribute('href', fixture.job.url);
+});
+
 test('Details is collapsed and holds the source, the posted date and the online check', async ({ page }) => {
   await mockCheckPosting(page, { body: { events: [], watch_status: 'unchanged' } });
   await page.goto('/jobs/JOB-001');

@@ -396,6 +396,16 @@ export default function JobDetail() {
                   {paragraphs(job.description).map((paragraph, index) => (
                     <Text key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</Text>
                   ))}
+                  {/* The stored text is a copy taken when the posting was
+                      read, so the owner reading it is exactly the owner
+                      who wants to check it against the live page. The
+                      header carries the same link, and the owner asked
+                      for it here too rather than scrolling back up. */}
+                  {job.url ? (
+                    <Link href={job.url} target="blank" display="inlineBlock" externalLinkIcon="default">
+                      <Text color="link">Open the posting at its source</Text>
+                    </Link>
+                  ) : null}
                 </Flex>
               ),
             }]}
