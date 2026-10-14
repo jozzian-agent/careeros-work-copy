@@ -323,8 +323,43 @@ def test_re_extract_groups_a_legacy_job_without_a_model(tmp_path, no_worker):
     assert stored['requirement_groups'] == [
         {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
         {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
-    # The rules grouped them, so the page credits the page data.
+    # The rules did the grouping, but a model read these lines (the stored
+    # block says so), and they are still the model's requirements.
+    assert stored['field_provenance']['requirement_groups'] == 'llm'
+
+
+def test_re_extract_credits_the_page_for_lines_no_model_read(tmp_path, no_worker):
+    """The other half of the same rule: a block the offline section split
+    produced carries no model's work, so regrouping it is page data and
+    the Requirements section must not claim an AI wrote it."""
+    job = legacy_job(tmp_path, description_structured={
+        'summary': 'A role.', 'requirements': ['Five years of Python'],
+        'nice_to_have': [], 'method': 'heuristic'})
+    api = create_app(tmp_path).test_client()
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'}]
     assert stored['field_provenance']['requirement_groups'] == 'scrape'
+
+
+def test_re_extract_regroups_a_list_the_owner_emptied(tmp_path, no_worker):
+    """An owner who empties the list has set the field, so automation
+    leaves it alone. Re-extract is not automation: it is the owner asking
+    for the stored text to be read again, which is the one action that
+    fills the groups, so it must not be a dead end after an intentional
+    clear."""
+    job = legacy_job(tmp_path)
+    api = create_app(tmp_path).test_client()
+    api.put(f'/api/jobs/{job["id"]}', json={'requirement_groups': []})
+    assert vault.load_job(tmp_path, job['id'])['field_provenance']['requirement_groups'] == 'user'
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
+        {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
+    # The list is no longer the owner's own, and the popup says so.
+    assert stored['field_provenance']['requirement_groups'] == 'llm'
 
 
 def test_re_extract_reads_the_stored_text_and_fetches_nothing(tmp_path, no_worker):

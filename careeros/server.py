@@ -1389,7 +1389,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
         The rule-based groups (the flat must/nice lists under Skills) are
         written here, synchronously, so the action lands a result even
         when no model is reachable; the queued extraction replaces them
-        with real groups when it finishes. Everything else is the same
+        with real groups when it finishes. A list the owner emptied on
+        purpose is regrouped too: the owner lock keeps automation out of a
+        field the owner has set, and pressing Re-extract is the owner
+        themselves asking for it to be read again. A list the owner has
+        written lines into is left exactly as it is. Everything else is the same
         machinery /extract uses: one reservation per job, every covered
         field back to pending while the attempt runs, and the attempt's
         own history event. A job whose reading is already running is a
@@ -1416,14 +1420,19 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 provenance = job.get('field_provenance', {})
                 structured = job.get('description_structured') or {}
                 updates = {}
-                if not job.get('requirement_groups') and provenance.get('requirement_groups') != 'user':
+                if not job.get('requirement_groups'):
                     groups = ingest.requirement_groups(None, structured.get('requirements'),
                                                        structured.get('nice_to_have'))
                     if groups:
                         updates['requirement_groups'] = groups
-                        # The rules did the grouping, whoever wrote the lines,
-                        # so the page credits the page data and not the model.
-                        updates['field_provenance'] = {**provenance, 'requirement_groups': 'scrape'}
+                        # Who the regrouped lines belong to. The rules did
+                        # the grouping either way, but the lines are the
+                        # model's when the model read them, and calling a
+                        # model's requirements page data would drop the AI
+                        # label off a section the model wrote.
+                        updates['field_provenance'] = {
+                            **provenance,
+                            'requirement_groups': 'llm' if structured.get('method') == 'llm' else 'scrape'}
                 updates['field_status'] = apply_field_status(job, updates, unfilled='pending')
                 job = storage.save_job(root, updates, identifier,
                                        history_event=('re_extracted', 'Stored posting text read again.'))
