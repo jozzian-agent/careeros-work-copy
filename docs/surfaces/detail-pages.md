@@ -2,7 +2,7 @@
 type: Surface
 title: "Detail pages"
 description: "Describe the shared Job/Experience/Company/Classification detail-page skeleton."
-timestamp: 2026-10-12
+timestamp: 2026-10-14
 ---
 
 # Detail pages

@@ -14,7 +14,7 @@ import pytest
 from careeros import ingest, intake, server, vault
 from org_intake import enrich as company_lookup, identity
 from careeros.org_store import VaultOrganisationStore
-from careeros.server import create_app
+from careeros.server import COMPANY_LINK_GROUP, create_app
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -409,6 +409,49 @@ def test_enrich_relink_stamps_link_group_provenance(client, monkeypatch):
     # must leave provenance alone: no new evidence, nothing to re-attribute.
     again = client.post('/api/jobs/' + job['id'] + '/enrich').json
     assert again['field_provenance'] == data['field_provenance']
+
+
+def test_enrich_relink_stamps_provenance_with_employer_text_unchanged(client, monkeypatch):
+    """The link moves while the employer text stands still: the same name
+    resolves against a vault that changed underneath it, so the stamping
+    trigger has to be the link group moving and not the name field moving.
+    Before the fix the whole group kept the intake's 'scrape' while the link
+    it described had just been replaced on model evidence."""
+    root = client.application.config['VAULT_PATH']
+    fuzzy = vault.save_company(root, {'name': 'Acme GmbH'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Acme'))
+    job = client.post('/api/jobs/intake',
+                      json={'url': 'https://unrelated.example/b3-unchanged-role'}).json['job']
+    assert job['employer_named_in_posting'] == 'Acme'
+    assert job['company_link_state'] == 'needs_review'
+    assert job['company_link_reason'] == 'fuzzy_name'
+    assert job['company_review']['candidates'][0]['company_id'] == fuzzy['id']
+    for field in COMPANY_LINK_GROUP:
+        assert job['field_provenance'][field] == 'scrape', field
+
+    # The vault gains the exact name the posting always carried, so the very
+    # same employer evidence now lands on a different company, linked.
+    exact = vault.save_company(root, {'name': 'Acme'})
+    extracted = dict(
+        title='Role', location='', source='', posted_date=None, employment_type='', valid_through='',
+        description='Remote.', company='Acme', website=None, seniority='', summary='', summary_source='',
+        keywords=[], ingest_source='llm', remote_ok=None, sector=None, background='', skills=[],
+        certifications=[], responsibilities=[], employee_count=None, function=[], salary_info=False,
+        salary_note='', contact_email='', employer_named_in_posting='Acme',
+        field_provenance={'employer_named_in_posting': 'llm'})
+    monkeypatch.setattr(intake, 'ingest_posting',
+                        lambda url, html, function_options=None: dict(extracted))
+    data = client.post('/api/jobs/' + job['id'] + '/enrich').json
+    assert data['employer_named_in_posting'] == job['employer_named_in_posting']
+    assert data['company_id'] == exact['id'] != job['company_id']
+    assert data['company_link_state'] == 'linked'
+    assert data['company_link_reason'] == 'name_exact'
+    # Every link key this resolution moved carries the source of the evidence
+    # that moved it, even though no employer text was rewritten this call.
+    for field in COMPANY_LINK_GROUP:
+        assert data['field_provenance'][field] == 'llm', field
+    # The name field itself did not move, so its provenance did not either.
+    assert data['field_provenance']['employer_named_in_posting'] == 'scrape'
 
 
 # --- M4: legacy website matching can no longer manufacture a tenant -------

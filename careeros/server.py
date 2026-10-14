@@ -1148,15 +1148,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
             name, website = extracted['company'], _company_website(extracted['website'])
             provenance = job.get('field_provenance', {})
             employer_evidence = extracted.get('employer_named_in_posting')
-            # Set only when THIS call brings new employer evidence, and then
-            # to the source extraction credits it to ('llm' after a model
-            # pass, 'scrape' after the offline rules). The link group below
-            # is stamped with the same source when that evidence moves it.
-            evidence_source = None
+            # The source THIS call's extraction credits its employer evidence
+            # to: 'llm' after a model pass, 'scrape' after the offline rules.
+            # Stamped on employer_named_in_posting when that text moves, and
+            # on the link group below whenever this resolution moves it --
+            # which is not the same condition: an employer name identical to
+            # the stored one still resolves against a vault that has changed
+            # underneath it, and can land on a different company.
+            evidence_source = extracted.get('field_provenance', {}).get(
+                'employer_named_in_posting', 'scrape')
             if employer_evidence and employer_evidence != job.get('employer_named_in_posting') \
                     and provenance.get('employer_named_in_posting') != 'user':
-                evidence_source = extracted.get('field_provenance', {}).get(
-                    'employer_named_in_posting', 'scrape')
                 updates['employer_named_in_posting'] = employer_evidence
                 updates['field_provenance'] = {**provenance,
                                                'employer_named_in_posting': evidence_source}
@@ -1180,17 +1182,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates.update(resolution)
                 # B3, second path: the link group is written in one breath
                 # here too, so its provenance has to move in one breath --
-                # otherwise a link this evidence just replaced keeps reading
-                # as whatever set it last. Only the keys this call actually
+                # otherwise a link this resolution just replaced keeps reading
+                # as whatever set it last. The trigger is the link moving, not
+                # the employer text moving. Only the keys this call actually
                 # changed are restamped: a resolution that re-confirms the
                 # stored link leaves the provenance of whoever established
                 # it alone.
-                if evidence_source:
-                    relinked = {key: evidence_source for key in COMPANY_LINK_GROUP
-                                if resolution.get(key) != job.get(key)}
-                    if relinked:
-                        updates['field_provenance'] = {
-                            **updates.get('field_provenance', provenance), **relinked}
+                relinked = {key: evidence_source for key in COMPANY_LINK_GROUP
+                            if resolution.get(key) != job.get(key)}
+                if relinked:
+                    updates['field_provenance'] = {
+                        **updates.get('field_provenance', provenance), **relinked}
                 if resolution.get('company_link_reason') == 'new_company':
                     new_company_id = resolution['company_id']
             target_id = updates.get('company_id', job.get('company_id'))
