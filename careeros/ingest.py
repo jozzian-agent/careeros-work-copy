@@ -190,17 +190,23 @@ def requirement_groups(groups=None, requirements=(), nice_to_have=()):
 
     One home for both ways they are produced, so the fixed vocabulary is
     applied once. `groups` is what the model returned, normalized into
-    that vocabulary. When it offers nothing usable (no model reachable, or
-    a model that skipped the field), the flat must/nice lists are mapped
-    into the Skills group instead: that is the rule-based fallback, and it
-    is also the shape every job written before the groups existed has.
+    that vocabulary; the flat must/nice lists are folded in after it, line
+    by line, under the fallback group. That fold is the whole rule-based
+    path (no model reachable, or a model that skipped the field), and it
+    is also what keeps a partial answer whole: a model that grouped three
+    lines of a twenty-line posting used to make the other seventeen
+    disappear, because the lists only came in when the groups came in
+    empty.
+
+    A line the model did place keeps the group it placed it in, so the
+    fold adds a line and never repeats one under a second heading.
 
     One entry per group and text, with a must-have winning over a
     nice-to-have for the same line, is the record's own invariant, applied
     here by the vault's `validate_requirement_groups` so a model answer is
     already in the shape a record stores.
     """
-    entries = []
+    entries, placed = [], set()
     for item in groups or []:
         if not isinstance(item, dict):
             continue
@@ -209,12 +215,12 @@ def requirement_groups(groups=None, requirements=(), nice_to_have=()):
             entries.append({'group': requirement_group(item.get('group')),
                             'level': requirement_level(item.get('level')),
                             'text': text})
-    if not entries:
-        for level, values in (('must', requirements), ('nice', nice_to_have)):
-            for value in values or []:
-                text = redact(str(value or '').strip())
-                if text:
-                    entries.append({'group': REQUIREMENT_GROUP_FALLBACK, 'level': level, 'text': text})
+            placed.add(text.casefold())
+    for level, values in (('must', requirements), ('nice', nice_to_have)):
+        for value in values or []:
+            text = redact(str(value or '').strip())
+            if text and text.casefold() not in placed:
+                entries.append({'group': REQUIREMENT_GROUP_FALLBACK, 'level': level, 'text': text})
     return validate_requirement_groups(entries)
 
 

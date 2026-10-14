@@ -136,10 +136,22 @@ def test_flat_lists_map_into_the_skills_group():
                       {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
 
 
-def test_the_model_groups_win_over_the_flat_lists():
+def test_a_model_group_wins_for_its_own_line_and_the_rest_fold_in():
+    """A partial answer must not lose the lines it left out. The model's
+    grouping wins line by line, not wholesale: the line it placed keeps
+    its group, and every other line of the flat lists still lands under
+    the fallback group."""
     groups = ingest.requirement_groups(
-        [{'group': 'languages', 'level': 'must', 'text': 'German'}],
-        ['Five years of Python'], ['Rust'])
+        [{'group': 'experience', 'level': 'must', 'text': 'Five years of Python'}],
+        ['Five years of Python', 'Strong SQL'], ['Rust'])
+    assert groups == [{'group': 'experience', 'level': 'must', 'text': 'Five years of Python'},
+                      {'group': 'skills', 'level': 'must', 'text': 'Strong SQL'},
+                      {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
+
+
+def test_a_line_the_model_placed_is_never_repeated_under_the_fallback_group():
+    groups = ingest.requirement_groups(
+        [{'group': 'languages', 'level': 'must', 'text': 'German'}], ['german'], [])
     assert groups == [{'group': 'languages', 'level': 'must', 'text': 'German'}]
 
 
@@ -160,7 +172,10 @@ def test_extraction_stores_the_model_groups():
     result = ingest.extract(POSTING, client=client_for(content), model=object())
     assert result['requirement_groups'] == [
         {'group': 'experience', 'level': 'must', 'text': 'Five years of Python'},
-        {'group': 'languages', 'level': 'nice', 'text': 'German'}]
+        {'group': 'languages', 'level': 'nice', 'text': 'German'},
+        # The model grouped one of the two lines it listed flat; the other
+        # is still a requirement, so it folds in under the fallback group.
+        {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
     # The flat lists stay as they were: the groups are an added field, not
     # a replacement, so a pre-package-2 reader keeps working.
     assert result['description_structured']['requirements'] == ['Five years of Python']
