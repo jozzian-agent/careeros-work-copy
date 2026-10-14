@@ -552,6 +552,15 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates.update(resolution)
                 if resolution.get('company_id'):
                     new_provenance['company_id'] = 'llm'
+                    # B3: the link group (company_id, company_link_state,
+                    # company_link_reason) is written in one breath, so its
+                    # provenance has to move in one breath too. Marking only
+                    # company_id left the other two reading as whatever set
+                    # them last -- a link state automation had just
+                    # replaced, still attributed to an earlier writer.
+                    new_provenance['company_link_state'] = 'llm'
+                    if resolution.get('company_link_reason'):
+                        new_provenance['company_link_reason'] = 'llm'
                 if resolution.get('company_link_reason') == 'new_company':
                     new_company_id = resolution['company_id']
         updates['field_status'] = apply_field_status(job, updates)
