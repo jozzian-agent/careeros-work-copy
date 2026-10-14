@@ -79,14 +79,21 @@ test('back link navigates to the jobs board', async ({ page }) => {
   await expect(page).toHaveURL('/jobs');
 });
 
+// Four of the eight sections are collapsed accordions, whose title is a
+// toggle and not a heading, so the order is read off the section handles
+// SectionCard gives every section. That also pins the full set: a section
+// that silently appears or disappears fails here.
 test('sections render in the canvas order', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
   await expect(page.getByRole('heading', { name: fixture.job.title })).toBeVisible();
-  const headings = await page.getByRole('heading').allTextContents();
-  const order = ['Summary', 'Requirements', 'Responsibilities', 'Classification', 'Notes', 'History'];
-  const positions = order.map((label) => headings.indexOf(label));
-  expect(positions.every((index) => index !== -1)).toBe(true);
-  expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  const sections = await page
+    .locator('[data-testid^="section-"]')
+    .evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
+  expect(sections).toEqual([
+    'section-summary', 'section-requirements', 'section-responsibilities',
+    'section-original-posting', 'section-details', 'section-classification',
+    'section-notes', 'section-history',
+  ]);
 });
 
 test('the retired sections are gone: no Extraction card, no Content wrapper, no Background required', async ({
@@ -397,7 +404,7 @@ test('Details is collapsed and holds the source, the posted date and the online 
   await mockCheckPosting(page, { body: { events: [], watch_status: 'unchanged' } });
   await page.goto('/jobs/JOB-001');
   await expect(page.getByText('careers-page')).not.toBeVisible();
-  await page.getByRole('button', { name: 'Show details' }).click();
+  await page.getByRole('button', { name: 'Show the details' }).click();
   await expect(page.getByText('careers-page')).toBeVisible();
   await expect(page.getByText(fixture.job.posted_date)).toBeVisible();
   await page.getByRole('button', { name: 'Check if still online' }).click();
@@ -409,7 +416,7 @@ test('Details is collapsed and holds the source, the posted date and the online 
 test('an unreachable posting is reported without promising a retry', async ({ page }) => {
   await mockCheckPosting(page, { body: { events: [], watch_status: 'error' } });
   await page.goto('/jobs/JOB-001');
-  await page.getByRole('button', { name: 'Show details' }).click();
+  await page.getByRole('button', { name: 'Show the details' }).click();
   await page.getByRole('button', { name: 'Check if still online' }).click();
   await expect(page.getByText('Error: posting unreachable.')).toBeVisible();
   await expect(page.getByText(/will retry on the next scan/)).toHaveCount(0);
@@ -418,7 +425,7 @@ test('an unreachable posting is reported without promising a retry', async ({ pa
 test('Check if still online is disabled with its reason when the job is not watch-eligible', async ({ page }) => {
   await mockJobPage(page, { ...fixture, watch_eligible: false, watch_reason: 'Not eligible for some reason.' });
   await page.goto('/jobs/JOB-001');
-  await page.getByRole('button', { name: 'Show details' }).click();
+  await page.getByRole('button', { name: 'Show the details' }).click();
   await expect(page.getByRole('button', { name: 'Not eligible for some reason.' })).toBeDisabled();
 });
 
@@ -434,7 +441,7 @@ test('Check if still online reloads the page when new events are found', async (
   });
   await mockCheckPosting(page, { body: { events: [{ event: 'posting_changed', detail: 'changed' }] } });
   await page.goto('/jobs/JOB-001');
-  await page.getByRole('button', { name: 'Show details' }).click();
+  await page.getByRole('button', { name: 'Show the details' }).click();
   const before = calls;
   await page.getByRole('button', { name: 'Check if still online' }).click();
   await expect.poll(() => calls).toBeGreaterThan(before);
@@ -444,6 +451,7 @@ test('Check if still online reloads the page when new events are found', async (
 
 test('Classification shows the inherited sector, the function and the tags in owner words', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   const classification = page.getByTestId('section-classification');
   await expect(classification.getByText('Information and communication')).toBeVisible();
   await expect(classification.getByText('From the company')).toBeVisible();
@@ -458,6 +466,7 @@ test('an unclassified job says the posting did not name one', async ({ page }) =
     classification: { sector: { value: null, source: null }, function: [], tags: [] },
   });
   await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   const classification = page.getByTestId('section-classification');
   await expect(classification.getByText('Not found in posting')).toHaveCount(3);
   await expect(classification.getByText('From the company')).toHaveCount(0);
@@ -466,6 +475,7 @@ test('an unclassified job says the posting did not name one', async ({ page }) =
 test('Edit classification opens the shared popup and saves function and tags', async ({ page }) => {
   const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
   await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   await page.getByRole('button', { name: 'Edit classification' }).click();
   const modal = page.getByRole('dialog', { name: 'Edit classification' });
   await expect(modal).toBeVisible();
@@ -484,6 +494,7 @@ test('Edit classification load failure shows a visible error without opening the
     route.fulfill({ status: 500, json: { error: 'nope' } });
   });
   await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   await page.getByRole('button', { name: 'Edit classification' }).click();
   await expect(page.getByText('Could not load classification.')).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Edit classification' })).not.toBeVisible();
@@ -501,6 +512,7 @@ test('empty Notes offer the dashed Add a note box, which opens Edit job at the n
 
 test('History shows the resolved labels with local dates, newest first', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Show the history' }).click();
   const history = page.getByTestId('section-history');
   await expect(history.getByText('Details read from the posting')).toBeVisible();
   await expect(history.getByText(/14 Oct 2026, \d\d:\d\d/)).toBeVisible();

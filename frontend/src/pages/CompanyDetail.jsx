@@ -295,8 +295,13 @@ export default function CompanyDetail() {
             <EmptyState text="No linked experience yet" />
           )}
         </SectionCard>
+        {/* Collapsed by default, in the same accordion the Job page's own
+            Classification uses: the sector and the size are settled facts
+            the owner checks occasionally, not something the page has to
+            hold open. */}
         <SectionCard
           title="Classification"
+          collapsible
           actions={(
             <Button
               text="Edit classification"

@@ -1,4 +1,4 @@
-import { Box, Flex, Heading, Text } from 'gestalt';
+import { Accordion, Box, Flex, Heading, Text } from 'gestalt';
 import AiLabel from './AiLabel.jsx';
 
 // The width of a detail page's content column (2026-10-14 canvas). One
@@ -16,14 +16,51 @@ export const DETAIL_MAX_WIDTH = 960;
 // violet wash card (the same violet that marks "Needs your input"
 // everywhere else) with exactly one action set, rendered only when there
 // is something to ask. A page never shows two of them.
-export default function SectionCard({ title, aiLabel, variant = 'default', actions, anchorId, children }) {
+//
+// `collapsible` renders the section as a Gestalt Accordion.Expandable
+// instead of an always-open card: the title is the toggle and the body
+// exists only once the owner opens it. The accordion draws its own card
+// frame, so this component adds only the section handle and one wording
+// rule for the toggle ("Show the <title>" / "Hide the <title>"), which is
+// what keeps four collapsed sections from each inventing their own label.
+// One item per accordion, so opening one never closes another.
+export default function SectionCard({
+  title, aiLabel, variant = 'default', actions, anchorId, collapsible, children,
+}) {
   const needsInput = variant === 'needs-input';
+  // Lets a spec assert about one section's own contents, and about the
+  // order the sections come in, the same way the board's job cards are
+  // addressed.
+  const handle = `section-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const body = (
+    <Flex direction="column" gap={3}>
+      {children}
+      {actions ? (
+        <Flex gap={2} wrap>
+          {actions}
+        </Flex>
+      ) : null}
+    </Flex>
+  );
+  if (collapsible) {
+    const name = String(title).toLowerCase();
+    return (
+      <Box id={anchorId} data-testid={handle}>
+        <Accordion.Expandable
+          id={handle}
+          // Gestalt names every toggle "Expand section" by default, which
+          // is the same name on each accordion a page stacks.
+          accessibilityExpandLabel={`Show the ${name}`}
+          accessibilityCollapseLabel={`Hide the ${name}`}
+          items={[{ title, children: body }]}
+        />
+      </Box>
+    );
+  }
   return (
     <Box
       id={anchorId}
-      // Lets a spec assert about one section's own contents, the same way
-      // the board's job cards are addressed.
-      data-testid={`section-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+      data-testid={handle}
       rounding={4}
       borderStyle={needsInput ? 'none' : 'sm'}
       padding={6}
@@ -44,12 +81,7 @@ export default function SectionCard({ title, aiLabel, variant = 'default', actio
           <Heading size="300">{title}</Heading>
           {aiLabel ? <AiLabel kind={aiLabel} /> : null}
         </Flex>
-        {children}
-        {actions ? (
-          <Flex gap={2} wrap>
-            {actions}
-          </Flex>
-        ) : null}
+        {body}
       </Flex>
     </Box>
   );

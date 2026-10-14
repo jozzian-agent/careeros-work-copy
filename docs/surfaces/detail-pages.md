@@ -43,20 +43,27 @@ below. Top to bottom it is now:
 6. Responsibilities, labeled "AI-extracted".
 7. One extraction row: when the posting was last read, which fields were
    not found in it, and "How this was extracted", which opens a popup
-   listing every covered field with its result (Found, Not found in
-   posting, Failed, Pending) and its source (Page data, AI, You). A field
-   that was not found links to the surface that can set it. This popup
-   replaced the permanent Extraction card and its eight status badges.
-8. Original posting, collapsed, one card, the posting's own paragraphs.
+   that repeats when the posting was read and then lists every covered
+   field with its result (Found, Not found in posting, Failed, Pending)
+   and its source (Page data, AI, You). A field that was not found links
+   to the surface that can set it. This popup replaced the permanent
+   Extraction card and its eight status badges.
+8. Original posting, collapsed, one card, the posting's own paragraphs,
+   ending with the posting's own link ("Open the posting at its source").
 9. Details, collapsed: source, posted date and "Check if still online"
    with its result line.
-10. Classification: the sector, marked "From the company" when it is
-    inherited from the linked company, the function and the tags, each
-    reading "Not found in posting" when the posting named none. "Edit
-    classification" opens the shared popup.
-11. Notes, with a dashed "Add a note" box when there are none, which
-    opens Edit job at the notes field.
-12. History: the visible events only, with local dates.
+10. Classification, collapsed: the sector, marked "From the company" when
+    it is inherited from the linked company, the function and the tags,
+    each reading "Not found in posting" when the posting named none.
+    "Edit classification" sits inside it and opens the shared popup.
+11. Notes, with a dashed "Add a note" box when there are none.
+12. History, collapsed: the visible events only, with local dates.
+
+Sections 8 to 10 and 12 are collapsed by default (owner round,
+2026-10-14), all four through `SectionCard`'s `collapsible` variant: one
+`Accordion.Expandable` per section, so opening one never closes another,
+with one wording rule for the toggle ("Show the <title>" / "Hide the
+<title>"). The always-open variant is unchanged.
 
 While the posting is being read, a strip sits under Status and Fit and
 the sections with nothing in them yet say "Being read from the posting."
@@ -80,11 +87,15 @@ The Company page is rebuilt in the same round:
    `POST /api/companies/<id>/retry`, whose outcome renders below it.
 3. Jobs: each linked job's title as a link, with its status.
 4. Experiences: the same row, with present or past.
-5. Classification: the sector and the size, each with where the value
-   came from ("Set by you", "Found by AI", "Found on Wikidata", and so
-   on), and "Edit classification".
-6. Notes, with the same dashed "Add a note" box, which opens Edit company
-   at the notes field.
+5. Classification, collapsed: the sector and the size, each with where
+   the value came from ("Set by you", "Found by AI", "Found on Wikidata",
+   and so on), and "Edit classification" inside it.
+6. Notes, with the same dashed "Add a note" box.
+
+The Company page has no History section: a company record stores no
+history, so the owner round's "collapse History on both pages" applies
+only to the Job page. Giving companies a history is a feature, not a
+collapse, and is not in this round.
 
 There is no Details section: it repeated the title as a Name row and the
 website that is now in the header. Edit classification is one component

@@ -41,17 +41,21 @@ test('back link navigates to the companies list', async ({ page }) => {
   await expect(page).toHaveURL('/companies');
 });
 
+// Classification is a collapsed accordion, whose title is a toggle and
+// not a heading, so the order is read off the section handles SectionCard
+// gives every section. That also pins the full set.
 test('sections render in the canvas order, with no Details section and no Name row', async ({ page }) => {
   await page.goto('/companies/CO-001');
   await expect(page.getByRole('heading', { name: fixture.company.name })).toBeVisible();
-  const headings = await page.getByRole('heading').allTextContents();
-  const order = ['Jobs', 'Experiences', 'Classification', 'Notes'];
-  const positions = order.map((label) => headings.indexOf(label));
-  expect(positions.every((index) => index !== -1)).toBe(true);
-  expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  const sections = await page
+    .locator('[data-testid^="section-"]')
+    .evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
+  expect(sections).toEqual([
+    'section-jobs', 'section-experiences', 'section-classification', 'section-notes',
+  ]);
   // The Details card repeated the title as a Name row and the website
   // that is now in the header.
-  await expect(page.getByRole('heading', { name: 'Details', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Details', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Name', { exact: true })).toHaveCount(0);
 });
 
@@ -72,6 +76,7 @@ test('empty related-items sections show the dashed empty state', async ({ page }
 
 test('Classification names where the sector and the size came from', async ({ page }) => {
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   const classification = page.getByTestId('section-classification');
   await expect(classification.getByText('Found on Wikidata')).toBeVisible();
   await expect(classification.getByText("Found on the company's website")).toBeVisible();
@@ -86,6 +91,7 @@ test('an owner-set field says so instead of crediting a source', async ({ page }
     },
   });
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   const classification = page.getByTestId('section-classification');
   await expect(classification.getByText('Set by you')).toBeVisible();
   await expect(classification.getByText('Found by AI')).toBeVisible();
@@ -95,7 +101,7 @@ test('an owner-set field says so instead of crediting a source', async ({ page }
 
 test('no needs-input chip or card when both fields are known', async ({ page }) => {
   await page.goto('/companies/CO-001');
-  await expect(page.getByRole('heading', { name: 'Classification' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show the classification' })).toBeVisible();
   await expect(page.getByText('Needs your input')).toHaveCount(0);
 });
 
@@ -135,7 +141,7 @@ test('a review flag on a field that has a value does not raise the card', async 
     company: { ...fixture.company, review_flags: ['sector-ambiguous'] },
   });
   await page.goto('/companies/CO-001');
-  await expect(page.getByRole('heading', { name: 'Classification' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show the classification' })).toBeVisible();
   await expect(page.getByText('Needs your input')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
 });
@@ -182,6 +188,7 @@ test('Try again failure shows a visible error', async ({ page }) => {
 
 test('Edit classification opens from the Classification card too', async ({ page }) => {
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   await page.getByRole('button', { name: 'Edit classification' }).click();
   await expect(page.getByRole('dialog', { name: 'Edit classification' })).toBeVisible();
 });
@@ -254,7 +261,7 @@ test('Delete confirmation succeeds and performs a full navigation that actually 
 // stand for it either.
 test('nothing links to the retired company classification page', async ({ page }) => {
   await page.goto('/companies/CO-001');
-  await expect(page.getByRole('heading', { name: 'Classification' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show the classification' })).toBeVisible();
   await expect(page.getByRole('link', { name: /classification/i })).toHaveCount(0);
   // The nav's own /taxonomy tab is a different page and stays.
   await expect(page.locator('a[href*="companies"][href*="taxonomy"]')).toHaveCount(0);

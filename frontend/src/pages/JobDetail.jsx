@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Accordion, Badge, BannerSlim, Box, Button, Flex, Link, Text } from 'gestalt';
+import { Badge, BannerSlim, Box, Button, Flex, Link, Text } from 'gestalt';
 import {
   checkPosting,
   deleteJob,
@@ -378,73 +378,53 @@ export default function JobDetail() {
             onClick={() => setExtractionOpen(true)}
           />
         </Flex>
-        {/* Collapsed by default, and each in its own Accordion.Expandable:
-            one instance only ever keeps one item open, and opening the
-            posting must not close Details. No wrapper card around either,
-            since the accordion is itself the card. */}
+        {/* Collapsed by default, each its own accordion: one accordion
+            only ever keeps one item open, and opening the posting must
+            not close Details. The owner's round folded Classification and
+            History in beside them, so the four share SectionCard's
+            collapsible variant rather than four hand-written accordions. */}
         {hasDescription ? (
-          <Accordion.Expandable
-            id="original-posting"
-            // Gestalt names the toggle "Expand section" by default, which
-            // is the same name on both accordions here.
-            accessibilityExpandLabel="Show the original posting"
-            accessibilityCollapseLabel="Hide the original posting"
-            items={[{
-              title: 'Original posting',
-              children: (
-                <Flex direction="column" gap={3}>
-                  {paragraphs(job.description).map((paragraph, index) => (
-                    <Text key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</Text>
-                  ))}
-                  {/* The stored text is a copy taken when the posting was
-                      read, so the owner reading it is exactly the owner
-                      who wants to check it against the live page. The
-                      header carries the same link, and the owner asked
-                      for it here too rather than scrolling back up. */}
-                  {job.url ? (
-                    <Link href={job.url} target="blank" display="inlineBlock" externalLinkIcon="default">
-                      <Text color="link">Open the posting at its source</Text>
-                    </Link>
-                  ) : null}
-                </Flex>
-              ),
-            }]}
-          />
+          <SectionCard title="Original posting" collapsible>
+            {paragraphs(job.description).map((paragraph, index) => (
+              <Text key={`${index}-${paragraph.slice(0, 24)}`}>{paragraph}</Text>
+            ))}
+            {/* The stored text is a copy taken when the posting was read,
+                so the owner reading it is exactly the owner who wants to
+                check it against the live page. The header carries the
+                same link, and the owner asked for it here too rather
+                than scrolling back up. */}
+            {job.url ? (
+              <Link href={job.url} target="blank" display="inlineBlock" externalLinkIcon="default">
+                <Text color="link">Open the posting at its source</Text>
+              </Link>
+            ) : null}
+          </SectionCard>
         ) : null}
-        <Accordion.Expandable
-          id="job-details"
-          accessibilityExpandLabel="Show details"
-          accessibilityCollapseLabel="Hide details"
-          items={[{
-            title: 'Details',
-            children: (
-              <Flex direction="column" gap={3}>
-                <KeyValueGrid
-                  entries={[
-                    ['Source', job.source || 'Unknown'],
-                    ['Posted', job.posted_date || 'Unknown'],
-                  ]}
-                />
-                <Flex gap={3} alignItems="center" wrap>
-                  <Button
-                    text="Check if still online"
-                    size="sm"
-                    color="gray"
-                    disabled={!watchEligible || checkBusy}
-                    accessibilityLabel={!watchEligible ? watchReason : 'Check if still online'}
-                    onClick={handleCheckPosting}
-                  />
-                  <div role="status" aria-live="polite">
-                    {checkBusy ? <Text color="subtle">Checking…</Text>
-                      : checkResult ? <Text color="subtle">{checkResult}</Text> : null}
-                  </div>
-                </Flex>
-              </Flex>
-            ),
-          }]}
-        />
+        <SectionCard title="Details" collapsible>
+          <KeyValueGrid
+            entries={[
+              ['Source', job.source || 'Unknown'],
+              ['Posted', job.posted_date || 'Unknown'],
+            ]}
+          />
+          <Flex gap={3} alignItems="center" wrap>
+            <Button
+              text="Check if still online"
+              size="sm"
+              color="gray"
+              disabled={!watchEligible || checkBusy}
+              accessibilityLabel={!watchEligible ? watchReason : 'Check if still online'}
+              onClick={handleCheckPosting}
+            />
+            <div role="status" aria-live="polite">
+              {checkBusy ? <Text color="subtle">Checking…</Text>
+                : checkResult ? <Text color="subtle">{checkResult}</Text> : null}
+            </div>
+          </Flex>
+        </SectionCard>
         <SectionCard
           title="Classification"
+          collapsible
           actions={<Button text="Edit classification" color="gray" size="sm" onClick={openClassification} />}
         >
           <Flex direction="column" gap={3}>
@@ -496,7 +476,7 @@ export default function JobDetail() {
           )}
         </SectionCard>
         {history?.length ? (
-          <SectionCard title="History">
+          <SectionCard title="History" collapsible>
             <DividerList
               items={history.slice().reverse()}
               renderItem={(entry) => (
