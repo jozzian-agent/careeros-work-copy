@@ -17,6 +17,11 @@ const FIELDS = [
   { key: 'employment_type', label: 'Employment type', setter: null },
   { key: 'skills', label: 'Skills', setter: 'job' },
   { key: 'description_structured', label: 'Description', setter: 'job' },
+  // The five requirement groups are reported as the one field they are
+  // stored in: the reader says whether the posting yielded grouped
+  // requirements and who grouped them, and it has nothing to say per
+  // group, so a row per group would be five invented states.
+  { key: 'requirement_groups', label: 'Requirements', setter: 'job' },
 ];
 
 // The one label the extraction row reads out of the resolved history, so

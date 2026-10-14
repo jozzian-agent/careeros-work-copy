@@ -7,6 +7,7 @@ import {
   fetchJobPage,
   fetchJobTaxonomy,
   pasteDescription,
+  reExtractJob,
   resolveReview,
   retryIngest,
   updateJob,
@@ -84,6 +85,7 @@ export default function JobDetail() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [extractionOpen, setExtractionOpen] = useState(false);
   const [resolveBusy, setResolveBusy] = useState(false);
+  const [reExtractBusy, setReExtractBusy] = useState(false);
 
   const load = useCallback(() => {
     fetchJobPage(id)
@@ -188,6 +190,22 @@ export default function JobDetail() {
     }
   }
 
+  // Reading the stored posting text again. The reload hands over to the
+  // page's own polling, since the fields go back to pending while the
+  // extraction runs, so the busy state only covers the request itself.
+  async function handleReExtract() {
+    setReExtractBusy(true);
+    setActionError(null);
+    try {
+      await reExtractJob(id);
+      await load();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setReExtractBusy(false);
+    }
+  }
+
   async function handlePasteDescription(description) {
     await pasteDescription(id, description);
     setPasteOpen(false);
@@ -245,6 +263,18 @@ export default function JobDetail() {
 
   const structured = job.description_structured || {};
   const requirements = requirementEntries(job);
+  // Which shape the Requirements section is rendering, which decides
+  // whose provenance its AI label answers to: the grouped field once the
+  // job has been extracted since package 2, and the flat block plus the
+  // skills list for a job that has not been.
+  const grouped = Boolean((job.requirement_groups || []).length);
+  const requirementKeys = grouped ? ['requirement_groups'] : ['description_structured', 'skills'];
+  // The rules can group requirements with no model involved (the
+  // Re-extract fallback), and that is not AI-extracted, so the label
+  // follows the recorded source rather than the presence of groups.
+  const requirementsByAi = grouped
+    ? (job.field_provenance || {}).requirement_groups === 'llm'
+    : structured.method === 'llm';
   const rows = extractionRows(job);
   const notFound = notFoundLabels(rows);
   const readAt = readTimestamp(history);
@@ -338,7 +368,7 @@ export default function JobDetail() {
         {requirements.length || reading ? (
           <SectionCard
             title="Requirements"
-            aiLabel={aiLabel(job, ['description_structured', 'skills'], structured.method === 'llm', 'extracted')}
+            aiLabel={aiLabel(job, requirementKeys, requirementsByAi, 'extracted')}
           >
             {requirements.length ? <Requirements entries={requirements} /> : <Text color="subtle">{PENDING_TEXT}</Text>}
           </SectionCard>
@@ -368,6 +398,20 @@ export default function JobDetail() {
             size="sm"
             color="transparent"
             onClick={() => setExtractionOpen(true)}
+          />
+          {/* Reading the stored text again, which is how a job written
+              before the requirement groups gets them. There is nothing
+              to read again without stored posting text, so the button
+              says so instead of failing on the owner. */}
+          <Button
+            text={reExtractBusy ? 'Re-extracting…' : 'Re-extract'}
+            size="sm"
+            color="gray"
+            disabled={!hasDescription || reExtractBusy}
+            accessibilityLabel={hasDescription
+              ? undefined
+              : 'Re-extract needs posting text, and none has arrived yet'}
+            onClick={handleReExtract}
           />
         </Flex>
         {/* Collapsed by default, each its own accordion: one accordion

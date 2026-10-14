@@ -95,6 +95,22 @@ export async function retryIngest(id) {
   return response.json();
 }
 
+// POST /api/jobs/<id>/re-extract: read the stored posting text again
+// (careeros/server.py re_extract_job). This is the owner's per-job
+// migration to grouped requirements, so it never fetches the live
+// posting, and it answers 409 when the job has no stored text at all,
+// which is the one message worth showing.
+export async function reExtractJob(id) {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/re-extract`, {
+    method: 'POST',
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || 'Could not read that posting text again.');
+  }
+  return data;
+}
+
 // POST /api/jobs/<id>/resolve-review: the owner settles which company a
 // needs_review job belongs to, by picking a candidate (`company_id`) or
 // naming a new one (`create: {name}`). `review_token` is the revision the
