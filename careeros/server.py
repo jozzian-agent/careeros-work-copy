@@ -648,6 +648,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
             llm_pending[job_id] = token
             return token
 
+    def release_enrichment(job_id, token):
+        """Give back a reservation whose run never started, if it is still
+        this caller's. The token identity check is what keeps a caller
+        from releasing a newer run's slot."""
+        with pending_lock:
+            if llm_pending.get(job_id) is token:
+                llm_pending.pop(job_id, None)
+
     def settle_and_release(root, job_id, token, current):
         """Settle any still-pending covered field and release the caller's
         extraction ownership token as one step (JOZ-267 fix round 3,
@@ -804,9 +812,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             thread = ingest.extract_async(description, receive,
                                           function_options=storage.function_facet_options(root))
         except Exception as error:
-            with pending_lock:
-                if llm_pending.get(job_id) is token:
-                    llm_pending.pop(job_id, None)
+            release_enrichment(job_id, token)
             ingest.warn(error)
             return False
         app.config['LLM_THREADS'][job_id] = thread
@@ -1386,7 +1392,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
         with real groups when it finishes. Everything else is the same
         machinery /extract uses: one reservation per job, every covered
         field back to pending while the attempt runs, and the attempt's
-        own history event.
+        own history event. A job whose reading is already running is a
+        409: there is one reservation per job, and this request did not
+        get it.
         """
         root = app.config['VAULT_PATH']
         with write_lock:
@@ -1397,21 +1405,36 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 return jsonify(error='This job has no posting text to read.'), 409
             token = reserve_enrichment(identifier)
             if token is None:
-                return jsonify(job | {'llm_pending': True}), 202
-            provenance = job.get('field_provenance', {})
-            structured = job.get('description_structured') or {}
-            updates = {}
-            if not job.get('requirement_groups') and provenance.get('requirement_groups') != 'user':
-                groups = ingest.requirement_groups(None, structured.get('requirements'),
-                                                   structured.get('nice_to_have'))
-                if groups:
-                    updates['requirement_groups'] = groups
-                    # The rules did the grouping, whoever wrote the lines,
-                    # so the page credits the page data and not the model.
-                    updates['field_provenance'] = {**provenance, 'requirement_groups': 'scrape'}
-            updates['field_status'] = apply_field_status(job, updates, unfilled='pending')
-            job = storage.save_job(root, updates, identifier,
-                                   history_event=('re_extracted', 'Stored posting text read again.'))
+                # A reading of this job is already running. Answering 202
+                # would claim this request started one, so the owner would
+                # read whatever that other run writes as this click's
+                # result, and a click that did nothing would look like a
+                # click that worked.
+                return jsonify(job | {'llm_pending': True,
+                                      'error': 'This posting is already being read.'}), 409
+            try:
+                provenance = job.get('field_provenance', {})
+                structured = job.get('description_structured') or {}
+                updates = {}
+                if not job.get('requirement_groups') and provenance.get('requirement_groups') != 'user':
+                    groups = ingest.requirement_groups(None, structured.get('requirements'),
+                                                       structured.get('nice_to_have'))
+                    if groups:
+                        updates['requirement_groups'] = groups
+                        # The rules did the grouping, whoever wrote the lines,
+                        # so the page credits the page data and not the model.
+                        updates['field_provenance'] = {**provenance, 'requirement_groups': 'scrape'}
+                updates['field_status'] = apply_field_status(job, updates, unfilled='pending')
+                job = storage.save_job(root, updates, identifier,
+                                       history_event=('re_extracted', 'Stored posting text read again.'))
+            except Exception:
+                # The reservation is this request's to give back: a write
+                # that failed started no reading, and a token left behind
+                # would block every later attempt on this job for the life
+                # of the process. The failure itself still reaches the
+                # owner, through the app's own error handler.
+                release_enrichment(identifier, token)
+                raise
         if not start_llm_enrichment(root, job, job.get('description') or '', token):
             job = mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
                                     reason='worker_start_failed', settle_fields=True,

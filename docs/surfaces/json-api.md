@@ -198,10 +198,11 @@ converts template tuples to arrays and rendered Markdown to strings.
     the live posting may be gone, and the text to group is the stored
     one. It writes the rule-based groups (the flat lists under the Skills
     group) in the same breath, so the action lands a result with no model
-    reachable, and queues the extraction that replaces them. A job with
-    no stored posting text is 409, a missing job 404, and a job whose
-    extraction is already running answers 202 with `llm_pending` true
-    without starting a second one.
+    reachable, and queues the extraction that replaces them. A missing
+    job is 404. A job with no stored posting text is 409, and so is a job
+    whose reading is already running, each with its own `error`: there is
+    one reservation per job, and a request that did not get it started no
+    reading, so answering 202 would credit it with another run's result.
   - `PUT /api/jobs/<id>` takes the whole list, like any other field, and
     stamps owner provenance on it, after which no extraction overwrites
     it. That is the Languages editor's write path.

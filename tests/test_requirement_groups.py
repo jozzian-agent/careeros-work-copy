@@ -427,6 +427,41 @@ def test_re_extract_refuses_a_job_with_no_posting_text(tmp_path):
     assert vault.load_job(tmp_path, job['id'])['requirement_groups'] == []
 
 
+def test_re_extract_refuses_a_job_whose_reading_is_already_running(tmp_path, no_worker):
+    """One reservation per job: the second click did not get it, and must
+    not answer as though it had started a reading of its own."""
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    api = app.test_client()
+    app.config['LLM_PENDING'][job['id']] = object()
+    response = api.post(f'/api/jobs/{job["id"]}/re-extract')
+    assert response.status_code == 409
+    assert response.get_json()['error'] == 'This posting is already being read.'
+    # Nothing was written: no groups, and no event claiming the owner's
+    # click was acted on.
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == []
+    assert [entry for entry in stored['history'] if entry['event'] == 're_extracted'] == []
+
+
+def test_re_extract_gives_the_reservation_back_when_its_write_fails(tmp_path, no_worker, monkeypatch):
+    """A failed write started no reading, so the token it holds has to go
+    back: a token left behind blocks every later attempt on that job for
+    the life of the process."""
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    api = app.test_client()
+
+    def refuse(*args, **kwargs):
+        raise ValueError('The vault refused this write.')
+
+    monkeypatch.setattr(vault, 'save_job', refuse)
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 400
+    assert job['id'] not in app.config['LLM_PENDING']
+    monkeypatch.undo()
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+
+
 def test_re_extract_on_a_missing_job_is_a_404(tmp_path):
     api = create_app(tmp_path).test_client()
     assert api.post('/api/jobs/JOB-404/re-extract').status_code == 404
