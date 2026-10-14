@@ -17,7 +17,7 @@ import SectionCard, {
 } from '../components/SectionCard.jsx';
 import FitChip from '../components/FitChip.jsx';
 import StatusSelect from '../components/StatusSelect.jsx';
-import NeedsInputCard, { NEEDS_INPUT_ANCHOR, NEEDS_INPUT_TITLE } from '../components/NeedsInputCard.jsx';
+import NeedsInputCard, { NeedsInputChip } from '../components/NeedsInputCard.jsx';
 import Requirements, { requirementEntries } from '../components/Requirements.jsx';
 import ExtractionPopup, { extractionRows, notFoundLabels } from '../components/ExtractionPopup.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
@@ -281,11 +281,7 @@ export default function JobDetail() {
           type="JOB"
           backHref="/jobs"
           backLabel="Jobs"
-          chip={needsInput ? (
-            <Link href={`#${NEEDS_INPUT_ANCHOR}`} display="inlineBlock">
-              <Badge type="recommendation" text={NEEDS_INPUT_TITLE} />
-            </Link>
-          ) : null}
+          chip={needsInput ? <NeedsInputChip /> : null}
           title={job.title}
           subtitle={company ? <Link href={`/companies/${encodeURIComponent(company.id)}`}>{company.name}</Link> : null}
           location={job.location}

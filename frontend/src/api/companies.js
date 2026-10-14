@@ -10,8 +10,9 @@ export async function fetchCompaniesPage() {
 }
 
 // GET /api/companies/<id>?view=page: the company_context payload (company,
-// sector_labels, entries, experiences, companies, isic_sections,
-// size_classes, kinds) the Company detail page reads.
+// sector_labels, entries, jobs, experiences, companies, classification,
+// needs_input, isic_sections, size_classes, kinds) the Company detail
+// page reads. Contract: docs/surfaces/json-api.md.
 export async function fetchCompanyPage(id) {
   const response = await fetch(`/api/companies/${encodeURIComponent(id)}?view=page`);
   if (!response.ok) {

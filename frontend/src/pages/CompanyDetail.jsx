@@ -3,9 +3,11 @@ import { useParams } from 'react-router-dom';
 import { BannerSlim, Box, Button, Flex, Link, Text } from 'gestalt';
 import { deleteCompany, fetchCompanyPage, retryCompany, updateCompany } from '../api/companies.js';
 import DetailHeader from '../components/DetailHeader.jsx';
-import SectionCard, { DETAIL_MAX_WIDTH, EmptyState, KeyValueGrid } from '../components/SectionCard.jsx';
+import SectionCard, { DETAIL_MAX_WIDTH, EmptyState } from '../components/SectionCard.jsx';
 import EditCompanyPopup from '../components/EditCompanyPopup.jsx';
+import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
+import { NEEDS_INPUT_ANCHOR, NEEDS_INPUT_TITLE, NeedsInputChip } from '../components/NeedsInputCard.jsx';
 
 function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
@@ -17,6 +19,36 @@ const RETRY_FLAG_REASONS = {
   'sector-source-conflict': 'sector sources disagree',
   'size-inconsistent': 'size sources disagree',
 };
+
+// Where a stored classification value came from, in owner words. The
+// backend sends either 'user' or the name of the enrichment signal that
+// produced the value (careeros/web/pages/companies.py field_source).
+const SOURCE_LABELS = {
+  user: 'Set by you',
+  llm: 'Found by AI',
+  jsonld: "Found on the company's website",
+  wikidata: 'Found on Wikidata',
+  osm: 'Found on OpenStreetMap',
+};
+const FALLBACK_SOURCE_LABEL = 'Found by the rules';
+
+// The same sources, named as things that were tried rather than things
+// that found something, for the needs-input card.
+const TRIED_LABELS = {
+  llm: 'AI',
+  jsonld: "the company's website",
+  wikidata: 'Wikidata',
+  osm: 'OpenStreetMap',
+};
+
+function sourceLabel(source) {
+  if (!source) return null;
+  return SOURCE_LABELS[source] || FALLBACK_SOURCE_LABEL;
+}
+
+function triedLabel(source) {
+  return TRIED_LABELS[source] || source;
+}
 
 // Mirrors the Jinja company_detail.html retry script's result messaging:
 // one line per enrichment field (outcome, flag reason, "kept: you set it"
@@ -53,19 +85,43 @@ function buildRetryFeedback(result) {
   return `${prefix} ${messages.join('. ') || 'No eligible fields to retry.'}`;
 }
 
-// Mirrors the Jinja company_detail.html's "show Retry" decision (BUILD_NOTES
-// JOZ-280): any enrichment field exhausted/flagged, a review flag present,
-// or the company never enriched at all. Scoped to employers, same as the
-// backend retry_company endpoint.
-function retryState(company) {
-  if ((company.kind || 'employer') !== 'employer') return null;
-  const fieldStates = company.enrichment?.field_states || {};
-  const needsLook = (company.review_flags || []).length > 0 ||
-    Object.values(fieldStates).some((state) => ['exhausted', 'flagged'].includes(state.state));
-  if (needsLook) return 'Sector or size enrichment needs another look.';
-  const neverEnriched = !company.sectors?.length && !company.size_range && !company.size_class;
-  if (neverEnriched) return 'Please add a url to enrich.';
-  return null;
+// One linked record: its title as a link, and what state it is in. Jobs
+// and positions render through the same row, which is why the backend
+// sends both as {id, title, status}.
+function LinkedRows({ rows, hrefPrefix }) {
+  return (
+    <Flex direction="column" gap={2}>
+      {rows.map((row) => (
+        <Flex key={row.id} gap={2} alignItems="center" justifyContent="between" wrap>
+          <Link href={`${hrefPrefix}/${encodeURIComponent(row.id)}`} display="inlineBlock">
+            <Text color="link">{row.title}</Text>
+          </Link>
+          {row.status ? (
+            <Text size="200" color="subtle">
+              {titleCase(row.status)}
+            </Text>
+          ) : null}
+        </Flex>
+      ))}
+    </Flex>
+  );
+}
+
+function ClassificationRow({ label, field }) {
+  const source = sourceLabel(field?.source);
+  return (
+    <Flex direction="column" gap={1}>
+      <Text size="200" color="subtle">
+        {label}
+      </Text>
+      <Text>{field?.value || 'Not known yet'}</Text>
+      {source ? (
+        <Text size="200" color="subtle">
+          {source}
+        </Text>
+      ) : null}
+    </Flex>
+  );
 }
 
 export default function CompanyDetail() {
@@ -73,6 +129,8 @@ export default function CompanyDetail() {
   const [page, setPage] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [editFocus, setEditFocus] = useState(null);
+  const [classificationOpen, setClassificationOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -95,6 +153,18 @@ export default function CompanyDetail() {
   async function handleSave(fields) {
     await updateCompany(id, fields);
     setEditOpen(false);
+    setEditFocus(null);
+    load();
+  }
+
+  function openEdit(focus = null) {
+    setEditFocus(focus);
+    setEditOpen(true);
+  }
+
+  async function handleSaveClassification(fields) {
+    await updateCompany(id, fields);
+    setClassificationOpen(false);
     load();
   }
 
@@ -146,12 +216,14 @@ export default function CompanyDetail() {
     );
   }
 
-  const { company, sector_labels: sectorLabels, entries: jobs, experiences } = page;
-  // Mirrors the Jinja company_detail.html convention exactly: the raw
-  // size_range string wins when present, title-cased size_class otherwise.
-  const sizeLabel = company.size_range || (company.size_class ? titleCase(company.size_class) : 'Size unknown');
-  const sectorText = sectorLabels.length ? sectorLabels.join(', ') : 'Sector unknown';
-  const retryMessage = retryState(company);
+  const {
+    company, jobs = [], experiences = [], classification = {}, needs_input: needsInput,
+    isic_sections: sectorOptions = [], size_classes: sizeOptions = [],
+  } = page;
+  const locations = (company.locations || []).join(', ');
+  const sectorText = classification.sector?.value || 'Sector unknown';
+  const sizeText = classification.size?.value || 'Size unknown';
+  const tried = needsInput?.tried || [];
 
   return (
     <Box padding={6}>
@@ -160,81 +232,116 @@ export default function CompanyDetail() {
           type="COMPANY"
           backHref="/companies"
           backLabel="Companies"
+          chip={needsInput ? <NeedsInputChip /> : null}
           title={company.name}
-          subtitle={`${sectorText} · ${sizeLabel}`}
+          subtitle={`${sectorText} · ${sizeText}`}
+          location={locations || null}
+          meta={company.website ? (
+            <Link href={company.website} target="blank" display="inlineBlock" externalLinkIcon="default">
+              <Text color="link">{company.website}</Text>
+            </Link>
+          ) : null}
           editLabel="Edit company"
-          onEdit={() => setEditOpen(true)}
+          onEdit={() => openEdit()}
           onDelete={() => setDeleteOpen(true)}
         />
-        {retryMessage || retryFeedback ? (
-          <SectionCard title="Enrichment">
-            <Flex direction="column" gap={3}>
-              {retryMessage ? (
-                <Flex gap={3} alignItems="center" wrap>
-                  <Text color="subtle">{retryMessage}</Text>
-                  <Button text="Retry" size="sm" disabled={retryBusy} onClick={handleRetry} />
-                </Flex>
-              ) : null}
-              {retryFeedback ? (
-                <BannerSlim
-                  type={retryFeedback.type}
-                  message={retryFeedback.message}
-                  onDismiss={() => setRetryFeedback(null)}
-                />
-              ) : null}
+        {/* The one ask, and only when automation has genuinely run out of
+            ideas: the backend decides that (companies.py
+            company_needs_input), so a stale review flag on a field that
+            does have a value can no longer keep the card up. */}
+        {needsInput ? (
+          <SectionCard
+            title={NEEDS_INPUT_TITLE}
+            variant="needs-input"
+            anchorId={NEEDS_INPUT_ANCHOR}
+            actions={[
+              <Button
+                key="set"
+                text="Set it yourself"
+                color="red"
+                onClick={() => setClassificationOpen(true)}
+              />,
+              <Button key="retry" text="Try again" color="gray" disabled={retryBusy} onClick={handleRetry} />,
+            ]}
+          >
+            <Flex direction="column" gap={2}>
+              <Text>
+                {needsInput.field === 'sector'
+                  ? 'This company has no sector yet.'
+                  : 'This company has no size yet.'}
+              </Text>
+              <Text color="subtle">
+                {tried.length
+                  ? `Tried: ${tried.map(triedLabel).join(', ')}.`
+                  : 'No source has been tried yet.'}
+              </Text>
             </Flex>
           </SectionCard>
         ) : null}
-        {/* Read-only for now: the Company Classification page this used to
-            link to is gone (the route and its JSON endpoint were removed),
-            and inline editing of sector/size arrives with the next
-            frontend round. A link to a 404 is worse than no link. */}
-        <SectionCard title="Classification">
-          <Text>
-            {sectorText} · {sizeLabel}
-          </Text>
-        </SectionCard>
-        <SectionCard title="Details">
-          <KeyValueGrid
-            entries={[
-              ['Name', company.name],
-              ['Website', company.website ? <Link href={company.website}>{company.website}</Link> : 'Unknown'],
-              ['Locations', (company.locations || []).join(', ') || 'Unknown'],
-            ]}
+        {retryFeedback ? (
+          <BannerSlim
+            type={retryFeedback.type}
+            message={retryFeedback.message}
+            onDismiss={() => setRetryFeedback(null)}
           />
-        </SectionCard>
-        <SectionCard title="Notes">
-          <Text color={company.notes ? undefined : 'subtle'}>{company.notes || 'No notes yet.'}</Text>
-        </SectionCard>
+        ) : null}
         <SectionCard title="Jobs">
-          {jobs.length ? (
-            <Flex direction="column" gap={2}>
-              {jobs.map((job) => (
-                <Link key={job.id} href={`/jobs/${encodeURIComponent(job.id)}`} display="inlineBlock">
-                  <Text color="link">{job.title}</Text>
-                </Link>
-              ))}
-            </Flex>
-          ) : (
-            <EmptyState text="No jobs linked yet" />
-          )}
+          {jobs.length ? <LinkedRows rows={jobs} hrefPrefix="/jobs" /> : <EmptyState text="No jobs linked yet" />}
         </SectionCard>
         <SectionCard title="Experiences">
           {experiences.length ? (
-            <Flex direction="column" gap={2}>
-              {experiences.map((exp) => (
-                <Link key={exp.id} href={`/experiences/${encodeURIComponent(exp.id)}`} display="inlineBlock">
-                  <Text color="link">{exp.title}</Text>
-                </Link>
-              ))}
-            </Flex>
+            <LinkedRows rows={experiences} hrefPrefix="/experiences" />
           ) : (
             <EmptyState text="No linked experience yet" />
           )}
         </SectionCard>
+        <SectionCard
+          title="Classification"
+          actions={(
+            <Button
+              text="Edit classification"
+              color="gray"
+              size="sm"
+              onClick={() => setClassificationOpen(true)}
+            />
+          )}
+        >
+          <Flex direction="column" gap={3}>
+            <ClassificationRow label="Sector" field={classification.sector} />
+            <ClassificationRow label="Size" field={classification.size} />
+          </Flex>
+        </SectionCard>
+        <SectionCard title="Notes">
+          {company.notes ? (
+            <Text>{company.notes}</Text>
+          ) : (
+            <EmptyState
+              text="No notes yet."
+              action={<Button text="Add a note" size="sm" color="gray" onClick={() => openEdit('notes')} />}
+            />
+          )}
+        </SectionCard>
       </Flex>
       {editOpen ? (
-        <EditCompanyPopup company={company} onSave={handleSave} onDismiss={() => setEditOpen(false)} />
+        <EditCompanyPopup
+          company={company}
+          focus={editFocus}
+          onSave={handleSave}
+          onDismiss={() => {
+            setEditOpen(false);
+            setEditFocus(null);
+          }}
+        />
+      ) : null}
+      {classificationOpen ? (
+        <EditClassificationPopup
+          mode="company"
+          company={company}
+          sectorOptions={sectorOptions}
+          sizeOptions={sizeOptions}
+          onSave={handleSaveClassification}
+          onDismiss={() => setClassificationOpen(false)}
+        />
       ) : null}
       {deleteOpen ? (
         <DeleteConfirmModal

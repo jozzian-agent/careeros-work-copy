@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Flex, RadioGroup, Text, TextField } from 'gestalt';
+import { Badge, Button, Flex, Link, RadioGroup, Text, TextField } from 'gestalt';
 import SectionCard from './SectionCard.jsx';
 
 // The Job detail page's one ask, rendered in the violet needs-input
@@ -23,6 +23,16 @@ const READ_FAILURE_REASONS = {
   worker_start_failed: 'Reading the posting could not be started.',
   refresh_worker_start_failed: 'Reading the posting could not be started.',
 };
+
+// The header chip, on both detail pages: it says there is one ask and
+// takes the owner to it. Shown only when the card is.
+export function NeedsInputChip() {
+  return (
+    <Link href={`#${NEEDS_INPUT_ANCHOR}`} display="inlineBlock">
+      <Badge type="recommendation" text={NEEDS_INPUT_TITLE} />
+    </Link>
+  );
+}
 
 function readFailureText(reason, stage) {
   return READ_FAILURE_REASONS[reason]

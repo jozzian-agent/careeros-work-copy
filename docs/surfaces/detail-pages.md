@@ -62,6 +62,30 @@ both requirement lists, responsibilities, skills as removable tags), so
 no AI label points at a field the owner cannot correct. The per-section
 Edit button beside the AI label is gone; there is one editing surface.
 
+The Company page is rebuilt in the same round:
+
+1. `DetailHeader`: back link, the COMPANY label with the same "Needs your
+   input" chip, title, "sector · size", then the locations and the
+   website as an external link on one line. Edit company and Delete are
+   both gray secondary.
+2. The one needs-input card, when the backend's `needs_input` says the
+   sector or the size is empty and automation has run out of ideas: it
+   names the field and the sources that were tried, "Set it yourself"
+   opens Edit classification and "Try again" calls
+   `POST /api/companies/<id>/retry`, whose outcome renders below it.
+3. Jobs: each linked job's title as a link, with its status.
+4. Experiences: the same row, with present or past.
+5. Classification: the sector and the size, each with where the value
+   came from ("Set by you", "Found by AI", "Found on Wikidata", and so
+   on), and "Edit classification".
+6. Notes, with the same dashed "Add a note" box, which opens Edit company
+   at the notes field.
+
+There is no Details section: it repeated the title as a Name row and the
+website that is now in the header. Edit classification is one component
+with a job and a company variant, which is what replaced the retired
+`/companies/<id>/taxonomy` page.
+
 ## Purpose
 
 One shared skeleton for every record detail page, so a friend always knows
