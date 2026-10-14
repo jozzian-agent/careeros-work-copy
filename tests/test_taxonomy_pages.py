@@ -32,15 +32,14 @@ def test_job_taxonomy_page_renders(client, root):
     assert 'Tags' in html
 
 
-def test_company_taxonomy_page_renders(client, root):
-    # JOZ-280: /companies/<id>/taxonomy is a React page now (no Jinja
-    # coexistence); the JSON API behind it is unchanged, so this pins the
-    # API contract the React Company Classification page consumes. DOM
-    # rendering itself is covered by frontend/tests/company-classification.spec.js.
+def test_company_taxonomy_page_is_retired(client, root):
+    # B6: the standalone company classification page and the JSON API
+    # behind it are gone; the company detail context carries the same
+    # classification data (tests/test_company_page_context.py) and the
+    # detail page edits it in a popup.
     company = vault.save_company(root, {'name': 'Fiction Co'})
-    data = client.get(f'/api/companies/{company["id"]}/taxonomy').json
-    assert data['kinds'] and 'aggregate' not in data['kinds']
-    assert any(s['code'] for s in data['isic_sections'])
+    assert client.get(f'/api/companies/{company["id"]}/taxonomy').status_code == 404
+    assert client.get(f'/companies/{company["id"]}/taxonomy').status_code == 404
 
 
 def test_job_taxonomy_unknown_id_404(client):

@@ -49,7 +49,9 @@ export async function deleteJob(id) {
 
 // GET /api/jobs/<id>?view=page: the detail_context payload (job, company,
 // statuses, function_labels, markdown, has_description, show_remote_chip,
-// watch_eligible, watch_reason, llm_pending) the Job detail page renders.
+// watch_eligible, watch_reason, llm_pending, history, classification,
+// needs_input, reading, summary_effective, fit, fit_placeholder) the Job
+// detail page renders. Contract: docs/surfaces/json-api.md.
 export async function fetchJobPage(id) {
   const response = await fetch(`/api/jobs/${encodeURIComponent(id)}?view=page`);
   if (!response.ok) {
@@ -91,6 +93,24 @@ export async function retryIngest(id) {
     throw new Error('Retry failed.');
   }
   return response.json();
+}
+
+// POST /api/jobs/<id>/resolve-review: the owner settles which company a
+// needs_review job belongs to, by picking a candidate (`company_id`) or
+// naming a new one (`create: {name}`). `review_token` is the revision the
+// owner actually saw; the endpoint answers 409 when it has moved on, and
+// that message is the one worth showing, since reloading is the fix.
+export async function resolveReview(id, payload) {
+  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/resolve-review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || 'Could not link that company.');
+  }
+  return data;
 }
 
 // POST /api/jobs/<id>/paste-description: the fetch_failed "paste posting

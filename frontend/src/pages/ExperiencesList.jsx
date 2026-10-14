@@ -1,20 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Box, Button, ButtonLink, Flex, Heading, Link, PageHeader, Text } from 'gestalt';
 import { fetchExperiencesPage } from '../api/experiences.js';
-
-function prettify(tag) {
-  return tag
-    .split(':')
-    .pop()
-    .replace(/-/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-// Mirrors experiences.html's tag label fallback exactly: the registry
-// label when known, otherwise the tag's own key, title-cased.
-function tagLabel(tag, tagLabels) {
-  return tagLabels[tag]?.label || prettify(tag);
-}
+import { tagLabel } from '../tags.js';
 
 export default function ExperiencesList() {
   const [page, setPage] = useState(null);

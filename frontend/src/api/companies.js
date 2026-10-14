@@ -10,8 +10,9 @@ export async function fetchCompaniesPage() {
 }
 
 // GET /api/companies/<id>?view=page: the company_context payload (company,
-// sector_labels, entries, experiences, companies, isic_sections,
-// size_classes, kinds) the Company detail page reads.
+// sector_labels, entries, jobs, experiences, companies, classification,
+// needs_input, isic_sections, size_classes, kinds) the Company detail
+// page reads. Contract: docs/surfaces/json-api.md.
 export async function fetchCompanyPage(id) {
   const response = await fetch(`/api/companies/${encodeURIComponent(id)}?view=page`);
   if (!response.ok) {
@@ -54,17 +55,6 @@ export async function retryCompany(id) {
   const response = await fetch(`/api/companies/${encodeURIComponent(id)}/retry`, { method: 'POST' });
   if (!response.ok) {
     throw new Error('Retry failed.');
-  }
-  return response.json();
-}
-
-// GET /api/companies/<id>/taxonomy: the classification_context payload
-// (company, isic_sections, size_classes, kinds) the Company Classification
-// page edits.
-export async function fetchCompanyTaxonomy(id) {
-  const response = await fetch(`/api/companies/${encodeURIComponent(id)}/taxonomy`);
-  if (!response.ok) {
-    throw new Error('Could not load classification.');
   }
   return response.json();
 }

@@ -21,6 +21,9 @@ COMPANY_LINK_REASONS = ('ats_tenant', 'domain', 'name_exact', 'fuzzy_name',
 IDENTIFIER_TYPES = ('domain', 'ats_tenant', 'wikidata', 'name_variant')
 SOURCE_KINDS = ('careers_page', 'ats_feed')
 FIELD_STATUS_VALUES = ('pending', 'done', 'failed', 'not_evidenced')
+# _save_record's history backstop writes the new state itself as the event
+# type, so careeros.history.REGISTRY must name every member of this tuple.
+INGEST_STATES = ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed')
 POSTING_QUALITY_VALUES = ('thin', 'ok', 'rich')
 DESCRIPTION_STRUCTURED_METHODS = ('llm', 'heuristic', 'raw')
 TAG_FACETS = ('skill/capability', 'skill/domain', 'function', 'experience-type', 'tool')
@@ -412,6 +415,169 @@ def next_job_id(root):
 def next_company_id(root):
     return _next(root, 'companies', 'CO-')
 
+# One owner note: a title, a body, and when it was written and last
+# changed. Notes live under `note_list` on the job or company record they
+# belong to, so a note's association IS containment and needs no separate
+# index or back-reference. Ids are generated here and never accepted from
+# a client.
+NOTE_FIELDS = ('id', 'title', 'body', 'created', 'updated')
+
+# The title a note migrated out of the legacy free-text `notes` string
+# gets. That field never had one, and a list of notes shows titles.
+LEGACY_NOTE_TITLE = 'Note'
+
+# The id that migrated note is addressable under. It has to be the same on
+# every read, or an edit the owner starts on one page load would address
+# nothing by the time they save it, so it cannot be generated per read.
+LEGACY_NOTE_ID = 'legacy'
+
+
+def new_note(title, body):
+    """One note, stamped now.
+
+    A note with no title is rejected: the list shows titles, so a note
+    without one is a row the owner cannot tell from the next.
+    """
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError('A note needs a title.')
+    if not isinstance(body, str):
+        raise ValueError('A note body must be text.')
+    at = timestamp()
+    return dict(id=uuid.uuid4().hex, title=title.strip(), body=body, created=at, updated=at)
+
+
+def edit_note(note, fields):
+    """One note with the carried fields changed and `updated` stamped.
+
+    A key the payload does not carry is left alone, the same merge rule
+    every record write here follows. An empty title is rejected on an edit
+    too: an edit cannot take away what creation required.
+    """
+    if not isinstance(fields, dict):
+        raise ValueError('Note must be an object.')
+    result = dict(note)
+    for key in ('title', 'body'):
+        if key in fields:
+            if not isinstance(fields[key], str):
+                raise ValueError(f'A note {key} must be text.')
+            result[key] = fields[key].strip() if key == 'title' else fields[key]
+    if not result['title'].strip():
+        raise ValueError('A note needs a title.')
+    result['updated'] = timestamp()
+    return result
+
+
+def notes_view(record):
+    """Every note on a record, in stored order.
+
+    A record written before notes became a list keeps its text in the
+    legacy `notes` string. That string surfaces here as the record's one
+    note, so no note is invisible while both shapes exist. It carries no
+    timestamps, because the legacy field never recorded when it was
+    written, and an invented date would read as a note written just now.
+
+    This is a read and only a read: nothing is written, and the file keeps
+    its legacy shape until the owner's next note write, which persists the
+    migrated note and clears the string in the same save (`notes_payload`).
+    """
+    record = record or {}
+    stored = record.get('note_list')
+    if isinstance(stored, list) and stored:
+        return [note for note in stored if isinstance(note, dict)]
+    legacy = record.get('notes')
+    if isinstance(legacy, str) and legacy.strip():
+        return [dict(id=LEGACY_NOTE_ID, title=LEGACY_NOTE_TITLE, body=legacy,
+                     created=None, updated=None)]
+    return []
+
+
+def has_notes(record):
+    """Whether the record carries any owner note, in either shape."""
+    return bool(notes_view(record))
+
+
+def notes_payload(notes):
+    """The save payload for a record whose notes just changed: the new
+    list, and the legacy free-text field cleared.
+
+    Clearing it in the same write is what makes the read-time migration a
+    one-way door. Until the owner's first note write the file keeps its
+    legacy shape untouched; after it, `note_list` is the only place the
+    record's notes live. One write for both halves means a note can never
+    exist in two shapes at once.
+    """
+    return {'note_list': notes, 'notes': ''}
+
+
+def validate_note_list(notes):
+    """Check a stored note list against the one note shape, and return it.
+
+    created and updated may be null: that is the migrated legacy note,
+    whose write-time nobody recorded. Ids must be unique within a record,
+    since every edit and delete addresses a note by its id.
+    """
+    if notes is None:
+        return []
+    if not isinstance(notes, list):
+        raise ValueError('note_list must be a list of notes.')
+    for note in notes:
+        if not isinstance(note, dict) or set(note) != set(NOTE_FIELDS):
+            raise ValueError(f'Each note must have {", ".join(NOTE_FIELDS)}.')
+        for key in ('id', 'title', 'body'):
+            if not isinstance(note[key], str):
+                raise ValueError(f'note {key} must be text.')
+        if not note['id'] or not note['title'].strip():
+            raise ValueError('A note needs an id and a title.')
+        for key in ('created', 'updated'):
+            if note[key] is not None and not isinstance(note[key], str):
+                raise ValueError(f'note {key} must be text or null.')
+    ids = [note['id'] for note in notes]
+    if len(set(ids)) != len(ids):
+        raise ValueError('Note ids must be unique on one record.')
+    return notes
+
+
+def _record_defaults(kind):
+    """Every field a record of this kind stores, with its empty value.
+
+    `_save_record` builds each saved record from this dict and silently
+    drops payload keys it does not name, which makes it the one true list
+    of fields a write can persist. Callers that need that list (the API
+    PUTs, which must not stamp provenance for keys they drop) read it
+    through `job_field_names` / `company_field_names` rather than keeping a
+    second copy that could drift.
+    """
+    job = kind == 'jobs'
+    return (dict(company_id=None, title='', url='', original_url=None, source='', status='new', posted_date=None,
+                 added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
+                 notes='', note_list=[], enriched=False, employment_type='', valid_through='', custom={},
+                 description='', company='', seniority='', keywords=[], summary='', contact_email='',
+                 ingest_source='', sector=None, sectors=[], industry=None, industries=[],
+                 background='', skills=[], certifications=[], responsibilities=[], summary_source='', refresh='skipped',
+                 employee_count=None, function=[], tags=[],
+                 normalized_url=None, in_pipeline=True, origin='manual', source_id=None,
+                 ingest_state='complete', ingest_error=None, field_provenance={},
+                 ats_provider=None, ats_tenant=None, ats_posting_id=None,
+                 company_link_state='pending', company_link_reason=None,
+                 employer_named_in_posting=None, company_review=None,
+                 field_status={}, posting_quality=None, description_structured=None,
+                 occupation_code=None, skill_codes=None) if job else
+            dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
+                 contact_email='', notes='', note_list=[], custom={}, enrichment={},
+                 kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
+                 identifiers=[], sources=[], field_provenance={}))
+
+
+def job_field_names():
+    """Payload keys `save_job` persists. Any other key is dropped."""
+    return frozenset(_record_defaults('jobs'))
+
+
+def company_field_names():
+    """Payload keys `save_company` persists. Any other key is dropped."""
+    return frozenset(_record_defaults('companies'))
+
+
 def _save_record(root, kind, data, identifier=None, *, correction_detail=None, history_event=None):
     from careeros.intake import check_url_format
     if not isinstance(data, dict):
@@ -420,29 +586,15 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
     if identifier and not existing:
         raise KeyError(identifier)
     job = kind == 'jobs'
-    defaults = (dict(company_id=None, title='', url='', original_url=None, source='', status='new', posted_date=None,
-                     added=date.today().isoformat(), salary_info=False, salary_note='', location='', remote_ok=None,
-                     notes='', enriched=False, employment_type='', valid_through='', custom={},
-                     description='', company='', seniority='', keywords=[], summary='', contact_email='',
-                     ingest_source='', sector=None, sectors=[], industry=None, industries=[],
-                     background='', skills=[], certifications=[], responsibilities=[], summary_source='', refresh='skipped',
-                     employee_count=None, function=[], tags=[],
-                     normalized_url=None, in_pipeline=True, origin='manual', source_id=None,
-                     ingest_state='complete', ingest_error=None, field_provenance={},
-                     ats_provider=None, ats_tenant=None, ats_posting_id=None,
-                     company_link_state='pending', company_link_reason=None,
-                     employer_named_in_posting=None, company_review=None,
-                     field_status={}, posting_quality=None, description_structured=None,
-                     occupation_code=None, skill_codes=None) if job else
-                dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
-                     contact_email='', notes='', custom={}, enrichment={},
-                     kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
-                     identifiers=[], sources=[], field_provenance={}))
+    defaults = _record_defaults(kind)
     result = defaults | (existing[1] if existing else {})
     result.update({k:v for k,v in data.items() if k in defaults})
     if not isinstance(result['field_provenance'], dict) or any(
             not isinstance(k, str) or not isinstance(v, str) for k, v in result['field_provenance'].items()):
         raise ValueError('field_provenance must be an object mapping field names to text.')
+    # Jobs and companies hold notes in the same shape, so this check is
+    # outside the per-kind branches below.
+    result['note_list'] = validate_note_list(result['note_list'])
     required = 'title' if job else 'name'
     for key, default in defaults.items():
         value = result[key]
@@ -492,7 +644,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         result['tags'] = validate_tags(root, result['tags'], proposed=proposed)
         if result['status'] not in STATUSES:
             raise ValueError('Invalid job status.')
-        if result['ingest_state'] not in ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed'):
+        if result['ingest_state'] not in INGEST_STATES:
             raise ValueError('Invalid ingest_state.')
         if result['origin'] not in ('manual', 'discovered'):
             raise ValueError('Invalid job origin.')
@@ -602,7 +754,13 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                         f"Ingest state: {existing[1].get('ingest_state')} -> {result['ingest_state']}.")
         if not existing:
             append_event(result, 'created', 'Job created')
-        if result.get('notes') and not (existing and existing[1].get('notes')):
+        # The first note on a job is history, whichever shape it arrives
+        # in: the legacy free-text field a pre-note_list client still
+        # writes, or the note list the Notes section writes now. Reading
+        # both through has_notes is what keeps the first note in the list
+        # from going unlogged, and keeps the owner's first note write on a
+        # record that already had legacy text from logging a second time.
+        if has_notes(result) and not (existing and has_notes(existing[1])):
             append_event(result, 'note_added', 'Notes added')
         if result.get('enriched') and not (existing and existing[1].get('enriched')):
             append_event(result, 'enriched', 'Posting enriched')

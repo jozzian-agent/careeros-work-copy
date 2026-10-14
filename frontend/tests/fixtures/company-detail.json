@@ -4,19 +4,44 @@
     "name": "Northwind Systems",
     "website": "https://northwind.example",
     "locations": ["Zurich", "CH"],
-    "notes": "Fictional company notes for test fixtures only.",
+    "notes": "",
+    "note_list": [
+      { "id": "n2", "title": "Distributed team", "body": "Fictional company notes for test fixtures only.",
+        "created": "2026-10-13T09:00:00+00:00", "updated": "2026-10-14T10:00:00+00:00" }
+    ],
     "kind": "employer",
     "sectors": ["J"],
     "size_range": "51-200",
     "size_class": "medium",
     "review_flags": [],
-    "enrichment": { "field_states": { "sectors": { "state": "filled" }, "size": { "state": "filled" } } }
+    "field_provenance": {},
+    "enrichment": {
+      "field_states": {
+        "sectors": { "state": "filled", "events": [{ "signal": "wikidata", "outcome": "matched" }] },
+        "size": { "state": "filled", "events": [{ "signal": "jsonld", "outcome": "filled" }] }
+      }
+    }
   },
   "sector_labels": ["Information and communication"],
   "entries": [{ "id": "JOB-001", "title": "Senior Platform Engineer" }],
-  "experiences": [{ "id": "EXP-001", "title": "Guest Lecturer, Fictional Data Strategy Course" }],
+  "jobs": [{ "id": "JOB-001", "title": "Senior Platform Engineer", "status": "interested" }],
+  "experiences": [
+    { "id": "EXP-001", "title": "Guest Lecturer, Fictional Data Strategy Course", "status": "past" }
+  ],
+  "classification": {
+    "sector": { "value": "Information and communication", "source": "wikidata" },
+    "size": { "value": "51-200", "source": "jsonld" }
+  },
+  "needs_input": null,
+  "notes": [
+    { "id": "n2", "title": "Distributed team", "body": "Fictional company notes for test fixtures only.",
+      "created": "2026-10-13T09:00:00+00:00", "updated": "2026-10-14T10:00:00+00:00" }
+  ],
   "companies": { "CO-001": { "id": "CO-001", "name": "Northwind Systems" } },
-  "isic_sections": [{ "code": "J", "label": "Information and communication" }],
+  "isic_sections": [
+    { "code": "J", "label": "Information and communication" },
+    { "code": "C", "label": "Manufacturing" }
+  ],
   "size_classes": ["micro", "small", "medium", "large"],
   "kinds": ["employer", "institution"]
 }

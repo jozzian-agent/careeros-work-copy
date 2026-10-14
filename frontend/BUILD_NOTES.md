@@ -981,3 +981,66 @@ for a popup save but would have silently changed the board's own toast
 copy to `"nope"`. Reverted to keeping `moveJobStatus` self-contained with
 its own fixed message; `updateJob` is a separate function for the new call
 sites only.
+
+## Detail pages realignment, package 1 (2026-10-14 canvas)
+
+Rebuilds the Job and Company detail pages to the approved canvas, lands
+the design-system updates it needs, and fixes the three frontend bugs the
+code check found (3, 5, 7). The backend contexts these pages read landed
+first, in the same round's backend packages; their keys are documented in
+`docs/surfaces/json-api.md` and the page layouts in
+`docs/surfaces/detail-pages.md`.
+
+### Component registry
+
+| Component | Gestalt building blocks | Notes |
+| --- | --- | --- |
+| `AiLabel.jsx` | `Box`, `Text` | The dashed provenance label, "AI-generated" for text a model composed and "AI-extracted" for text it lifted out of the posting. Custom rather than a `Badge`: every Badge type carries a fill and a colour, and this label must not read as a state the owner has to act on. Replaces `SectionCard`'s plain `label` badge, whose one caller moved to `aiLabel`. |
+| `LevelTag.jsx` | `Box`, `Text` | A must-have (filled) or nice-to-have (outlined) requirement or skill. Custom for the same reason, plus Gestalt's `Tag` is a dismissible input affordance. The level is carried by the fill and by a visually hidden prefix, never by colour. |
+| `NeedsInputCard.jsx` | `SectionCard` (`needs-input`), `RadioGroup`, `TextField`, `Button`, `Badge`, `Link` | The Job page's one ask, in two variants (company, read-failed), plus the `NeedsInputChip` both pages put in their header. Candidates are `RadioGroup.RadioButton` rows, which hold up at three. Which ask is shown is the backend's `needs_input`, never section order. |
+| `Requirements.jsx` | `Flex`, `Text`, `DividerList`, `LevelTag` | Takes grouped entries `{group, level, text}` from day one; `requirementEntries` is the package-1 adapter over today's two flat lists plus skills. Package 2 swaps the adapter alone. Prose groups render as rows, facet groups (skills, languages) as tags. |
+| `ExtractionPopup.jsx` | `Modal`, `DividerList`, `Button`, `Text` | "How this was extracted": one row per covered field with its result (`field_status`) and its source (`field_provenance`), and a link to the surface that can set a field the posting did not mention. Replaces the permanent Extraction card and its eight status badges. |
+| `EditClassificationPopup.jsx` | `Modal`, `Fieldset`, `Checkbox`, `SelectList`, `TextField`, `Button` | One popup with a job variant (function, tags, the company's sector read-only) and a company variant (sector, size). Replaces `EditCriteriaPopup.jsx` (job only) and stands in for the retired `/companies/<id>/taxonomy` page. |
+
+Removed with their last caller: `FitSelect.jsx` (the Fit dropdown wrote a
+value nothing read; Fit is now the read-only "Not calculated yet"
+placeholder) and `EditCriteriaPopup.jsx` (superseded above).
+
+### Why the two collapsed sections are `Accordion.Expandable`, one each
+
+Gestalt's plain `Accordion` is a static card with a title: the previous
+page wrapped the posting text in one and it was never collapsible. The
+collapsible component is `Accordion.Expandable`, and one instance keeps at
+most one item open, so Original posting and Details are separate instances
+rather than two items of one accordion: opening the posting must not close
+Details. Both get their own `accessibilityExpandLabel`, because Gestalt
+names every toggle "Expand section" by default, which is ambiguous with
+two of them on a page (and is what the specs address them by).
+
+### The one frontend string the backend owns
+
+The extraction row says when the posting was last read, which it finds by
+matching the resolved history entry whose label is "Details read from the
+posting". That label belongs to `careeros/history.py` (`READ_LABEL`), so
+`tests/test_history_registry.py::test_read_label_is_the_words_the_job_page_matches_on`
+pins the value the page matches on; rewording the label without the page
+would otherwise silently empty that line.
+
+### Fields with no setter, named rather than linked
+
+The extraction popup links a not-found field to where it can be set. Three
+covered fields have no owner-editing surface anywhere in the product:
+company (the link is settled by the needs-input card, not by a field),
+seniority and employment type (no form has ever carried them). Those rows
+show their result and no link, instead of pointing at a surface that
+cannot set them. Adding fields for them was not in this package's brief.
+
+### Languages are not editable yet, because nothing stores them
+
+The brief's Edit job list names "skills and languages as removable tags".
+Skills are a stored job field and are implemented. There is no `languages`
+field on a job record (`careeros/vault.py` `_record_defaults`) and nothing
+extracts one, so no languages editor ships here: it would be an interface
+element standing for a feature that does not exist. Languages arrive with
+package 2's requirement groups, which the `Requirements` component already
+renders.

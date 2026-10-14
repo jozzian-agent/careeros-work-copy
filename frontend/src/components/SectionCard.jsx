@@ -1,20 +1,87 @@
-import { Badge, Box, Flex, Heading, Text } from 'gestalt';
+import { Accordion, Box, Flex, Heading, Text } from 'gestalt';
+import AiLabel from './AiLabel.jsx';
+
+// The width of a detail page's content column (2026-10-14 canvas). One
+// constant so the Job and Company pages cannot drift apart.
+export const DETAIL_MAX_WIDTH = 960;
 
 // The card every detail page is built from, per the SectionCard README:
-// a title (optionally with a label next to it, e.g. "AI-generated") and a
-// body. Same frame as the job card -- 16px padding, 16px rounding,
-// container border. Body shape (paragraph, divider list, key/value grid,
-// empty state) is the caller's choice via `children`; this component only
-// owns the frame and the title row.
-export default function SectionCard({ title, label, children }) {
-  return (
-    <Box rounding={4} borderStyle="sm" padding={4} color="default">
-      <Flex direction="column" gap={3}>
-        <Flex gap={2} alignItems="center">
-          <Heading size="300">{title}</Heading>
-          {label ? <Badge text={label} /> : null}
+// a title (optionally with the dashed AI provenance label next to it) and a
+// body. Same frame as the job card -- 16px rounding, container border --
+// with the canvas's 24px padding. Body shape (paragraph, divider list,
+// key/value grid, empty state) is the caller's choice via `children`; this
+// component owns the frame, the title row and, at most, one action row.
+//
+// variant="needs-input" is the one ask the page makes of its owner: a
+// violet wash card (the same violet that marks "Needs your input"
+// everywhere else) with exactly one action set, rendered only when there
+// is something to ask. A page never shows two of them.
+//
+// `collapsible` renders the section as a Gestalt Accordion.Expandable
+// instead of an always-open card: the title is the toggle and the body
+// exists only once the owner opens it. The accordion draws its own card
+// frame, so this component adds only the section handle and one wording
+// rule for the toggle ("Show the <title>" / "Hide the <title>"), which is
+// what keeps four collapsed sections from each inventing their own label.
+// One item per accordion, so opening one never closes another.
+export default function SectionCard({
+  title, aiLabel, variant = 'default', actions, anchorId, collapsible, children,
+}) {
+  const needsInput = variant === 'needs-input';
+  // Lets a spec assert about one section's own contents, and about the
+  // order the sections come in, the same way the board's job cards are
+  // addressed.
+  const handle = `section-${String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const body = (
+    <Flex direction="column" gap={3}>
+      {children}
+      {actions ? (
+        <Flex gap={2} wrap>
+          {actions}
         </Flex>
-        {children}
+      ) : null}
+    </Flex>
+  );
+  if (collapsible) {
+    const name = String(title).toLowerCase();
+    return (
+      <Box id={anchorId} data-testid={handle}>
+        <Accordion.Expandable
+          id={handle}
+          // Gestalt names every toggle "Expand section" by default, which
+          // is the same name on each accordion a page stacks.
+          accessibilityExpandLabel={`Show the ${name}`}
+          accessibilityCollapseLabel={`Hide the ${name}`}
+          items={[{ title, children: body }]}
+        />
+      </Box>
+    );
+  }
+  return (
+    <Box
+      id={anchorId}
+      data-testid={handle}
+      rounding={4}
+      borderStyle={needsInput ? 'none' : 'sm'}
+      padding={6}
+      color="default"
+      dangerouslySetInlineStyle={
+        needsInput
+          ? {
+            __style: {
+              background: 'var(--color-brand-wash-violet)',
+              border: '1px solid var(--color-brand-violet)',
+            },
+          }
+          : undefined
+      }
+    >
+      <Flex direction="column" gap={3}>
+        <Flex gap={2} alignItems="center" wrap>
+          <Heading size="300">{title}</Heading>
+          {aiLabel ? <AiLabel kind={aiLabel} /> : null}
+        </Flex>
+        {body}
       </Flex>
     </Box>
   );
@@ -60,9 +127,12 @@ export function KeyValueGrid({ entries }) {
   );
 }
 
-// Empty state body: a dashed box, used for "No jobs linked yet" and
-// similar related-items placeholders.
-export function EmptyState({ text }) {
+// Empty state body: a dashed box, used for "No jobs linked yet", for the
+// Notes section's "Add a note" and for any other empty section. `action`
+// is the one thing the owner can do about the emptiness, rendered inside
+// the same dashed box rather than beside it, so an empty section is one
+// element and not two.
+export function EmptyState({ text, action }) {
   return (
     <Box
       padding={4}
@@ -71,9 +141,12 @@ export function EmptyState({ text }) {
       justifyContent="center"
       dangerouslySetInlineStyle={{ __style: { border: '2px dashed var(--color-border-default)' } }}
     >
-      <Text color="subtle" align="center">
-        {text}
-      </Text>
+      <Flex direction="column" gap={2} alignItems="center">
+        <Text color="subtle" align="center">
+          {text}
+        </Text>
+        {action}
+      </Flex>
     </Box>
   );
 }

@@ -687,6 +687,13 @@ def test_async_company_correction_and_email(tmp_path, monkeypatch, matched):
     assert job['employer_named_in_posting'] == 'Correct Labs'
     assert job['company_id'] == baseline['company_id']
     assert any(event['event'] == 'company_correction' for event in job['history'])
+    # B3: the relink rewrites the whole link group, so provenance for the
+    # whole group moves to llm. Before the fix company_link_state and
+    # company_link_reason kept saying 'scrape' (the intake that first set
+    # them), while the state they described had just been replaced.
+    assert baseline['field_provenance']['company_link_state'] == 'scrape'
+    for field in ('company_id', 'company_link_state', 'company_link_reason'):
+        assert job['field_provenance'][field] == 'llm', field
     if matched:
         assert job['company_link_state'] == 'needs_review'
         candidates = job['company_review']['candidates']

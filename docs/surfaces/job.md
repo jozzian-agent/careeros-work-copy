@@ -2,7 +2,7 @@
 type: Surface
 title: "Job"
 description: "Describe the approved summary-first job detail page."
-timestamp: 2026-10-12
+timestamp: 2026-10-14
 ---
 
 # Job
@@ -17,6 +17,12 @@ implementation detail. The summary-first ordering this file records
 sections in their existing relative order) carries over into the React
 page's Content section. The rest of this file is kept for the Jinja-era
 history; its mockup is no longer the live contract.
+
+2026-10-14 (detail-pages realignment, package 1): that carry-over is
+over. The live page's order is the one in
+[Detail pages](detail-pages.md), it has no Content section, and the
+sketch below (Background required, Certifications, Skills as sections of
+their own) describes no part of it.
 
 ## Purpose
 

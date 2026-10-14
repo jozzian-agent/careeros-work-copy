@@ -254,7 +254,9 @@ def test_paste_description_resumes_extraction(tmp_path, monkeypatch):
     assert updated['ingest_state'] == 'complete'
     assert updated['field_provenance']['description'] == 'user'
     assert updated['description'] == 'Senior Engineer role. Build things with Python.'
-    assert any(e['event'] == 'fetched' for e in updated['history'])
+    # B1: a manual paste is its own event type, never the fetch it replaces.
+    assert any(e['event'] == 'pasted' for e in updated['history'])
+    assert not any(e['event'] == 'fetched' for e in updated['history'])
 
 
 def test_paste_description_reclassifies_posting_quality(tmp_path, monkeypatch):

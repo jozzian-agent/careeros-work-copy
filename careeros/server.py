@@ -21,7 +21,7 @@ from careeros.intake import posting_ats
 from careeros import dedupe
 import difflib
 
-from careeros.web.pages import companies, experiences, jobs, search, taxonomy
+from careeros.web.pages import companies, experiences, jobs, notes, search, taxonomy
 from careeros.web.theme import page_shell
 
 _ATS_FEED_URL = {
@@ -134,6 +134,22 @@ _PROVENANCE_EXCLUDED_FIELDS = frozenset({
     'company_review',
 })
 
+# The company link is these three fields together: every writer sets them
+# in one breath, every owner lock covers all three, and their provenance
+# moves as a group (B3).
+COMPANY_LINK_GROUP = ('company_id', 'company_link_state', 'company_link_reason')
+
+# Every outcome the extract route's description refresh can reach, with the
+# history event it writes. A table rather than an event type assembled from
+# the outcome string: the event types stay literal and enumerable, so
+# tests/test_history_registry.py can check them against the registry the
+# same way it checks the ingest-state backstop.
+REFRESH_EVENTS = {
+    'ok': ('description_refreshed', 'Live posting refreshed.'),
+    'failed': ('description_refresh_failed', 'Live page unavailable; enriching stored text.'),
+    'skipped': ('description_refresh_skipped', 'No posting URL; enriching stored text.'),
+}
+
 
 def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
     """Per-field extraction status (JOZ-267 Section 3). A covered field
@@ -226,8 +242,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
         app.add_url_rule('/experiences/<identifier>', 'react_experience_detail', react_index)
         app.add_url_rule('/companies', 'react_companies', react_index)
         app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
-        app.add_url_rule('/companies/<identifier>/taxonomy', 'react_company_taxonomy', react_index)
         app.add_url_rule('/taxonomy', 'react_taxonomy', react_index)
+        # The owner's round added Notes: every note in the vault with the
+        # job or company it belongs to. React-only, like /taxonomy, so it
+        # has no Jinja route and no entry in theme.py's NAV_PAGES.
+        app.add_url_rule('/notes', 'react_notes', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
     app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
@@ -542,8 +561,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 and provenance.get('employer_named_in_posting') != 'user'):
             updates['employer_named_in_posting'] = correction
             new_provenance['employer_named_in_posting'] = 'llm'
-            owner_locked = any(provenance.get(key) == 'user'
-                               for key in ('company_id', 'company_link_state', 'company_link_reason'))
+            owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
             if not owner_locked:
                 resolution = resolve_company(
                     root, url=job.get('url') or '', employer_name=correction,
@@ -552,6 +570,15 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates.update(resolution)
                 if resolution.get('company_id'):
                     new_provenance['company_id'] = 'llm'
+                    # B3: the link group (company_id, company_link_state,
+                    # company_link_reason) is written in one breath, so its
+                    # provenance has to move in one breath too. Marking only
+                    # company_id left the other two reading as whatever set
+                    # them last -- a link state automation had just
+                    # replaced, still attributed to an earlier writer.
+                    new_provenance['company_link_state'] = 'llm'
+                    if resolution.get('company_link_reason'):
+                        new_provenance['company_link_reason'] = 'llm'
                 if resolution.get('company_link_reason') == 'new_company':
                     new_company_id = resolution['company_id']
         updates['field_status'] = apply_field_status(job, updates)
@@ -1125,11 +1152,20 @@ def create_app(vault: str | Path | None = None) -> Flask:
             name, website = extracted['company'], _company_website(extracted['website'])
             provenance = job.get('field_provenance', {})
             employer_evidence = extracted.get('employer_named_in_posting')
+            # The source THIS call's extraction credits its employer evidence
+            # to: 'llm' after a model pass, 'scrape' after the offline rules.
+            # Stamped on employer_named_in_posting when that text moves, and
+            # on the link group below whenever this resolution moves it --
+            # which is not the same condition: an employer name identical to
+            # the stored one still resolves against a vault that has changed
+            # underneath it, and can land on a different company.
+            evidence_source = extracted.get('field_provenance', {}).get(
+                'employer_named_in_posting', 'scrape')
             if employer_evidence and employer_evidence != job.get('employer_named_in_posting') \
                     and provenance.get('employer_named_in_posting') != 'user':
                 updates['employer_named_in_posting'] = employer_evidence
-                updates['field_provenance'] = {**provenance, 'employer_named_in_posting':
-                    extracted.get('field_provenance', {}).get('employer_named_in_posting', 'scrape')}
+                updates['field_provenance'] = {**provenance,
+                                               'employer_named_in_posting': evidence_source}
             # M3: route through the SAME shared ladder every other
             # resolution entry point uses -- same owner-link-group
             # protection (M1), same fuzzy/ambiguity/shared-tenant
@@ -1141,14 +1177,26 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # too (existing[0] falsy there), which still gets full rungs
             # 1-5 treatment via resolve_and_link.
             new_company_id = None
-            owner_locked = any(provenance.get(key) == 'user'
-                               for key in ('company_id', 'company_link_state', 'company_link_reason'))
+            owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
             if not owner_locked:
                 resolution = resolve_company(
                     root, url=url, employer_name=employer_evidence, fallback_name=name,
                     legacy_hint=legacy_hint(root, name, url),
                     existing=(job.get('company_id'), job.get('company_link_reason')))
                 updates.update(resolution)
+                # B3, second path: the link group is written in one breath
+                # here too, so its provenance has to move in one breath --
+                # otherwise a link this resolution just replaced keeps reading
+                # as whatever set it last. The trigger is the link moving, not
+                # the employer text moving. Only the keys this call actually
+                # changed are restamped: a resolution that re-confirms the
+                # stored link leaves the provenance of whoever established
+                # it alone.
+                relinked = {key: evidence_source for key in COMPANY_LINK_GROUP
+                            if resolution.get(key) != job.get(key)}
+                if relinked:
+                    updates['field_provenance'] = {
+                        **updates.get('field_provenance', provenance), **relinked}
                 if resolution.get('company_link_reason') == 'new_company':
                     new_company_id = resolution['company_id']
             target_id = updates.get('company_id', job.get('company_id'))
@@ -1265,11 +1313,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                             updates['ingest_error'] = {'stage': 'fetch', 'reason': type(fetch_error).__name__,
                                                        'at': storage.timestamp()}
                     storage.save_job(root, ingest.redact(updates), identifier,
-                                     history_event=('description_refreshed' if outcome == 'ok'
-                                                    else 'description_refresh_' + outcome,
-                                                    'Live posting refreshed.' if outcome == 'ok'
-                                                    else 'Live page unavailable; enriching stored text.' if outcome == 'failed'
-                                                    else 'No posting URL; enriching stored text.'))
+                                     history_event=REFRESH_EVENTS[outcome])
                 # Keep the owner error until startup succeeds. Early callbacks
                 # are queued until this handoff transition is persisted.
                 def accepted():
@@ -1337,7 +1381,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                       'posting_quality': ingest.classify_posting_quality(text),
                       'field_status': apply_field_status(job, {}, unfilled='pending')}
             job = storage.save_job(root, updates, identifier,
-                                   history_event=('fetched', 'Posting text pasted manually.'))
+                                   history_event=('pasted', 'Posting text pasted manually.'))
             token = reserve_enrichment(identifier)
         if token is None:
             return jsonify(job | {'llm_pending': True}), 202
@@ -1399,10 +1443,6 @@ def create_app(vault: str | Path | None = None) -> Flask:
     @app.get('/api/jobs/<identifier>/taxonomy')
     def job_taxonomy_api(identifier):
         return jsonify(jobs.taxonomy_context(app.config['VAULT_PATH'], identifier))
-
-    @app.get('/api/companies/<identifier>/taxonomy')
-    def company_taxonomy_api(identifier):
-        return jsonify(companies.taxonomy_context(app.config['VAULT_PATH'], identifier))
 
     @app.get('/api/taxonomy')
     def taxonomy_api():
@@ -1473,7 +1513,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # sets as owner-provenance, so Phase B and the LLM callback
             # never overwrite it later, regardless of whether it happens to
             # still equal whatever baseline they were snapshotting against.
-            marked = {key: 'user' for key in payload if key not in _PROVENANCE_EXCLUDED_FIELDS}
+            # B2: only keys the vault actually persists. A payload key the
+            # whitelist drops (a stray `fit: null` from a client, a typo)
+            # changes nothing on the record, so claiming the owner set it
+            # would freeze a field against automation that never got a value.
+            marked = {key: 'user' for key in payload
+                      if key not in _PROVENANCE_EXCLUDED_FIELDS and key in storage.job_field_names()}
             if marked:
                 payload['field_provenance'] = {**data.get('field_provenance', {}), **payload.get('field_provenance', {}), **marked}
                 # An owner edit to a covered field is itself a confident,
@@ -1507,9 +1552,72 @@ def create_app(vault: str | Path | None = None) -> Flask:
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Record must be an object.')
+            # B2: same rule as the job PUT -- provenance only for keys the
+            # vault persists, never for keys it drops.
+            accepted = storage.company_field_names()
             payload['field_provenance'] = {**data.get('field_provenance', {}),
-                **{key: 'user' for key in payload if key != 'field_provenance'}}
+                **{key: 'user' for key in payload if key != 'field_provenance' and key in accepted}}
             return jsonify(storage.save_company(root, payload | {'name_source': 'owner'}, identifier))
+
+    # A note is the same object on a job and on a company: a title, a
+    # body, and the record it lives in. One pair of handlers serves both,
+    # picked by the `kind` default on each rule, rather than two copies of
+    # the same list arithmetic. Writes go through save_job/save_company,
+    # so a note write is an ordinary record write: same lock, same
+    # validation, same history backstop.
+    NOTE_KINDS = {'jobs': (storage.load_job, storage.save_job, 'Job not found.'),
+                  'companies': (storage.load_company, storage.save_company, 'Company not found.')}
+
+    @app.get('/api/notes')
+    def notes_api():
+        """Every note in the vault, newest first, with its record. Read
+        only: a note is edited on the page of the record that holds it."""
+        return jsonify(notes.page_context(app.config['VAULT_PATH']))
+
+    @app.post('/api/jobs/<identifier>/notes', defaults={'kind': 'jobs'})
+    @app.post('/api/companies/<identifier>/notes', defaults={'kind': 'companies'})
+    def create_note(kind, identifier):
+        root = app.config['VAULT_PATH']
+        load, save, missing = NOTE_KINDS[kind]
+        with write_lock:
+            record = load(root, identifier)
+            if record is None:
+                return jsonify(error=missing), 404
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Note must be an object.')
+            note = storage.new_note(payload.get('title'), payload.get('body') or '')
+            # notes_view, not the raw field: a record still holding its
+            # notes as legacy free text gets that text persisted as its
+            # first note by this very write, never dropped by it.
+            save(root, storage.notes_payload([*storage.notes_view(record), note]), identifier)
+            return jsonify(note), 201
+
+    @app.route('/api/jobs/<identifier>/notes/<note_id>', methods=['PATCH', 'DELETE'],
+               defaults={'kind': 'jobs'})
+    @app.route('/api/companies/<identifier>/notes/<note_id>', methods=['PATCH', 'DELETE'],
+               defaults={'kind': 'companies'})
+    def note_api(kind, identifier, note_id):
+        root = app.config['VAULT_PATH']
+        load, save, missing = NOTE_KINDS[kind]
+        with write_lock:
+            record = load(root, identifier)
+            if record is None:
+                return jsonify(error=missing), 404
+            stored = storage.notes_view(record)
+            target = next((note for note in stored if note['id'] == note_id), None)
+            if target is None:
+                return jsonify(error='Note not found.'), 404
+            if request.method == 'DELETE':
+                save(root, storage.notes_payload([n for n in stored if n['id'] != note_id]), identifier)
+                return jsonify(deleted=note_id)
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Note must be an object.')
+            edited = storage.edit_note(target, payload)
+            save(root, storage.notes_payload([edited if n['id'] == note_id else n for n in stored]),
+                 identifier)
+            return jsonify(edited)
 
     @app.route('/api/search', methods=['GET', 'POST'])
     def search_api():
@@ -1643,7 +1751,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.errorhandler(404)
     def not_found(error):
-        if request.endpoint in ('job_taxonomy_api', 'company_taxonomy_api', 'experience_form_api'):
+        if request.endpoint in ('job_taxonomy_api', 'experience_form_api'):
             return jsonify(error='Record not found.'), 404
         return page_shell(
             'Page not found', '',

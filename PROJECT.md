@@ -24,6 +24,8 @@ As of 2026-10-09 the product is a personal tool for one owner. It runs on the ow
 
 2026-10-13: Search (home), Experiences list and Companies list were migrated to React (JOZ-283; [sketches](docs/surfaces/experiences.md), [companies](docs/surfaces/companies.md), [search/preferences](docs/surfaces/preferences.md)), the same no-coexist cutover JOZ-280 used for the detail pages: `/`, `/experiences` and `/companies` exist only behind CAREEROS_REACT_UI, with the three Jinja templates, their views and the redundant `/search` URL removed rather than kept as a flag-off fallback. No backend API or JSON contract changed, since all three pages read the existing `view=page` endpoints unmodified. `/experiences/new`, `/experiences/<id>/edit` and the taxonomy pages are untouched. See `frontend/BUILD_NOTES.md` "List pages rebuild (JOZ-283)" for implementation detail and the test-conversion accounting.
 
+2026-10-14: the Job and Company detail pages were realigned to the owner's canvas (package 1, [sketch update](docs/surfaces/detail-pages.md)), and the owner click-tested that build and asked for six changes, all of which are in. Five are adjustments to the two pages: the extraction popup now carries the read timestamp the row shows, the expanded Original posting carries the posting's own link, and Classification and History are collapsed accordions like Original posting and Details already were. "On both pages" for History applied only to the Job page, because a company record stores no history and giving it one is a feature rather than a collapse. The sixth is a feature: [notes](docs/surfaces/notes.md) stop being one free-text field per record and become a list of titled notes, each written in its own window, with a read-only Notes page that shows every note in the vault linked to the job or company that holds it. That is the first stored-schema change since JOZ-267: records gain `note_list`, and the legacy `notes` string is surfaced as a record's first note on read and persisted into the list on the owner's first note write, so no existing notes text is lost and no file is rewritten by a read. The legacy field stays a writable record field for one release; nothing in the interface writes it.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -84,6 +86,7 @@ The six owner rules live in the Journey 1 spec. These are the ones the flows bel
 | Preferences | The user's roles, must-haves, nice-to-haves and avoid lists. Tab is called Search today, rename proposed. | Search |
 | Board | The user's jobs grouped by status. In the data this is the in-pipeline flag, which must become per user. | none |
 | Needs attention | A filter showing every job with a reason, closed, changed or needs your input. Proposed merge of two existing ideas. | Needs your input as a separate indicator |
+| Note | One thing the user wants to remember about one job or one company: a title and a body. A record holds any number of them. | The single notes field per record |
 
 ### Statuses
 
@@ -110,6 +113,7 @@ Closed, Changed and Needs your input are facts or open questions about a job. Th
 | Company | Company browse |
 | Experiences | Bring yourself |
 | Preferences | Bring yourself |
+| Notes | Reading a job, company browse; every note in one place, each linked to its record ([surface](docs/surfaces/notes.md)) |
 | JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md) |
 
 Interviews is removed from the navigation until it exists. Tab order is Jobs, Companies, Experiences, Preferences. Proposed.
@@ -125,6 +129,7 @@ Interviews is removed from the navigation until it exists. Tab order is Jobs, Co
 | Remove from my board | On the card | Everyone |
 | Edit preferences | One edit mode on Search (proposed name: Preferences); Edit criteria → Done / Cancel, batch D | Everyone |
 | Add an experience | Experiences | Everyone |
+| Add a note | The Notes section of a job or a company, in its own window | Everyone |
 | Send feedback | One link in the footer | Everyone |
 
 Friends never delete jobs or companies. Only the owner edits shared records.
@@ -174,7 +179,7 @@ classified exact-boundary counts one class up.
 |---|---|
 | Enrich with AI, Enrich pending, Backfill sector/size | One Retry, owner only. Enrichment already starts on ingest. Retry scheduling stays out of scope. DONE 2026-10-09 (visible to everyone until M2 roles). |
 | Status shown as filter pills, columns, card dropdown and a Board and List switch | Columns are the filter. One control per card. Keep Function and add Needs attention. DONE 2026-10-09 (pills removed; Needs attention toggle added; Function kept; Board/List switch kept per owner decision A). |
-| Notes appear twice on the company page | One notes field. DONE 2026-10-09 (read-only markdown card removed; the editable textarea is the one field). |
+| Notes appear twice on the company page | One notes field. DONE 2026-10-09 (read-only markdown card removed; the editable textarea is the one field). Superseded 2026-10-14 by the owner round: notes are a list of titled notes with one window and one Notes page, so there is one notes surface rather than one field. |
 | Opportunities, Experience, Posting URL | Jobs, Experiences, Add a job by link or title. DONE 2026-10-10 (company page headings renamed; intake label renamed); the inline Posting URL field itself was later removed, so intake now lives only in the add-job popup opened from the plus button (JOZ-279). |
 | Custom fields JSON on the company | Check what reads it, then delete if nothing does. DONE 2026-10-09 (nothing rendered it; form control removed, stored data preserved on every company write path). |
 | Interviews tab, the taxonomy sub-page text, an empty Updated line | Delete until the feature exists. Interviews tab and the empty Updated line DONE 2026-10-09 (nav entry, route, and page deleted; Updated span removed from Search). The taxonomy sub-page text stays: those pages exist. |

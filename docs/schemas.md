@@ -89,7 +89,8 @@ the sample workflow. Back up the destination vault before a future import.
 | salary_note | String, public posting salary hint, otherwise empty |
 | location | String, best-effort location hint |
 | remote_ok | Boolean or null when unknown |
-| notes | Safe Markdown string, same subset as experience detail |
+| notes | String, the pre-note_list free-text notes field. Legacy: see note_list |
+| note_list | List of `{id, title, body, created, updated}`, the owner's notes |
 | enriched | Boolean, false on intake; true after successful enrichment fetch and extraction |
 | employment_type | String from JSON-LD employmentType; arrays joined with commas |
 | valid_through | String from JSON-LD validThrough (date or timestamp), otherwise empty |
@@ -123,7 +124,8 @@ No original company URL is invented from an ATS URL.
 | size | String or null, e.g. 50-200 |
 | locations | List of strings |
 | sector | String or null |
-| notes | Safe Markdown string |
+| notes | String, the pre-note_list free-text notes field. Legacy: see note_list |
+| note_list | List of `{id, title, body, created, updated}`, the owner's notes |
 | custom | Mapping with string keys |
 
 GET `/api/companies` lists profiles by name. GET/PUT `/api/companies/<id>`
@@ -136,6 +138,17 @@ atomic saves, like experiences. Missing directories are empty; corrupt,
 empty, and non-mapping YAML is skipped via the shared reader. Renaming preserves
 IDs and removes the old filename. Deleting the highest job permits ID reuse.
 Sample public salary disclosures are synthetic; experience salary remains null.
+
+Notes are a list, not a field. A note is `{id, title, body, created,
+updated}` under `note_list`, and it belongs to the one job or company
+record whose file it sits in. A record written before the list keeps its
+text in the free-text `notes` string; reads surface that string as the
+record's one note (title "Note", id `legacy`, null timestamps) without
+touching the file, and the first write through the notes endpoints
+persists it into `note_list` and clears the string in the same save. A
+write that does not carry notes at all preserves whichever shape is
+stored, as every other field is preserved. Endpoint contracts are in
+[JSON page contracts](surfaces/json-api.md).
 
 
 ### Chunk 3.5 extraction and enrichment

@@ -1,0 +1,9 @@
+{
+  "token": "rev-3-candidates",
+  "at": "2026-10-14T12:00:00+00:00",
+  "candidates": [
+    { "company_id": "CO-001", "name": "Northwind Systems", "score": 0.91, "basis": "Northwind Systems AG" },
+    { "company_id": "CO-002", "name": "Northwind Labs", "score": 0.83, "basis": "Northwind Labs" },
+    { "company_id": "CO-003", "name": "Northwind Retail Group", "score": 0.77, "basis": "Northwind Retail" }
+  ]
+}

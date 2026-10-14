@@ -47,9 +47,11 @@ def test_flag_on_without_build_falls_back_to_jinja(tmp_path, monkeypatch):
     assert '<div id="root">' not in _jobs_body(app)
 
 
-# JOZ-280: the detail pages (Job, Experience, Company, Company
-# Classification) have no Jinja coexistence, unlike /jobs above -- they
-# exist only behind the flag, with no Jinja fallback when it is off.
+# JOZ-280: the detail pages (Job, Experience, Company) have no Jinja
+# coexistence, unlike /jobs above -- they exist only behind the flag, with
+# no Jinja fallback when it is off. B6 retired the Company Classification
+# page; its route is gone under the flag too (see
+# test_company_taxonomy_route_is_gone below).
 def test_flag_on_serves_react_for_every_detail_route(tmp_path, monkeypatch):
     import shutil
     from pathlib import Path
@@ -60,10 +62,27 @@ def test_flag_on_serves_react_for_every_detail_route(tmp_path, monkeypatch):
     shutil.copytree(Path(__file__).resolve().parents[1] / 'sample/vault', vault_root)
     app = server.create_app(vault_root)
     client = app.test_client()
-    for path in ('/jobs/JOB-001', '/experiences/EXP-001', '/companies/CO-001', '/companies/CO-001/taxonomy'):
+    for path in ('/jobs/JOB-001', '/experiences/EXP-001', '/companies/CO-001'):
         response = client.get(path)
         assert response.status_code == 200
         assert '<div id="root">' in response.get_data(as_text=True)
+
+
+def test_company_taxonomy_route_is_gone(tmp_path, monkeypatch):
+    """B6: the standalone Company Classification page is retired, flag on
+    or off. The classification popup on the company detail page replaces
+    it, and the jobs taxonomy endpoint it shared a shape with stays."""
+    import shutil
+    from pathlib import Path
+
+    monkeypatch.setenv('CAREEROS_REACT_UI', '1')
+    monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))
+    vault_root = tmp_path / 'vault'
+    shutil.copytree(Path(__file__).resolve().parents[1] / 'sample/vault', vault_root)
+    client = server.create_app(vault_root).test_client()
+    assert client.get('/companies/CO-001/taxonomy').status_code == 404
+    assert client.get('/api/companies/CO-001/taxonomy').status_code == 404
+    assert client.get('/api/jobs/JOB-001/taxonomy').status_code == 200
 
 
 def test_flag_off_detail_routes_404_with_no_jinja_fallback(tmp_path, monkeypatch):
@@ -76,7 +95,7 @@ def test_flag_off_detail_routes_404_with_no_jinja_fallback(tmp_path, monkeypatch
     shutil.copytree(Path(__file__).resolve().parents[1] / 'sample/vault', vault_root)
     app = server.create_app(vault_root)
     client = app.test_client()
-    for path in ('/jobs/JOB-001', '/experiences/EXP-001', '/companies/CO-001', '/companies/CO-001/taxonomy'):
+    for path in ('/jobs/JOB-001', '/experiences/EXP-001', '/companies/CO-001'):
         assert client.get(path).status_code == 404
     # The job classification sub-page is not part of this cutover (the
     # React Job detail page edits it via a popup instead); it stays Jinja
@@ -98,6 +117,23 @@ def test_flag_on_serves_react_for_search_experiences_and_companies_lists(tmp_pat
         response = client.get(path)
         assert response.status_code == 200
         assert '<div id="root">' in response.get_data(as_text=True)
+
+
+# Owner round: Notes is the first page added since the cutover. React-only
+# like /taxonomy, so it follows the same no-Jinja-fallback rule.
+def test_flag_decides_whether_the_notes_page_exists(tmp_path, monkeypatch):
+    monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))
+    monkeypatch.setenv('CAREEROS_REACT_UI', '1')
+    client = server.create_app(tmp_path / 'vault').test_client()
+    assert '<div id="root">' in client.get('/notes').get_data(as_text=True)
+    # The page's data endpoint answers whatever the flag says, since it is
+    # a JSON API like every other one.
+    assert client.get('/api/notes').status_code == 200
+
+    monkeypatch.delenv('CAREEROS_REACT_UI')
+    flagged_off = server.create_app(tmp_path / 'vault').test_client()
+    assert flagged_off.get('/notes').status_code == 404
+    assert flagged_off.get('/api/notes').status_code == 200
 
 
 def test_flag_off_search_experiences_and_companies_lists_404_with_no_jinja_fallback(tmp_path, monkeypatch):
