@@ -150,6 +150,22 @@ REFRESH_EVENTS = {
     'skipped': ('description_refresh_skipped', 'No posting URL; enriching stored text.'),
 }
 
+# What a re-read that produced nothing tells the owner, and the two of
+# those are not the same fact: a reading that ran and had nothing new to
+# say, and a reading that never started at all. One sentence for both
+# said the model had read the text in the case where no reader ever ran.
+REREAD_FAILED_HISTORY = ('re_extract_failed', 'Reading the stored text again found nothing new.')
+REREAD_NOT_STARTED_HISTORY = ('re_extract_not_started', 'Could not start the re-read.')
+
+# Who the lines a re-read regroups belong to, by the `method` of the
+# stored block they come from. The rules did the grouping either way, but
+# the lines are whoever read or wrote them: a model's requirements called
+# page data would lose the AI label off a section the model wrote, and
+# the owner's own lines credited to the page would claim a reader for
+# text the owner typed. Anything else (the offline section split, a raw
+# block) is page data.
+REREAD_PROVENANCE = {'llm': 'llm', 'user': 'user'}
+
 
 def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
     """Per-field extraction status (JOZ-267 Section 3). A covered field
@@ -671,7 +687,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             llm_pending[job_id] = token
             return token
 
-    def settle_failed_reread(root, job_id, *, locked=False):
+    def settle_failed_reread(root, job_id, *, history_event, locked=False):
         """Record a failed re-read of text that was already read, and
         return the saved job, or None when this job has no earlier reading
         to keep.
@@ -683,14 +699,19 @@ def create_app(vault: str | Path | None = None) -> Flask:
         the attempt gets its own event instead of the state change, and
         the fields this attempt moved back to pending settle, since
         nothing further will reach them. A job that never had a reading
-        keeps the ordinary failure path, card and all."""
+        keeps the ordinary failure path, card and all.
+
+        `history_event` is what this particular failure says happened: the
+        caller is the one that knows whether a reading ran, so the
+        sentence comes from there rather than being one sentence for every
+        way an attempt can end with nothing."""
         with nullcontext() if locked else write_lock:
             current = storage.load_job(root, job_id)
             if current is None or current.get('ingest_state') != 'complete':
                 return None
             return storage.save_job(
                 root, {'field_status': fail_pending_field_status(current)}, job_id,
-                history_event=('re_extract_failed', 'Reading the stored text again found nothing new.'))
+                history_event=history_event)
 
     def release_enrichment(job_id, token):
         """Give back a reservation whose run never started, if it is still
@@ -761,7 +782,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     if fields:
                         new_company_id = apply_llm_update(root, baseline, fields, token)
                         mark_ingest_state(root, job_id, 'complete', history=('extracted', 'Extraction completed.'), locked=True)
-                    elif reread and settle_failed_reread(root, job_id, locked=True) is not None:
+                    elif reread and settle_failed_reread(
+                            root, job_id, history_event=REREAD_FAILED_HISTORY, locked=True) is not None:
                         # A re-read of a job that already has its reading
                         # keeps that reading, and says what happened in its
                         # own words (package 2 fix round, F6).
@@ -1463,16 +1485,23 @@ def create_app(vault: str | Path | None = None) -> Flask:
         The rule-based groups (the flat must/nice lists under Skills) are
         written here, synchronously, so the action lands a result even
         when no model is reachable; the queued extraction replaces them
-        with real groups when it finishes. A list the owner emptied on
-        purpose is regrouped too: the owner lock keeps automation out of a
-        field the owner has set, and pressing Re-extract is the owner
-        themselves asking for it to be read again. A list the owner has
-        written lines into is left exactly as it is. Everything else is the same
-        machinery /extract uses: one reservation per job, the covered
-        fields that are still open back to pending while the attempt runs,
-        and the attempt's own history event. A job whose reading is
-        already running is a 409: there is one reservation per job, and
-        this request did not get it.
+        with real groups when it finishes.
+
+        A list the owner emptied on purpose is filled again, because the
+        owner lock keeps automation out of a field the owner has set and
+        pressing Re-extract is the owner themselves asking for it to be
+        read again. That takes two things, since the stored block may have
+        no lines left to regroup: the lines, when there are any, and the
+        lock itself, which comes off the field so the reading this request
+        queues can answer into it. A list the owner has written lines into
+        is left exactly as it is, lock and all: a re-read fills an empty
+        field and never replaces text the owner can see.
+
+        Everything else is the same machinery /extract uses: one
+        reservation per job, the covered fields that are still open back
+        to pending while the attempt runs, and the attempt's own history
+        event. A job whose reading is already running is a 409: there is
+        one reservation per job, and this request did not get it.
 
         What a failure means here is its own thing, because the text was
         already read once: see settle_failed_reread.
@@ -1497,20 +1526,40 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 provenance = job.get('field_provenance', {})
                 structured = job.get('description_structured') or {}
                 updates = {}
+                # The owner emptied the list and then asked for the stored
+                # text to be read again, which is the owner asking for it
+                # to be filled: the lock their clear put on the field has
+                # to come off, or the reading this request queues answers
+                # into a field the owner-provenance rule then drops it
+                # from, and the action is a dead end for exactly the job
+                # it exists for.
+                emptied_by_owner = (not job.get('requirement_groups')
+                                    and provenance.get('requirement_groups') == 'user')
                 if not job.get('requirement_groups'):
                     groups = ingest.requirement_groups(None, structured.get('requirements'),
                                                        structured.get('nice_to_have'))
+                    stamp = REREAD_PROVENANCE.get(structured.get('method'), 'scrape')
+                    new_provenance = {key: value for key, value in provenance.items()
+                                      if not (emptied_by_owner and key == 'requirement_groups')}
                     if groups:
                         updates['requirement_groups'] = groups
-                        # Who the regrouped lines belong to. The rules did
-                        # the grouping either way, but the lines are the
-                        # model's when the model read them, and calling a
-                        # model's requirements page data would drop the AI
-                        # label off a section the model wrote.
-                        updates['field_provenance'] = {
-                            **provenance,
-                            'requirement_groups': 'llm' if structured.get('method') == 'llm' else 'scrape'}
+                        # The owner's own lines, regrouped on an emptied
+                        # list, are stamped for nobody: stamping them
+                        # 'user' again would re-lock the field this very
+                        # request is unlocking, and crediting a reader
+                        # with text the owner typed is the lie this stamp
+                        # exists to avoid.
+                        if not (emptied_by_owner and stamp == 'user'):
+                            new_provenance['requirement_groups'] = stamp
+                    if new_provenance != provenance:
+                        updates['field_provenance'] = new_provenance
                 updates['field_status'] = reread_field_status(job, updates)
+                if emptied_by_owner:
+                    # The field is open again, so its status follows this
+                    # reading rather than the clear that set it: filled by
+                    # the regrouped lines, or still being read.
+                    updates['field_status']['requirement_groups'] = (
+                        'done' if updates.get('requirement_groups') else 'pending')
                 job = storage.save_job(root, updates, identifier,
                                        history_event=('re_extracted', 'Stored posting text read again.'))
             except Exception:
@@ -1522,7 +1571,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 release_enrichment(identifier, token)
                 raise
         if not start_llm_enrichment(root, job, job.get('description') or '', token, reread=True):
-            job = (settle_failed_reread(root, identifier)
+            job = (settle_failed_reread(root, identifier,
+                                        history_event=REREAD_NOT_STARTED_HISTORY)
                    or mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
                                         reason='worker_start_failed', settle_fields=True,
                                         history=('extract_failed', 'Could not start extraction.'))

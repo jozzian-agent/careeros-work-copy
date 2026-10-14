@@ -379,6 +379,98 @@ def test_re_extract_regroups_a_list_the_owner_emptied(tmp_path, no_worker):
     assert stored['field_provenance']['requirement_groups'] == 'llm'
 
 
+# A job the model grouped what it read into: the groups carry the
+# requirements and the flat block has no lines at all, which is what
+# every job extracted since package 2 looks like. There is nothing here
+# to regroup, so this shape is the one where refilling an emptied list
+# takes the queued reading and nothing else.
+GROUPED_ONLY_FIELDS = {
+    'title': 'Platform Engineer', 'url': 'https://posting.example/role',
+    'description': POSTING,
+    'requirement_groups': [{'group': 'skills', 'level': 'must', 'text': 'Kubernetes'}],
+    'description_structured': {'summary': 'A role.', 'requirements': [], 'nice_to_have': [],
+                               'method': 'llm'},
+}
+
+
+def test_re_extract_takes_the_lock_off_an_emptied_list_it_cannot_refill(tmp_path, no_worker):
+    """The owner lock on an emptied list is what the reading this request
+    queues has to get past. With no lines left to regroup there is nothing
+    to re-stamp the field with, so the stamp comes off on its own, and the
+    field reads as being read rather than as a value the owner set."""
+    job = vault.save_job(tmp_path, GROUPED_ONLY_FIELDS)
+    api = create_app(tmp_path).test_client()
+    api.put(f'/api/jobs/{job["id"]}', json={'requirement_groups': []})
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == []
+    assert 'requirement_groups' not in stored['field_provenance']
+    assert stored['field_status']['requirement_groups'] == 'pending'
+
+
+def test_re_extract_refills_an_emptied_list_from_the_queued_reading(tmp_path, monkeypatch):
+    """The same shape, end to end: the model answer has to land. Pressing
+    Re-extract is the owner asking for the field to be filled, so a
+    reading answering into it is not automation overwriting an owner
+    decision, and dropping that answer left the action doing nothing at
+    all for the job it exists for."""
+    content = json.dumps({'requirement_groups': [
+        {'group': 'languages', 'level': 'must', 'text': 'French'}]})
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(content))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    app = create_app(tmp_path)
+    job = vault.save_job(tmp_path, GROUPED_ONLY_FIELDS)
+    api = app.test_client()
+    api.put(f'/api/jobs/{job["id"]}', json={'requirement_groups': []})
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'languages', 'level': 'must', 'text': 'French'}]
+    assert stored['field_provenance']['requirement_groups'] == 'llm'
+
+
+def test_re_extract_credits_the_owner_for_the_lines_the_owner_typed(tmp_path, no_worker):
+    """A block the owner wrote in Edit job records `method: 'user'`, so
+    regrouping it is the owner's own text in groups. Calling that page
+    data told the owner their lines came from the posting; the stamp
+    locking the field against the queued reading is the same lock any
+    field the owner has set carries."""
+    job = legacy_job(tmp_path, description_structured={
+        'summary': '', 'requirements': ['Five years of Python'], 'nice_to_have': [],
+        'method': 'user'})
+    api = create_app(tmp_path).test_client()
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'}]
+    assert stored['field_provenance']['requirement_groups'] == 'user'
+
+
+def test_an_emptied_list_refilled_from_the_owners_lines_is_not_locked_again(tmp_path, monkeypatch):
+    """Where the two rules meet: the owner emptied the groups, and the
+    only lines left to regroup are the owner's own. They come back, since
+    a re-read regroups what is stored, but stamping them 'user' again
+    would re-lock the field this very request unlocked, so the reading
+    the owner asked for still lands."""
+    content = json.dumps({'requirement_groups': [
+        {'group': 'languages', 'level': 'must', 'text': 'French'}]})
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(content))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path, description_structured={
+        'summary': '', 'requirements': ['Five years of Python'], 'nice_to_have': [],
+        'method': 'user'})
+    api = app.test_client()
+    api.put(f'/api/jobs/{job["id"]}', json={'requirement_groups': []})
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'languages', 'level': 'must', 'text': 'French'}]
+    assert stored['field_provenance']['requirement_groups'] == 'llm'
+
+
 def test_re_extract_reads_the_stored_text_and_fetches_nothing(tmp_path, no_worker):
     """Not /extract: the posting a legacy job was read from may be gone,
     and the text to group is the one already stored. The suite's offline
@@ -443,6 +535,30 @@ def test_a_failed_re_read_leaves_a_read_job_read(tmp_path):
     assert history.label_for('re_extract_failed') == 'Reading the posting again found nothing new'
 
 
+def test_a_re_read_that_never_started_says_that_and_not_that_it_found_nothing(tmp_path, monkeypatch):
+    """The worker could not be started at all, so no reading happened.
+    Writing "found nothing new" here credits a reading that never ran: the
+    owner would read it as an answer about the posting when it is an
+    answer about this machine."""
+    monkeypatch.setattr(ingest, 'extract_async',
+                        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError('boom')))
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    api = app.test_client()
+    response = api.post(f'/api/jobs/{job["id"]}/re-extract')
+    assert response.status_code == 503
+    assert response.get_json()['error'] == 'Could not start extraction.'
+    stored = vault.load_job(tmp_path, job['id'])
+    assert [entry['detail'] for entry in stored['history']
+            if entry['event'] == 're_extract_not_started'] == ['Could not start the re-read.']
+    assert [entry for entry in stored['history'] if entry['event'] == 're_extract_failed'] == []
+    assert history.label_for('re_extract_not_started') == 'Reading the posting again could not start'
+    # The reading that did happen still stands, and the fields this
+    # attempt reopened are settled rather than left pending forever.
+    assert stored['ingest_state'] == 'complete'
+    assert 'pending' not in stored['field_status'].values()
+
+
 def test_a_failed_re_read_leaves_an_unread_posting_asking(tmp_path):
     """The other side of the same rule: a job whose reading never
     succeeded keeps the ordinary failure path, card and all, because
@@ -460,22 +576,37 @@ def test_a_failed_re_read_leaves_an_unread_posting_asking(tmp_path):
     assert jobs.job_needs_input(stored) == {'kind': 'read_failed', 'error_reason': 'not_configured'}
 
 
-def test_a_re_read_leaves_the_fields_the_first_reading_settled(tmp_path):
+SETTLED_STATUS = {'title': 'done', 'seniority': 'not_evidenced', 'skills': 'failed'}
+
+
+def test_a_re_read_reopens_only_the_fields_nothing_has_settled(tmp_path, no_worker):
     """A field the first reading found nothing for was read already, and
-    the same text has not changed its mind. A re-read must not move it to
-    pending and then to failed, which is how the one click turned every
-    "Not found in posting" row into "Failed"."""
+    the same text has not changed its mind, so a re-read must leave it
+    where it is: moving it to pending is how the one click turned every
+    "Not found in posting" row into "Failed".
+
+    The queued reading is held still, because what this pins is the
+    snapshot the endpoint itself writes: with a real worker, a run that
+    answered before the assertion read the record would have settled the
+    fields already, and the test would fail on load alone."""
     app = create_app(tmp_path)
-    job = legacy_job(tmp_path, field_status={'title': 'done', 'seniority': 'not_evidenced',
-                                             'skills': 'failed'})
-    api = app.test_client()
-    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    job = legacy_job(tmp_path, field_status=SETTLED_STATUS)
+    app.test_client().post(f'/api/jobs/{job["id"]}/re-extract')
     pending = vault.load_job(tmp_path, job['id'])['field_status']
     assert pending['seniority'] == 'not_evidenced'
     assert pending['title'] == 'done'
     # A field an earlier attempt left failed is open again: a re-read is
     # the further attempt it was waiting for.
     assert pending['skills'] == 'pending'
+
+
+def test_a_re_read_that_found_nothing_leaves_the_settled_fields_settled(tmp_path):
+    """The other half of the same rule, after the reading has run and come
+    back with nothing: the field it reopened settles, and the field it
+    never touched still says what the first reading settled on."""
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path, field_status=SETTLED_STATUS)
+    app.test_client().post(f'/api/jobs/{job["id"]}/re-extract')
     app.config['LLM_THREADS'][job['id']].join(timeout=5)
     settled = vault.load_job(tmp_path, job['id'])['field_status']
     assert settled['seniority'] == 'not_evidenced'

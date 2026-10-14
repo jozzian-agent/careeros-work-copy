@@ -35,6 +35,10 @@ REGISTRY = {
     # still stand, so this says the latest attempt found nothing new
     # rather than that reading the posting failed.
     're_extract_failed':  ('Reading the posting again found nothing new', True),
+    # The owner asked and no reading ever started, so there is nothing to
+    # have found: its own line, because saying the attempt found nothing
+    # new would credit a reading that did not happen.
+    're_extract_not_started': ('Reading the posting again could not start', True),
     # The label is built from the stored detail ('new -> interested').
     'status_changed':     (None, True),
     'note_added':         ('Note added', True),
