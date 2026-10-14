@@ -1,20 +1,10 @@
 import { useState } from 'react';
 import { BannerSlim, Button, Checkbox, Flex, Modal, Tag, Text, TextArea, TextField } from 'gestalt';
+import { FALLBACK_GROUP, LANGUAGES_GROUP, LEVEL_LABELS } from '../requirements.js';
 
 function linesToList(text) {
   return text.split('\n').map((line) => line.trim()).filter(Boolean);
 }
-
-// The group an edited requirement line belongs to: whichever group it
-// already had, matched on the text itself, and the extractor's own
-// fallback group for a line the owner has just written or reworded. The
-// alternative is a control per group, which is ten fields for a popup
-// that today has eleven in total.
-const FALLBACK_GROUP = 'skills';
-// Languages have their own editor below, so they are never one of the
-// lines in the two requirement fields.
-const TAG_GROUP = 'languages';
-const LEVEL_LABELS = { must: 'Must have', nice: 'Nice to have' };
 
 function entryKey(entry) {
   return `${entry.group}:${entry.level}:${entry.text}`;
@@ -28,13 +18,13 @@ function listKey(entries) {
 }
 
 function linesFor(groups, level) {
-  return groups.filter((entry) => entry.level === level && entry.group !== TAG_GROUP)
+  return groups.filter((entry) => entry.level === level && entry.group !== LANGUAGES_GROUP)
     .map((entry) => entry.text);
 }
 
 function groupFor(groups, text) {
   const match = groups.find((entry) => entry.text.trim().toLowerCase() === text.trim().toLowerCase());
-  return match && match.group !== TAG_GROUP ? match.group : FALLBACK_GROUP;
+  return match && match.group !== LANGUAGES_GROUP ? match.group : FALLBACK_GROUP;
 }
 
 // Edit job: every owner-editable field of a job record that has no
@@ -64,7 +54,7 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
   const structured = job.description_structured;
   const groups = job.requirement_groups || [];
   const grouped = groups.length > 0;
-  const storedLanguages = groups.filter((entry) => entry.group === TAG_GROUP);
+  const storedLanguages = groups.filter((entry) => entry.group === LANGUAGES_GROUP);
   const [title, setTitle] = useState(job.title || '');
   const [url, setUrl] = useState(job.url || '');
   const [location, setLocation] = useState(job.location || '');
@@ -97,7 +87,7 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
   function addLanguage() {
     const value = newLanguage.trim();
     if (!value || languages.some((entry) => entry.text.toLowerCase() === value.toLowerCase())) return;
-    setLanguages((prev) => [...prev, { group: TAG_GROUP, level: 'must', text: value }]);
+    setLanguages((prev) => [...prev, { group: LANGUAGES_GROUP, level: 'must', text: value }]);
     setNewLanguage('');
   }
 

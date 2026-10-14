@@ -17,7 +17,7 @@ import SectionCard, { DETAIL_MAX_WIDTH, DividerList, KeyValueGrid } from '../com
 import FitChip from '../components/FitChip.jsx';
 import StatusSelect from '../components/StatusSelect.jsx';
 import NeedsInputCard, { NeedsInputChip } from '../components/NeedsInputCard.jsx';
-import Requirements, { requirementEntries } from '../components/Requirements.jsx';
+import Requirements from '../components/Requirements.jsx';
 import ExtractionPopup, {
   extractionRows, notFoundLabels, readSentence, readTimestamp, reReadFailedTimestamp,
 } from '../components/ExtractionPopup.jsx';
@@ -28,6 +28,7 @@ import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 import { prettifyTag } from '../tags.js';
 import { localDate } from '../dates.js';
+import { requirementEntries } from '../requirements.js';
 
 // JOZ-267 fix round 1 finding 4: a terminal ingest_state means nothing is
 // ever going to advance a still-pending field again on its own (the owner
