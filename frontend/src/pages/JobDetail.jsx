@@ -192,8 +192,10 @@ export default function JobDetail() {
   }
 
   // Reading the stored posting text again. The reload hands over to the
-  // page's own polling, since the fields go back to pending while the
-  // extraction runs, so the busy state only covers the request itself.
+  // page's own polling, since any field still open goes back to pending
+  // while the reading runs, so the busy state only covers the request
+  // itself. A field the first reading settled keeps what it settled on,
+  // so a job whose reading found everything polls nothing.
   async function handleReExtract() {
     setReExtractBusy(true);
     setActionError(null);

@@ -52,9 +52,11 @@ below. Top to bottom it is now:
    asked for, in the owner's order (Education, Experience, Skills,
    Languages, Certifications), each line carrying its level. Skills,
    Languages and Certifications read as tags, the two prose groups as
-   must-have and nice-to-have rows. A stored skill the Skills group does
-   not already carry joins that group as a must-have tag, so a skill the
-   list holds is never invisible. A job with no grouped requirements yet
+   must-have and nice-to-have rows. A stored skill no group already
+   carries joins the Skills group as a must-have tag, so a skill the list
+   holds is never invisible and no skill reads twice. The section's
+   "AI-extracted" label answers for the groups, and for the skills list
+   only where that list adds a tag. A job with no grouped requirements yet
    shows its flat must-have and nice-to-have lines with its extracted
    skills as must-have tags, which is the package-1 shape.
 6. Responsibilities, labeled "AI-extracted".
@@ -107,6 +109,19 @@ write per reported field rather than by one flag:
   has no block at all, so the Description row that says "Not found in
   posting" leads to a control that writes it. A block written here
   records `method: 'user'`.
+- Either field is sent only when the lines in it changed against what the
+  two textareas were seeded with, so a save that only changes the
+  location carries neither, and a field nobody touched keeps the
+  provenance it had.
+
+Emptying the two fields on a grouped job clears the groups and leaves
+the stored flat block alone, which is by design: the block is not what
+that job renders, and the owner cleared the list they were looking at.
+The consequence is that a later Re-extract regroups those block lines
+back, since regrouping the stored text is exactly what that action does.
+Clearing the groups for good on such a job therefore means clearing them
+and not pressing Re-extract; a re-read after an intentional clear is
+read as the owner asking for the field to be filled again.
 
 Languages are their own removable tags beside the two fields, since a
 language is a word rather than a sentence and the Languages group is
@@ -266,8 +281,8 @@ the accounting of converted vs. removed tests), Playwright 106 (was 78).
 - A job's `skills` list and the Skills requirement group overlap: the
   extraction fills both, and each has its own editor, so the two drift.
   The owner decided to keep the list (2026-10-14), so the Requirements
-  section renders the group plus any stored skill the group does not
-  carry, and nothing the record holds goes unshown.
+  section renders the groups plus any stored skill none of them carries,
+  and nothing the record holds goes unshown.
 - Edit job shows the grouped requirements as two lists by level, not as
   five lists by group, so the owner cannot move a line from one group to
   another there. Re-extracting the job is what regroups it today.
@@ -276,9 +291,19 @@ the accounting of converted vs. removed tests), Playwright 106 (was 78).
   read keeps that reading: its state does not change, the fields the
   earlier reading settled keep what they settled on, and the attempt
   shows up as its own history line ("Reading the posting again found
-  nothing new") with one sentence in the extraction popup. A job whose
-  reading never succeeded keeps the ordinary failure path and its card,
-  because there is no earlier reading to protect.
+  nothing new") with one sentence in the extraction popup. A reading that
+  could not be started at all gets its own line instead ("Reading the
+  posting again could not start"), because nothing read the text, so
+  there is nothing it could have found. A job whose reading never
+  succeeded keeps the ordinary failure path and its card, because there
+  is no earlier reading to protect.
+- The extraction popup reads a requirement list the owner emptied as
+  "Found · You": the job PUT marks every field an owner edit sets as
+  done, whatever they set it to, so an emptied field reads as a value
+  they chose rather than as an absence. That is how the PUT answers for
+  every emptied field, not something about the groups, so rewording it is
+  a change to that contract rather than to this surface. An emptied list
+  the owner then re-extracts does say "Pending" while the reading runs.
 
 The company-review resolution UI (picking a candidate or creating a
 company for a `needs_review` job), flagged as a known gap at the JOZ-280

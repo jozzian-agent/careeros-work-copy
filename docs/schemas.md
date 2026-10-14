@@ -113,12 +113,19 @@ wrote in Edit job), and `requirement_groups` holds the grouped shape:
 The groups carry one entry per group and text, with a must-have winning
 over a nice-to-have for the same line, and text with no padding on it:
 `vault.validate_requirement_groups` holds that invariant for every
-writer. An empty list means the job has no grouped requirements yet,
-which is where every job written before package 2 starts. Every write
-path fills them for a job added since (the offline intake pass, the
-queued model pass, the fill-the-empty-fields enrich, and the owner's own
-edit), so for a job written before them the owner's per-job Re-extract
-action (`POST /api/jobs/<id>/re-extract`) is the only thing the interface
+writer. An empty list with no `requirement_groups` entry in
+`field_provenance` means the job has no grouped requirements yet, which
+is where every job written before package 2 starts. An empty list that
+is stamped `user` means the owner emptied it on purpose, and the two are
+read differently: the first still shows the flat lists and is filled by
+any write path, the second renders as a grouped job with nothing in it
+and is filled by nothing but the owner, or by the reading the owner asks
+for with Re-extract, which takes that stamp off the field so the answer
+can land. Every write path fills the groups for a job added since the
+package (the offline intake pass, the queued model pass, the
+fill-the-empty-fields enrich, and the owner's own edit), so for a job
+written before them the owner's per-job Re-extract action
+(`POST /api/jobs/<id>/re-extract`) is the only thing the interface
 offers, and no read ever migrates a record. Languages have no field of
 their own; a language the posting asks for is an entry in the `languages`
 group.
