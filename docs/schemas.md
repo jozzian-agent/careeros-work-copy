@@ -110,12 +110,17 @@ holds the flat shape every job written before package 2 has
 | requirement_groups[].text | The qualification in the posting's own words, nonempty |
 
 The groups carry one entry per group and text, with a must-have winning
-over a nice-to-have for the same line. An empty list means the job has no
-grouped requirements yet, which is where every job written before package
-2 starts: the owner's per-job Re-extract action
-(`POST /api/jobs/<id>/re-extract`) is the only thing that fills them, and
-no read ever migrates a record. Languages have no field of their own; a
-language the posting asks for is an entry in the `languages` group.
+over a nice-to-have for the same line, and text with no padding on it:
+`vault.validate_requirement_groups` holds that invariant for every
+writer. An empty list means the job has no grouped requirements yet,
+which is where every job written before package 2 starts. Every write
+path fills them for a job added since (the offline intake pass, the
+queued model pass, the fill-the-empty-fields enrich, and the owner's own
+edit), so for a job written before them the owner's per-job Re-extract
+action (`POST /api/jobs/<id>/re-extract`) is the only thing the interface
+offers, and no read ever migrates a record. Languages have no field of
+their own; a language the posting asks for is an entry in the `languages`
+group.
 
 GET `/api/jobs` lists jobs newest-added first. GET/PUT/DELETE
 `/api/jobs/<id>` reads, partially updates editable schema fields, or deletes a

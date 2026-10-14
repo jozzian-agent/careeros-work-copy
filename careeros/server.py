@@ -1046,10 +1046,15 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         # The rule-based groups, so a job has grouped
                         # requirements from this first offline pass on;
                         # the queued model pass replaces them with real
-                        # groups when it lands.
-                        candidate['requirement_groups'] = ingest.requirement_groups(
+                        # groups when it lands. Only when the pass found
+                        # lines to group: an empty list written here would
+                        # stamp provenance on a field nobody wrote, and a
+                        # stamp is what the page reads as "written".
+                        groups = ingest.requirement_groups(
                             None, structured_fallback['requirements'],
                             structured_fallback['nice_to_have'])
+                        if groups:
+                            candidate['requirement_groups'] = groups
                     # M2: a concurrent owner edit made to the stub while the
                     # fetch was in flight must survive. Re-read the current
                     # record and only let an automated field land if it still
@@ -1212,10 +1217,15 @@ def create_app(vault: str | Path | None = None) -> Flask:
                            'requirement_groups')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
+            # This fills empty fields only, so a value that is itself empty
+            # fills nothing: an empty list used to pass the guard and land
+            # in updates, where it stamps provenance on a field nothing was
+            # found for, and a field_provenance entry is what the page
+            # reads as "this was written, and here is by whom".
             updates = {key: extracted[key] for key in fill_fields
                        if (job.get(key) in (None, '', []) or
                            (key == 'salary_info' and job.get(key) is False))
-                       and extracted.get(key) not in (None, '')
+                       and extracted.get(key) not in (None, '', [], {})
                        and job.get('field_provenance', {}).get(key) != 'user'}
             updates['posting_quality'] = ingest.classify_posting_quality(extracted.get('description') or '')
             if 'summary' in updates:
@@ -1241,6 +1251,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates['employer_named_in_posting'] = employer_evidence
                 updates['field_provenance'] = {**provenance,
                                                'employer_named_in_posting': evidence_source}
+            # Package 2: the grouped requirements this call just filled have
+            # to say who read the lines they hold, because the Requirements
+            # section's AI label has nothing else to read for them (the flat
+            # block carries its own `method`, the groups do not). Same rule
+            # the Re-extract write applies: the lines are the model's when a
+            # model answered this posting, the page's otherwise.
+            if 'requirement_groups' in updates:
+                updates['field_provenance'] = {
+                    **updates.get('field_provenance', provenance),
+                    'requirement_groups': 'llm' if extracted.get('ingest_source') == 'llm' else 'scrape'}
             # M3: route through the SAME shared ladder every other
             # resolution entry point uses -- same owner-link-group
             # protection (M1), same fuzzy/ambiguity/shared-tenant
@@ -1433,9 +1453,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
         """Read the stored posting text again (package 2).
 
         This is the owner's per-job migration to grouped requirements, and
-        the only thing that fills requirement_groups on a job written
-        before them: no read migrates a record, and nothing re-runs in
-        bulk (owner decision). It is not /extract, which fetches the live
+        the only thing the interface offers for a job written before them:
+        every write path fills requirement_groups for a job added since,
+        but no read migrates a record and nothing re-runs in bulk (owner
+        decision). It is not /extract, which fetches the live
         posting first: the posting a legacy job was read from may be gone,
         and the text to group is the one already stored.
 

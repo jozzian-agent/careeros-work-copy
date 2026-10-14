@@ -8,7 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from careeros import history, ingest, vault
+from careeros import history, ingest, intake, vault
 from careeros.server import apply_field_status, create_app
 from careeros.web.pages import jobs
 
@@ -22,6 +22,13 @@ def client_for(content):
 POSTING = ('We build tools for engineers.\n\n'
            'Requirements:\n- Five years of Python\n- Strong SQL\n\n'
            'Nice to have:\n- Kubernetes experience\n- Rust')
+
+
+def posting_html(text):
+    """The same posting as a page a fetch could return, one paragraph per
+    line, so the offline section split sees the lines it splits on."""
+    lines = ''.join(f'<p>{line}</p>' for line in text.splitlines() if line.strip())
+    return f'<html><head><title>Engineer</title></head><body>{lines}</body></html>'
 
 
 # --- the fixed vocabulary ---
@@ -484,6 +491,27 @@ def test_re_extract_replaces_the_rule_based_groups_with_the_model_groups(tmp_pat
     assert stored['field_provenance']['requirement_groups'] == 'llm'
 
 
+def test_a_partial_model_answer_still_stores_every_line_it_read(tmp_path, monkeypatch):
+    """The callback is a write path of its own, so the fold has to hold
+    there too: a model that grouped one line and listed the rest flat
+    must not leave the rest out of the stored requirements."""
+    content = json.dumps({'requirement_groups': [
+        {'group': 'education', 'level': 'must', 'text': 'BSc in computer science'}],
+        'requirements': ['BSc in computer science', 'Five years of Python'],
+        'nice_to_have': ['Rust']})
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(content))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    api = app.test_client()
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    assert vault.load_job(tmp_path, job['id'])['requirement_groups'] == [
+        {'group': 'education', 'level': 'must', 'text': 'BSc in computer science'},
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
+        {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
+
+
 def test_re_extract_never_overwrites_groups_the_owner_edited(tmp_path, monkeypatch):
     content = json.dumps({'requirement_groups': [
         {'group': 'languages', 'level': 'must', 'text': 'French'}]})
@@ -560,6 +588,65 @@ def test_re_extract_gives_the_reservation_back_when_its_write_fails(tmp_path, no
 def test_re_extract_on_a_missing_job_is_a_404(tmp_path):
     api = create_app(tmp_path).test_client()
     assert api.post('/api/jobs/JOB-404/re-extract').status_code == 404
+
+
+# --- the other write paths ---
+
+def test_enrich_fills_the_groups_and_credits_whoever_read_the_lines(tmp_path, monkeypatch):
+    """Fill-the-empty-fields enrich is a write path too, so a job it
+    enriches comes out grouped. The Requirements section's AI label has
+    nothing but provenance to read for the groups, where the flat block
+    carries its own `method`, so the groups have to be stamped."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: posting_html(POSTING))
+    api = create_app(tmp_path).test_client()
+    assert api.post(f'/api/jobs/{job["id"]}/enrich').status_code == 200
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
+        {'group': 'skills', 'level': 'must', 'text': 'Strong SQL'},
+        {'group': 'skills', 'level': 'nice', 'text': 'Kubernetes experience'},
+        {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
+    # No model answered, so the page read these lines and says so.
+    assert stored['field_provenance']['requirement_groups'] == 'scrape'
+
+
+def test_enrich_leaves_an_unanswered_field_unwritten(tmp_path, monkeypatch):
+    """A posting that asks for nothing fills nothing. An empty list used
+    to pass the fill guard and stamp provenance, which says "this was
+    written, and here is by whom" about a field nobody wrote."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    monkeypatch.setattr(intake, 'fetch_url',
+                        lambda url: posting_html('We build tools for engineers.'))
+    api = create_app(tmp_path).test_client()
+    assert api.post(f'/api/jobs/{job["id"]}/enrich').status_code == 200
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == []
+    assert 'requirement_groups' not in stored['field_provenance']
+
+
+def test_the_offline_intake_pass_groups_what_it_read(tmp_path, monkeypatch):
+    """A job added from a URL is grouped by the instant offline pass,
+    before any model runs, and that pass is page data."""
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: posting_html(POSTING))
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/intake', json={'url': 'https://posting.example/role'})
+    assert response.status_code == 201
+    stored = vault.load_job(tmp_path, response.get_json()['job']['id'])
+    assert [entry['text'] for entry in stored['requirement_groups']] == [
+        'Five years of Python', 'Strong SQL', 'Kubernetes experience', 'Rust']
+    assert {entry['group'] for entry in stored['requirement_groups']} == {'skills'}
+    assert stored['field_provenance']['requirement_groups'] == 'scrape'
+
+
+def test_the_offline_intake_pass_stamps_nothing_when_it_grouped_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(intake, 'fetch_url',
+                        lambda url: posting_html('We build tools for engineers.'))
+    api = create_app(tmp_path).test_client()
+    response = api.post('/api/jobs/intake', json={'url': 'https://posting.example/role'})
+    stored = vault.load_job(tmp_path, response.get_json()['job']['id'])
+    assert stored['requirement_groups'] == []
+    assert 'requirement_groups' not in stored['field_provenance']
 
 
 def test_the_job_page_context_carries_the_groups(tmp_path):
