@@ -186,12 +186,13 @@ def job_context(job, company, function_labels, llm_pending=False, isic_sections=
             tags=job.get('tags') or [],
         ),
         needs_input=job_needs_input(job),
-        # True while the posting is still being read. 'fetching' is the
-        # state an async fetch worker would hold; today the fetch is
-        # synchronous within intake, so llm_pending is what actually fires
-        # here, and the state clause keeps the contract honest when the
-        # fetch moves off the request thread.
-        reading=bool(llm_pending) or job.get('ingest_state') == 'fetching',
+        # True while the posting is still on its way in: the extractor
+        # running in this process, or a record parked in one of the two
+        # intake states that has not reached a result yet. A stub whose
+        # fetch never returned and a fetched posting whose extraction was
+        # lost to a restart are both still arriving, so the page says so
+        # instead of claiming the posting was never read.
+        reading=bool(llm_pending) or job.get('ingest_state') in ('stub', 'fetched'),
         # None when the stored summary is a copy of the posting's opening:
         # the page then shows the posting itself rather than the same text
         # twice under an AI-made label.

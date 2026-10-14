@@ -128,6 +128,19 @@ def test_reading_while_the_extractor_runs():
     assert context()['reading'] is False
 
 
+def test_reading_in_the_states_intake_has_not_finished():
+    """A stub whose fetch never returned, and a fetched posting whose
+    extraction was lost to a restart, are both still on their way in: the
+    page says the sections are filling rather than that the posting was
+    never read."""
+    arriving, settled = ('stub', 'fetched'), ('complete', 'fetch_failed', 'extract_failed')
+    assert set(arriving + settled) == set(vault.INGEST_STATES), 'every stored state gets an answer'
+    for state in arriving:
+        assert context({'ingest_state': state})['reading'] is True, state
+    for state in settled:
+        assert context({'ingest_state': state})['reading'] is False, state
+
+
 # --- summary_is_copy ------------------------------------------------------
 
 LONG = 'This team builds planning tools for warehouse operators across Europe.'

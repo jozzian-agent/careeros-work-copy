@@ -99,8 +99,10 @@ converts template tuples to arrays and rendered Markdown to strings.
     text is stored, since the text was read and still produced no details,
     and `fetch_failed` only while no text arrived at all, since stored
     text is all the fetch was ever for. The company ask always wins.
-  - `reading`: true while the posting is still being read (`llm_pending`,
-    or `ingest_state` `fetching`).
+  - `reading`: true while the posting is still on its way in: the
+    extractor running in this process (`llm_pending`), or an
+    `ingest_state` that has not reached a result yet (`stub` or
+    `fetched`, which is where a record parks when intake is interrupted).
   - `summary_effective`: `job.summary`, or null when that summary is just
     the opening of the description verbatim. The stored record is never
     changed.
