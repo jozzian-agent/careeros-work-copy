@@ -55,17 +55,6 @@ export async function mockCompanyPage(page, body) {
   await page.route('**/api/companies/*?view=page', (route) => route.fulfill({ json: body }));
 }
 
-// Mocks GET /api/companies/<id>/taxonomy (the Company Classification page's load).
-export async function mockCompanyTaxonomy(page, body) {
-  await page.route('**/api/companies/*/taxonomy', (route) => {
-    if (route.request().method() !== 'GET') {
-      route.fallback();
-      return;
-    }
-    route.fulfill({ json: body });
-  });
-}
-
 // Mocks GET /api/search?view=page (the Search criteria page's load).
 export async function mockSearchPage(page, body) {
   await page.route('**/api/search?view=page', (route) => {

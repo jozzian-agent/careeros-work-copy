@@ -226,7 +226,6 @@ def create_app(vault: str | Path | None = None) -> Flask:
         app.add_url_rule('/experiences/<identifier>', 'react_experience_detail', react_index)
         app.add_url_rule('/companies', 'react_companies', react_index)
         app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
-        app.add_url_rule('/companies/<identifier>/taxonomy', 'react_company_taxonomy', react_index)
         app.add_url_rule('/taxonomy', 'react_taxonomy', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
@@ -1409,10 +1408,6 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def job_taxonomy_api(identifier):
         return jsonify(jobs.taxonomy_context(app.config['VAULT_PATH'], identifier))
 
-    @app.get('/api/companies/<identifier>/taxonomy')
-    def company_taxonomy_api(identifier):
-        return jsonify(companies.taxonomy_context(app.config['VAULT_PATH'], identifier))
-
     @app.get('/api/taxonomy')
     def taxonomy_api():
         return jsonify(taxonomy.taxonomy_context(app.config['VAULT_PATH']))
@@ -1660,7 +1655,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.errorhandler(404)
     def not_found(error):
-        if request.endpoint in ('job_taxonomy_api', 'company_taxonomy_api', 'experience_form_api'):
+        if request.endpoint in ('job_taxonomy_api', 'experience_form_api'):
             return jsonify(error='Record not found.'), 404
         return page_shell(
             'Page not found', '',

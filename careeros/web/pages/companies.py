@@ -173,19 +173,3 @@ def company_context(company, jobs, experiences, isic_sections):
         kinds=vault.KINDS,
     )
 
-def taxonomy_context(root, identifier):
-    """Taxonomy sub-page (approved wireframe 2026-10-07): kind, ISIC
-    sectors, EU size class, and review flags in one focused editor. No
-    provenance display per the owner's decision."""
-    company = vault.load_company(root, identifier)
-    if company is None:
-        abort(404)
-    return classification_context(company, sectors.load_isic_sections())
-
-def classification_context(company, isic_sections):
-    return dict(
-        company=company,
-        isic_sections=isic_sections,
-        size_classes=vault.SIZE_CLASSES,
-        kinds=vault.KINDS,
-    )

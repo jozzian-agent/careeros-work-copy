@@ -129,42 +129,6 @@ def test_job_contract(api_client, assert_json_shape):
     assert_json_shape(response.get_json(), JOB_SHAPE)
 
 
-COMPANY_SHAPE = {'company': {'contact_email': 'str',
-             'custom': {},
-             'enrichment': {'hiring_activity': {'count': 'int',
-                                                'most_recent_posted_date': 'NoneType'},
-                            'locations_seen': ['str'],
-                            'remote_friendly': 'bool',
-                            'sectors': [],
-                            'seniority_range': {'max': 'NoneType', 'min': 'NoneType'},
-                            'top_keywords': []},
-             'field_provenance': {},
-             'id': 'str',
-             'identifiers': [],
-             'kind': 'str',
-             'locations': ['str'],
-             'name': 'str',
-             'name_source': 'str',
-             'notes': 'str',
-             'review_flags': ['str'],
-             'sector': 'NoneType',
-             'sectors': ['str'],
-             'size': 'NoneType',
-             'size_class': 'str',
-             'size_range': 'NoneType',
-             'sources': [],
-             'website': 'NoneType'},
- 'isic_sections': [{'code': 'str', 'keywords': ['str'], 'label': 'str', 'label_de': 'str'}],
- 'kinds': ['str'],
- 'size_classes': ['str']}
-
-def test_company_contract(api_client, assert_json_shape):
-    response = api_client.get('/api/companies/CO-001/taxonomy')
-    assert response.status_code == 200
-    assert response.is_json
-    assert_json_shape(response.get_json(), COMPANY_SHAPE)
-
-
 def test_taxonomy_values(api_client):
     job = api_client.get('/api/jobs/JOB-001/taxonomy').get_json()
     assert job['function_options'] == [['builder', 'Builder']]
@@ -172,7 +136,10 @@ def test_taxonomy_values(api_client):
     assert job['tags'] == ['function:builder']
     assert job['company']['sectors'] == ['J']
     assert job['isic_labels']['J'] == 'Information and communication'
-    company = api_client.get('/api/companies/CO-001/taxonomy').get_json()
+    # B6: the company half of this endpoint is retired. The same values
+    # now reach the company detail page through its own context
+    # (kinds/size_classes there, review_flags on the record).
+    company = api_client.get('/api/companies/CO-001?view=page').get_json()
     assert company['kinds'] == ['employer', 'institution']
     assert company['size_classes'] == ['micro', 'small', 'medium', 'large']
     assert company['company']['review_flags'] == ['sector-ambiguous']
@@ -181,7 +148,7 @@ def test_taxonomy_values(api_client):
 def test_missing_records_are_json(api_client):
     for path in ('/api/jobs/missing?view=page', '/api/companies/missing?view=page',
                  '/api/experiences/missing?view=page', '/api/jobs/missing/taxonomy',
-                 '/api/companies/missing/taxonomy', '/api/experiences/missing/edit'):
+                 '/api/experiences/missing/edit'):
         response = api_client.get(path)
         assert response.status_code == 404
         assert sorted(response.get_json()) == ['error']
