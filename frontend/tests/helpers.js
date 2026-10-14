@@ -213,6 +213,30 @@ export async function mockPromote(page, { status = 200, body = { ok: true } } = 
   await page.route('**/api/jobs/*/promote', (route) => route.fulfill({ status, json: body }));
 }
 
+// Mocks GET /api/notes (the Notes page's load).
+export async function mockNotesPage(page, body) {
+  await page.route('**/api/notes', (route) => route.fulfill({ json: body }));
+}
+
+// Mocks the note write endpoints under a record: POST .../notes and
+// PATCH/DELETE .../notes/<note_id>. Records each call's method, URL and
+// parsed body, so a spec can assert which note was addressed and what was
+// sent, not just that the section redrew. `urlGlob` names the record, so
+// a spec can prove a write went to the job and not the company.
+export async function mockNoteWrites(page, urlGlob, { status = 200, body = { ok: true } } = {}) {
+  const requests = [];
+  await page.route(urlGlob, (route) => {
+    const request = route.request();
+    requests.push({
+      method: request.method(),
+      url: request.url(),
+      body: request.method() === 'DELETE' ? null : request.postDataJSON(),
+    });
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
 // Mocks GET /api/taxonomy (the Taxonomy page's load).
 export async function mockTaxonomy(page, body) {
   await page.route('**/api/taxonomy', (route) => route.fulfill({ json: body }));

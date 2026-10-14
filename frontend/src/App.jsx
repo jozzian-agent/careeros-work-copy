@@ -8,6 +8,7 @@ import ExperiencesList from './pages/ExperiencesList.jsx';
 import ExperienceDetail from './pages/ExperienceDetail.jsx';
 import CompaniesList from './pages/CompaniesList.jsx';
 import CompanyDetail from './pages/CompanyDetail.jsx';
+import Notes from './pages/Notes.jsx';
 import Taxonomy from './pages/Taxonomy.jsx';
 
 // JOZ-280: the SPA now owns the detail-page URLs too (server.py mounts the
@@ -34,6 +35,7 @@ function App() {
         <Route path="/experiences/:id" element={<Page currentPage="experiences"><ExperienceDetail /></Page>} />
         <Route path="/companies" element={<Page currentPage="companies"><CompaniesList /></Page>} />
         <Route path="/companies/:id" element={<Page currentPage="companies"><CompanyDetail /></Page>} />
+        <Route path="/notes" element={<Page currentPage="notes"><Notes /></Page>} />
         <Route path="/taxonomy" element={<Page currentPage="taxonomy"><Taxonomy /></Page>} />
       </Routes>
     </ThemeProvider>

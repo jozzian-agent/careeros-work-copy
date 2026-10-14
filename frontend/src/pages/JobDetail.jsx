@@ -12,9 +12,7 @@ import {
   updateJob,
 } from '../api/jobs.js';
 import DetailHeader from '../components/DetailHeader.jsx';
-import SectionCard, {
-  DETAIL_MAX_WIDTH, DividerList, EmptyState, KeyValueGrid,
-} from '../components/SectionCard.jsx';
+import SectionCard, { DETAIL_MAX_WIDTH, DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
 import FitChip from '../components/FitChip.jsx';
 import StatusSelect from '../components/StatusSelect.jsx';
 import NeedsInputCard, { NeedsInputChip } from '../components/NeedsInputCard.jsx';
@@ -23,6 +21,7 @@ import ExtractionPopup, {
   extractionRows, notFoundLabels, readSentence, readTimestamp,
 } from '../components/ExtractionPopup.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
+import NotesSection from '../components/NotesSection.jsx';
 import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
@@ -74,7 +73,6 @@ export default function JobDetail() {
   const [page, setPage] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [editFocus, setEditFocus] = useState(null);
   const [classificationOpen, setClassificationOpen] = useState(false);
   const [taxonomy, setTaxonomy] = useState(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -133,7 +131,7 @@ export default function JobDetail() {
   }
 
   const {
-    job, company, statuses, markdown, has_description: hasDescription,
+    job, company, statuses, notes, has_description: hasDescription,
     watch_eligible: watchEligible, watch_reason: watchReason,
     history, classification, needs_input: needsInput, reading,
     summary_effective: summaryEffective, function_labels: functionLabels,
@@ -151,13 +149,7 @@ export default function JobDetail() {
   async function handleSaveJob(fields) {
     await updateJob(id, fields);
     setEditOpen(false);
-    setEditFocus(null);
     load();
-  }
-
-  function openEdit(focus = null) {
-    setEditFocus(focus);
-    setEditOpen(true);
   }
 
   async function openClassification() {
@@ -184,7 +176,7 @@ export default function JobDetail() {
       openClassification();
       return;
     }
-    openEdit();
+    setEditOpen(true);
   }
 
   async function handleRetry() {
@@ -280,7 +272,7 @@ export default function JobDetail() {
             </Link>
           ) : null}
           editLabel="Edit job"
-          onEdit={() => openEdit()}
+          onEdit={() => setEditOpen(true)}
           onDelete={() => setDeleteOpen(true)}
         />
         {actionError ? <BannerSlim type="error" message={actionError} onDismiss={() => setActionError(null)} /> : null}
@@ -463,18 +455,7 @@ export default function JobDetail() {
             </Flex>
           </Flex>
         </SectionCard>
-        <SectionCard title="Notes">
-          {job.notes ? (
-            <Box dangerouslySetInlineStyle={{ __style: { fontSize: 16, lineHeight: '24px' } }}>
-              <span dangerouslySetInnerHTML={{ __html: markdown }} />
-            </Box>
-          ) : (
-            <EmptyState
-              text="No notes yet."
-              action={<Button text="Add a note" size="sm" color="gray" onClick={() => openEdit('notes')} />}
-            />
-          )}
-        </SectionCard>
+        <NotesSection kind="jobs" recordId={id} notes={notes} onChanged={load} />
         {history?.length ? (
           <SectionCard title="History" collapsible>
             <DividerList
@@ -490,15 +471,7 @@ export default function JobDetail() {
         ) : null}
       </Flex>
       {editOpen ? (
-        <EditJobPopup
-          job={job}
-          focus={editFocus}
-          onSave={handleSaveJob}
-          onDismiss={() => {
-            setEditOpen(false);
-            setEditFocus(null);
-          }}
-        />
+        <EditJobPopup job={job} onSave={handleSaveJob} onDismiss={() => setEditOpen(false)} />
       ) : null}
       {classificationOpen && taxonomy ? (
         <EditClassificationPopup

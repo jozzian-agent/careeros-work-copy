@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { BannerSlim, Button, Checkbox, Flex, Modal, Tag, Text, TextArea, TextField } from 'gestalt';
 
 function linesToList(text) {
@@ -21,15 +21,14 @@ function linesToList(text) {
 // on an untouched field. The same rule applies to the summary,
 // responsibilities and skills.
 //
-// `focus` names the field the page wants the owner to land on ('notes'
-// from the empty Notes section's "Add a note").
-export default function EditJobPopup({ job, focus, onSave, onDismiss }) {
+// Notes are not here: a note is its own record with its own window
+// (NotePopup), opened from the Notes section.
+export default function EditJobPopup({ job, onSave, onDismiss }) {
   const structured = job.description_structured;
   const [title, setTitle] = useState(job.title || '');
   const [url, setUrl] = useState(job.url || '');
   const [location, setLocation] = useState(job.location || '');
   const [remoteOk, setRemoteOk] = useState(Boolean(job.remote_ok));
-  const [notes, setNotes] = useState(job.notes || '');
   const [summary, setSummary] = useState(job.summary || '');
   const [requirements, setRequirements] = useState((structured?.requirements || []).join('\n'));
   const [niceToHave, setNiceToHave] = useState((structured?.nice_to_have || []).join('\n'));
@@ -38,11 +37,6 @@ export default function EditJobPopup({ job, focus, onSave, onDismiss }) {
   const [newSkill, setNewSkill] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const notesRef = useRef(null);
-
-  useEffect(() => {
-    if (focus === 'notes' && notesRef.current) notesRef.current.focus();
-  }, [focus]);
 
   function addSkill() {
     const value = newSkill.trim();
@@ -55,7 +49,7 @@ export default function EditJobPopup({ job, focus, onSave, onDismiss }) {
     setBusy(true);
     setError(null);
     try {
-      const payload = { title: title.trim(), url: url.trim(), location, remote_ok: remoteOk, notes };
+      const payload = { title: title.trim(), url: url.trim(), location, remote_ok: remoteOk };
       if (summary !== (job.summary || '')) payload.summary = summary;
       const newResponsibilities = linesToList(responsibilities);
       if (newResponsibilities.join('\n') !== (job.responsibilities || []).join('\n')) {
@@ -180,15 +174,6 @@ export default function EditJobPopup({ job, focus, onSave, onDismiss }) {
             <Button text="Add" color="gray" disabled={!newSkill.trim()} onClick={addSkill} />
           </Flex>
         </Flex>
-        <TextArea
-          ref={notesRef}
-          id="edit-job-notes"
-          label="Notes"
-          placeholder="Your private notes about this job"
-          rows={4}
-          value={notes}
-          onChange={({ value }) => setNotes(value)}
-        />
       </Flex>
     </Modal>
   );

@@ -35,7 +35,7 @@ for (const which of PAGES) {
   // its primary one.
   test(`${which.name} page: Delete is the same gray secondary as Edit, never the brand fill`, async ({ page }) => {
     await openPage(page, which);
-    const deleteBackground = await buttonBackground(page.getByRole('button', { name: 'Delete' }));
+    const deleteBackground = await buttonBackground(page.getByRole('button', { name: 'Delete', exact: true }));
     const editBackground = await buttonBackground(page.getByRole('button', { name: which.editLabel }));
     expect(deleteBackground).toBe(editBackground);
     expect(deleteBackground).not.toBe(BRAND_PRIMARY);

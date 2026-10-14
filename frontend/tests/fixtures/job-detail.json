@@ -14,7 +14,11 @@
     "salary_note": "CHF 140k-160k",
     "location": "Zurich, CH",
     "remote_ok": true,
-    "notes": "Ask about on-call rotation.",
+    "notes": "",
+    "note_list": [
+      { "id": "n1", "title": "On-call rotation", "body": "Ask about the rota.\nAnd about pager weeks.",
+        "created": "2026-10-14T12:20:00+00:00", "updated": "2026-10-14T12:20:00+00:00" }
+    ],
     "enriched": true,
     "summary": "Fictional role summary for test fixtures only.",
     "summary_source": "ai",
@@ -56,7 +60,10 @@
   "company": { "id": "CO-001", "name": "Northwind Systems" },
   "statuses": ["new", "interested", "applied", "interviewing", "offer", "rejected", "closed", "withdrawn"],
   "function_labels": { "engineering": { "label": "Engineering", "local": false } },
-  "markdown": "<p>Ask about on-call rotation.</p>",
+  "notes": [
+    { "id": "n1", "title": "On-call rotation", "body": "Ask about the rota.\nAnd about pager weeks.",
+      "created": "2026-10-14T12:20:00+00:00", "updated": "2026-10-14T12:20:00+00:00" }
+  ],
   "has_description": true,
   "show_remote_chip": false,
   "watch_eligible": true,

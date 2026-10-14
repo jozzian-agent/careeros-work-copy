@@ -4,6 +4,7 @@ import { BannerSlim, Box, Button, Flex, Link, Text } from 'gestalt';
 import { deleteCompany, fetchCompanyPage, retryCompany, updateCompany } from '../api/companies.js';
 import DetailHeader from '../components/DetailHeader.jsx';
 import SectionCard, { DETAIL_MAX_WIDTH, EmptyState } from '../components/SectionCard.jsx';
+import NotesSection from '../components/NotesSection.jsx';
 import EditCompanyPopup from '../components/EditCompanyPopup.jsx';
 import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
@@ -129,7 +130,6 @@ export default function CompanyDetail() {
   const [page, setPage] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [editFocus, setEditFocus] = useState(null);
   const [classificationOpen, setClassificationOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
@@ -153,13 +153,7 @@ export default function CompanyDetail() {
   async function handleSave(fields) {
     await updateCompany(id, fields);
     setEditOpen(false);
-    setEditFocus(null);
     load();
-  }
-
-  function openEdit(focus = null) {
-    setEditFocus(focus);
-    setEditOpen(true);
   }
 
   async function handleSaveClassification(fields) {
@@ -217,7 +211,7 @@ export default function CompanyDetail() {
   }
 
   const {
-    company, jobs = [], experiences = [], classification = {}, needs_input: needsInput,
+    company, jobs = [], experiences = [], classification = {}, needs_input: needsInput, notes = [],
     isic_sections: sectorOptions = [], size_classes: sizeOptions = [],
   } = page;
   const locations = (company.locations || []).join(', ');
@@ -242,7 +236,7 @@ export default function CompanyDetail() {
             </Link>
           ) : null}
           editLabel="Edit company"
-          onEdit={() => openEdit()}
+          onEdit={() => setEditOpen(true)}
           onDelete={() => setDeleteOpen(true)}
         />
         {/* The one ask, and only when automation has genuinely run out of
@@ -316,27 +310,10 @@ export default function CompanyDetail() {
             <ClassificationRow label="Size" field={classification.size} />
           </Flex>
         </SectionCard>
-        <SectionCard title="Notes">
-          {company.notes ? (
-            <Text>{company.notes}</Text>
-          ) : (
-            <EmptyState
-              text="No notes yet."
-              action={<Button text="Add a note" size="sm" color="gray" onClick={() => openEdit('notes')} />}
-            />
-          )}
-        </SectionCard>
+        <NotesSection kind="companies" recordId={id} notes={notes} onChanged={load} />
       </Flex>
       {editOpen ? (
-        <EditCompanyPopup
-          company={company}
-          focus={editFocus}
-          onSave={handleSave}
-          onDismiss={() => {
-            setEditOpen(false);
-            setEditFocus(null);
-          }}
-        />
+        <EditCompanyPopup company={company} onSave={handleSave} onDismiss={() => setEditOpen(false)} />
       ) : null}
       {classificationOpen ? (
         <EditClassificationPopup

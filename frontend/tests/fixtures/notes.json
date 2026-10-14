@@ -1,0 +1,17 @@
+{
+  "notes": [
+    { "id": "n1", "title": "On-call rotation", "body_preview": "Ask about the rota.",
+      "created": "2026-10-14T12:20:00+00:00", "updated": "2026-10-14T12:20:00+00:00",
+      "job_id": "JOB-001", "job_title": "Senior Platform Engineer",
+      "company_id": null, "company_name": null },
+    { "id": "n2", "title": "Distributed team", "body_preview": "Fictional company notes for test fixtures only.",
+      "created": "2026-10-13T09:00:00+00:00", "updated": "2026-10-14T10:00:00+00:00",
+      "job_id": null, "job_title": null,
+      "company_id": "CO-001", "company_name": "Northwind Systems" },
+    { "id": "legacy", "title": "Note", "body_preview": "Written before notes were a list.",
+      "created": null, "updated": null,
+      "job_id": "JOB-002", "job_title": "Developer Tools Manager",
+      "company_id": null, "company_name": null }
+  ],
+  "empty": "No notes yet. A note is added from a job or a company page."
+}

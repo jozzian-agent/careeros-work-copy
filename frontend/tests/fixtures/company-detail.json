@@ -4,7 +4,11 @@
     "name": "Northwind Systems",
     "website": "https://northwind.example",
     "locations": ["Zurich", "CH"],
-    "notes": "Fictional company notes for test fixtures only.",
+    "notes": "",
+    "note_list": [
+      { "id": "n2", "title": "Distributed team", "body": "Fictional company notes for test fixtures only.",
+        "created": "2026-10-13T09:00:00+00:00", "updated": "2026-10-14T10:00:00+00:00" }
+    ],
     "kind": "employer",
     "sectors": ["J"],
     "size_range": "51-200",
@@ -29,6 +33,10 @@
     "size": { "value": "51-200", "source": "jsonld" }
   },
   "needs_input": null,
+  "notes": [
+    { "id": "n2", "title": "Distributed team", "body": "Fictional company notes for test fixtures only.",
+      "created": "2026-10-13T09:00:00+00:00", "updated": "2026-10-14T10:00:00+00:00" }
+  ],
   "companies": { "CO-001": { "id": "CO-001", "name": "Northwind Systems" } },
   "isic_sections": [
     { "code": "J", "label": "Information and communication" },

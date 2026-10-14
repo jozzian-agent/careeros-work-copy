@@ -1,9 +1,18 @@
 import { BannerSlim, Flex, ModalAlert, Text } from 'gestalt';
 
+// `from` names the place the record is removed from, so a fourth kind is
+// one row here instead of another arm on a nested ternary below.
 const COPY = {
-  job: { heading: 'Delete this job?', keep: 'Keep job', confirm: 'Delete job' },
-  experience: { heading: 'Delete this position?', keep: 'Keep position', confirm: 'Delete position' },
-  company: { heading: 'Delete this company?', keep: 'Keep company', confirm: 'Delete company' },
+  job: { heading: 'Delete this job?', keep: 'Keep job', confirm: 'Delete job', from: 'jobs' },
+  experience: {
+    heading: 'Delete this position?', keep: 'Keep position', confirm: 'Delete position',
+    from: 'experience library',
+  },
+  company: {
+    heading: 'Delete this company?', keep: 'Keep company', confirm: 'Delete company',
+    from: 'companies',
+  },
+  note: { heading: 'Delete this note?', keep: 'Keep note', confirm: 'Delete note', from: 'notes' },
 };
 
 // The one delete-confirmation template for every detail page (BRIEF.md
@@ -34,8 +43,7 @@ export default function DeleteConfirmModal({ kind, name, busy, error, onConfirm,
     >
       <Flex direction="column" gap={3}>
         <Text>
-          This removes {name} from your{' '}
-          {kind === 'job' ? 'jobs' : kind === 'experience' ? 'experience library' : 'companies'}.
+          This removes {name} from your {copy.from}.
         </Text>
         {error ? <BannerSlim type="error" message={error} /> : null}
       </Flex>

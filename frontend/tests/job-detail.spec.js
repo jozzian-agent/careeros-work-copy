@@ -9,6 +9,7 @@ import {
   mockCheckPosting,
   mockJobPage,
   mockJobTaxonomy,
+  mockNoteWrites,
   mockPasteDescription,
   mockResolveReview,
   mockRetry,
@@ -70,7 +71,7 @@ test('header renders type label, title, subtitle and actions', async ({ page }) 
   await expect(page.getByRole('link', { name: fixture.company.name })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Open posting' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit job' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
 });
 
 test('back link navigates to the jobs board', async ({ page }) => {
@@ -500,14 +501,105 @@ test('Edit classification load failure shows a visible error without opening the
   await expect(page.getByRole('dialog', { name: 'Edit classification' })).not.toBeVisible();
 });
 
-test('empty Notes offer the dashed Add a note box, which opens Edit job at the notes field', async ({ page }) => {
-  await mockJobPage(page, { ...fixture, markdown: '', job: { ...fixture.job, notes: '' } });
+// --- Notes (owner round C5 and C6) ---
+
+test('Notes list each note with its first line and its date', async ({ page }) => {
+  await page.goto('/jobs/JOB-001');
+  const notes = page.getByTestId('section-notes');
+  await expect(notes.getByText('On-call rotation')).toBeVisible();
+  await expect(notes.getByText('Ask about the rota.')).toBeVisible();
+  // The second line of the body stays in the note's own window.
+  await expect(notes.getByText('And about pager weeks.')).toHaveCount(0);
+  await expect(notes.getByText(/14 Oct 2026, \d\d:\d\d/)).toBeVisible();
+});
+
+test('empty Notes offer the dashed Add a note box, which opens the note window', async ({ page }) => {
+  await mockJobPage(page, { ...fixture, notes: [] });
   await page.goto('/jobs/JOB-001');
   await expect(page.getByText('No notes yet.')).toBeVisible();
   await page.getByRole('button', { name: 'Add a note' }).click();
-  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  const modal = page.getByRole('dialog', { name: 'Add a note' });
   await expect(modal).toBeVisible();
-  await expect(modal.getByRole('textbox', { name: 'Notes' })).toBeFocused();
+  await expect(modal.getByRole('textbox', { name: 'Title' })).toBeFocused();
+  // The note window is its own surface: Edit job is not involved.
+  await expect(page.getByRole('dialog', { name: 'Edit job' })).toHaveCount(0);
+});
+
+test('a new note posts title and body, and the section refreshes from the backend', async ({ page }) => {
+  let saved = false;
+  const added = { id: 'n9', title: 'Salary band', body: 'Published range looks low.',
+                  created: '2026-10-14T13:00:00+00:00', updated: '2026-10-14T13:00:00+00:00' };
+  await page.route('**/api/jobs/*?view=page', (route) => route.fulfill({
+    json: saved ? { ...fixture, notes: [...fixture.notes, added] } : fixture,
+  }));
+  const requests = await mockNoteWrites(page, '**/api/jobs/JOB-001/notes**', { body: added });
+  await page.route('**/api/jobs/JOB-001/notes', (route) => {
+    saved = true;
+    route.fallback();
+  });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Add a note' }).click();
+  const modal = page.getByRole('dialog', { name: 'Add a note' });
+  await modal.getByRole('textbox', { name: 'Title' }).fill('Salary band');
+  await modal.getByRole('textbox', { name: 'Note' }).fill('Published range looks low.');
+  await modal.getByRole('button', { name: 'Save note' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].method).toBe('POST');
+  expect(requests[0].body).toEqual({ title: 'Salary band', body: 'Published range looks low.' });
+  await expect(modal).not.toBeVisible();
+  await expect(page.getByTestId('section-notes').getByText('Salary band')).toBeVisible();
+});
+
+test('a note cannot be saved without a title', async ({ page }) => {
+  const requests = await mockNoteWrites(page, '**/api/jobs/JOB-001/notes**');
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Add a note' }).click();
+  const modal = page.getByRole('dialog', { name: 'Add a note' });
+  await expect(modal.getByRole('button', { name: 'Save note' })).toBeDisabled();
+  await modal.getByRole('textbox', { name: 'Title' }).fill('Now it has one');
+  await expect(modal.getByRole('button', { name: 'Save note' })).toBeEnabled();
+  expect(requests.length).toBe(0);
+});
+
+test('Edit opens the note window on the note it was clicked for and patches it', async ({ page }) => {
+  const requests = await mockNoteWrites(page, '**/api/jobs/JOB-001/notes**', { body: fixture.notes[0] });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit On-call rotation' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit note' });
+  await expect(modal.getByRole('textbox', { name: 'Title' })).toHaveValue('On-call rotation');
+  await expect(modal.getByRole('textbox', { name: 'Note' })).toHaveValue(fixture.notes[0].body);
+  await modal.getByRole('textbox', { name: 'Title' }).fill('On-call and pager');
+  await modal.getByRole('button', { name: 'Save note' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].method).toBe('PATCH');
+  expect(requests[0].url).toContain('/api/jobs/JOB-001/notes/n1');
+  expect(requests[0].body.title).toBe('On-call and pager');
+});
+
+test('Delete confirms first, then deletes the one note it named', async ({ page }) => {
+  const requests = await mockNoteWrites(page, '**/api/jobs/JOB-001/notes**', { body: { deleted: 'n1' } });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Delete On-call rotation' }).click();
+  const alert = page.getByRole('alertdialog', { name: 'Delete this note?' });
+  await expect(alert.getByText('This removes On-call rotation from your notes.')).toBeVisible();
+  expect(requests.length).toBe(0);
+  await alert.getByRole('button', { name: 'Delete note' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].method).toBe('DELETE');
+  expect(requests[0].url).toContain('/api/jobs/JOB-001/notes/n1');
+});
+
+test('a note that fails to save says so in its own window', async ({ page }) => {
+  await mockNoteWrites(page, '**/api/jobs/JOB-001/notes**', {
+    status: 400, body: { error: 'A note needs a title.' },
+  });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Add a note' }).click();
+  const modal = page.getByRole('dialog', { name: 'Add a note' });
+  await modal.getByRole('textbox', { name: 'Title' }).fill('Doomed');
+  await modal.getByRole('button', { name: 'Save note' }).click();
+  await expect(modal.getByText('A note needs a title.')).toBeVisible();
+  await expect(modal).toBeVisible();
 });
 
 test('History shows the resolved labels with local dates, newest first', async ({ page }) => {
@@ -576,7 +668,9 @@ test('Edit job popup sends only the fields that actually changed', async ({ page
   await modal.getByRole('textbox', { name: 'Title' }).fill('Updated Title');
   await modal.getByRole('button', { name: 'Save job' }).click();
   await expect.poll(() => requests.length).toBe(1);
-  for (const key of ['description_structured', 'summary', 'responsibilities', 'skills']) {
+  // Notes are their own records with their own endpoints, so Edit job
+  // must not carry a notes field at all anymore.
+  for (const key of ['description_structured', 'summary', 'responsibilities', 'skills', 'notes']) {
     expect(requests[0]).not.toHaveProperty(key);
   }
 });
@@ -604,7 +698,7 @@ test('Delete confirmation opens, deletes and returns to the jobs board, which ac
   await mockDelete(page, '**/api/jobs/JOB-001');
   await mockBoard(page, loadBoardFixture());
   await page.goto('/jobs/JOB-001');
-  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
   const alert = page.getByRole('alertdialog', { name: 'Delete this job?' });
   await expect(alert).toBeVisible();
   await alert.getByRole('button', { name: 'Delete job' }).click();
@@ -614,7 +708,7 @@ test('Delete confirmation opens, deletes and returns to the jobs board, which ac
 
 test('Delete confirmation Keep job closes without deleting', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
-  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
   const alert = page.getByRole('alertdialog', { name: 'Delete this job?' });
   await alert.getByRole('button', { name: 'Keep job' }).click();
   await expect(alert).not.toBeVisible();

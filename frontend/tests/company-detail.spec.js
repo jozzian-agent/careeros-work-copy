@@ -3,7 +3,7 @@
 // classification value came from, the linked records and the editing
 // paths.
 import { expect, test } from '@playwright/test';
-import { loadFixture, mockCompanyPage, mockUpdate, mockDelete } from './helpers.js';
+import { loadFixture, mockCompanyPage, mockNoteWrites, mockUpdate, mockDelete } from './helpers.js';
 
 const fixture = loadFixture('company-detail');
 
@@ -32,7 +32,7 @@ test('header renders type label, title, subtitle, location, website and actions'
   await expect(page.getByText('Zurich, CH')).toBeVisible();
   await expect(page.getByRole('link', { name: new RegExp(fixture.company.website) })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit company' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
 });
 
 test('back link navigates to the companies list', async ({ page }) => {
@@ -205,14 +205,50 @@ test('Edit company popup opens and saves', async ({ page }) => {
   expect(requests[0].name).toBe('Renamed Co');
 });
 
-test('empty Notes offer the dashed Add a note box, which opens Edit company at the notes field', async ({ page }) => {
-  await mockCompanyPage(page, { ...fixture, company: { ...fixture.company, notes: '' } });
+// --- Notes (owner round C5 and C6): the same section as the Job page ---
+
+test('Notes list each note with its first line, and empty Notes offer the note window', async ({ page }) => {
+  await page.goto('/companies/CO-001');
+  const notes = page.getByTestId('section-notes');
+  await expect(notes.getByText('Distributed team')).toBeVisible();
+  await expect(notes.getByText('Fictional company notes for test fixtures only.')).toBeVisible();
+
+  await mockCompanyPage(page, { ...fixture, notes: [] });
   await page.goto('/companies/CO-001');
   await expect(page.getByText('No notes yet.')).toBeVisible();
   await page.getByRole('button', { name: 'Add a note' }).click();
-  const modal = page.getByRole('dialog', { name: 'Edit company' });
-  await expect(modal).toBeVisible();
-  await expect(modal.getByRole('textbox', { name: 'Notes' })).toBeFocused();
+  await expect(page.getByRole('dialog', { name: 'Add a note' })).toBeVisible();
+  // Notes left Edit company with this round: they have their own window.
+  await expect(page.getByRole('dialog', { name: 'Edit company' })).toHaveCount(0);
+});
+
+test('a company note is written, edited and deleted against the company endpoints', async ({ page }) => {
+  const requests = await mockNoteWrites(page, '**/api/companies/CO-001/notes**', { body: fixture.notes[0] });
+  await page.goto('/companies/CO-001');
+
+  await page.getByRole('button', { name: 'Add a note' }).click();
+  const adding = page.getByRole('dialog', { name: 'Add a note' });
+  await adding.getByRole('textbox', { name: 'Title' }).fill('Recruiter call');
+  await adding.getByRole('textbox', { name: 'Note' }).fill('Hiring for two platform roles.');
+  await adding.getByRole('button', { name: 'Save note' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].method).toBe('POST');
+  expect(requests[0].body).toEqual({ title: 'Recruiter call', body: 'Hiring for two platform roles.' });
+
+  await page.getByRole('button', { name: 'Edit Distributed team' }).click();
+  const editing = page.getByRole('dialog', { name: 'Edit note' });
+  await editing.getByRole('textbox', { name: 'Note' }).fill('Zurich and remote.');
+  await editing.getByRole('button', { name: 'Save note' }).click();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests[1].method).toBe('PATCH');
+  expect(requests[1].url).toContain('/api/companies/CO-001/notes/n2');
+
+  await page.getByRole('button', { name: 'Delete Distributed team' }).click();
+  await page.getByRole('alertdialog', { name: 'Delete this note?' })
+    .getByRole('button', { name: 'Delete note' }).click();
+  await expect.poll(() => requests.length).toBe(3);
+  expect(requests[2].method).toBe('DELETE');
+  expect(requests[2].url).toContain('/api/companies/CO-001/notes/n2');
 });
 
 test('Delete confirmation 409 renders inline without closing the alert', async ({ page }) => {
@@ -221,7 +257,7 @@ test('Delete confirmation 409 renders inline without closing the alert', async (
     body: { error: 'Still linked to 1 jobs', count: 1 },
   });
   await page.goto('/companies/CO-001');
-  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
   const alert = page.getByRole('alertdialog', { name: 'Delete this company?' });
   await alert.getByRole('button', { name: 'Delete company' }).click();
   await expect(alert.getByText('Still linked to 1 jobs')).toBeVisible();
@@ -249,7 +285,7 @@ test('Delete confirmation succeeds and performs a full navigation that actually 
     });
   });
   await page.goto('/companies/CO-001');
-  await page.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
   const alert = page.getByRole('alertdialog', { name: 'Delete this company?' });
   await alert.getByRole('button', { name: 'Delete company' }).click();
   await expect(page).toHaveURL('/companies');
