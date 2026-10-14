@@ -97,6 +97,26 @@ the sample workflow. Back up the destination vault before a future import.
 | custom | Mapping with string keys |
 | status_changed | ISO date, set/overwritten when an existing job changes status |
 
+Requirements are stored twice over, on purpose. `description_structured`
+holds the flat shape every job written before package 2 has
+(`{summary, requirements, nice_to_have, method}`), and
+`requirement_groups` holds the grouped shape:
+
+| Field | Type / meaning |
+| --- | --- |
+| requirement_groups | List of `{group, level, text}`, one entry per qualification the posting asks for |
+| requirement_groups[].group | One of `education`, `experience`, `skills`, `languages`, `certifications`. Fixed list; a requirement the extractor cannot place lands in `skills` |
+| requirement_groups[].level | `must` when the posting requires it, `nice` when it only prefers it |
+| requirement_groups[].text | The qualification in the posting's own words, nonempty |
+
+The groups carry one entry per group and text, with a must-have winning
+over a nice-to-have for the same line. An empty list means the job has no
+grouped requirements yet, which is where every job written before package
+2 starts: the owner's per-job Re-extract action
+(`POST /api/jobs/<id>/re-extract`) is the only thing that fills them, and
+no read ever migrates a record. Languages have no field of their own; a
+language the posting asks for is an entry in the `languages` group.
+
 GET `/api/jobs` lists jobs newest-added first. GET/PUT/DELETE
 `/api/jobs/<id>` reads, partially updates editable schema fields, or deletes a
 job. Missing records return 404; invalid status, type, URL, company link, or date

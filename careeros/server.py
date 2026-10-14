@@ -510,7 +510,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         fillable = ('title', 'company', 'location', 'employment_type', 'seniority',
                     'remote_ok', 'keywords', 'contact_email',
                     'background', 'skills', 'certifications', 'responsibilities', 'function',
-                    'description_structured')
+                    'description_structured', 'requirement_groups')
         if llm_pending.get(baseline['id']) is not token:
             return
         job = storage.load_job(root, baseline['id'])
@@ -528,6 +528,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
             fields['description_structured'] = {
                 'summary': fields.get('summary') or '', 'requirements': fields.get('requirements') or [],
                 'nice_to_have': fields.get('nice_to_have') or [], 'method': 'llm'}
+        # Package 2: the grouped requirements this extraction supports. A
+        # model that answered the groups wins; a model that only filled
+        # the flat lists still yields groups, through the same one home
+        # the offline rules use.
+        if fields.get('requirement_groups') or fields.get('requirements') or fields.get('nice_to_have'):
+            fields['requirement_groups'] = ingest.requirement_groups(
+                fields.get('requirement_groups'), fields.get('requirements'),
+                fields.get('nice_to_have'))
         updates = {key: fields[key] for key in fillable
                    if fields.get(key) not in (None, '', [])
                    and job.get(key) == baseline.get(key)
@@ -976,6 +984,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     if (structured_fallback['summary'] or structured_fallback['requirements']
                             or structured_fallback['nice_to_have']):
                         candidate['description_structured'] = structured_fallback
+                        # The rule-based groups, so a job has grouped
+                        # requirements from this first offline pass on;
+                        # the queued model pass replaces them with real
+                        # groups when it lands.
+                        candidate['requirement_groups'] = ingest.requirement_groups(
+                            None, structured_fallback['requirements'],
+                            structured_fallback['nice_to_have'])
                     # M2: a concurrent owner edit made to the stub while the
                     # fetch was in flight must survive. Re-read the current
                     # record and only let an automated field land if it still
@@ -1134,7 +1149,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                            'employment_type', 'valid_through', 'description', 'company',
                            'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
                            'background', 'skills', 'certifications', 'responsibilities',
-                           'employee_count', 'function', 'description_structured')
+                           'employee_count', 'function', 'description_structured',
+                           'requirement_groups')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
             updates = {key: extracted[key] for key in fill_fields
