@@ -269,7 +269,12 @@ export default function JobDetail() {
   // job has been extracted since package 2, and the flat block plus the
   // skills list for a job that has not been.
   const grouped = isGrouped(job);
-  const requirementKeys = grouped ? ['requirement_groups'] : ['description_structured', 'skills'];
+  // The skills list is in both: the grouped section shows any stored
+  // skill the Skills group does not carry, so an owner correction to
+  // either field takes the label off the section they can see it in.
+  const requirementKeys = grouped
+    ? ['requirement_groups', 'skills']
+    : ['description_structured', 'skills'];
   // The rules can group requirements with no model involved (the
   // Re-extract fallback), and that is not AI-extracted, so the label
   // follows the recorded source rather than the presence of groups.

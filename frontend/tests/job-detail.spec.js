@@ -428,6 +428,19 @@ test('Edit job opens an emptied requirement list empty', async ({ page }) => {
   await expect(modal.getByRole('textbox', { name: 'Requirements, nice to have' })).toHaveValue('');
 });
 
+test('a corrected skills list takes the AI label off the grouped section', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      field_provenance: { ...grouped.job.field_provenance, skills: 'user' },
+    },
+  });
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: 'Requirements' })).toBeVisible();
+  await expect(page.getByText('AI-extracted')).toHaveCount(1); // responsibilities only
+});
+
 test('a stored skill the Skills group does not carry still shows', async ({ page }) => {
   await mockJobPage(page, grouped);
   await page.goto('/jobs/JOB-001');
