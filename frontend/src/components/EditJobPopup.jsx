@@ -69,17 +69,21 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
   const writeGroups = grouped || flatLines.length === 0;
   const writeBlock = !grouped || !structured;
   const storedLanguages = groups.filter((entry) => entry.group === LANGUAGES_GROUP);
+  // What the two line fields are seeded with, which is also what a save
+  // compares them against. The fields show the grouped lines on a grouped
+  // job, so comparing them with the flat block's own lines reported a
+  // change on every save of a grouped job that has no block, and sent a
+  // block the owner never typed a word into -- which stamped owner
+  // provenance on a field they never touched.
+  const seededMust = grouped ? linesFor(groups, 'must') : structured?.requirements || [];
+  const seededNice = grouped ? linesFor(groups, 'nice') : structured?.nice_to_have || [];
   const [title, setTitle] = useState(job.title || '');
   const [url, setUrl] = useState(job.url || '');
   const [location, setLocation] = useState(job.location || '');
   const [remoteOk, setRemoteOk] = useState(Boolean(job.remote_ok));
   const [summary, setSummary] = useState(job.summary || '');
-  const [requirements, setRequirements] = useState(
-    (grouped ? linesFor(groups, 'must') : structured?.requirements || []).join('\n'),
-  );
-  const [niceToHave, setNiceToHave] = useState(
-    (grouped ? linesFor(groups, 'nice') : structured?.nice_to_have || []).join('\n'),
-  );
+  const [requirements, setRequirements] = useState(seededMust.join('\n'));
+  const [niceToHave, setNiceToHave] = useState(seededNice.join('\n'));
   const [languages, setLanguages] = useState(storedLanguages);
   const [newLanguage, setNewLanguage] = useState('');
   const [responsibilities, setResponsibilities] = useState((job.responsibilities || []).join('\n'));
@@ -134,8 +138,8 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
         if (listKey(edited) !== listKey(groups)) payload.requirement_groups = edited;
       }
       if (writeBlock
-          && (newRequirements.join('\n') !== (structured?.requirements || []).join('\n')
-              || newNiceToHave.join('\n') !== (structured?.nice_to_have || []).join('\n'))) {
+          && (newRequirements.join('\n') !== seededMust.join('\n')
+              || newNiceToHave.join('\n') !== seededNice.join('\n'))) {
         payload.description_structured = {
           // The block's own summary is not edited here (the Summary field
           // above writes the job's summary), so it is carried over. The

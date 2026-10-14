@@ -942,15 +942,20 @@ test('Edit job writes both requirement fields for a job that stores neither', as
   });
 });
 
+// A grouped job the posting yielded no flat block for, which is the one
+// shape where Edit job writes both requirement fields out of the same two
+// textareas: the groups because the page renders them, the block because
+// the Description row says it was not found.
+const groupedWithoutBlock = {
+  ...grouped,
+  job: {
+    ...grouped.job,
+    description_structured: null,
+    field_status: { ...grouped.job.field_status, description_structured: 'not_evidenced' },
+  },
+};
+
 test('Edit job can still correct the flat block of a grouped job that has none', async ({ page }) => {
-  const groupedWithoutBlock = {
-    ...grouped,
-    job: {
-      ...grouped.job,
-      description_structured: null,
-      field_status: { ...grouped.job.field_status, description_structured: 'not_evidenced' },
-    },
-  };
   await mockJobPage(page, groupedWithoutBlock);
   const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: groupedWithoutBlock.job });
   await page.goto('/jobs/JOB-001');
@@ -1057,6 +1062,25 @@ test('Edit job can clear a grouped requirement list', async ({ page }) => {
   // empty list as "not grouped yet" and showing the flat lists again.
   expect(requests[0].requirement_groups).toEqual([]);
   expect(requests[0]).not.toHaveProperty('description_structured');
+});
+
+test('Edit job sends neither requirement field when an unrelated one changed', async ({ page }) => {
+  // The same shape, saved without touching the requirements. Both fields
+  // are seeded from the groups here, so comparing the textareas with the
+  // block's own (empty) lines reported a change on every save and stamped
+  // owner provenance on a block the owner never typed in -- which also
+  // takes the AI label off requirements a model read.
+  await mockJobPage(page, groupedWithoutBlock);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: groupedWithoutBlock.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Location' }).fill('Berlin');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].location).toBe('Berlin');
+  expect(requests[0]).not.toHaveProperty('description_structured');
+  expect(requests[0]).not.toHaveProperty('requirement_groups');
 });
 
 test('Edit job sends no requirement groups when nothing in them changed', async ({ page }) => {
