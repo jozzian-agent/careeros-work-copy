@@ -35,9 +35,12 @@ REGISTRY = {
     'company_correction': ('Company corrected', False),
     'enriched':           ('Posting enriched', False),
     'watch_started':      ('Watch started', False),
+    # The outcomes careeros.server.REFRESH_EVENTS can write, and only
+    # those: two further refresh types were registered for outcomes no
+    # writer produces, and are gone. `resolve` drops an unknown type
+    # instead of failing on it, so a legacy record carrying one reads
+    # exactly as it did while they were listed, which is not at all.
     'description_refreshed':       ('Description refreshed', False),
-    'description_refresh_ok':      ('', False),
-    'description_refresh_changed': ('', False),
     'description_refresh_failed':  ('', False),
     'description_refresh_skipped': ('', False),
     # Ingest-state transitions written by vault._save_record's backstop,

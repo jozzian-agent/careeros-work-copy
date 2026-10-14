@@ -139,6 +139,17 @@ _PROVENANCE_EXCLUDED_FIELDS = frozenset({
 # moves as a group (B3).
 COMPANY_LINK_GROUP = ('company_id', 'company_link_state', 'company_link_reason')
 
+# Every outcome the extract route's description refresh can reach, with the
+# history event it writes. A table rather than an event type assembled from
+# the outcome string: the event types stay literal and enumerable, so
+# tests/test_history_registry.py can check them against the registry the
+# same way it checks the ingest-state backstop.
+REFRESH_EVENTS = {
+    'ok': ('description_refreshed', 'Live posting refreshed.'),
+    'failed': ('description_refresh_failed', 'Live page unavailable; enriching stored text.'),
+    'skipped': ('description_refresh_skipped', 'No posting URL; enriching stored text.'),
+}
+
 
 def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
     """Per-field extraction status (JOZ-267 Section 3). A covered field
@@ -1296,11 +1307,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                             updates['ingest_error'] = {'stage': 'fetch', 'reason': type(fetch_error).__name__,
                                                        'at': storage.timestamp()}
                     storage.save_job(root, ingest.redact(updates), identifier,
-                                     history_event=('description_refreshed' if outcome == 'ok'
-                                                    else 'description_refresh_' + outcome,
-                                                    'Live posting refreshed.' if outcome == 'ok'
-                                                    else 'Live page unavailable; enriching stored text.' if outcome == 'failed'
-                                                    else 'No posting URL; enriching stored text.'))
+                                     history_event=REFRESH_EVENTS[outcome])
                 # Keep the owner error until startup succeeds. Early callbacks
                 # are queued until this handoff transition is persisted.
                 def accepted():

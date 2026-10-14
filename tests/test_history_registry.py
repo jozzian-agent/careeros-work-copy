@@ -9,13 +9,17 @@ from pathlib import Path
 
 import pytest
 
-from careeros import history, vault
+from careeros import history, server, vault
 from careeros.server import create_app
 
 CAREEROS = Path(__file__).resolve().parents[1] / 'careeros'
 
 # Positional argument that carries the event type, by called-function name.
 EVENT_ARGUMENT = {'append_event': 1, 'record': 0}
+# The same argument in keyword form, by called-function name. Scoped to
+# those functions rather than matched on the keyword name alone: 'kind'
+# especially means something else in most of the codebase.
+EVENT_TYPE_KEYWORDS = {'append_event': ('event',), 'record': ('kind',)}
 # Keyword arguments that carry an (event, detail) pair.
 EVENT_KEYWORDS = ('history', 'history_event')
 
@@ -42,22 +46,42 @@ def called_name(node):
     return func.id if isinstance(func, ast.Name) else None
 
 
+def assigned_names(node):
+    """Local names one assignment statement binds, plain or annotated."""
+    if isinstance(node, ast.Assign):
+        return [t.id for t in node.targets if isinstance(t, ast.Name)]
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return [node.target.id]
+    return []
+
+
 def scan_source(path):
-    found = set()
     tree = ast.parse(path.read_text())
+    found = set()
+    # Event types literally assigned to a local, by local name, and the
+    # locals a history keyword actually passes on. An (event, detail) pair
+    # built into a local before it is handed over (the duplicate-override
+    # event) never appears at the call site, under any name, so the two are
+    # matched up after the walk instead of guessing from the name.
+    assigned, passed = {}, set(EVENT_KEYWORDS)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
-            index = EVENT_ARGUMENT.get(called_name(node))
+            name = called_name(node)
+            index = EVENT_ARGUMENT.get(name)
             if index is not None and len(node.args) > index:
                 found |= literal_event_types(node.args[index])
             for keyword in node.keywords:
+                if keyword.arg in EVENT_TYPE_KEYWORDS.get(name, ()):
+                    found |= literal_event_types(keyword.value)
                 if keyword.arg in EVENT_KEYWORDS:
                     found |= literal_event_types(keyword.value)
-        # An (event, detail) pair built into a local before it is passed on
-        # (intake's duplicate-override event) never appears at a call site.
-        if isinstance(node, ast.Assign):
-            if any(isinstance(t, ast.Name) and t.id in EVENT_KEYWORDS for t in node.targets):
-                found |= literal_event_types(node.value)
+                    if isinstance(keyword.value, ast.Name):
+                        passed.add(keyword.value.id)
+        for name in assigned_names(node):
+            if node.value is not None:
+                assigned.setdefault(name, set()).update(literal_event_types(node.value))
+    for name in passed:
+        found |= assigned.get(name, set())
     return found
 
 
@@ -71,10 +95,42 @@ def written_event_types():
 def test_registry_covers_all_written_events():
     written = written_event_types()
     # Guard the scan itself: a scanner that silently stopped matching would
-    # otherwise make this test pass by finding nothing at all.
-    assert {'created', 'extracted', 'pasted', 'posting_gone'} <= written
+    # otherwise make this test pass by finding nothing at all. One event per
+    # shape the scanner has to recognise: a positional literal, a literal in
+    # a conditional, and a pair built into a local first.
+    assert {'created', 'extracted', 'pasted', 'posting_gone',
+            'duplicate_override'} <= written
     undefined = sorted(event for event in written if event not in history.REGISTRY)
     assert undefined == [], f'history event types with no registry entry: {undefined}'
+
+
+# Every shape a history event can be written in, including the ones no
+# current call site happens to use: without this the scanner could lose a
+# shape and the suite would stay green while real events went unregistered.
+SCANNER_SHAPES = '''
+vault.append_event(job, 'created', 'Job created')
+vault.append_event(job, event='note_added', detail='Notes added')
+record('posting_changed', 'Posting changed')
+record(kind='posting_gone', detail='Posting is no longer online')
+storage.save_job(root, {}, identifier, history_event=('promoted', 'Promoted to pipeline.'))
+pair = ('pasted', 'Posting text pasted manually.')
+storage.save_job(root, {}, identifier, history_event=pair)
+annotated: tuple = ('salary_found', 'Salary found')
+mark_ingest_state(root, identifier, 'complete', history=annotated)
+mark_ingest_state(root, identifier, 'stub', history=(
+    ('fetched', 'Extraction worker started.') if ok else ('fetch_failed', 'Unable to fetch.')))
+untouched = ('never_passed_anywhere', 'not an event')
+label = 'not an event either'
+'''
+
+
+def test_scanner_sees_every_shape_an_event_can_be_written_in(tmp_path):
+    source = tmp_path / 'shapes.py'
+    source.write_text(SCANNER_SHAPES)
+    assert scan_source(source) == {
+        'created', 'note_added', 'posting_changed', 'posting_gone', 'promoted',
+        'pasted', 'salary_found', 'fetched', 'fetch_failed',
+    }
 
 
 def test_registry_covers_every_ingest_state():
@@ -82,6 +138,20 @@ def test_registry_covers_every_ingest_state():
     event type, which no source scan can see as a literal."""
     undefined = [state for state in vault.INGEST_STATES if state not in history.REGISTRY]
     assert undefined == []
+
+
+def test_registry_covers_every_description_refresh_outcome():
+    """The extract route's refresh picks its history event by outcome, so
+    the source scan sees a table lookup rather than a literal. Every event
+    in that table has to be a registry key, and the table has to cover
+    every outcome the route can reach."""
+    events = server.REFRESH_EVENTS
+    assert set(events) == {'ok', 'failed', 'skipped'}
+    undefined = [event for event, _ in events.values() if event not in history.REGISTRY]
+    assert undefined == []
+    # Nothing is registered for an outcome the route cannot produce.
+    registered = {event for event in history.REGISTRY if event.startswith('description_refresh')}
+    assert registered == {event for event, _ in events.values()}
 
 
 def test_registry_entries_are_well_formed():
