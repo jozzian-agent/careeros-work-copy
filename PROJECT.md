@@ -26,6 +26,22 @@ As of 2026-10-09 the product is a personal tool for one owner. It runs on the ow
 
 2026-10-14: the Job and Company detail pages were realigned to the owner's canvas (package 1, [sketch update](docs/surfaces/detail-pages.md)), and the owner click-tested that build and asked for six changes, all of which are in. Five are adjustments to the two pages: the extraction popup now carries the read timestamp the row shows, the expanded Original posting carries the posting's own link, and Classification and History are collapsed accordions like Original posting and Details already were. "On both pages" for History applied only to the Job page, because a company record stores no history and giving it one is a feature rather than a collapse. The sixth is a feature: [notes](docs/surfaces/notes.md) stop being one free-text field per record and become a list of titled notes, each written in its own window, with a read-only Notes page that shows every note in the vault linked to the job or company that holds it. That is the first stored-schema change since JOZ-267: records gain `note_list`, and the legacy `notes` string is surfaced as a record's first note on read and persisted into the list on the owner's first note write, so no existing notes text is lost and no file is rewritten by a read. The legacy field stays a writable record field for one release; nothing in the interface writes it.
 
+2026-10-14: requirements stop being two flat lists and become grouped
+requirements (package 2, [sketch update](docs/surfaces/detail-pages.md)).
+A job stores `requirement_groups`, a list of `{group, level, text}` over
+a fixed five-group vocabulary (Education, Experience, Skills, Languages,
+Certifications), where a requirement the extractor cannot place lands in
+Skills, so no sixth group can appear. The extraction prompt and parser
+emit the groups and the offline rules map the flat lists into the Skills
+group, which means the field fills with or without the model. Migration
+is the owner's own per-job action and nothing else: a job written before
+this round keeps its flat lists and keeps rendering them, until the owner
+presses Re-extract on that job (`POST /api/jobs/<id>/re-extract`, which
+reads the stored posting text and fetches nothing). Languages get their
+first stored home, and with it an editor in Edit job. The `skills` field
+and the Skills group now overlap; retiring one into the other is an open
+question, not a decision this round took.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -130,9 +146,22 @@ Interviews is removed from the navigation until it exists. Tab order is Jobs, Co
 | Edit preferences | One edit mode on Search (proposed name: Preferences); Edit criteria → Done / Cancel, batch D | Everyone |
 | Add an experience | Experiences | Everyone |
 | Add a note | The Notes section of a job or a company, in its own window | Everyone |
+| Re-extract | The extraction row on a job, enabled once posting text exists | Owner |
 | Send feedback | One link in the footer | Everyone |
 
 Friends never delete jobs or companies. Only the owner edits shared records.
+
+### Fixed lists
+
+- Requirement group. Education, Experience, Skills, Languages,
+  Certifications. Settled by owner decision 2026-10-14; a requirement the
+  extractor cannot place goes to Skills, and no free-form group exists.
+  Stored as the lower-case id on `requirement_groups`
+  ([schemas](docs/schemas.md)); the five words above are the labels the
+  interface shows.
+- Requirement level. Must have, nice to have. Stored as `must` and
+  `nice`; a requirement with no stated level is a must-have, since a
+  posting insists unless it says otherwise.
 
 ### Fixed lists, to settle in milestone M1
 

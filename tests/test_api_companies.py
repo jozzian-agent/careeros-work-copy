@@ -137,6 +137,7 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
               'posting_quality': 'NoneType',
               'refresh': 'str',
               'remote_ok': 'NoneType',
+              'requirement_groups': [],
               'responsibilities': [],
               'salary_info': 'bool',
               'salary_note': 'str',

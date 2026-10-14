@@ -17,6 +17,16 @@ removed, page and JSON endpoint both. Everything below about that
 sub-page is history. The job and company detail JSON contracts the pages
 read are in [JSON page contracts](json-api.md).
 
+2026-10-14 (package 2, requirement groups): the Requirements section
+renders the grouped shape package 1 built it for. A job stores
+`requirement_groups` ([schemas](../schemas.md)) as of this round; a job
+written before it keeps its flat lists and keeps rendering through the
+package-1 adapter, until the owner presses Re-extract on that job, which
+is the only thing that migrates a record (owner decision: nothing
+migrates on read and nothing re-runs in bulk). Languages get their first
+stored home and, with it, an editor in Edit job. The extraction popup
+gains one row for the groups, labeled Requirements.
+
 2026-10-14 (detail-pages realignment, package 1): the Job page is rebuilt
 to the approved canvas and no longer follows the shared section order
 below. Top to bottom it is now:
@@ -38,16 +48,23 @@ below. Top to bottom it is now:
    posting text is stored: retrying is the only way its details ever
    arrive, and the text is corrected in Edit job.
 4. Summary, labeled "AI-generated" when a model wrote it.
-5. Requirements, labeled "AI-extracted": must-have and nice-to-have
-   lines, with extracted skills as must-have tags.
+5. Requirements, labeled "AI-extracted": one block per group the posting
+   asked for, in the owner's order (Education, Experience, Skills,
+   Languages, Certifications), each line carrying its level. Skills,
+   Languages and Certifications read as tags, the two prose groups as
+   must-have and nice-to-have rows. A job with no grouped requirements
+   yet shows its flat must-have and nice-to-have lines with its
+   extracted skills as must-have tags, which is the package-1 shape.
 6. Responsibilities, labeled "AI-extracted".
 7. One extraction row: when the posting was last read, which fields were
-   not found in it, and "How this was extracted", which opens a popup
-   that repeats when the posting was read and then lists every covered
-   field with its result (Found, Not found in posting, Failed, Pending)
-   and its source (Page data, AI, You). A field that was not found links
-   to the surface that can set it. This popup replaced the permanent
-   Extraction card and its eight status badges.
+   not found in it, "How this was extracted", and "Re-extract". The popup
+   repeats when the posting was read and then lists every covered field
+   with its result (Found, Not found in posting, Failed, Pending) and its
+   source (Page data, AI, You). A field that was not found links to the
+   surface that can set it. This popup replaced the permanent Extraction
+   card and its eight status badges. Re-extract reads the stored posting
+   text again, which is how a job gets its requirement groups; it is
+   disabled, with a reason, while no posting text has arrived.
 8. Original posting, collapsed, one card, the posting's own paragraphs,
    ending with the posting's own link ("Open the posting at its source").
 9. Details, collapsed: source, posted date and "Check if still online"
@@ -73,7 +90,16 @@ The strip is gone once reading is done.
 
 Edit job now carries every machine-made field the page labels (summary,
 both requirement lists, responsibilities, skills as removable tags), so
-no AI label points at a field the owner cannot correct. The per-section
+no AI label points at a field the owner cannot correct. Since package 2
+the two requirement fields write whichever shape the job stores, because
+the page renders whichever shape the job stores: the groups for a
+re-extracted job, the flat block for a job that has not been. Languages
+are their own removable tags beside them, since a language is a word
+rather than a sentence and the Languages group is where one is stored.
+A requirement line keeps the group it already had, matched on its text;
+a line the owner has just written or reworded lands in Skills, the same
+fallback group the extractor uses, which is one control per level
+instead of one per group. The per-section
 Edit button beside the AI label is gone; there is one editing surface.
 Notes are not one of its fields: as of the owner round a note is its own
 record with its own window, so Edit job and Edit company both lost their
@@ -174,6 +200,21 @@ lists (a company with no jobs or experiences) show the dashed empty state.
 
 ## Verification
 
+2026-10-14 (package 2, grouped requirements):
+
+- `.venv/bin/python -m pytest tests/ -q` (1106, was 1052: 31 tests
+  written in the new `tests/test_requirement_groups.py` for the
+  vocabulary, the prompt, the parser, the rule-based fallback, the stored
+  field and its validation, the additive migration and the re-extract
+  endpoint; parametrized, they run as 54 cases).
+- `cd frontend && npx playwright test` (224, was 210): `job-detail.spec.js`
+  is 68 (was 54), covering the grouped render and its level tags, the
+  legacy flat-list fallback, the AI label following the recorded source,
+  the extraction popup's Requirements row, the Re-extract button (enabled,
+  disabled without posting text, and its error) and the languages editor.
+- `cd frontend && npm run build`.
+- Owner click-test on the live instance: pending.
+
 2026-10-14 (package 1, the two rebuilt pages, after the owner round):
 
 - `.venv/bin/python -m pytest tests/ -q` (1052, was 1033: 18 in the new
@@ -202,8 +243,20 @@ the accounting of converted vs. removed tests), Playwright 106 (was 78).
   employment type) have no owner-editing surface anywhere, so their rows
   name the result without linking to a setter. Whether they get one is a
   product decision, not a gap in this package.
-- Languages have no stored job field, so Edit job carries no languages
-  editor; they arrive with package 2's requirement groups.
+- A job's `skills` list and the Skills requirement group now overlap: the
+  extraction fills both, and the grouped Requirements section renders the
+  group, not the list. The list is still a reported field with its own
+  row in the extraction popup and its own editor, so nothing is a dead
+  end, but whether `skills` is retired into the group is an owner
+  decision this round did not take.
+- Edit job shows the grouped requirements as two lists by level, not as
+  five lists by group, so the owner cannot move a line from one group to
+  another there. Re-extracting the job is what regroups it today.
+- Re-extract with no model configured leaves the job in its failed-reading
+  state (the rule-based groups are stored, and the queued extraction has
+  nothing to answer with), which reads as "the posting text is here, but
+  no details could be read out of it". That is truthful and it is also
+  the owner's own machine's normal state only when the model is down.
 
 The company-review resolution UI (picking a candidate or creating a
 company for a `needs_review` job), flagged as a known gap at the JOZ-280
