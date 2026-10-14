@@ -12,6 +12,9 @@ export function prettifyTag(tag) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+// The label a page shows for a tag when it does have the registry, which
+// mirrors experiences.html's fallback exactly: the registry label when it
+// knows the token, otherwise the token's own value, spelled out.
 export function tagLabel(tag, tagLabels) {
   return (tagLabels || {})[tag]?.label || prettifyTag(tag);
 }

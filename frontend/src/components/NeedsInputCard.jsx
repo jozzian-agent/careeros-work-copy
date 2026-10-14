@@ -47,6 +47,20 @@ export default function NeedsInputCard({
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState(employerName || '');
 
+  // The page polls, so a review can be replaced under the open card. The
+  // pick is state, which a new candidate list does not reset on its own,
+  // so a selection the owner can no longer see would otherwise be the one
+  // that gets linked. A pick still among the candidates survives the
+  // refresh; anything else falls back to the first row, as on first open.
+  const candidateIds = candidates.map((candidate) => candidate.company_id).join('\n');
+  const [seenIds, setSeenIds] = useState(candidateIds);
+  if (seenIds !== candidateIds) {
+    setSeenIds(candidateIds);
+    if (!candidates.some((candidate) => candidate.company_id === picked)) {
+      setPicked(candidates[0]?.company_id || '');
+    }
+  }
+
   if (needsInput.kind === 'read_failed') {
     // Pasting the text is only accepted while the posting itself was never
     // fetched (careeros/server.py paste_description: stub or fetch_failed,

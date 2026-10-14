@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Box, Button, ButtonLink, Flex, Heading, Link, PageHeader, Text } from 'gestalt';
 import { fetchExperiencesPage } from '../api/experiences.js';
-// Mirrors experiences.html's tag label fallback exactly: the registry
-// label when known, otherwise the tag's own key, title-cased. Shared with
-// the Job detail page's classification tags, which have no registry.
 import { tagLabel } from '../tags.js';
 
 export default function ExperiencesList() {

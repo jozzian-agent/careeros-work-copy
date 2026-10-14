@@ -181,6 +181,40 @@ test('a stale review token surfaces the reload message instead of linking', asyn
   await expect(page.getByText('This review is out of date. Reload and try again.')).toBeVisible();
 });
 
+test('a review replaced under the open card links a company still on screen', async ({ page }) => {
+  // The page polls while extraction runs, so the candidates can change
+  // under an open card. The pick is state, and a pick the owner can no
+  // longer see must not be the one that gets linked.
+  const laterReview = {
+    token: 'rev-1-candidate',
+    at: '2026-10-14T13:00:00+00:00',
+    candidates: [{ company_id: 'CO-009', name: 'Southwind Logistics', score: 0.88 }],
+  };
+  let calls = 0;
+  await page.route('**/api/jobs/*?view=page', (route) => {
+    calls += 1;
+    // The mount effect runs twice under React StrictMode, so the first two
+    // calls are the original review and only the poll brings the new one.
+    const current = calls <= 2 ? review : laterReview;
+    route.fulfill({
+      json: {
+        ...companyReview,
+        llm_pending: calls <= 2,
+        job: { ...companyReview.job, company_review: current },
+        needs_input: { kind: 'company', review: current },
+      },
+    });
+  });
+  const requests = await mockResolveReview(page, { body: { ...fixture.job } });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('radio', { name: /Northwind Retail Group/ }).click();
+  await expect(page.getByRole('radio', { name: /Southwind Logistics/ })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('radio', { name: /Northwind Retail Group/ })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Link to this company' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ company_id: 'CO-009', review_token: 'rev-1-candidate' });
+});
+
 test('a reading failure asks for the posting text and offers another try', async ({ page }) => {
   await mockJobPage(page, readFailed);
   const requests = await mockPasteDescription(page, { body: { ok: true } });

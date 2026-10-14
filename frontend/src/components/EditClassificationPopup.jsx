@@ -156,7 +156,7 @@ export default function EditClassificationPopup({
                       value={registryPick}
                       onChange={({ value }) => setRegistryPick(value)}
                     >
-                      <SelectList.Option value="" label="— select a tag —" />
+                      <SelectList.Option value="" label="Select a tag" />
                       {registryOptions.map((option) => (
                         <SelectList.Option key={option.value} value={option.value} label={option.label} />
                       ))}
@@ -202,7 +202,7 @@ export default function EditClassificationPopup({
               value={sector}
               onChange={({ value }) => setSector(value)}
             >
-              <SelectList.Option value="" label="— not set —" />
+              <SelectList.Option value="" label="Not set" />
               {sectorOptions.map((section) => (
                 <SelectList.Option key={section.code} value={section.code} label={section.label} />
               ))}
@@ -214,7 +214,7 @@ export default function EditClassificationPopup({
               value={sizeClass}
               onChange={({ value }) => setSizeClass(value)}
             >
-              <SelectList.Option value="" label="— not set —" />
+              <SelectList.Option value="" label="Not set" />
               {sizeOptions.map((size) => (
                 <SelectList.Option key={size} value={size} label={size.charAt(0).toUpperCase() + size.slice(1)} />
               ))}
