@@ -99,8 +99,9 @@ the sample workflow. Back up the destination vault before a future import.
 
 Requirements are stored twice over, on purpose. `description_structured`
 holds the flat shape every job written before package 2 has
-(`{summary, requirements, nice_to_have, method}`), and
-`requirement_groups` holds the grouped shape:
+(`{summary, requirements, nice_to_have, method}`, where `method` is
+`llm`, `heuristic`, `raw` or `user`, the last one being a block the owner
+wrote in Edit job), and `requirement_groups` holds the grouped shape:
 
 | Field | Type / meaning |
 | --- | --- |

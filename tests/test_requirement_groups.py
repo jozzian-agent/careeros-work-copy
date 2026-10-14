@@ -541,6 +541,27 @@ def test_an_owner_edit_to_the_groups_is_a_final_value(tmp_path):
     assert stored['field_status']['requirement_groups'] == 'done'
 
 
+def test_the_owner_can_write_both_requirement_fields_from_empty(tmp_path):
+    """What Edit job sends for a job the posting yielded no requirements
+    for. Both fields are reported in the extraction popup and both send
+    the owner to Edit job, so both have to be writable from empty, and
+    the block the owner writes says the owner wrote it."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    api = create_app(tmp_path).test_client()
+    response = api.put(f'/api/jobs/{job["id"]}', json={
+        'requirement_groups': [{'group': 'skills', 'level': 'must', 'text': 'Five years of Python'}],
+        'description_structured': {'summary': '', 'method': 'user',
+                                   'requirements': ['Five years of Python'], 'nice_to_have': []}})
+    assert response.status_code == 200
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'}]
+    assert stored['description_structured']['method'] == 'user'
+    for field in ('requirement_groups', 'description_structured'):
+        assert stored['field_provenance'][field] == 'user'
+        assert stored['field_status'][field] == 'done'
+
+
 def test_re_extract_refuses_a_job_with_no_posting_text(tmp_path):
     job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
     api = create_app(tmp_path).test_client()

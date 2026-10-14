@@ -90,16 +90,29 @@ The strip is gone once reading is done.
 
 Edit job now carries every machine-made field the page labels (summary,
 both requirement lists, responsibilities, skills as removable tags), so
-no AI label points at a field the owner cannot correct. Since package 2
-the two requirement fields write whichever shape the job stores, because
-the page renders whichever shape the job stores: the groups for a
-re-extracted job, the flat block for a job that has not been. Languages
-are their own removable tags beside them, since a language is a word
-rather than a sentence and the Languages group is where one is stored.
-A requirement line keeps the group it already had, matched on its text;
-a line the owner has just written or reworded lands in Skills, the same
-fallback group the extractor uses, which is one control per level
-instead of one per group. The per-section
+no AI label points at a field the owner cannot correct. The two
+requirement fields are always there, because the extraction popup sends
+the owner here for a requirement the posting did not yield, and they
+write per reported field rather than by one flag:
+
+- The grouped field is written when the page renders the groups, and for
+  a job that stores no requirements at all, since the groups are the
+  shape anything new goes into. It is left alone for a job still
+  rendering its flat lists, because regrouping a job is what Re-extract
+  is for, and the fallback group would otherwise bury every prose line
+  of that job under Skills behind the owner.
+- The flat block is written when the page renders it, and for a job that
+  has no block at all, so the Description row that says "Not found in
+  posting" leads to a control that writes it. A block written here
+  records `method: 'user'`.
+
+Languages are their own removable tags beside the two fields, since a
+language is a word rather than a sentence and the Languages group is
+where one is stored, so that editor appears exactly when the popup
+writes the groups. A requirement line keeps the group it already had,
+matched on its text; a line the owner has just written or reworded lands
+in Skills, the same fallback group the extractor uses, which is one
+control per level instead of one per group. The per-section
 Edit button beside the AI label is gone; there is one editing surface.
 Notes are not one of its fields: as of the owner round a note is its own
 record with its own window, so Edit job and Edit company both lost their

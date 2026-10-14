@@ -876,6 +876,88 @@ test('Edit job popup sends only the fields that actually changed', async ({ page
   }
 });
 
+// The posting yielded no requirements at all, which is the case the
+// extraction popup's "Set it in Edit job" exists for: both rows report
+// not_evidenced, and both have to lead to a control that writes them.
+const noRequirements = {
+  ...fixture,
+  job: {
+    ...fixture.job,
+    description_structured: null,
+    requirement_groups: [],
+    field_status: {
+      ...fixture.job.field_status,
+      description_structured: 'not_evidenced',
+      requirement_groups: 'not_evidenced',
+    },
+  },
+};
+
+test('Edit job writes both requirement fields for a job that stores neither', async ({ page }) => {
+  await mockJobPage(page, noRequirements);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: noRequirements.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const popup = page.getByRole('dialog', { name: 'How this was extracted' });
+  await popup.getByRole('button', { name: 'Set it in Edit job' }).first().click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' }).fill('Five years of Python');
+  await modal.getByRole('textbox', { name: 'Requirements, nice to have' }).fill('Rust');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  // The Requirements row reports the groups, so the groups are written,
+  // with a line the owner wrote landing in the fallback group.
+  expect(requests[0].requirement_groups).toEqual([
+    { group: 'skills', level: 'must', text: 'Five years of Python' },
+    { group: 'skills', level: 'nice', text: 'Rust' },
+  ]);
+  // The Description row reports the flat block, so that is written too.
+  expect(requests[0].description_structured).toEqual({
+    summary: '', method: 'user', requirements: ['Five years of Python'], nice_to_have: ['Rust'],
+  });
+});
+
+test('Edit job can still correct the flat block of a grouped job that has none', async ({ page }) => {
+  const groupedWithoutBlock = {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      description_structured: null,
+      field_status: { ...grouped.job.field_status, description_structured: 'not_evidenced' },
+    },
+  };
+  await mockJobPage(page, groupedWithoutBlock);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: groupedWithoutBlock.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' })
+    .fill('BSc in computer science\nFive years on a platform team\nKubernetes\nCKA\nOn-call experience');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].description_structured.requirements).toContain('On-call experience');
+  expect(requests[0].requirement_groups).toContainEqual(
+    { group: 'skills', level: 'must', text: 'On-call experience' },
+  );
+});
+
+test('Edit job leaves the groups alone on a job still rendering its flat lists', async ({ page }) => {
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' })
+    .fill('5+ years of platform experience\nOn-call experience');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  // Regrouping a job is what Re-extract is for: an edit must not bury
+  // this job's prose lines under the fallback group behind the owner.
+  expect(requests[0]).not.toHaveProperty('requirement_groups');
+  expect(requests[0].description_structured.requirements).toEqual([
+    '5+ years of platform experience', 'On-call experience',
+  ]);
+});
+
 test('Edit job carries no languages editor for a job with no groups', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
   await page.getByRole('button', { name: 'Edit job' }).click();

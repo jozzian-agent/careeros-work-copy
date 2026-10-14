@@ -37,16 +37,27 @@ function groupFor(groups, text) {
 // is a dead end. The label disappears on its own once a correction saves,
 // because the PUT stamps owner provenance on the keys it carries.
 //
-// Which field the requirement controls write depends on what the job
-// stores. A job with grouped requirements (package 2) renders those on
-// the page, so the two requirement fields and the languages editor write
-// `requirement_groups`; a job that has not been re-extracted yet renders
-// its flat lists, so they write `description_structured` as before. Only
-// the requirement lists change either way: summary and method are
-// carried over unchanged, and a key is omitted entirely when nothing in
-// it actually changed, so an untouched field never gets owner
-// provenance. The same rule applies to the summary, responsibilities and
-// skills.
+// Which field the two requirement controls write is decided per field,
+// not by one flag, because the extraction popup reports on both and
+// sends the owner here for either of them: a control that wrote only one
+// would leave the other row offering a setter that sets nothing.
+//
+// `requirement_groups` is written when the section renders the groups, and
+// when the job stores no requirements at all, since the groups are the
+// shape anything new goes into. It is left alone for a job still
+// rendering its flat lists, because regrouping a job is what Re-extract
+// is for and not a side effect of an edit, and the fallback group would
+// bury every prose line of such a job under Skills.
+//
+// `description_structured` is written when the section renders its flat
+// lists, and when the job has no block at all, so the Description row
+// that says "Not found in posting" leads to a control that writes it. A
+// block this popup creates records `method: 'user'`.
+//
+// Only the requirement lists change either way: a block's own summary is
+// carried over, and a key is omitted entirely when nothing in it
+// actually changed, so an untouched field never gets owner provenance.
+// The same rule applies to the summary, responsibilities and skills.
 //
 // Notes are not here: a note is its own record with its own window
 // (NotePopup), opened from the Notes section.
@@ -54,6 +65,9 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
   const structured = job.description_structured;
   const groups = job.requirement_groups || [];
   const grouped = isGrouped(job);
+  const flatLines = [...(structured?.requirements || []), ...(structured?.nice_to_have || [])];
+  const writeGroups = grouped || flatLines.length === 0;
+  const writeBlock = !grouped || !structured;
   const storedLanguages = groups.filter((entry) => entry.group === LANGUAGES_GROUP);
   const [title, setTitle] = useState(job.title || '');
   const [url, setUrl] = useState(job.url || '');
@@ -94,10 +108,10 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
   // The grouped requirements this popup would save: the two line fields
   // keep each line's own group, and the languages editor owns the
   // languages block outright.
-  function editedGroups() {
+  function editedGroups(mustLines, niceLines) {
     return [
-      ...linesToList(requirements).map((text) => ({ group: groupFor(groups, text), level: 'must', text })),
-      ...linesToList(niceToHave).map((text) => ({ group: groupFor(groups, text), level: 'nice', text })),
+      ...mustLines.map((text) => ({ group: groupFor(groups, text), level: 'must', text })),
+      ...niceLines.map((text) => ({ group: groupFor(groups, text), level: 'nice', text })),
       ...languages,
     ];
   }
@@ -113,18 +127,23 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
         payload.responsibilities = newResponsibilities;
       }
       if (skills.join('\n') !== (job.skills || []).join('\n')) payload.skills = skills;
-      if (grouped) {
-        const edited = editedGroups();
+      const newRequirements = linesToList(requirements);
+      const newNiceToHave = linesToList(niceToHave);
+      if (writeGroups) {
+        const edited = editedGroups(newRequirements, newNiceToHave);
         if (listKey(edited) !== listKey(groups)) payload.requirement_groups = edited;
-      } else if (structured) {
-        const newRequirements = linesToList(requirements);
-        const newNiceToHave = linesToList(niceToHave);
-        if (newRequirements.join('\n') !== (structured.requirements || []).join('\n')
-            || newNiceToHave.join('\n') !== (structured.nice_to_have || []).join('\n')) {
-          payload.description_structured = {
-            ...structured, requirements: newRequirements, nice_to_have: newNiceToHave,
-          };
-        }
+      }
+      if (writeBlock
+          && (newRequirements.join('\n') !== (structured?.requirements || []).join('\n')
+              || newNiceToHave.join('\n') !== (structured?.nice_to_have || []).join('\n'))) {
+        payload.description_structured = {
+          // The block's own summary is not edited here (the Summary field
+          // above writes the job's summary), so it is carried over. The
+          // method is this popup's own: these lines are the owner's now,
+          // whoever read the ones they replaced.
+          summary: structured?.summary || '', method: 'user',
+          requirements: newRequirements, nice_to_have: newNiceToHave,
+        };
       }
       await onSave(payload);
     } catch (err) {
@@ -176,32 +195,34 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
           value={summary}
           onChange={({ value }) => setSummary(value)}
         />
-        {grouped || structured ? (
-          <TextArea
-            id="edit-job-requirements"
-            label="Requirements, must have"
-            helperText="One requirement per line."
-            rows={4}
-            value={requirements}
-            onChange={({ value }) => setRequirements(value)}
-          />
-        ) : null}
-        {grouped || structured ? (
-          <TextArea
-            id="edit-job-nice-to-have"
-            label="Requirements, nice to have"
-            helperText="One item per line."
-            rows={3}
-            value={niceToHave}
-            onChange={({ value }) => setNiceToHave(value)}
-          />
-        ) : null}
+        {/* Always here, whatever the job stores. The extraction popup
+            sends the owner to Edit job for requirements a posting did not
+            yield, so hiding the fields on a job that stores none made
+            that button a dead end, which is exactly the case it exists
+            for. */}
+        <TextArea
+          id="edit-job-requirements"
+          label="Requirements, must have"
+          helperText="One requirement per line."
+          rows={4}
+          value={requirements}
+          onChange={({ value }) => setRequirements(value)}
+        />
+        <TextArea
+          id="edit-job-nice-to-have"
+          label="Requirements, nice to have"
+          helperText="One item per line."
+          rows={3}
+          value={niceToHave}
+          onChange={({ value }) => setNiceToHave(value)}
+        />
         {/* Languages are their own group, and a language is a word rather
             than a sentence, so they are tags like skills instead of
-            lines in the two fields above. A job with no grouped
-            requirements has nowhere to store them, which is why this
-            waits for the first re-extraction of that job. */}
-        {grouped ? (
+            lines in the two fields above. A language can only be stored
+            in the groups, so this editor appears exactly when this popup
+            writes them: a job still rendering its flat lists has nowhere
+            to put one until the owner re-extracts it. */}
+        {writeGroups ? (
           <Flex direction="column" gap={2}>
             <Text size="200" weight="bold">
               Languages

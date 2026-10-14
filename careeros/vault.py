@@ -25,7 +25,12 @@ FIELD_STATUS_VALUES = ('pending', 'done', 'failed', 'not_evidenced')
 # type, so careeros.history.REGISTRY must name every member of this tuple.
 INGEST_STATES = ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed')
 POSTING_QUALITY_VALUES = ('thin', 'ok', 'rich')
-DESCRIPTION_STRUCTURED_METHODS = ('llm', 'heuristic', 'raw')
+# How a stored description_structured block was produced. 'user' is the
+# owner having written it in Edit job, which is a producer the block gained
+# in package 2's fix round: the Description row of the extraction popup
+# sends the owner to Edit job when the posting yielded no block, so Edit
+# job creates one, and the other three values all claim a machine made it.
+DESCRIPTION_STRUCTURED_METHODS = ('llm', 'heuristic', 'raw', 'user')
 # Package 2: the groups a stored requirement can belong to, and how much
 # the posting insists on it. The vocabulary is fixed by owner decision, so
 # a requirement the extractor cannot place lands in 'skills' rather than
