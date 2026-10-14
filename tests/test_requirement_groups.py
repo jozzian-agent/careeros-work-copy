@@ -8,8 +8,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from careeros import ingest, vault
-from careeros.server import apply_field_status
+from careeros import history, ingest, vault
+from careeros.server import apply_field_status, create_app
 
 
 def client_for(content):
@@ -228,6 +228,166 @@ def test_the_migration_backfills_an_empty_list_and_leaves_flat_lists_alone(tmp_p
     stored = vault.load_job(tmp_path, 'JOB-001')
     assert stored['requirement_groups'] == []
     assert stored['description_structured']['requirements'] == ['Five years of Python']
+
+
+# --- the owner's per-job migration: POST /api/jobs/<id>/re-extract ---
+
+LEGACY_FIELDS = {
+    'title': 'Legacy Engineer', 'url': 'https://posting.example/legacy',
+    'description': POSTING,
+    'description_structured': {'summary': 'A role.', 'requirements': ['Five years of Python'],
+                               'nice_to_have': ['Rust'], 'method': 'llm'},
+}
+
+
+def legacy_job(root, **fields):
+    return vault.save_job(root, LEGACY_FIELDS | fields)
+
+
+@pytest.fixture
+def no_worker(monkeypatch):
+    """Hold the queued extraction still, so what the endpoint itself
+    writes can be asserted without racing the background pass. Returns
+    the description each call was handed."""
+    handed = []
+
+    def extract_async(description, on_result, **kwargs):
+        handed.append(description)
+        return SimpleNamespace(is_alive=lambda: False)
+
+    monkeypatch.setattr(ingest, 'extract_async', extract_async)
+    return handed
+
+
+def test_re_extract_groups_a_legacy_job_without_a_model(tmp_path, no_worker):
+    """The migration has to land a result on the owner's one click even
+    when no model answers, which is what the rule-based fallback is for."""
+    job = legacy_job(tmp_path)
+    assert job['requirement_groups'] == []
+    api = create_app(tmp_path).test_client()
+    response = api.post(f'/api/jobs/{job["id"]}/re-extract')
+    assert response.status_code == 202
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
+        {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
+    # The rules grouped them, so the page credits the page data.
+    assert stored['field_provenance']['requirement_groups'] == 'scrape'
+
+
+def test_re_extract_reads_the_stored_text_and_fetches_nothing(tmp_path, no_worker):
+    """Not /extract: the posting a legacy job was read from may be gone,
+    and the text to group is the one already stored. The suite's offline
+    guard would raise on any fetch, so the passing call is the proof."""
+    job = legacy_job(tmp_path)
+    api = create_app(tmp_path).test_client()
+    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    assert no_worker == [POSTING]
+
+
+def test_re_extract_records_that_the_owner_asked(tmp_path, no_worker):
+    job = legacy_job(tmp_path)
+    api = create_app(tmp_path).test_client()
+    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    stored = vault.load_job(tmp_path, job['id'])
+    assert [entry['detail'] for entry in stored['history']
+            if entry['event'] == 're_extracted'] == ['Stored posting text read again.']
+    assert history.label_for('re_extracted') == 'Posting read again'
+
+
+def test_re_extract_puts_the_covered_fields_back_to_pending(tmp_path, no_worker):
+    job = legacy_job(tmp_path)
+    api = create_app(tmp_path).test_client()
+    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    status = vault.load_job(tmp_path, job['id'])['field_status']
+    assert status['requirement_groups'] == 'done'
+    assert status['title'] == 'pending'
+
+
+def test_a_failed_extraction_keeps_the_rule_based_groups(tmp_path):
+    """No model configured, so the queued pass fails: the groups the rules
+    already wrote must survive it, or the owner's click would undo itself."""
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    api = app.test_client()
+    api.post(f'/api/jobs/{job["id"]}/re-extract')
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
+        {'group': 'skills', 'level': 'nice', 'text': 'Rust'}]
+    assert stored['ingest_state'] == 'extract_failed'
+
+
+def test_re_extract_replaces_the_rule_based_groups_with_the_model_groups(tmp_path, monkeypatch):
+    content = json.dumps({'requirement_groups': [
+        {'group': 'education', 'level': 'must', 'text': 'BSc in computer science'},
+        {'group': 'languages', 'level': 'nice', 'text': 'German'}]})
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(content))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    api = app.test_client()
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == [
+        {'group': 'education', 'level': 'must', 'text': 'BSc in computer science'},
+        {'group': 'languages', 'level': 'nice', 'text': 'German'}]
+    assert stored['field_provenance']['requirement_groups'] == 'llm'
+
+
+def test_re_extract_never_overwrites_groups_the_owner_edited(tmp_path, monkeypatch):
+    content = json.dumps({'requirement_groups': [
+        {'group': 'languages', 'level': 'must', 'text': 'French'}]})
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(content))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    app = create_app(tmp_path)
+    job = legacy_job(tmp_path)
+    owned = [{'group': 'languages', 'level': 'must', 'text': 'German'}]
+    api = app.test_client()
+    api.put(f'/api/jobs/{job["id"]}', json={'requirement_groups': owned})
+    assert api.post(f'/api/jobs/{job["id"]}/re-extract').status_code == 202
+    app.config['LLM_THREADS'][job['id']].join(timeout=5)
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['requirement_groups'] == owned
+    assert stored['field_provenance']['requirement_groups'] == 'user'
+
+
+def test_an_owner_edit_to_the_groups_is_a_final_value(tmp_path):
+    """The Languages editor writes through the generic job PUT, so the
+    groups get the same owner protection every other field has."""
+    job = legacy_job(tmp_path)
+    api = create_app(tmp_path).test_client()
+    api.put(f'/api/jobs/{job["id"]}',
+            json={'requirement_groups': [{'group': 'languages', 'level': 'must', 'text': 'German'}]})
+    stored = vault.load_job(tmp_path, job['id'])
+    assert stored['field_provenance']['requirement_groups'] == 'user'
+    assert stored['field_status']['requirement_groups'] == 'done'
+
+
+def test_re_extract_refuses_a_job_with_no_posting_text(tmp_path):
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
+    api = create_app(tmp_path).test_client()
+    response = api.post(f'/api/jobs/{job["id"]}/re-extract')
+    assert response.status_code == 409
+    assert response.get_json()['error'] == 'This job has no posting text to read.'
+    assert vault.load_job(tmp_path, job['id'])['requirement_groups'] == []
+
+
+def test_re_extract_on_a_missing_job_is_a_404(tmp_path):
+    api = create_app(tmp_path).test_client()
+    assert api.post('/api/jobs/JOB-404/re-extract').status_code == 404
+
+
+def test_the_job_page_context_carries_the_groups(tmp_path):
+    """Contract: everything downstream of the job record reads the groups
+    off the page context, so they have to be in it."""
+    groups = [{'group': 'languages', 'level': 'nice', 'text': 'German'}]
+    job = legacy_job(tmp_path, requirement_groups=groups)
+    api = create_app(tmp_path).test_client()
+    page = api.get(f'/api/jobs/{job["id"]}?view=page').get_json()
+    assert page['job']['requirement_groups'] == groups
 
 
 def test_the_extraction_popup_reports_on_the_groups():

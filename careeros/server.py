@@ -1369,6 +1369,56 @@ def create_app(vault: str | Path | None = None) -> Flask:
             return jsonify(job | {'llm_pending': False, 'error': 'Could not start refresh.'}), 503
         return jsonify(job | {'llm_pending': True, 'accepted': True}), 202
 
+    @app.post('/api/jobs/<identifier>/re-extract')
+    def re_extract_job(identifier):
+        """Read the stored posting text again (package 2).
+
+        This is the owner's per-job migration to grouped requirements, and
+        the only thing that fills requirement_groups on a job written
+        before them: no read migrates a record, and nothing re-runs in
+        bulk (owner decision). It is not /extract, which fetches the live
+        posting first: the posting a legacy job was read from may be gone,
+        and the text to group is the one already stored.
+
+        The rule-based groups (the flat must/nice lists under Skills) are
+        written here, synchronously, so the action lands a result even
+        when no model is reachable; the queued extraction replaces them
+        with real groups when it finishes. Everything else is the same
+        machinery /extract uses: one reservation per job, every covered
+        field back to pending while the attempt runs, and the attempt's
+        own history event.
+        """
+        root = app.config['VAULT_PATH']
+        with write_lock:
+            job = storage.load_job(root, identifier)
+            if job is None:
+                return jsonify(error='Job not found.'), 404
+            if not (job.get('description') or '').strip():
+                return jsonify(error='This job has no posting text to read.'), 409
+            token = reserve_enrichment(identifier)
+            if token is None:
+                return jsonify(job | {'llm_pending': True}), 202
+            provenance = job.get('field_provenance', {})
+            structured = job.get('description_structured') or {}
+            updates = {}
+            if not job.get('requirement_groups') and provenance.get('requirement_groups') != 'user':
+                groups = ingest.requirement_groups(None, structured.get('requirements'),
+                                                   structured.get('nice_to_have'))
+                if groups:
+                    updates['requirement_groups'] = groups
+                    # The rules did the grouping, whoever wrote the lines,
+                    # so the page credits the page data and not the model.
+                    updates['field_provenance'] = {**provenance, 'requirement_groups': 'scrape'}
+            updates['field_status'] = apply_field_status(job, updates, unfilled='pending')
+            job = storage.save_job(root, updates, identifier,
+                                   history_event=('re_extracted', 'Stored posting text read again.'))
+        if not start_llm_enrichment(root, job, job.get('description') or '', token):
+            job = mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
+                                    reason='worker_start_failed', settle_fields=True,
+                                    history=('extract_failed', 'Could not start extraction.')) or job
+            return jsonify(job | {'llm_pending': False, 'error': 'Could not start extraction.'}), 503
+        return jsonify(job | {'llm_pending': True}), 202
+
     @app.post('/api/jobs/<identifier>/paste-description')
     def paste_description(identifier):
         """Spec Section 3 step 5: fetch failure keeps the stub and offers

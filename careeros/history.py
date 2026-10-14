@@ -25,6 +25,11 @@ REGISTRY = {
     'extract_failed':     (READ_FAILED_LABEL, True),
     'extracted':          (READ_LABEL, True),
     'llm_enriched':       (READ_LABEL, True),
+    # The owner asking for the stored text to be read again (package 2's
+    # per-job migration to grouped requirements). Its own label, not the
+    # read label: the owner wants to see that they asked, and when, beside
+    # what the reading then produced.
+    're_extracted':       ('Posting read again', True),
     # The label is built from the stored detail ('new -> interested').
     'status_changed':     (None, True),
     'note_added':         ('Note added', True),
