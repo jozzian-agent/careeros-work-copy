@@ -45,10 +45,13 @@ test('empty related-items sections show the dashed empty state', async ({ page }
   await expect(page.getByText('No linked experience yet')).toBeVisible();
 });
 
-test('Edit classification link navigates to the full taxonomy page', async ({ page }) => {
+test('Classification section links nowhere now the taxonomy page is retired', async ({ page }) => {
+  // The /companies/<id>/taxonomy route and its JSON endpoint were removed,
+  // so the old "Edit classification" link pointed at a 404. Classification
+  // editing returns in a later round.
   await page.goto('/companies/CO-001');
-  await page.getByRole('link', { name: 'Edit classification' }).click();
-  await expect(page).toHaveURL('/companies/CO-001/taxonomy');
+  await expect(page.getByRole('heading', { name: 'Classification' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Edit classification' })).toHaveCount(0);
 });
 
 test('Edit company popup opens and saves', async ({ page }) => {

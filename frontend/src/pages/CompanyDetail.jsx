@@ -185,15 +185,14 @@ export default function CompanyDetail() {
             </Flex>
           </SectionCard>
         ) : null}
+        {/* Read-only for now: the Company Classification page this used to
+            link to is gone (the route and its JSON endpoint were removed),
+            and inline editing of sector/size arrives with the next
+            frontend round. A link to a 404 is worse than no link. */}
         <SectionCard title="Classification">
           <Text>
             {sectorText} · {sizeLabel}
           </Text>
-          <Box>
-            <Link href={`/companies/${encodeURIComponent(company.id)}/taxonomy`} display="inlineBlock">
-              <Text color="link">Edit classification</Text>
-            </Link>
-          </Box>
         </SectionCard>
         <SectionCard title="Details">
           <KeyValueGrid

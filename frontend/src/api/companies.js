@@ -57,14 +57,3 @@ export async function retryCompany(id) {
   }
   return response.json();
 }
-
-// GET /api/companies/<id>/taxonomy: the classification_context payload
-// (company, isic_sections, size_classes, kinds) the Company Classification
-// page edits.
-export async function fetchCompanyTaxonomy(id) {
-  const response = await fetch(`/api/companies/${encodeURIComponent(id)}/taxonomy`);
-  if (!response.ok) {
-    throw new Error('Could not load classification.');
-  }
-  return response.json();
-}
