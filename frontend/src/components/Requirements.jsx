@@ -39,10 +39,11 @@ export function requirementEntries(job) {
   return groups.length ? groups : legacyRequirementEntries(job);
 }
 
-// The pre-package-2 shape. `requirements` is what the posting insists on,
-// `nice_to_have` what it would like, and an extracted skill is something
-// the posting asks for, so it lands as a must-have tag.
-export function legacyRequirementEntries(job) {
+// The pre-package-2 shape, with its one caller directly above.
+// `requirements` is what the posting insists on, `nice_to_have` what it
+// would like, and an extracted skill is something the posting asks for,
+// so it lands as a must-have tag.
+function legacyRequirementEntries(job) {
   const structured = job.description_structured || {};
   return [
     ...(structured.requirements || []).map((text) => ({ group: null, level: 'must', text })),
