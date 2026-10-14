@@ -162,6 +162,15 @@ def test_registry_entries_are_well_formed():
             assert label, event
 
 
+def test_read_label_is_the_words_the_job_page_matches_on():
+    """Contract test: the Job detail page's extraction row picks the read
+    event out of the resolved history by this label, to say when the
+    posting was last read (frontend/src/pages/JobDetail.jsx READ_LABEL).
+    Reword it here and that line goes silent, so the two are pinned
+    together rather than only in a comment."""
+    assert history.READ_LABEL == 'Details read from the posting'
+
+
 def test_resolve_dedupes_extracted_and_llm_enriched():
     resolved = history.resolve([
         {'ts': '2026-10-01T10:00:00+00:00', 'event': 'extracted', 'detail': 'Extraction completed.'},
