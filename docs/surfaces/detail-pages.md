@@ -56,7 +56,9 @@ below. Top to bottom it is now:
     it is inherited from the linked company, the function and the tags,
     each reading "Not found in posting" when the posting named none.
     "Edit classification" sits inside it and opens the shared popup.
-11. Notes, with a dashed "Add a note" box when there are none.
+11. Notes: one row per note, with a dashed "Add a note" box when there
+    are none. See [Notes](notes.md) for the section, the note window and
+    the vault-wide page.
 12. History, collapsed: the visible events only, with local dates.
 
 Sections 8 to 10 and 12 are collapsed by default (owner round,
@@ -73,6 +75,9 @@ Edit job now carries every machine-made field the page labels (summary,
 both requirement lists, responsibilities, skills as removable tags), so
 no AI label points at a field the owner cannot correct. The per-section
 Edit button beside the AI label is gone; there is one editing surface.
+Notes are not one of its fields: as of the owner round a note is its own
+record with its own window, so Edit job and Edit company both lost their
+notes field and the `focus` prop that only existed to land on it.
 
 The Company page is rebuilt in the same round:
 
@@ -90,7 +95,7 @@ The Company page is rebuilt in the same round:
 5. Classification, collapsed: the sector and the size, each with where
    the value came from ("Set by you", "Found by AI", "Found on Wikidata",
    and so on), and "Edit classification" inside it.
-6. Notes, with the same dashed "Add a note" box.
+6. Notes, the same section as the Job page's.
 
 The Company page has no History section: a company record stores no
 history, so the owner round's "collapse History on both pages" applies
@@ -169,18 +174,21 @@ lists (a company with no jobs or experiences) show the dashed empty state.
 
 ## Verification
 
-2026-10-14 (package 1, the two rebuilt pages, after the review fix
-round):
+2026-10-14 (package 1, the two rebuilt pages, after the owner round):
 
-- `.venv/bin/python -m pytest tests/ -q` (1033, was 1030: one contract
-  test for the history label the Job page matches on, then two for the
-  review round's `needs_input` and `reading` rules).
-- `cd frontend && npx playwright test` (193, was 174): `job-detail.spec.js`
-  (46), `company-detail.spec.js` (21) and the shared
-  `detail-pages.spec.js` (7: Delete gray and the back arrow blue on both
-  pages, the 390px layout, the retired classification route).
+- `.venv/bin/python -m pytest tests/ -q` (1052, was 1033: 18 in the new
+  `tests/test_notes.py` for the note shape, the migration, the CRUD
+  endpoints and the vault-wide roll-up, plus one for the `/notes` page
+  route in `tests/test_react_ui_flag.py`).
+- `cd frontend && npx playwright test` (210, was 193): `job-detail.spec.js`
+  (54), `company-detail.spec.js` (22), the new `notes.spec.js` (8) and the
+  shared `detail-pages.spec.js` (7: Delete gray and the back arrow blue
+  on both pages, the 390px layout, the retired classification route).
 - `cd frontend && npm run build`.
 - Owner click-test on the live instance: pending.
+
+Earlier, 2026-10-14 after the review fix round and before the owner
+round: pytest 1033 (was 1030), Playwright 193 (was 174).
 
 Earlier, at the JOZ-280 cutover: pytest 909 (was 919 — see BUILD_NOTES for
 the accounting of converted vs. removed tests), Playwright 106 (was 78).

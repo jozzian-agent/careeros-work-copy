@@ -23,6 +23,7 @@ timestamp: 2026-10-11
 - [Job](surfaces/job.md): Describe the approved summary-first job detail page.
 - [Jobs](surfaces/jobs.md): Describe the approved React Jobs board and its acceptance state.
 - [M1 JSON page contracts](surfaces/json-api.md): Describe JSON representations for existing dashboard pages.
+- [Notes](surfaces/notes.md): Describe the note, its editing window and the read-only Notes page.
 - [Preferences](surfaces/preferences.md): Describe the approved single edit mode for search preferences.
 - [Taxonomy](surfaces/taxonomy.md): Describe the read-only vault-wide taxonomy page.
 
