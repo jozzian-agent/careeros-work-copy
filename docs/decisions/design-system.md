@@ -115,3 +115,29 @@ such as extraction failed, details filling in, and company details
 pending. A quiet chip must never alarm: it uses subtle text, a
 transparent or secondary-base background, and a container-level border
 at most, never a colored badge type.
+
+## Detail-page updates
+
+Owner decision 2026-10-14, approved with the detail-pages canvas: the
+entries below are adopted for the Job and Company detail pages. They
+change existing components rather than adding a second way to do the
+same thing.
+
+| Entry | What it is | Rule |
+|---|---|---|
+| Dashed AI label (`AiLabel.jsx`) | `AI-generated` for text a model composed, `AI-extracted` for text it lifted out of the posting | A dashed outline and subtle text, no fill and no colour of its own. A provenance marker is not an owner action, so it must not read like the violet "Needs your input" signal. Replaces `SectionCard`'s plain `label` badge. |
+| Level tag (`LevelTag.jsx`) | One requirement or skill, filled for a must-have and outlined for a nice-to-have | Colour never carries the must/nice difference: both levels use the same neutral container colours and brand blue is never used for either, because blue is this system's primary-action colour. The fill carries it visually, and a visually hidden "Must-have:" / "Nice to have:" prefix carries it for everyone else. |
+| `SectionCard` variant `needs-input` | The one ask a detail page makes of its owner | Violet wash with a violet border, exactly one action set, rendered only when there is something to ask. A page never shows two at once; which ask wins is decided in the backend context, not by section order. |
+| `SectionCard` padding | 24px | Was 16px. |
+| Detail-page content column | 960px (`DETAIL_MAX_WIDTH`) | Was 880px. One constant, shared by the Job, Company and Experience pages. |
+| `DetailHeader` Delete | Gray secondary, same weight as Edit | `color="red"` maps to the brand fill in this theme (see `frontend/src/design/theme.css`), so the page's most destructive action rendered as its primary one. |
+| `FitChip` read-only variant | "Not calculated yet" in neutral colours | Fit scoring is not built. The page says so rather than showing a control that stands for a feature that does not exist, and it stays out of violet because nothing is being asked of the owner. The violet "Needs your input" variant is still what the board shows for a missing owner rating. |
+| Dashed empty state | `SectionCard`'s `EmptyState`, now with one optional action inside the box | Reused for the Notes section ("Add a note"), not re-invented per section. |
+
+### Recorded token override
+
+`--color-icon-brand-primary` is rebound to `--color-brand-primary` in
+`frontend/src/design/theme.css`. Gestalt's brand icon token is still
+Pinterest red, so the detail pages' back-link arrow (an `Icon`
+`color="brandPrimary"`) rendered red beside its blue link text. The brand
+here is blue.

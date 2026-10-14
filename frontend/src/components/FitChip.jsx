@@ -47,9 +47,38 @@ const ROW_STYLE = {
   fontWeight: 700,
 };
 
-// The fit chip (read-only, never editable from the board) or "Needs your
-// input" when a job has no fit rating yet. The two are never shown together.
-export default function FitChip({ fit }) {
+// The fit chip (read-only everywhere), or words instead of a rating when
+// the job has none. The two are never shown together.
+//
+// Two different "no rating" cases, which must not read alike:
+//
+//   - `placeholder` given (the Job detail page passes the backend's
+//     fit_placeholder, "Not calculated yet"): nothing is being asked of
+//     the owner, because fit scoring is not built. Neutral colours, no
+//     violet dot, no control -- an empty dropdown here would stand for a
+//     feature that does not exist.
+//   - no placeholder (the board): the owner's own rating is missing, so
+//     the violet "Needs your input" chip applies.
+export default function FitChip({ fit, placeholder }) {
+  if ((!fit || !LEVELS[fit]) && placeholder) {
+    return (
+      <Box
+        dangerouslySetInlineStyle={{
+          __style: {
+            ...ROW_STYLE,
+            background: 'var(--color-background-secondary-base)',
+            border: '1px solid var(--color-border-container)',
+            padding: '0 10px',
+          },
+        }}
+      >
+        <Box display="visuallyHidden">Fit: </Box>
+        <Text size="100" weight="bold" color="subtle">
+          {placeholder}
+        </Text>
+      </Box>
+    );
+  }
   if (!fit || !LEVELS[fit]) {
     return (
       <Box

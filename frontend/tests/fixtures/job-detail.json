@@ -60,5 +60,7 @@
   "show_remote_chip": false,
   "watch_eligible": true,
   "watch_reason": "",
-  "llm_pending": false
+  "llm_pending": false,
+  "fit": null,
+  "fit_placeholder": "Not calculated yet"
 }

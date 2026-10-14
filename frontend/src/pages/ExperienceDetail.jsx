@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { BannerSlim, Badge, Box, Button, Flex, Link, Text } from 'gestalt';
 import { deleteExperience, fetchExperiencePage, fetchExperienceTagsRegistry, updateExperience } from '../api/experiences.js';
 import DetailHeader from '../components/DetailHeader.jsx';
-import SectionCard, { DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
+import SectionCard, { DETAIL_MAX_WIDTH, DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
 import EditPositionPopup from '../components/EditPositionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 
@@ -127,7 +127,7 @@ export default function ExperienceDetail() {
 
   return (
     <Box padding={6}>
-      <Flex direction="column" gap={5} maxWidth={880}>
+      <Flex direction="column" gap={5} maxWidth={DETAIL_MAX_WIDTH}>
         <DetailHeader
           type="EXPERIENCE"
           backHref="/experiences"

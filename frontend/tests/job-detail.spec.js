@@ -20,12 +20,11 @@ test.beforeEach(async ({ page }) => {
   await mockJobTaxonomy(page, taxonomy);
 });
 
-test('header renders type label, title, subtitle, chip and actions', async ({ page }) => {
+test('header renders type label, title, subtitle and actions', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
   await expect(page.getByText('JOB', { exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: fixture.job.title })).toBeVisible();
   await expect(page.getByRole('link', { name: fixture.company.name })).toBeVisible();
-  await expect(page.getByText('Lucky').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit job' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
 });
@@ -57,13 +56,15 @@ test('Status dropdown moves the job', async ({ page }) => {
   expect(requests[0]).toEqual({ status: 'interested' });
 });
 
-test('Fit dropdown sets the job fit', async ({ page }) => {
-  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: { ...fixture.job, fit: 'excellent' } });
+// Fit is a placeholder until scoring exists: the dropdown this replaces
+// wrote a value nothing ever read, and an editable control stood for a
+// feature the product does not have.
+test('Fit reads as not calculated, with no control to set it', async ({ page }) => {
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
   await page.goto('/jobs/JOB-001');
-  await page.getByRole('button', { name: /Set fit for Senior Platform Engineer/ }).click();
-  await page.getByRole('menuitem', { name: 'Excellent fit', exact: true }).click();
-  await expect.poll(() => requests.length).toBe(1);
-  expect(requests[0]).toEqual({ fit: 'excellent' });
+  await expect(page.getByText('Not calculated yet')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Set fit for/ })).toHaveCount(0);
+  expect(requests.length).toBe(0);
 });
 
 test('Edit job popup opens, edits and saves', async ({ page }) => {
@@ -123,14 +124,6 @@ test('Status dropdown failure shows a visible error', async ({ page }) => {
   await page.getByRole('button', { name: /Move Senior Platform Engineer to/ }).click();
   await page.getByRole('menuitem', { name: 'Interested', exact: true }).click();
   await expect(page.getByText('Status save failed.')).toBeVisible();
-});
-
-test('Fit dropdown failure shows a visible error', async ({ page }) => {
-  await mockUpdate(page, '**/api/jobs/JOB-001', { status: 500, body: { error: 'Fit save failed.' } });
-  await page.goto('/jobs/JOB-001');
-  await page.getByRole('button', { name: /Set fit for Senior Platform Engineer/ }).click();
-  await page.getByRole('menuitem', { name: 'Excellent fit', exact: true }).click();
-  await expect(page.getByText('Fit save failed.')).toBeVisible();
 });
 
 test('Posting Retry failure shows a visible error', async ({ page }) => {

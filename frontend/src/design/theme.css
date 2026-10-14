@@ -41,6 +41,13 @@
    * (--color-background-selected-base); the board wants brand blue. */
   --color-background-button-selected-default: var(--color-brand-primary) !important;
 
+  /* The detail pages' back-link arrow (DetailHeader's Icon
+   * color="brandPrimary") reads Gestalt's own brand icon token, which is
+   * still Pinterest red: the arrow rendered red beside its blue link text.
+   * The brand here is blue, so bind the token to it. Recorded as an
+   * override in docs/decisions/design-system.md, per AGENTS.md. */
+  --color-icon-brand-primary: var(--color-brand-primary) !important;
+
   /* Informational blue (Badge type="info": AI-generated, function chips). */
   --color-background-info-base: var(--color-brand-primary) !important;
   --color-background-info-strong: var(--color-brand-primary-strong) !important;

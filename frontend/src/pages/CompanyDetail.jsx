@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { BannerSlim, Box, Button, Flex, Link, Text } from 'gestalt';
 import { deleteCompany, fetchCompanyPage, retryCompany, updateCompany } from '../api/companies.js';
 import DetailHeader from '../components/DetailHeader.jsx';
-import SectionCard, { EmptyState, KeyValueGrid } from '../components/SectionCard.jsx';
+import SectionCard, { DETAIL_MAX_WIDTH, EmptyState, KeyValueGrid } from '../components/SectionCard.jsx';
 import EditCompanyPopup from '../components/EditCompanyPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 
@@ -155,7 +155,7 @@ export default function CompanyDetail() {
 
   return (
     <Box padding={6}>
-      <Flex direction="column" gap={5} maxWidth={880}>
+      <Flex direction="column" gap={5} maxWidth={DETAIL_MAX_WIDTH}>
         <DetailHeader
           type="COMPANY"
           backHref="/companies"

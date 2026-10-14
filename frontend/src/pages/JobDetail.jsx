@@ -11,10 +11,9 @@ import {
   updateJob,
 } from '../api/jobs.js';
 import DetailHeader from '../components/DetailHeader.jsx';
-import SectionCard, { DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
+import SectionCard, { DETAIL_MAX_WIDTH, DividerList, KeyValueGrid } from '../components/SectionCard.jsx';
 import FitChip from '../components/FitChip.jsx';
 import StatusSelect from '../components/StatusSelect.jsx';
-import FitSelect from '../components/FitSelect.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
 import EditCriteriaPopup from '../components/EditCriteriaPopup.jsx';
 import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
@@ -56,6 +55,11 @@ const STATUS_BADGE = {
 const POSTING_QUALITY_NOTICE = {
   thin: 'This posting has very little text; extraction will be limited.',
 };
+
+// Fallback for the words the page shows where a fit rating would go. The
+// backend sends them as fit_placeholder; this is only the floor for an
+// older payload that does not carry the key yet.
+const FIT_PLACEHOLDER = 'Not calculated yet';
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -126,15 +130,6 @@ export default function JobDetail() {
   async function handleStatusChange(status) {
     try {
       await updateJob(id, { status });
-      await load();
-    } catch (err) {
-      setActionError(err.message);
-    }
-  }
-
-  async function handleFitChange(fit) {
-    try {
-      await updateJob(id, { fit });
       await load();
     } catch (err) {
       setActionError(err.message);
@@ -216,12 +211,11 @@ export default function JobDetail() {
 
   return (
     <Box padding={6}>
-      <Flex direction="column" gap={5} maxWidth={880}>
+      <Flex direction="column" gap={5} maxWidth={DETAIL_MAX_WIDTH}>
         <DetailHeader
           type="JOB"
           backHref="/jobs"
           backLabel="Jobs"
-          chip={<FitChip fit={job.fit} />}
           title={job.title}
           subtitle={company ? <Link href={`/companies/${encodeURIComponent(company.id)}`}>{company.name}</Link> : null}
           location={job.location}
@@ -251,7 +245,7 @@ export default function JobDetail() {
               Fit
             </Text>
             <Box marginTop={1}>
-              <FitSelect jobTitle={job.title} fit={job.fit} onChange={handleFitChange} />
+              <FitChip fit={page.fit} placeholder={page.fit_placeholder || FIT_PLACEHOLDER} />
             </Box>
           </Box>
         </Flex>
@@ -321,7 +315,7 @@ export default function JobDetail() {
           </SectionCard>
         ) : null}
         {job.summary ? (
-          <SectionCard title="Summary" label={job.summary_source === 'ai' ? 'AI-generated' : null}>
+          <SectionCard title="Summary" aiLabel={job.summary_source === 'ai' ? 'generated' : null}>
             <Text>{job.summary}</Text>
           </SectionCard>
         ) : null}

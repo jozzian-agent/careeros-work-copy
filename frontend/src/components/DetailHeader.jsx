@@ -1,11 +1,14 @@
 import { Box, Button, Flex, Heading, Icon, Link, Text } from 'gestalt';
 
 // The shared skeleton header for every detail page (Job, Experience,
-// Company, Company Classification), per the DetailHeader README: back
-// link, a small-caps type label (with the job fit chip inline), title,
-// subtitle, location/dates, then Edit (secondary) and Delete (danger) on
-// the right. Company Classification has no Edit/Delete of its own
-// (showActions=false); it saves inline instead.
+// Company), per the DetailHeader README: back link, a small-caps type
+// label (with the page's one chip inline), title, subtitle, a line of
+// location/dates/`meta`, then Edit and Delete on the right.
+//
+// 2026-10-14 canvas: Delete is a gray secondary button, the same weight as
+// Edit. It used to be color="red", which this theme binds to the brand
+// fill (see design/theme.css), so the most destructive action on the page
+// rendered as its primary one.
 export default function DetailHeader({
   type,
   backHref,
@@ -15,6 +18,7 @@ export default function DetailHeader({
   subtitle,
   location,
   dates,
+  meta,
   editLabel,
   onEdit,
   onDelete,
@@ -46,8 +50,8 @@ export default function DetailHeader({
           </Flex>
           <Heading size="600">{title}</Heading>
           {subtitle ? <Text color="subtle">{subtitle}</Text> : null}
-          {location || dates ? (
-            <Flex gap={2} alignItems="center">
+          {location || dates || meta ? (
+            <Flex gap={2} alignItems="center" wrap>
               {location ? (
                 <Flex gap={1} alignItems="center">
                   <Icon icon="location" accessibilityLabel="" color="subtle" size={12} />
@@ -55,13 +59,14 @@ export default function DetailHeader({
                 </Flex>
               ) : null}
               {dates ? <Text color="subtle">{dates}</Text> : null}
+              {meta}
             </Flex>
           ) : null}
         </Flex>
         {showActions ? (
           <Flex gap={2}>
             <Button text={editLabel || 'Edit'} color="gray" onClick={onEdit} iconEnd="edit" />
-            <Button text="Delete" color="red" onClick={onDelete} iconEnd="trash-can" />
+            <Button text="Delete" color="gray" onClick={onDelete} iconEnd="trash-can" />
           </Flex>
         ) : null}
       </Flex>
