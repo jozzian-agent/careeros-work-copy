@@ -1337,7 +1337,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                       'posting_quality': ingest.classify_posting_quality(text),
                       'field_status': apply_field_status(job, {}, unfilled='pending')}
             job = storage.save_job(root, updates, identifier,
-                                   history_event=('fetched', 'Posting text pasted manually.'))
+                                   history_event=('pasted', 'Posting text pasted manually.'))
             token = reserve_enrichment(identifier)
         if token is None:
             return jsonify(job | {'llm_pending': True}), 202

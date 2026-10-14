@@ -21,6 +21,9 @@ COMPANY_LINK_REASONS = ('ats_tenant', 'domain', 'name_exact', 'fuzzy_name',
 IDENTIFIER_TYPES = ('domain', 'ats_tenant', 'wikidata', 'name_variant')
 SOURCE_KINDS = ('careers_page', 'ats_feed')
 FIELD_STATUS_VALUES = ('pending', 'done', 'failed', 'not_evidenced')
+# _save_record's history backstop writes the new state itself as the event
+# type, so careeros.history.REGISTRY must name every member of this tuple.
+INGEST_STATES = ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed')
 POSTING_QUALITY_VALUES = ('thin', 'ok', 'rich')
 DESCRIPTION_STRUCTURED_METHODS = ('llm', 'heuristic', 'raw')
 TAG_FACETS = ('skill/capability', 'skill/domain', 'function', 'experience-type', 'tool')
@@ -492,7 +495,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         result['tags'] = validate_tags(root, result['tags'], proposed=proposed)
         if result['status'] not in STATUSES:
             raise ValueError('Invalid job status.')
-        if result['ingest_state'] not in ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed'):
+        if result['ingest_state'] not in INGEST_STATES:
             raise ValueError('Invalid ingest_state.')
         if result['origin'] not in ('manual', 'discovered'):
             raise ValueError('Invalid job origin.')

@@ -3,7 +3,7 @@ import re
 
 from flask import abort, current_app
 from markupsafe import Markup
-from careeros import vault, watcher
+from careeros import history, vault, watcher
 from org_intake import classify as sectors
 from careeros.web.ui import page
 from careeros.web.markdown import render_markdown
@@ -84,6 +84,9 @@ def job_context(job, company, function_labels, llm_pending=False):
         markdown=Markup(render_markdown(job.get('notes', ''))),
         has_description=bool(description.strip()),
         llm_pending=llm_pending,
+        # Owner-facing history: labels and visibility come from the
+        # registry, never from the raw event types on the record.
+        history=history.resolve(job.get('history')),
     )
 
 def taxonomy_context(root, identifier):
