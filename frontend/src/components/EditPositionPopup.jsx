@@ -295,7 +295,7 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
                   value={registryPick}
                   onChange={({ value }) => setRegistryPick(value)}
                 >
-                  <SelectList.Option value="" label="— select a tag —" />
+                  <SelectList.Option value="" label="Select a tag" />
                   {registryOptions.map((option) => (
                     <SelectList.Option key={option.value} value={option.value} label={option.label} />
                   ))}
