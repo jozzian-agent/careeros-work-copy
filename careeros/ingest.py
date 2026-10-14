@@ -157,8 +157,13 @@ REQUIREMENT_GROUP_ALIASES = {'education': 'education', 'experience': 'experience
                              'certification': 'certifications', 'certifications': 'certifications',
                              'certificate': 'certifications', 'certificates': 'certifications'}
 REQUIREMENT_GROUP_FALLBACK = 'skills'
-# Words a model uses for a requirement a posting would like but does not
-# insist on, when it answers the level in prose instead of must/nice.
+# Words a model uses for a requirement a posting insists on, and words it
+# uses for one the posting would like but does not insist on, when it
+# answers the level in prose instead of must/nice. The insisting words are
+# read first, because a level that carries both ('must have, bonus if you
+# also know Rust') is a must-have: reading the preferring word first would
+# demote a requirement the posting states outright.
+MUST_LEVEL_WORDS = ('must', 'require', 'essential', 'mandatory')
 NICE_LEVEL_WORDS = ('nice', 'prefer', 'bonus', 'plus', 'optional', 'desirable', 'advantage')
 
 
@@ -175,6 +180,8 @@ def requirement_level(value):
     level = str(value or '').strip().casefold()
     if level in REQUIREMENT_LEVELS:
         return level
+    if any(word in level for word in MUST_LEVEL_WORDS):
+        return 'must'
     return 'nice' if any(word in level for word in NICE_LEVEL_WORDS) else 'must'
 
 

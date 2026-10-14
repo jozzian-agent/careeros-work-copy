@@ -56,6 +56,13 @@ def test_every_answered_group_lands_in_the_vocabulary(answered, expected):
     ('preferred', 'nice'),
     ('bonus points', 'nice'),
     ('required', 'must'),
+    # A level that insists and prefers in one breath is what the posting
+    # insists on: the preferring word applies to something else in the
+    # same sentence, so reading it first would demote a real requirement.
+    ('must have, bonus if you also know Rust', 'must'),
+    ('required, and a plus if recent', 'must'),
+    ('essential', 'must'),
+    ('mandatory', 'must'),
     # A posting insists on a requirement unless it says otherwise.
     ('', 'must'),
     (None, 'must'),
