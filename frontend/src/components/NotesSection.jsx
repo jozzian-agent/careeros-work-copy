@@ -9,7 +9,7 @@ import { localDate } from '../dates.js';
 // A note's body on a row is its first line. The whole body lives in the
 // note's own window, which the row's Edit opens, so the row says which
 // note this is rather than trying to show it.
-export function notePreview(body) {
+function notePreview(body) {
   return String(body || '').split('\n').map((line) => line.trim()).find(Boolean) || '';
 }
 
