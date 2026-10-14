@@ -2,11 +2,9 @@
 import re
 
 from flask import abort, current_app
-from markupsafe import Markup
 from careeros import history, vault, watcher
 from org_intake import classify as sectors
 from careeros.web.ui import page
-from careeros.web.markdown import render_markdown
 
 EMPTY_STATE = 'No jobs yet — paste a posting link to get started.'
 
@@ -174,7 +172,11 @@ def job_context(job, company, function_labels, llm_pending=False, isic_sections=
         company=company,
         statuses=vault.STATUSES,
         function_labels=function_labels,
-        markdown=Markup(render_markdown(job.get('notes', ''))),
+        # The owner's notes, as the list the Notes section renders. The
+        # `markdown` key this replaces rendered the single legacy notes
+        # string to HTML; nothing renders notes as HTML now, and a note
+        # body is the plain text the owner typed into the note popup.
+        notes=vault.notes_view(job),
         has_description=bool(description.strip()),
         llm_pending=llm_pending,
         # Owner-facing history: labels and visibility come from the

@@ -163,7 +163,12 @@ def test_crud_and_routes(client):
     assert result.json['status_changed']==date.today().isoformat()
     assert result.json['title']=='Platform Engineering Lead'
     page=client.get('/api/jobs/JOB-001?view=page').json
-    assert '<strong>Ready</strong>' in page['markdown'] and '<script>bad()</script>' not in page['markdown']
+    # Notes are a list of notes now, carried as the text the owner typed:
+    # the page renders a note body as text, so there is no rendered-HTML
+    # key left to escape into.
+    assert page['notes']==[{'id':'legacy','title':'Note','body':'**Ready** <script>bad()</script>',
+                            'created':None,'updated':None}]
+    assert 'markdown' not in page
     assert client.put('/api/jobs/JOB-001',json={'status':'bogus'}).status_code==400
     assert client.put('/api/companies/CO-001',json={'sector':'Tools','locations':['Remote'],'notes':'**Studio**'}).status_code==200
     # Company notes are stored as the raw markdown source, never rendered.

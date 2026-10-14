@@ -21,7 +21,7 @@ from careeros.intake import posting_ats
 from careeros import dedupe
 import difflib
 
-from careeros.web.pages import companies, experiences, jobs, search, taxonomy
+from careeros.web.pages import companies, experiences, jobs, notes, search, taxonomy
 from careeros.web.theme import page_shell
 
 _ATS_FEED_URL = {
@@ -243,6 +243,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
         app.add_url_rule('/companies', 'react_companies', react_index)
         app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
         app.add_url_rule('/taxonomy', 'react_taxonomy', react_index)
+        # The owner's round added Notes: every note in the vault with the
+        # job or company it belongs to. React-only, like /taxonomy, so it
+        # has no Jinja route and no entry in theme.py's NAV_PAGES.
+        app.add_url_rule('/notes', 'react_notes', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
     app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
@@ -1554,6 +1558,66 @@ def create_app(vault: str | Path | None = None) -> Flask:
             payload['field_provenance'] = {**data.get('field_provenance', {}),
                 **{key: 'user' for key in payload if key != 'field_provenance' and key in accepted}}
             return jsonify(storage.save_company(root, payload | {'name_source': 'owner'}, identifier))
+
+    # A note is the same object on a job and on a company: a title, a
+    # body, and the record it lives in. One pair of handlers serves both,
+    # picked by the `kind` default on each rule, rather than two copies of
+    # the same list arithmetic. Writes go through save_job/save_company,
+    # so a note write is an ordinary record write: same lock, same
+    # validation, same history backstop.
+    NOTE_KINDS = {'jobs': (storage.load_job, storage.save_job, 'Job not found.'),
+                  'companies': (storage.load_company, storage.save_company, 'Company not found.')}
+
+    @app.get('/api/notes')
+    def notes_api():
+        """Every note in the vault, newest first, with its record. Read
+        only: a note is edited on the page of the record that holds it."""
+        return jsonify(notes.page_context(app.config['VAULT_PATH']))
+
+    @app.post('/api/jobs/<identifier>/notes', defaults={'kind': 'jobs'})
+    @app.post('/api/companies/<identifier>/notes', defaults={'kind': 'companies'})
+    def create_note(kind, identifier):
+        root = app.config['VAULT_PATH']
+        load, save, missing = NOTE_KINDS[kind]
+        with write_lock:
+            record = load(root, identifier)
+            if record is None:
+                return jsonify(error=missing), 404
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Note must be an object.')
+            note = storage.new_note(payload.get('title'), payload.get('body') or '')
+            # notes_view, not the raw field: a record still holding its
+            # notes as legacy free text gets that text persisted as its
+            # first note by this very write, never dropped by it.
+            save(root, storage.notes_payload([*storage.notes_view(record), note]), identifier)
+            return jsonify(note), 201
+
+    @app.route('/api/jobs/<identifier>/notes/<note_id>', methods=['PATCH', 'DELETE'],
+               defaults={'kind': 'jobs'})
+    @app.route('/api/companies/<identifier>/notes/<note_id>', methods=['PATCH', 'DELETE'],
+               defaults={'kind': 'companies'})
+    def note_api(kind, identifier, note_id):
+        root = app.config['VAULT_PATH']
+        load, save, missing = NOTE_KINDS[kind]
+        with write_lock:
+            record = load(root, identifier)
+            if record is None:
+                return jsonify(error=missing), 404
+            stored = storage.notes_view(record)
+            target = next((note for note in stored if note['id'] == note_id), None)
+            if target is None:
+                return jsonify(error='Note not found.'), 404
+            if request.method == 'DELETE':
+                save(root, storage.notes_payload([n for n in stored if n['id'] != note_id]), identifier)
+                return jsonify(deleted=note_id)
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Note must be an object.')
+            edited = storage.edit_note(target, payload)
+            save(root, storage.notes_payload([edited if n['id'] == note_id else n for n in stored]),
+                 identifier)
+            return jsonify(edited)
 
     @app.route('/api/search', methods=['GET', 'POST'])
     def search_api():

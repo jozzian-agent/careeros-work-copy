@@ -18,6 +18,7 @@ DIRECTORY_SHAPE = {'counts': {'CO-001': 'int'},
               'locations': ['str'],
               'name': 'str',
               'name_source': 'str',
+              'note_list': [],
               'notes': 'str',
               'review_flags': ['str'],
               'sector': 'NoneType',
@@ -57,6 +58,7 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
                           'locations': ['str'],
                           'name': 'str',
                           'name_source': 'str',
+                          'note_list': [],
                           'notes': 'str',
                           'review_flags': ['str'],
                           'sector': 'NoneType',
@@ -82,6 +84,7 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
              'locations': ['str'],
              'name': 'str',
              'name_source': 'str',
+             'note_list': [],
              'notes': 'str',
              'review_flags': ['str'],
              'sector': 'NoneType',
@@ -125,6 +128,7 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
               'location': 'str',
               'needs_attention': 'bool',
               'normalized_url': 'NoneType',
+              'note_list': [],
               'notes': 'str',
               'occupation_code': 'NoneType',
               'origin': 'str',
@@ -155,6 +159,10 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
  'jobs': [{'id': 'str', 'status': 'str', 'title': 'str'}],
  'kinds': ['str'],
  'needs_input': 'NoneType',
+ # Same migrated-view shape, and the same null timestamps, as the
+ # job detail contract's notes key.
+ 'notes': [{'body': 'str', 'created': 'NoneType', 'id': 'str',
+           'title': 'str', 'updated': 'NoneType'}],
  'sector_labels': ['str'],
  'size_classes': ['str']}
 

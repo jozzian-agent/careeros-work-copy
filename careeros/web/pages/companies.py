@@ -163,6 +163,9 @@ def company_context(company, jobs, experiences, isic_sections):
         entries=job_entries,
         jobs=linked_jobs(jobs, identifier),
         experiences=linked_experiences(experiences, identifier),
+        # The owner's notes, in the same shape and from the same reader
+        # the Job page uses: one notes surface, not two.
+        notes=vault.notes_view(company),
         classification={field: {'value': field_value(company, field, isic_labels),
                                 'source': field_source(company, field)}
                         for field in ('sector', 'size')},

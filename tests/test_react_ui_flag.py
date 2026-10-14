@@ -119,6 +119,23 @@ def test_flag_on_serves_react_for_search_experiences_and_companies_lists(tmp_pat
         assert '<div id="root">' in response.get_data(as_text=True)
 
 
+# Owner round: Notes is the first page added since the cutover. React-only
+# like /taxonomy, so it follows the same no-Jinja-fallback rule.
+def test_flag_decides_whether_the_notes_page_exists(tmp_path, monkeypatch):
+    monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))
+    monkeypatch.setenv('CAREEROS_REACT_UI', '1')
+    client = server.create_app(tmp_path / 'vault').test_client()
+    assert '<div id="root">' in client.get('/notes').get_data(as_text=True)
+    # The page's data endpoint answers whatever the flag says, since it is
+    # a JSON API like every other one.
+    assert client.get('/api/notes').status_code == 200
+
+    monkeypatch.delenv('CAREEROS_REACT_UI')
+    flagged_off = server.create_app(tmp_path / 'vault').test_client()
+    assert flagged_off.get('/notes').status_code == 404
+    assert flagged_off.get('/api/notes').status_code == 200
+
+
 def test_flag_off_search_experiences_and_companies_lists_404_with_no_jinja_fallback(tmp_path, monkeypatch):
     monkeypatch.delenv('CAREEROS_REACT_UI', raising=False)
     monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))

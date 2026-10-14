@@ -39,6 +39,7 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
               'location': 'str',
               'needs_attention': 'bool',
               'normalized_url': 'NoneType',
+              'note_list': [],
               'notes': 'str',
               'occupation_code': 'NoneType',
               'origin': 'str',
@@ -91,6 +92,7 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
              'locations': ['str'],
              'name': 'str',
              'name_source': 'str',
+             'note_list': [],
              'notes': 'str',
              'review_flags': ['str'],
              'sector': 'NoneType',
@@ -141,6 +143,7 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'keywords': [],
          'location': 'str',
          'normalized_url': 'NoneType',
+         'note_list': [],
          'notes': 'str',
          'occupation_code': 'NoneType',
          'origin': 'str',
@@ -167,7 +170,11 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'url': 'str',
          'valid_through': 'str'},
  'llm_pending': 'bool',
- 'markdown': 'str',
+ # The owner's notes as the migrated list. The fixture job still
+ # holds them as the legacy free-text string, which carries no
+ # write-time, so the one note it surfaces has null timestamps.
+ 'notes': [{'body': 'str', 'created': 'NoneType', 'id': 'str',
+           'title': 'str', 'updated': 'NoneType'}],
  'needs_input': {'kind': 'str', 'review': 'NoneType'},
  'reading': 'bool',
  'show_remote_chip': 'bool',
@@ -214,7 +221,8 @@ def test_detail_values_pending_and_mutations(api_client, assert_json_shape):
     # which is the company ask all the same: the link state alone decides
     # it, ahead of the read failure its ingest_error would otherwise raise.
     assert data['needs_input'] == {'kind': 'company', 'review': None}
-    assert '<strong>Owner notes</strong>' in data['markdown']
+    assert data['notes'] == [{'id': 'legacy', 'title': 'Note', 'body': '**Owner notes**',
+                              'created': None, 'updated': None}]
     assert_json_shape(api_client.get(route).get_json(), DETAIL_SHAPE['job'] | {'llm_pending': 'bool'})
     response = api_client.put(route, json={'summary': 'Owner summary', 'notes': 'Edited'})
     assert response.status_code == 200
