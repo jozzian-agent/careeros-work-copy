@@ -1027,6 +1027,25 @@ test('Edit job keeps each requirement line in its own group', async ({ page }) =
   ]);
 });
 
+test('Edit job can clear a grouped requirement list', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' }).fill('');
+  await modal.getByRole('textbox', { name: 'Requirements, nice to have' }).fill('');
+  await modal.getByRole('button', { name: 'Remove English from languages' }).click();
+  await modal.getByRole('button', { name: 'Remove German from languages' }).click();
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  // Emptying the list is a decision, so it is sent as one. The PUT stamps
+  // owner provenance on it, which is what keeps the page from reading the
+  // empty list as "not grouped yet" and showing the flat lists again.
+  expect(requests[0].requirement_groups).toEqual([]);
+  expect(requests[0]).not.toHaveProperty('description_structured');
+});
+
 test('Edit job sends no requirement groups when nothing in them changed', async ({ page }) => {
   await mockJobPage(page, grouped);
   const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
