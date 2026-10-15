@@ -94,7 +94,40 @@ the list (dry run by default, `--apply` owner-gated, not run as part of
 this build; [runbook](docs/runbooks/migrate-board-d7.md)). The board
 layout the brief draws (five open columns, the Ended lane, the ending
 chooser, the reason popup, the banner and its review popup, "Your search
-so far" and the phone layout) is the frontend chunk and is not built yet.
+so far" and the phone layout) is the frontend chunk, built the same day;
+see the entry below.
+
+2026-10-15: the Jobs board frontend was built to the owner's D7 design
+brief, following the D7 canvas (claude.ai artifact 7PBPPwtEXZEmQdeNXd4b8S,
+approved 2026-10-15) by its prose; the artifact was never opened by the
+agent, so canvas conformance is for the owner click-test to confirm
+([brief](docs/briefs/2026-10-15-jobs-board-d7.md),
+[surface](docs/surfaces/jobs.md),
+[components](docs/decisions/design-system.md)). The board now shows five
+open columns and one pinned Ended lane that is collapsed on every load,
+rather than one column per status. Ending a job is one gesture with one
+flow behind it: dropping a card on the collapsed lane asks how it ended,
+dropping on a group of the expanded lane picks that outcome, and the
+status select offers the same three statuses under a divider, which is the
+keyboard and screen-reader route. Won always asks first and never touches
+another job; Rejected and Stopped move at once with Undo and an optional
+reason, where a picked suggestion is the ordinary job PUT and the free text
+beside it is a dated note. Skip writes nothing, so a job never waits for a
+reason. The closed posting is a chip and a question rather than a column:
+the card shows the neutral chip, or a warning chip with the day count for
+the jobs the payload asks about, and the banner above the board offers
+Review, whose popup keeps a job (a PUT of closed_reviewed_at) or stops it
+with the reason "Posting closed" in one write. The Ended lane heads with
+"Your search so far". The filter bar loses the Fit facet, which the brief
+removes until fit is calculated, and gains a "Hide closed postings"
+toggle; neither that toggle nor the lane remembers its state, by owner
+decision. Below 720px the board shows one column at a time from a chip
+row, nothing is draggable, and popups open as full-width sheets. No
+backend contract changed: every write is the existing job PUT or the
+existing notes endpoint. `frontend/tests/fixtures/board.json` was stale
+(it still listed rejected, closed and withdrawn as columns) and now
+carries the D7 payload, so the Playwright suite exercises the real
+contract.
 
 ## Product rules that shape the flows
 
@@ -176,8 +209,8 @@ Settled by owner decision D7, 2026-10-15, and in force in the data
 are facts or open questions about a job, so they are flags on the record
 and never statuses: a closed posting is the `closed` flag with its
 `closed_at` date. The board shows New to Offer as columns, and Won,
-Rejected and Stopped sit together in one collapsed Ended lane; that layout
-is the frontend chunk and is not built yet.
+Rejected and Stopped sit together in one Ended lane that is collapsed on
+every load, built 2026-10-15.
 
 ### Surfaces
 

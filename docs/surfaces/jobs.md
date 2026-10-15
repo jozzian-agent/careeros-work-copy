@@ -144,11 +144,11 @@ the surface-level summary.
   ("Not calculated yet", backend-owned via `fit_placeholder`), which is
   the one place that answers the question without pretending the feature
   exists.
-  The filter bar's Fit facet stays: it still renders, and removing a
-  working control is a separate decision from removing a chip that stood
-  for nothing. With no job carrying a fit, every job groups under the
-  facet's unrated option, so the facet filters nothing in practice. It is
-  listed here as an open question rather than quietly dropped.
+  The filter bar's Fit facet stayed at that milestone: removing a working
+  control was a separate decision from removing a chip that stood for
+  nothing. With no job carrying a fit, every job grouped under the
+  facet's unrated option, so the facet filtered nothing in practice. The
+  D7 board brief removed it on 2026-10-15 (see Open questions below).
 - **Status control.** Replaces the old `SelectList` with a compact button
   that opens a Dropdown (`StatusSelect.jsx`), reachable the same way by
   click or keyboard; it is also the keyboard/screen-reader route for moving
@@ -227,16 +227,16 @@ rebuild (JOZ-279)" section; this is the surface-level summary.
   capability, the pre-existing field and Add button below the board are
   gone (fewest-elements); intake lives only behind the plus button.
 
-## D7 statuses and the closed posting (backend, 2026-10-15)
+## D7 statuses and the closed posting (2026-10-15)
 
 Owner decision D7 and the [board brief](../briefs/2026-10-15-jobs-board-d7.md)
-reworked the status list and made a closed posting a flag. This is the
-backend half, which is built. **The board layout the brief draws -- five
-open columns, the Ended lane, the ending chooser, the reason popup, the
-closed-postings banner and its review popup, "Your search so far" and the
-phone layout -- is the frontend chunk and is not built yet.** The React
-board still renders one column per status, so it shows eight columns
-until that chunk lands.
+reworked the status list and made a closed posting a flag. Both halves are
+built: the vocabulary, the flag and the payload below, and the board layout
+the brief draws, against the canvas the owner approved on 2026-10-15
+(claude.ai artifact 7PBPPwtEXZEmQdeNXd4b8S). Where the canvas and the
+design system disagreed, the canvas won and the design system was changed
+in the same round; see
+[design-system.md](../decisions/design-system.md) "Jobs board D7".
 
 ### Statuses
 
@@ -310,6 +310,83 @@ flow needs no endpoint of its own:
 - "Hide closed postings" is a filter over the payload, so there is nothing
   behind it here.
 
+### The board layout
+
+What the page renders, top to bottom. Component-level detail lives in
+`frontend/BUILD_NOTES.md` "Jobs board D7 frontend"; this is the surface
+summary.
+
+- **Header.** The title, then "Add a job" as the one primary button (it
+  opens the same popup the plus button used to), with the Board and List
+  switch beside it.
+- **Filter bar.** Function, Location, More filters, a divider, then the
+  "Needs attention" and "Hide closed postings" toggles, and the count on
+  the right. The count reads "N open and M ended" from the payload split
+  while no filter is on, and "N of M jobs" once one is, because a count
+  has to describe what is shown. There is no Fit facet: fit is not
+  calculated, so the board offers no filter for it. "Hide closed postings"
+  is off on every load and hides a flagged job wherever it sits.
+- **Closed-postings banner.** One row per the payload's `closed_review`,
+  shown while at least one of those jobs has not been dismissed. "Review"
+  opens the popup; "Not now" hides the banner for the jobs it is asking
+  about today, remembered per job id in localStorage, so a job that
+  crosses the week later brings it back.
+- **Five open columns**, 320px each, in payload order: New, Interested,
+  Applied, Interviewing, Offer. Each column is a labelled group naming its
+  status and count. An empty one invites a drop.
+- **The Ended lane**, sitting outside the scrolling row at the end of the
+  board so it is always a drop target (an earlier sticky attempt painted
+  over the More filters popup and was dropped; see BUILD_NOTES.md).
+  Collapsed on every load: a narrow strip with the total, the three
+  counts, "Show" and "Drop a job here to end it". Expanded it is one
+  320px column, not three, with "Your search so far" on top and Won,
+  Rejected and Stopped as groups, each showing its latest three jobs by
+  the day the status changed, then "Show all N". An empty group says
+  "Nothing won yet" and so on. An ended card is compact: the status
+  select, the title, the company and the reason, or the link that adds
+  one, which is offered only for an outcome that has suggestions (Won has
+  none).
+- **The closed row on a card.** A closed posting shows the neutral
+  "Posting closed" chip, except for the jobs in `closed_review`, which
+  show a warning chip reading "Closed N days ago" with the day count the
+  payload sent. The card never counts days itself, so the chip and the
+  banner cannot disagree.
+
+### Ending a job
+
+- Dropping a card on the collapsed lane opens the chooser, "How did it
+  end?", anchored to the strip. Dropping on a group of the expanded lane
+  picks that outcome without asking. The status select offers the same
+  three statuses under a divider and runs the same flow, which is the
+  keyboard and screen-reader route.
+- Won always asks first and nothing happens to any other job. Rejected
+  and Stopped move at once, with a floating message carrying "Add a
+  reason" and "Undo".
+- The reason popup offers that status's suggestions, picked or not, plus
+  free text saved as a dated note under `end_note_title`. Skip writes
+  nothing. A failed save keeps the popup open with the endpoint's own
+  message.
+- Dragging an ended job back to an open column is an ordinary move, with
+  its own Undo. The reason it was given stays on the record.
+
+### Closed postings review
+
+Each row shows the job, its company and "closed N days ago", with Keep and
+Stop. Keep is a PUT of `closed_reviewed_at`, which takes the row out of the
+list and turns the warning chip neutral; the flag is left alone, because
+the posting is still gone. Stop is one PUT carrying both the status and the
+reason "Posting closed". Both land on the board straight away and come back
+if the write fails. "Done" closes the popup.
+
+### Phone, below 720px
+
+One column at a time, chosen from a chip row that scrolls sideways with
+Ended as the last chip, where the lane renders already open. Nothing is
+draggable, so every move goes through the status select and the empty
+column stops inviting a gesture that is not there. The banner shortens to
+"N closed postings to review". Popups open as full-width sheets, through
+Gestalt's own mobile adaptation.
+
 ## States
 
 Board/list, empty board and no attention matches follow the sketch above.
@@ -329,19 +406,36 @@ The recorded navigation follow-up and Jinja cutover await the later audit.
 - Clearing a stored ending reason takes `end_reason: null` on the job PUT;
   the empty string is rejected like any other off-vocabulary value.
 
-- Does the filter bar keep its Fit facet while no job carries a fit? The
-  chip and its popover still work, and the facet is left in place rather
-  than removed on an agent's judgement (M0-4 was scoped to the card), but
-  it currently groups every job under one option. The D7 brief answers it
-  for the reworked bar (no Fit filter until fit exists); the facet is on
-  the board until the frontend chunk lands.
+- Settled 2026-10-15: the Fit facet is gone. The D7 brief removes it
+  until fit is calculated, so nothing on the board asks about fit any
+  more, and `fit` on a job record has no reader here.
+- Below 720px a popup is Gestalt's own mobile sheet, which names the
+  dialog "Bottom sheet" rather than carrying the popup's own
+  accessibilityModalLabel (Modal does not pass it to SheetMobile). Each
+  popup still renders its heading inside, so the content is announced.
+  Worth revisiting if a screen-reader pass on a phone finds it confusing.
+- The ending chooser is anchored to the Ended strip rather than to the
+  exact point the card was dropped on. A Popover needs an element to
+  anchor to, and the strip is the element that was dropped on.
+- An ended card shows "Add a reason" only for an outcome that has
+  suggestions, so a won job is never asked why it ended. Free text alone
+  for a won job therefore has no entry point.
 - Nothing clears a job's `closed` flag if the posting comes back online.
   The watcher sets it, and the Keep action only quiets the warning. D7
   does not say what should happen, so nothing was built for it.
 - An ended job keeps the reason it was given when it is dragged back to an
-  open column. The record keeps what the owner said rather than being
-  rewritten behind them, and only a stopped job's reason is counted in
-  "Your search so far", but no surface shows a reason on an open card.
+  open column, Undo included. The record keeps what the owner said rather
+  than being rewritten behind them, and only a stopped job's reason is
+  counted in "Your search so far", but no surface shows a reason on an
+  open card.
+- Closing one of the board popups (ending chooser, reason, review) does
+  not return focus to the element that opened it. Keyboard operability
+  inside the popups is tested; the focus return is a known gap, to be
+  picked up in the Part 4 test audit.
+- The Job detail page's status select shows the flat eight-status list
+  (its payload carries no `ended_statuses`), so it can mark a job Won
+  without the confirmation the board always asks for. Smallest fix is
+  `ended_statuses` in the detail payload; left to the next backend chunk.
 
 ## JOZ-280: job card links now depend on the React flag
 

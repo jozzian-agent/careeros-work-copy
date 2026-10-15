@@ -141,3 +141,37 @@ same thing.
 Pinterest red, so the detail pages' back-link arrow (an `Icon`
 `color="brandPrimary"`) rendered red beside its blue link text. The brand
 here is blue.
+
+## Jobs board D7
+
+Approved 2026-10-15 with the board canvas (claude.ai artifact
+7PBPPwtEXZEmQdeNXd4b8S), by prose: the entries below were built from the
+design brief the canvas approved, and the artifact itself was never opened
+by the agent, so conformance to the canvas is confirmed at the owner
+click-test, not here. Where that canvas and this document disagreed,
+the canvas won and the entries below are the change. They alter the
+components the board already had rather than adding a second way to do
+the same thing.
+
+| Entry | What it is | Rule |
+|---|---|---|
+| `KanbanBoard` column list | Five open columns, 320px each, in payload order | The columns are the open statuses, never the whole status list. Which statuses those are comes from the payload (`statuses` minus `ended_statuses`), so the board cannot disagree with the vault. |
+| `KanbanBoard` empty column | "No jobs here yet. Drag a job here." | Was "No jobs here yet". The invitation is dropped in the phone layout, where nothing is draggable. |
+| `KanbanBoard` labelled column | `role="group"` with "Status, N jobs", singular at one | A column is a region a screen reader can name, since the column IS the filter and the count is the information. |
+| Ended lane (`EndedLane.jsx`) | A collapsible lane beside the scrolling columns | Collapsed on every load. It sits outside the horizontally scrolling box rather than inside it, so it keeps the right edge while the columns scroll and is always a drop target, with no stacking rules of its own. Collapsed it is a 72px strip that is still a drop target; expanded it is ONE 320px column, not three, headed by "Your search so far". Nothing remembers the choice, by owner decision. |
+| `JobCard` closed row | "Posting closed" as the quiet chip, or a warning chip reading "Closed N days ago" | Which of the two shows is the payload's decision (`closed_review`), never the card's own date arithmetic, so the chip and the banner cannot disagree. |
+| `JobCard` compact variant | The Ended lane's card: status select, title, company, reason | An ended job needs nothing said about its posting or its enrichment. It keeps the status select, because moving it back must have a keyboard route. |
+| `JobCard` fit chip | Still hidden | Fit scoring is not built (owner decision M0-4, 2026-10-15). The chip returns with the scoring. |
+| `StatusSelect` list | The eight D7 statuses, with a divider before Won, Rejected and Stopped | The divider is a labelled `Dropdown.Section` ("Ended"), so the grouping is announced and not only drawn. Picking one of the three runs the same ending flow a drop on the lane runs. Both new props are defaulted, so a caller whose payload cannot say which statuses end a job (the Job detail page) still gets the flat list. |
+| `FilterBar` toggles | A list of plain toggle chips after the divider, not one fixed needs-attention pair | The board passes "Needs attention" and "Hide closed postings"; the Companies directory passes its own one. Clear all resets every toggle with the groups. |
+| `FilterBar` Fit facet | Removed | No job carries a fit, so the facet grouped every job under one option. It returns with the scoring, like the card chip. |
+| `FilterBar` count | An optional summary while no filter is on | The board shows the open and ended split there. Once a filter is on, the "N of M" form wins, because the count has to describe what is shown. |
+| `Message` second action | One extra text action beside the primary one | For "Moved to Stopped [Add a reason] [Undo]". `BannerSlim` takes exactly one `primaryAction`, so the second action rides inside the message node rather than a second banner component existing for one row. |
+
+### Recorded overrides
+
+| Override | Reason |
+|---|---|
+| The warning closed chip uses `--color-background-warning-weak` and an alert icon, against "Badge usage" above (a machine-state notice must never alarm) | The canvas asks for it, and it is the one closed-posting case that wants the owner's attention: a posting gone for over a week on a job they never applied to. Every other closed posting keeps the quiet chip. |
+| `StatusSelect.css` draws a rule above the Ended section of the status dropdown | `Dropdown.Section` adds space above itself and no divider, and the canvas asks for a divider. The selector is keyed to the dropdown's own id, so no other `Dropdown.Section` in the app is restyled. |
+

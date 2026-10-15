@@ -9,11 +9,15 @@ export async function fetchBoard() {
   return response.json();
 }
 
-export async function moveJobStatus(id, status) {
+// A board move. `fields` rides along in the same PUT for the one case that
+// needs it: the closed-postings review stops a job AND gives it the reason
+// 'Posting closed' (D7), which is one owner decision and so one write, not
+// a move followed by a second request that could fail on its own.
+export async function moveJobStatus(id, status, fields) {
   const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, ...fields }),
   });
   if (!response.ok) {
     throw new Error('Status update failed.');

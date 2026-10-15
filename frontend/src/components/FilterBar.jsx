@@ -6,28 +6,35 @@ import MoreFiltersPanel from './MoreFiltersPanel.jsx';
 
 // The filter row above the board/list, per the FilterBar README: one chip
 // per filter group in the order given, then "More filters" when any group
-// lives in that panel, a divider, the needs-your-input toggle, and the
-// result count on the right, plus the active-filters Tag row with Clear
-// all. One Popover (or the More filters OverlayPanel) is open at a time,
-// anchored off the chip that opened it.
+// lives in that panel, a divider, the plain toggle chips, and the result
+// count on the right, plus the active-filters Tag row with Clear all. One
+// Popover (or the More filters OverlayPanel) is open at a time, anchored
+// off the chip that opened it.
 //
 // The groups, the word the count counts ("jobs", "companies") and the
-// toggle's label are the surface's to name, so the same bar serves the
-// Jobs board and the Companies directory: a group with `inMore` moves
-// from its own chip into the More filters panel, where `legend` is the
-// fieldset's wording.
+// toggles are the surface's to name, so the same bar serves the Jobs board
+// and the Companies directory: a group with `inMore` moves from its own
+// chip into the More filters panel, where `legend` is the fieldset's
+// wording.
+//
+// `toggles` is a list rather than the one needs-attention pair it used to
+// be (D7 adds "Hide closed postings" beside it on the board). Each entry
+// names its own key, label, count and pressed state, and Clear all resets
+// every one of them along with the groups.
+//
+// `summaryText` replaces the plain "N jobs" while no filter is active, for
+// the board's "N open · M ended" split. Once a filter is on, the count has
+// to describe what is shown, so the "N of M" form wins again.
 export default function FilterBar({
   groups,
   countNoun,
-  needsLabel,
   optionsByGroup,
   selected,
   onToggleValue,
   onClearGroup,
   onClearGroups,
-  needsAttention,
-  needsAttentionCount,
-  onToggleNeedsAttention,
+  toggles = [],
+  summaryText,
   resultCount,
   totalCount,
 }) {
@@ -47,8 +54,12 @@ export default function FilterBar({
   const popoverGroups = groups.filter((group) => !group.inMore);
   const moreGroups = groups.filter((group) => group.inMore);
   const anyGroupActive = groups.some(({ key }) => selected[key].length > 0);
-  const filtersActive = anyGroupActive || needsAttention;
+  const pressedToggles = toggles.filter((toggle) => toggle.pressed);
+  const filtersActive = anyGroupActive || pressedToggles.length > 0;
   const moreCount = moreGroups.reduce((sum, { key }) => sum + selected[key].length, 0);
+  const countText = filtersActive
+    ? `${resultCount} of ${totalCount} ${countNoun}`
+    : summaryText || `${totalCount} ${countNoun}`;
 
   return (
     <Box marginBottom={4}>
@@ -81,18 +92,21 @@ export default function FilterBar({
           />
         ) : null}
         <Box width={1} height={24} dangerouslySetInlineStyle={{ __style: { background: 'var(--color-border-container)' } }} />
-        <FilterChip
-          label={needsLabel}
-          count={needsAttentionCount}
-          countColor="var(--color-brand-violet)"
-          dataTestId="filter-chip-needs-attention"
-          selected={needsAttention}
-          pressed={needsAttention}
-          onClick={onToggleNeedsAttention}
-        />
+        {toggles.map((toggle) => (
+          <FilterChip
+            key={toggle.key}
+            label={toggle.label}
+            count={toggle.count}
+            countColor={toggle.countColor}
+            dataTestId={`filter-chip-${toggle.key}`}
+            selected={toggle.pressed}
+            pressed={toggle.pressed}
+            onClick={toggle.onToggle}
+          />
+        ))}
         <Box marginStart="auto">
           <Text color="subtle" size="200">
-            {filtersActive ? `${resultCount} of ${totalCount} ${countNoun}` : `${totalCount} ${countNoun}`}
+            {countText}
           </Text>
         </Box>
       </Flex>
@@ -117,20 +131,21 @@ export default function FilterBar({
                 );
               }),
             )}
-            {needsAttention ? (
+            {pressedToggles.map((toggle) => (
               <Tag
-                text={needsLabel}
-                accessibilityRemoveIconLabel={`Remove ${needsLabel}`}
-                onRemove={onToggleNeedsAttention}
+                key={toggle.key}
+                text={toggle.label}
+                accessibilityRemoveIconLabel={`Remove ${toggle.label}`}
+                onRemove={toggle.onToggle}
               />
-            ) : null}
+            ))}
             <Button
               text="Clear all"
               color="transparent"
               size="sm"
               onClick={() => {
                 onClearGroups(groups.map(({ key }) => key));
-                if (needsAttention) onToggleNeedsAttention();
+                pressedToggles.forEach((toggle) => toggle.onToggle());
               }}
             />
           </Flex>

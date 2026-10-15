@@ -1145,3 +1145,162 @@ rendering path. The filter bar's Fit facet is left in place (see
 [jobs surface](../docs/surfaces/jobs.md) open questions): it renders and
 works, and dropping a working control was not this task's decision to
 make.
+
+## Jobs board D7 frontend (2026-10-15)
+
+The frontend half of owner decision D7, against the canvas approved
+2026-10-15 (claude.ai artifact 7PBPPwtEXZEmQdeNXd4b8S). Surface summary in
+[docs/surfaces/jobs.md](../docs/surfaces/jobs.md), component entries and
+recorded overrides in
+[docs/decisions/design-system.md](../docs/decisions/design-system.md).
+No backend contract changed.
+
+### Everything comes from the payload
+
+The board holds no copy of the status vocabulary. Columns are
+`statuses` minus `ended_statuses`, the words are `status_labels`, the lane
+groups are `ended_statuses`, the reason suggestions are `end_reasons` per
+status, the note title is `end_note_title`, the split in the filter bar is
+`counts`, and the Ended lane stats are `search_so_far`. The one place this
+used to be decided in JS was `titleCase(status)` for a column heading,
+which now only survives as the fallback for a payload that predates
+`status_labels`.
+
+`closed_review` carries the whole decision about the closed posting: the
+rows the banner asks about, and the `days_closed` each card's warning chip
+prints. A card never subtracts dates, so the chip and the banner cannot
+disagree and the threshold lives in one place (the backend's
+`CLOSED_REVIEW_DAYS`).
+
+### The Ended lane keeps the right edge by staying out of the scroller
+
+`EndedLane.jsx` renders beside the horizontally scrolling columns box, not
+inside it, so the columns scroll under nothing and the lane simply keeps
+the right edge of the content column. `KanbanBoard.jsx` is therefore a flex
+row of two things: the scrolling box (`flex="grow"`, `minWidth={0}`, which
+is what lets it shrink below its content width) and the lane.
+
+The first attempt put the lane at the end of the scrolling row with
+`position: sticky; right: 0`. That needed two fixes and still ended up
+wrong:
+
+1. It did not stick at all, because Gestalt's `Flex` wraps every child in a
+   `FlexItem` div exactly as wide as the child, and a sticky element can
+   only be offset within its own containing block. Replacing the row with a
+   plain flex `div` made it stick.
+2. Sticking made the lane a *positioned* element, and a positioned element
+   paints above anything rendered in a Gestalt `Layer` that carries no
+   z-index of its own. The More filters panel is such a Layer, so the lane
+   covered that panel's own footer buttons, and clicking "Show N jobs" hung
+   on an obscured element. Removing the lane's own `z-index` did not help,
+   since `auto` on a positioned element is still enough.
+
+Staying outside the scroller needs no stacking rules, no sticky, and no
+plain-div override, so the columns row is Gestalt's `Flex` again.
+
+The lane is collapsed on every load and nothing is stored: remembering it
+is on the brief's own deferred list, and a reload collapsing it again is
+the behaviour the brief asks for, not an oversight.
+
+### One ending flow, three entrances
+
+`requestEnd(id, status)` is the single door into an ended status. The
+status select, a drop on a lane group and the chooser the collapsed lane
+opens all call it, so Won confirms from every route and Rejected and
+Stopped move at once from every route. The chooser is a `Popover`
+anchored to the strip the card was dropped on, taken from the drop event
+rather than a ref, with `role="dialog"` and `shouldFocus`, so it is
+reachable and dismissable from the keyboard;
+dropping is not keyboard-reachable at all, which is why the status select
+carries the same three options under a labelled `Dropdown.Section`.
+
+`performMove` gained an optional `fields` argument, merged into the same
+`PUT` and into the optimistic card. Its one caller is the review popup's
+Stop, which is one owner decision (stop this, because the posting closed)
+and so one write rather than a move plus a second request that could fail
+on its own. A rollback restores those fields to what the record carried
+before, so a failed Stop does not leave a reason behind on a card that
+never moved.
+
+### The reason popup reads the status the job has now
+
+`reasonForId` is state, not the job record. The message that offers "Add a
+reason" is created inside `performMove`'s success handler, which closes
+over the board as it was BEFORE the move landed; storing the record there
+made the popup offer the suggestions of the status the job was leaving
+(and, with an open status, none at all). The popup derives its job from
+the current `board.entries` on every render instead.
+
+A saved reason updates that one card rather than reloading the board.
+A reload here would discard any other card's in-flight optimistic move,
+which is the bug class this board was already fixed for once (PROJECT.md
+2026-10-12). Keep and Stop are optimistic for the same reason, and both
+restore the row they removed if the write fails.
+
+### FilterBar toggles became a list
+
+The bar took one fixed needs-attention pair of props. D7 adds "Hide closed
+postings" beside it, so the four props are now one `toggles` array of
+`{key, label, count, countColor, pressed, onToggle}`; `CompaniesList.jsx`
+passes its own single entry. Clear all resets every toggle with the groups,
+and each pressed toggle renders its own removable Tag. The Fit facet is
+gone from `FILTER_GROUPS`, with `fitValue`, `FIT_LABELS` and the fit
+filter branch deleted.
+
+`summaryText` is a new optional prop: the text the count shows while no
+filter is on, which the board uses for the open and ended split. Once a
+filter is on the existing "N of M" form wins, because the count has to
+describe what is shown.
+
+### Phone layout
+
+`src/layout.js` holds `PHONE_MAX_WIDTH` (719) and `usePhoneLayout()`, a
+`matchMedia` subscription whose first value is read synchronously so the
+first paint is already the right layout. Below that width the board
+renders one column, picked from a chip row of the same `FilterChip` the
+filter bar uses, with Ended last; the lane renders with
+`collapsible={false}`, which drops the Show and Hide buttons and the
+sticky pinning, since one column shows at a time.
+
+Nothing is draggable there: `cardDragHandlers` and the column handlers are
+simply not passed, so `JobCard` renders `draggable="false"` and the empty
+column stops inviting a drag it cannot take. The whole board is wrapped in
+Gestalt's `DeviceTypeProvider deviceType="mobile"`, which is how Modal,
+Dropdown and Popover become full-width sheets without a second set of
+mobile components. The cost is recorded as an open question on the surface
+doc: Gestalt's `Modal` does not pass `accessibilityModalLabel` through to
+`SheetMobile`, so a sheet is named "Bottom sheet" and its own heading
+carries the identification.
+
+### Announced counts are singular at one
+
+`src/counts.js` holds `jobCount`, the one place that turns a number into
+the words a screen reader hears beside a column, the lane or a lane group.
+The live check read back "Interested, 1 jobs" before it existed.
+
+### The stale fixture
+
+`tests/fixtures/job-detail.json` was stale in the same way and now carries
+the eight statuses, `status_labels`, and the four D7 job fields, which is
+what `JobDetail.jsx` reads to label its own status control.
+
+`tests/fixtures/board.json` still described the pre-D7 board (rejected,
+closed and withdrawn as columns, none of the new keys), so every spec was
+exercising a contract the backend no longer serves. It now carries the
+real payload: the eight statuses with `status_labels`, `ended_statuses`,
+`counts`, `end_reasons`, `end_note_title`, `closed_review` and
+`search_so_far`, and every entry carries `closed`, `closed_at`,
+`closed_reviewed_at` and `end_reason`. The nine entries cover what the
+flows need: an empty open column (Interviewing), a closed posting under
+the week (neutral chip), one over it in Interested (warning chip and the
+banner), one in Applied that is long closed (neutral, no banner, which is
+the case that must not warn), a won job whose history still carries its
+interview and offer, a rejected job with a reason, a stopped job with a
+reason and one without.
+
+Specs: `ended-lane.spec.js`, `ending-flow.spec.js`,
+`closed-postings.spec.js` and `board-phone.spec.js` are new.
+`jobs-board.spec.js`, `kanban-board.spec.js`, `drag-undo.spec.js` and
+`filter-bar.spec.js` were updated to the open-column board (the Fit facet
+cases are gone, the per-card loop runs over the open jobs, and the ended
+cards are covered by `ended-lane.spec.js` instead).

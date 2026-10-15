@@ -129,7 +129,7 @@ test('a failed move only rolls back its own card, leaving a different concurrent
   const slow = fixture.entries.find((entry) => entry.id === 'JOB-004'); // status: applied
   const fast = fixture.entries.find((entry) => entry.id === 'JOB-001'); // status: new
 
-  await fireDrop(page, page.getByTestId(`job-card-${slow.id}`), page.getByTestId('board-column-rejected'));
+  await fireDrop(page, page.getByTestId(`job-card-${slow.id}`), page.getByTestId('board-column-interviewing'));
   await fireDrop(page, page.getByTestId(`job-card-${fast.id}`), page.getByTestId('board-column-interested'));
 
   await expect(page.getByText('Moved to Interested')).toBeVisible();
@@ -140,7 +140,7 @@ test('a failed move only rolls back its own card, leaving a different concurrent
   // out JOB-001's already-confirmed move.
   await expect(page.getByText('Status update failed.')).toBeVisible();
   await expect(page.getByTestId(`board-column-${slow.status}`).getByTestId(`job-card-${slow.id}`)).toBeVisible();
-  await expect(page.getByTestId('board-column-rejected').getByTestId(`job-card-${slow.id}`)).toHaveCount(0);
+  await expect(page.getByTestId('board-column-interviewing').getByTestId(`job-card-${slow.id}`)).toHaveCount(0);
 
   await expect(page.getByTestId('board-column-interested').getByTestId(`job-card-${fast.id}`)).toBeVisible();
   await expect(page.getByTestId(`board-column-${fast.status}`).getByTestId(`job-card-${fast.id}`)).toHaveCount(0);

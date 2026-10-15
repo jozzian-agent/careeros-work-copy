@@ -2,15 +2,16 @@ import { expect, test } from '@playwright/test';
 import { loadBoardFixture, mockBoard } from './helpers.js';
 
 const fixture = loadBoardFixture();
+const openStatuses = fixture.statuses.filter((status) => !fixture.ended_statuses.includes(status));
 
 test.beforeEach(async ({ page }) => {
   await mockBoard(page, fixture);
 });
 
-test('the board holds one fixed 320px column per status and never wraps', async ({ page }) => {
+test('the board holds one fixed 320px column per open status and never wraps', async ({ page }) => {
   await page.goto('/jobs');
 
-  for (const status of fixture.statuses) {
+  for (const status of openStatuses) {
     const box = await page.getByTestId(`column-header-${status}`).boundingBox();
     expect(box.width).toBeGreaterThan(300);
     expect(box.width).toBeLessThan(321);
@@ -32,14 +33,15 @@ test('the row scrolls horizontally instead of wrapping the columns', async ({ pa
     scrollWidth: el.scrollWidth,
     clientWidth: el.clientWidth,
   }));
-  // 8 columns at 320px plus 16px gaps is wider than any reasonable viewport.
+  // 5 columns at 320px plus gaps and the Ended strip is wider than the
+  // viewport, which is what makes the lane worth pinning.
   expect(scrollWidth).toBeGreaterThan(clientWidth);
 });
 
 test('each column header sits outside its own scrolling body', async ({ page }) => {
   await page.goto('/jobs');
 
-  const status = fixture.statuses[0];
+  const status = openStatuses[0];
   const body = page.getByTestId(`column-body-${status}`);
 
   const bodyStyle = await body.evaluate((el) => getComputedStyle(el).overflowY);
@@ -59,10 +61,11 @@ test('each column header sits outside its own scrolling body', async ({ page }) 
   expect(headerIsOutside).toBe(true);
 });
 
-test('an empty column renders "No jobs here yet" and still shows its status heading', async ({ page }) => {
+test('an empty column invites a drop and still shows its status heading', async ({ page }) => {
   await page.goto('/jobs');
 
-  const emptyStatus = fixture.statuses.find((status) => !fixture.entries.some((entry) => entry.status === status));
+  const emptyStatus = openStatuses.find((status) => !fixture.entries.some((entry) => entry.status === status));
   const column = page.getByTestId(`board-column-${emptyStatus}`);
-  await expect(column.getByText('No jobs here yet')).toBeVisible();
+  await expect(column.getByText('No jobs here yet. Drag a job here.')).toBeVisible();
+  await expect(column.getByRole('heading', { name: fixture.status_labels[emptyStatus], exact: true })).toBeVisible();
 });

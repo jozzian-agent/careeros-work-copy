@@ -216,15 +216,20 @@ export default function CompaniesList() {
             <FilterBar
               groups={FILTER_GROUPS}
               countNoun="companies"
-              needsLabel="Needs your input"
               optionsByGroup={optionsByGroup}
               selected={filters}
               onToggleValue={toggleFilterValue}
               onClearGroup={clearFilterGroup}
               onClearGroups={clearFilterGroups}
-              needsAttention={needsAttention}
-              needsAttentionCount={needsAttentionCount}
-              onToggleNeedsAttention={() => setNeedsAttention((current) => !current)}
+              toggles={[
+                {
+                  key: 'needs-attention',
+                  label: 'Needs your input',
+                  count: needsAttentionCount,
+                  pressed: needsAttention,
+                  onToggle: () => setNeedsAttention((current) => !current),
+                },
+              ]}
               resultCount={filtered.length}
               totalCount={entries.length}
             />

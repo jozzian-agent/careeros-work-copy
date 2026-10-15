@@ -5,10 +5,62 @@
     "applied",
     "interviewing",
     "offer",
+    "won",
     "rejected",
-    "closed",
-    "withdrawn"
+    "stopped"
   ],
+  "status_labels": {
+    "new": "New",
+    "interested": "Interested",
+    "applied": "Applied",
+    "interviewing": "Interviewing",
+    "offer": "Offer",
+    "won": "Won",
+    "rejected": "Rejected",
+    "stopped": "Stopped"
+  },
+  "ended_statuses": [
+    "won",
+    "rejected",
+    "stopped"
+  ],
+  "counts": {
+    "open": 5,
+    "ended": 4
+  },
+  "end_reasons": {
+    "stopped": [
+      "Not interested anymore",
+      "Salary or conditions",
+      "Location or commute",
+      "Took another offer",
+      "Posting closed",
+      "No response"
+    ],
+    "rejected": [
+      "No reason given",
+      "After interview",
+      "Experience did not match",
+      "Position filled"
+    ]
+  },
+  "end_note_title": "Why this ended",
+  "closed_review": [
+    {
+      "id": "JOB-003",
+      "closed_at": "2026-10-04",
+      "days_closed": 11
+    }
+  ],
+  "search_so_far": {
+    "applied_to": 5,
+    "interviews": 2,
+    "offers": 2,
+    "top_stopped_reason": {
+      "reason": "Salary or conditions",
+      "count": 1
+    }
+  },
   "size_classes": [
     "micro",
     "small",
@@ -140,7 +192,11 @@
       ],
       "status_changed": "2026-09-01T08:00:00Z",
       "company_industry": "Software and IT",
-      "company_size_class": "medium"
+      "company_size_class": "medium",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": null
     },
     {
       "id": "JOB-002",
@@ -210,7 +266,11 @@
       ],
       "status_changed": "2026-09-02T08:00:00Z",
       "company_industry": "Industrial robotics",
-      "company_size_class": null
+      "company_size_class": null,
+      "closed": true,
+      "closed_at": "2026-10-13",
+      "closed_reviewed_at": null,
+      "end_reason": null
     },
     {
       "id": "JOB-003",
@@ -281,7 +341,11 @@
       ],
       "status_changed": "2026-09-03T08:00:00Z",
       "company_industry": null,
-      "company_size_class": null
+      "company_size_class": null,
+      "closed": true,
+      "closed_at": "2026-10-04",
+      "closed_reviewed_at": null,
+      "end_reason": null
     },
     {
       "id": "JOB-004",
@@ -355,7 +419,11 @@
       ],
       "status_changed": "2026-09-04T10:00:00Z",
       "company_industry": null,
-      "company_size_class": null
+      "company_size_class": null,
+      "closed": true,
+      "closed_at": "2026-09-20",
+      "closed_reviewed_at": null,
+      "end_reason": null
     },
     {
       "id": "JOB-005",
@@ -364,7 +432,7 @@
       "url": "https://studioalpine.example/careers/product-designer",
       "original_url": null,
       "source": "referral",
-      "status": "interviewing",
+      "status": "won",
       "posted_date": "2026-09-02",
       "added": "2026-09-05",
       "salary_info": true,
@@ -420,14 +488,38 @@
       "fit": "excellent",
       "history": [
         {
-          "event": "extracted",
-          "note": "Extraction completed.",
-          "at": "2026-09-05T09:00:00Z"
+          "event": "created",
+          "note": "Added via posting URL.",
+          "at": "2026-09-05T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "new -> applied",
+          "at": "2026-09-10T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "applied -> interviewing",
+          "at": "2026-09-20T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "interviewing -> offer",
+          "at": "2026-10-01T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "offer -> won",
+          "at": "2026-10-10T08:00:00Z"
         }
       ],
-      "status_changed": "2026-09-05T09:00:00Z",
+      "status_changed": "2026-10-10",
       "company_industry": "Design and creative",
-      "company_size_class": "micro"
+      "company_size_class": "micro",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": null
     },
     {
       "id": "JOB-006",
@@ -501,7 +593,11 @@
       ],
       "status_changed": "2026-09-06T11:30:00Z",
       "company_industry": "Software and IT",
-      "company_size_class": "medium"
+      "company_size_class": "medium",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": null
     },
     {
       "id": "JOB-007",
@@ -569,11 +665,30 @@
           "event": "created",
           "note": "Added via posting URL.",
           "at": "2026-09-07T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "new -> applied",
+          "at": "2026-09-12T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "applied -> interviewing",
+          "at": "2026-09-25T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "interviewing -> rejected",
+          "at": "2026-10-08T08:00:00Z"
         }
       ],
-      "status_changed": "2026-09-07T08:00:00Z",
+      "status_changed": "2026-10-08",
       "company_industry": "Banking and finance",
-      "company_size_class": "large"
+      "company_size_class": "large",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": "After interview"
     },
     {
       "id": "JOB-008",
@@ -582,7 +697,7 @@
       "url": "https://vectoranalytics.example/careers/operations-coordinator",
       "original_url": null,
       "source": "referral",
-      "status": "closed",
+      "status": "stopped",
       "posted_date": null,
       "added": "2026-08-15",
       "salary_info": false,
@@ -639,11 +754,111 @@
           "event": "created",
           "note": "Added via posting URL.",
           "at": "2026-08-15T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "new -> applied",
+          "at": "2026-08-20T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "applied -> stopped",
+          "at": "2026-10-05T08:00:00Z"
+        },
+        {
+          "event": "end_reason",
+          "detail": "stopped: Salary or conditions",
+          "at": "2026-10-05T09:00:00Z"
         }
       ],
-      "status_changed": "2026-08-15T08:00:00Z",
+      "status_changed": "2026-10-05",
       "company_industry": "Banking and finance",
-      "company_size_class": "large"
+      "company_size_class": "large",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": "Salary or conditions"
+    },
+    {
+      "id": "JOB-009",
+      "company_id": "CO-004",
+      "title": "Brand Designer",
+      "url": "https://studioalpine.example/careers/brand-designer",
+      "original_url": null,
+      "source": "referral",
+      "status": "stopped",
+      "posted_date": null,
+      "added": "2026-09-08",
+      "salary_info": false,
+      "salary_note": "",
+      "location": "Lausanne, CH",
+      "remote_ok": null,
+      "notes": "",
+      "enriched": true,
+      "employment_type": "",
+      "valid_through": "",
+      "custom": {},
+      "description": "",
+      "company": "",
+      "seniority": "",
+      "keywords": [],
+      "summary": "",
+      "contact_email": "",
+      "ingest_source": "",
+      "sector": null,
+      "sectors": [],
+      "industry": null,
+      "industries": [
+        "Design and creative"
+      ],
+      "background": "",
+      "skills": [],
+      "certifications": [],
+      "responsibilities": [],
+      "summary_source": "ai",
+      "refresh": "skipped",
+      "employee_count": 8,
+      "function": [
+        "design"
+      ],
+      "tags": [],
+      "normalized_url": null,
+      "in_pipeline": true,
+      "origin": "manual",
+      "source_id": null,
+      "ingest_state": "complete",
+      "ingest_error": null,
+      "field_provenance": {},
+      "ats_provider": null,
+      "ats_tenant": null,
+      "ats_posting_id": null,
+      "company_link_state": "linked",
+      "company_link_reason": "name_exact",
+      "employer_named_in_posting": "Studio Alpine",
+      "company_review": null,
+      "needs_attention": false,
+      "company_name": "Studio Alpine",
+      "pending": false,
+      "fit": "lucky",
+      "history": [
+        {
+          "event": "created",
+          "note": "Added via posting URL.",
+          "at": "2026-09-08T08:00:00Z"
+        },
+        {
+          "event": "status_changed",
+          "detail": "new -> stopped",
+          "at": "2026-10-02T08:00:00Z"
+        }
+      ],
+      "status_changed": "2026-10-02",
+      "company_industry": "Design and creative",
+      "company_size_class": "micro",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": null
     }
   ]
 }

@@ -3,8 +3,8 @@ import {
   Box,
   Button,
   ButtonToggle,
+  DeviceTypeProvider,
   Flex,
-  IconButton,
   Layer,
   Link,
   Modal,
@@ -13,41 +13,41 @@ import {
   Table,
   Text,
 } from 'gestalt';
-import { fetchBoard, intakeJob, moveJobStatus, promoteJob, retryIngest } from '../api/jobs.js';
+import { fetchBoard, intakeJob, moveJobStatus, promoteJob, retryIngest, updateJob } from '../api/jobs.js';
+import { createNote } from '../api/notes.js';
 import KanbanBoard from '../components/KanbanBoard.jsx';
 import JobCard, { CompanyDisplay, IngestIndicator } from '../components/JobCard.jsx';
 import FloatingMessage from '../components/Message.jsx';
 import AddJobPopup from '../components/AddJobPopup.jsx';
 import FilterBar from '../components/FilterBar.jsx';
+import FilterChip from '../components/FilterChip.jsx';
+import { EndingChooser, ReasonPopup, WonConfirm } from '../components/EndJobFlow.jsx';
+import { ClosedPostingsBanner, ClosedPostingsReview } from '../components/ClosedPostings.jsx';
+import { usePhoneLayout } from '../layout.js';
 import { countBy, presentOptions, sortedOptions } from '../filters.js';
 
 const VIEW_KEY = 'careerJobsView';
 const NEEDS_ATTENTION_KEY = 'careerNeedsAttention';
+// Which closed-posting rows the owner has said "Not now" to. The ids, not a
+// single hidden flag, because the banner comes back when ANOTHER job
+// crosses the week (D7), and only the ids can tell those two apart.
+const CLOSED_DISMISSED_KEY = 'careerClosedReviewDismissed';
 const LIST_COLUMNS = ['Title', 'Company', 'Source', 'Status', 'Location', 'Posted', 'Added'];
 const AUTO_REFRESH_AFTER_MS = 30000;
 // Success toasts auto-hide; error messages stay until the user dismisses
 // them (owner decision, Message README).
 const TOAST_LIFETIME_MS = 4000;
 
+// No Fit facet: fit is not calculated, so the board offers no filter for
+// it (D7 removes the chip the JOZ-279 bar still had).
 const FILTER_GROUPS = [
-  { key: 'fit', label: 'Fit' },
   { key: 'function', label: 'Function' },
   { key: 'location', label: 'Location' },
   { key: 'industry', label: 'Industry', legend: 'Industry (estimated)', inMore: true },
   { key: 'companySize', label: 'Company size', legend: 'Company size (estimated)', inMore: true },
 ];
-const EMPTY_FILTERS = { fit: [], function: [], location: [], industry: [], companySize: [] };
+const EMPTY_FILTERS = { function: [], location: [], industry: [], companySize: [] };
 const COULD_NOT_READ_MESSAGE = "Could not read that posting. It's saved, so Try again only retries the read.";
-const FIT_LABELS = [
-  ['needs_input', 'Needs your input'],
-  ['no_fit', 'No fit'],
-  ['lucky', 'Lucky'],
-  ['excellent', 'Excellent fit'],
-];
-
-function fitValue(job) {
-  return job.fit && FIT_LABELS.some(([value]) => value === job.fit) ? job.fit : 'needs_input';
-}
 
 function looksLikeUrl(value) {
   try {
@@ -74,8 +74,60 @@ function readStoredNeedsAttention() {
   }
 }
 
+function readDismissedClosed() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(CLOSED_DISMISSED_KEY) || '[]');
+    return Array.isArray(stored) ? stored.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+// The day the owner kept a closed posting, in the YYYY-MM-DD the vault
+// stores. Local date parts, not toISOString(), which would shift the day
+// backwards for anyone east of UTC late in the evening.
+function today() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+// The statuses the closed-postings banner asks about: everything before
+// Applied, matching the backend's BEFORE_APPLIED, derived from the payload
+// order rather than repeated here so the two cannot drift apart.
+function beforeAppliedStatuses(board) {
+  const at = board.statuses.indexOf('applied');
+  return at < 0 ? board.statuses : board.statuses.slice(0, at);
+}
+
+// True while a job in this status is still one the banner asks about.
+function isBeforeApplied(board, status) {
+  return beforeAppliedStatuses(board).includes(status);
+}
+
+// Take a job out of the review list, the way a move to Applied-or-later or
+// an ending takes it out of what the banner asks about, so the warning chip
+// turns neutral straight away instead of after a reload.
+function pruneClosedReview(board, id) {
+  return (board.closed_review || []).filter((row) => row.id !== id);
+}
+
+// Put a review row back after a failed write or an Undo, in payload order
+// (the backend emits rows in entry order, so re-sorting by the entries list
+// keeps the two agreeing). Missing row means nothing to restore.
+function restoreClosedReview(board, row) {
+  if (!row) return board.closed_review;
+  const rows = pruneClosedReview(board, row.id);
+  const position = board.entries.findIndex((entry) => entry.id === row.id);
+  const after = rows.findIndex((candidate) => {
+    const at = board.entries.findIndex((entry) => entry.id === candidate.id);
+    return at > position;
+  });
+  rows.splice(after < 0 ? rows.length : after, 0, row);
+  return rows;
 }
 
 function jobHref(id) {
@@ -121,8 +173,10 @@ function SortableHeaderCell({ label, status, sortOrder, onSortChange }) {
   );
 }
 
-// List view is untouched by this rebuild (JOZ-278 is board-only).
-function ListView({ entries, onRetry }) {
+// List view is untouched by the board rebuilds (JOZ-278 and D7 are both
+// board-only), apart from reading the status words from the payload the
+// way every other surface now does.
+function ListView({ entries, statusLabels, onRetry }) {
   const [sortColumn, setSortColumn] = useState(null);
   const [ascending, setAscending] = useState(true);
   const sorted = useMemo(() => sortEntries(entries, sortColumn, ascending), [entries, sortColumn, ascending]);
@@ -182,7 +236,7 @@ function ListView({ entries, onRetry }) {
                 </Table.Cell>
                 <Table.Cell>
                   <Flex direction="column" gap={1}>
-                    <Text>{titleCase(job.status)}</Text>
+                    <Text>{statusLabels[job.status] || titleCase(job.status)}</Text>
                     <IngestIndicator job={job} onRetry={onRetry} />
                   </Flex>
                 </Table.Cell>
@@ -237,6 +291,12 @@ export default function JobsBoard() {
   const [loadError, setLoadError] = useState(null);
   const [view, setView] = useState(readStoredView);
   const [needsAttention, setNeedsAttention] = useState(readStoredNeedsAttention);
+  // Deliberately not remembered: the brief has "Hide closed postings" off
+  // by default and the Ended lane collapsed on every load, so neither is
+  // stored and a reload always starts from the same board. Remembering the
+  // lane is on the brief's own deferred list.
+  const [hideClosed, setHideClosed] = useState(false);
+  const [laneExpanded, setLaneExpanded] = useState(false);
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [toasts, setToasts] = useState([]);
   const [intakeUrl, setIntakeUrl] = useState('');
@@ -246,23 +306,43 @@ export default function JobsBoard() {
   const [addPopupOpen, setAddPopupOpen] = useState(false);
   const [dragId, setDragId] = useState(null);
   const [overColumn, setOverColumn] = useState(null);
+  const [chooserFor, setChooserFor] = useState(null);
+  const [wonFor, setWonFor] = useState(null);
+  // The job id, not the record: the popup must read the status the job
+  // has NOW (the ending move already landed), not the one it had when
+  // the message that offers the reason was created.
+  const [reasonForId, setReasonForId] = useState(null);
+  const [reasonBusy, setReasonBusy] = useState(false);
+  const [reasonError, setReasonError] = useState(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(null);
+  const [dismissedClosed, setDismissedClosed] = useState(readDismissedClosed);
+  const [phoneStatus, setPhoneStatus] = useState(null);
   const moveGenerationRef = useRef({});
+  // Closed-postings review rows removed by an optimistic move, keyed by job
+  // id, so a failed write or an Undo restores the exact row the payload
+  // carried (days_closed included) without a reload.
+  const closedRowRef = useRef({});
   const toastIdRef = useRef(0);
+  const isPhone = usePhoneLayout();
 
   // One success toast auto-hides on its own timer; an error toast has none
   // and sits until dismissed. Toasts are a list, not a single slot, so a
   // success elsewhere can never replace (and silently clear) an outstanding
   // error - they just stack in the same fixed bottom-centre container.
+  // Either action dismisses its own message first, so pressing Undo or
+  // "Add a reason" never leaves a stale message behind the popup it opens.
   function showToast(kind, text, action) {
     const id = ++toastIdRef.current;
     const entry = { id, kind, text, ...action };
-    if (entry.onAction) {
-      const fire = entry.onAction;
-      entry.onAction = () => {
+    ['onAction', 'onSecondaryAction'].forEach((key) => {
+      if (!entry[key]) return;
+      const fire = entry[key];
+      entry[key] = () => {
         dismissToast(id);
         fire();
       };
-    }
+    });
     setToasts((prev) => [...prev, entry]);
     if (kind !== 'error') {
       window.setTimeout(() => dismissToast(id), TOAST_LIFETIME_MS);
@@ -356,12 +436,13 @@ export default function JobsBoard() {
   // always against whatever `entries` is current at that moment, never a
   // frozen whole-board snapshot, so an unrelated card's move in between is
   // never clobbered.
-  function reorderEntries(entries, id, toStatus, beforeId) {
+  function reorderEntries(entries, id, toStatus, beforeId, fields) {
     const movingJob = entries.find((job) => job.id === id);
     if (!movingJob) return entries;
     const withoutMoving = entries.filter((job) => job.id !== id);
     const insertAt = beforeId ? withoutMoving.findIndex((job) => job.id === beforeId) : -1;
-    const updatedJob = movingJob.status === toStatus ? movingJob : { ...movingJob, status: toStatus };
+    const changed = movingJob.status !== toStatus || fields;
+    const updatedJob = changed ? { ...movingJob, status: toStatus, ...(fields || {}) } : movingJob;
     return insertAt === -1
       ? [...withoutMoving, updatedJob]
       : [...withoutMoving.slice(0, insertAt), updatedJob, ...withoutMoving.slice(insertAt)];
@@ -377,6 +458,21 @@ export default function JobsBoard() {
     return columnEntries[ownIndex + 1].id;
   }
 
+  // The word a status is shown as, from the payload (vault.STATUS_LABELS).
+  // Nothing on this page title-cases a status id of its own accord any
+  // more; titleCase is only the fallback for a payload that predates the
+  // key.
+  function statusLabel(status) {
+    return (board?.status_labels || {})[status] || titleCase(status);
+  }
+
+  // The reasons a status offers, from the payload. An empty list means the
+  // outcome has no vocabulary (Won has none), and nothing then offers to
+  // add a reason for it: the popup exists to pick one of these words.
+  function reasonSuggestions(status) {
+    return (board?.end_reasons || {})[status] || [];
+  }
+
   // Shared by the status dropdown and drag-and-drop (StatusSelect README:
   // "Changing it moves the card to that column", same handler as drag).
   // beforeId reorders within/into a column by inserting ahead of that card;
@@ -387,14 +483,25 @@ export default function JobsBoard() {
   // (on failure, or via Undo) only ever touches this one card's slot, via
   // reorderEntries against the latest board state, so a different card's
   // move that lands in between is never reverted by this one.
-  function performMove(id, toStatus, beforeId) {
+  //
+  // D7: `fields` rides along in the same PUT (the review popup's Stop sends
+  // the reason with the move), and a move into a status that has reason
+  // suggestions offers "Add a reason" beside Undo, because that is the
+  // moment the owner knows why.
+  function performMove(id, toStatus, beforeId, fields) {
     if (!board) return;
     const current = board.entries;
     const movingJob = current.find((job) => job.id === id);
     if (!movingJob || id === beforeId) return;
     const fromStatus = movingJob.status;
     const originalBeforeId = nextInColumn(current, id, fromStatus);
-    const nextEntries = reorderEntries(current, id, toStatus, beforeId);
+    // What those extra fields were before, so a rollback restores the
+    // record the owner actually had rather than leaving half of a move
+    // behind on the card.
+    const revertFields = fields
+      ? Object.fromEntries(Object.keys(fields).map((key) => [key, movingJob[key] ?? null]))
+      : undefined;
+    const nextEntries = reorderEntries(current, id, toStatus, beforeId, fields);
 
     if (fromStatus === toStatus) {
       setBoard((prev) => ({ ...prev, entries: nextEntries }));
@@ -403,25 +510,47 @@ export default function JobsBoard() {
 
     const generation = (moveGenerationRef.current[id] || 0) + 1;
     moveGenerationRef.current[id] = generation;
-    setBoard((prev) => ({ ...prev, entries: nextEntries }));
+    // A move out of a before-Applied status (to Applied or later, or to an
+    // ending) takes the job out of what the closed-postings banner asks
+    // about, so its review row goes with the move, straight away, and the
+    // card's warning chip turns neutral. The row is kept in a ref so a
+    // failed write or an Undo can put it back exactly as it was.
+    const closedRow = (board.closed_review || []).find((row) => row.id === id);
+    const keepsRow = isBeforeApplied(board, toStatus);
+    if (closedRow && !keepsRow) {
+      closedRowRef.current[id] = closedRow;
+    }
+    setBoard((prev) => ({
+      ...prev,
+      entries: nextEntries,
+      closed_review: keepsRow ? prev.closed_review : pruneClosedReview(prev, id),
+    }));
 
-    moveJobStatus(id, toStatus)
+    moveJobStatus(id, toStatus, fields)
       .then(() => {
         if (moveGenerationRef.current[id] !== generation) return;
-        showToast('success', `Moved to ${titleCase(toStatus)}`, {
+        const canExplain = reasonSuggestions(toStatus).length > 0;
+        showToast('success', `Moved to ${statusLabel(toStatus)}`, {
           actionLabel: 'Undo',
-          onAction: () => undoMove(id, generation, fromStatus, toStatus, originalBeforeId),
+          onAction: () => undoMove(id, generation, fromStatus, toStatus, originalBeforeId, fields),
+          secondaryLabel: canExplain ? 'Add a reason' : undefined,
+          onSecondaryAction: canExplain ? () => openReason(id) : undefined,
         });
       })
       .catch((err) => {
         if (moveGenerationRef.current[id] === generation) {
-          setBoard((prev) => ({ ...prev, entries: reorderEntries(prev.entries, id, fromStatus, originalBeforeId) }));
+          setBoard((prev) => ({
+            ...prev,
+            entries: reorderEntries(prev.entries, id, fromStatus, originalBeforeId, revertFields),
+            closed_review: restoreClosedReview(prev, closedRowRef.current[id]),
+          }));
+          delete closedRowRef.current[id];
         }
         showToast('error', err.message);
       });
   }
 
-  function undoMove(id, generation, previousStatus, movedStatus, originalBeforeId) {
+  function undoMove(id, generation, previousStatus, movedStatus, originalBeforeId, movedFields) {
     if (moveGenerationRef.current[id] !== generation) return;
     const undoGeneration = generation + 1;
     moveGenerationRef.current[id] = undoGeneration;
@@ -430,9 +559,22 @@ export default function JobsBoard() {
     // rollback, so it reflects the card's actual slot at undo-time (not a
     // stale closure), for the failure branch below to restore it to.
     const movedBeforeId = { current: null };
+    // An undone ending keeps the reason it was given: the record keeps what
+    // the owner said rather than being rewritten behind them (D7, and
+    // docs/surfaces/jobs.md), and the Undo PUT sends the status alone, so
+    // the card must not clear end_reason locally either or the two would
+    // disagree until a reload. The review row comes back with it: the job
+    // is before Applied, closed and unkept again, exactly what the banner
+    // asks about.
+    const restoredRow = closedRowRef.current[id];
+    delete closedRowRef.current[id];
     setBoard((prev) => {
       movedBeforeId.current = nextInColumn(prev.entries, id, movedStatus);
-      return { ...prev, entries: reorderEntries(prev.entries, id, previousStatus, originalBeforeId) };
+      return {
+        ...prev,
+        entries: reorderEntries(prev.entries, id, previousStatus, originalBeforeId),
+        closed_review: restoreClosedReview(prev, restoredRow),
+      };
     });
 
     moveJobStatus(id, previousStatus).catch((err) => {
@@ -444,14 +586,132 @@ export default function JobsBoard() {
       // flight) and restoring movedStatus here would clobber that newer,
       // already-confirmed move with stale data.
       if (moveGenerationRef.current[id] === undoGeneration) {
-        setBoard((prev) => ({ ...prev, entries: reorderEntries(prev.entries, id, movedStatus, movedBeforeId.current) }));
+        setBoard((prev) => ({
+          ...prev,
+          entries: reorderEntries(prev.entries, id, movedStatus, movedBeforeId.current, movedFields),
+          // The server kept the ended status, so the job really is out of
+          // what the banner asks about: the review row this Undo restored
+          // goes again with the card.
+          closed_review: pruneClosedReview(prev, id),
+        }));
       }
       showToast('error', err.message);
     });
   }
 
-  function handleMove(id, status) {
+  // Every route into an ended status runs through here: the status select,
+  // a drop on one of the lane's groups, and the chooser the collapsed lane
+  // opens. Won asks first and the other two move at once, because Won is
+  // the one outcome the owner cannot take back in their own head (D7).
+  function requestEnd(id, status) {
+    const job = board.entries.find((entry) => entry.id === id);
+    if (!job) return;
+    if (status === 'won') {
+      setWonFor(job);
+      return;
+    }
     performMove(id, status, null);
+  }
+
+  function handleMove(id, status) {
+    if ((board.ended_statuses || []).includes(status)) {
+      requestEnd(id, status);
+      return;
+    }
+    performMove(id, status, null);
+  }
+
+  function openReason(id) {
+    setReasonError(null);
+    setReasonForId(id);
+  }
+
+  // Save writes at most two things, and only what the owner actually gave:
+  // the picked suggestion through the ordinary job PUT, and the free text
+  // as a dated note under the title the payload names. Skip writes nothing
+  // at all, so a job never waits for a reason (D7).
+  async function saveReason({ reason, note }) {
+    const job = board.entries.find((entry) => entry.id === reasonForId);
+    if (!job) return;
+    setReasonBusy(true);
+    setReasonError(null);
+    try {
+      if (reason && reason !== job.end_reason) {
+        await updateJob(job.id, { end_reason: reason });
+      }
+      if (note) {
+        await createNote('jobs', job.id, { title: board.end_note_title, body: note });
+      }
+      // The reason lands on the one card that shows it, rather than through
+      // a whole-board reload: a reload here would throw away any other
+      // card's in-flight optimistic move, which is the bug class the board
+      // was already fixed for once (PROJECT.md 2026-10-12).
+      setBoard((prev) => ({
+        ...prev,
+        entries: prev.entries.map((entry) =>
+          entry.id === job.id ? { ...entry, end_reason: reason || entry.end_reason } : entry,
+        ),
+      }));
+      setReasonForId(null);
+      showToast('success', 'Reason saved');
+    } catch (err) {
+      setReasonError(err.message);
+    } finally {
+      setReasonBusy(false);
+    }
+  }
+
+  // Keep marks the job reviewed, which is what takes it out of
+  // closed_review and turns its warning chip back into the neutral one.
+  // The flag itself is left alone, because the posting really is gone. The
+  // row goes straight away rather than after a reload, the same way a move
+  // lands straight away, and comes back if the write fails.
+  async function keepClosed(job) {
+    const row = (board.closed_review || []).find((entry) => entry.id === job.id);
+    const reviewed = today();
+    setReviewBusy(job.id);
+    setBoard((prev) => ({
+      ...prev,
+      closed_review: (prev.closed_review || []).filter((entry) => entry.id !== job.id),
+      entries: prev.entries.map((entry) => (entry.id === job.id ? { ...entry, closed_reviewed_at: reviewed } : entry)),
+    }));
+    try {
+      await updateJob(job.id, { closed_reviewed_at: reviewed });
+      showToast('success', `Keeping ${job.title}`);
+    } catch (err) {
+      setBoard((prev) => ({
+        ...prev,
+        closed_review: row ? [...(prev.closed_review || []), row] : prev.closed_review,
+        entries: prev.entries.map((entry) =>
+          entry.id === job.id ? { ...entry, closed_reviewed_at: job.closed_reviewed_at } : entry,
+        ),
+      }));
+      showToast('error', err.message);
+    } finally {
+      setReviewBusy(null);
+    }
+  }
+
+  // Stop is the ordinary ending move with the reason already known, sent in
+  // the same PUT, and it can be changed later like any other. The review
+  // row leaves with the move (performMove prunes it, because an ended job
+  // is no longer one the owner has not applied to) and comes back if the
+  // write fails or the owner undoes.
+  function stopClosed(job) {
+    performMove(job.id, 'stopped', null, { end_reason: 'Posting closed' });
+  }
+
+  // "Not now" hides the banner for the jobs it is asking about today, and
+  // for those only: a job that crosses the week later is not in this list,
+  // so the banner comes back for it (D7).
+  function dismissClosedReview() {
+    const ids = (board.closed_review || []).map((row) => row.id);
+    setDismissedClosed(ids);
+    try {
+      window.localStorage.setItem(CLOSED_DISMISSED_KEY, JSON.stringify(ids));
+    } catch {
+      // localStorage unavailable; the banner will just come back next load.
+    }
   }
 
   function cardDragHandlers(job) {
@@ -490,6 +750,48 @@ export default function JobsBoard() {
         if (id) performMove(id, status, null);
         setDragId(null);
         setOverColumn(null);
+      },
+    };
+  }
+
+  // A drop on the collapsed strip does not say which outcome it was, so it
+  // opens the chooser at the strip; a drop on one of the expanded lane's
+  // groups does, so it ends the job there and then (D7).
+  const laneDragHandlers = {
+    onDragOver: (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      if (overColumn !== 'ended') setOverColumn('ended');
+    },
+    onDrop: (event) => {
+      event.preventDefault();
+      // The strip itself is the chooser's anchor, read here rather than
+      // from a ref during render: this IS the element the card was dropped
+      // on, which is as close to the drop point as a Popover can be
+      // anchored.
+      const anchor = event.currentTarget;
+      const id = event.dataTransfer.getData('text/plain') || dragId;
+      setDragId(null);
+      setOverColumn(null);
+      const job = id ? board.entries.find((entry) => entry.id === id) : null;
+      setChooserFor(job ? { job, anchor } : null);
+    },
+  };
+
+  function endedGroupDragHandlers(status) {
+    return {
+      onDragOver: (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        if (overColumn !== `ended-${status}`) setOverColumn(`ended-${status}`);
+      },
+      onDrop: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = event.dataTransfer.getData('text/plain') || dragId;
+        setDragId(null);
+        setOverColumn(null);
+        if (id) requestEnd(id, status);
       },
     };
   }
@@ -655,12 +957,6 @@ export default function JobsBoard() {
     return Object.fromEntries(board.function_options.map(([id, label]) => [id, label]));
   }, [board]);
 
-  const fitOptions = useMemo(() => {
-    if (!board) return [];
-    const counts = countBy(board.entries, (job) => [fitValue(job)]);
-    return FIT_LABELS.map(([value, label]) => ({ value, label, count: counts.get(value) || 0 }));
-  }, [board]);
-
   const functionOptions = useMemo(() => {
     if (!board) return [];
     const counts = countBy(board.entries, (job) => job.function || []);
@@ -698,27 +994,28 @@ export default function JobsBoard() {
 
   const optionsByGroup = useMemo(
     () => ({
-      fit: fitOptions,
       function: functionOptions,
       location: locationOptions,
       industry: industryOptions,
       companySize: companySizeOptions,
     }),
-    [fitOptions, functionOptions, locationOptions, industryOptions, companySizeOptions],
+    [functionOptions, locationOptions, industryOptions, companySizeOptions],
   );
 
   const filteredEntries = useMemo(() => {
     if (!board) return [];
     return board.entries.filter((job) => {
-      const fitOk = filters.fit.length === 0 || filters.fit.includes(fitValue(job));
       const functionOk = filters.function.length === 0 || (job.function || []).some((f) => filters.function.includes(f));
       const locationOk = filters.location.length === 0 || filters.location.includes(job.location);
       const industryOk = filters.industry.length === 0 || (job.industries || []).some((v) => filters.industry.includes(v));
       const sizeOk = filters.companySize.length === 0 || filters.companySize.includes(job.company_size_class);
       const needsOk = !needsAttention || job.needs_attention;
-      return fitOk && functionOk && locationOk && industryOk && sizeOk && needsOk;
+      // "Hide closed postings" hides the flagged job in every column, open
+      // or ended: the filter is about the posting, not about the status.
+      const closedOk = !hideClosed || !job.closed;
+      return functionOk && locationOk && industryOk && sizeOk && needsOk && closedOk;
     });
-  }, [board, filters, needsAttention]);
+  }, [board, filters, needsAttention, hideClosed]);
 
   if (loadError) {
     return (
@@ -739,11 +1036,28 @@ export default function JobsBoard() {
     );
   }
 
+  const endedStatuses = board.ended_statuses || [];
+  const reasonJob = reasonForId ? board.entries.find((entry) => entry.id === reasonForId) : null;
+  // Defaulted, not assumed, like `size_classes` above: `counts` is a new
+  // payload key, and a bundle loaded against a server that predates it
+  // must fall back to the plain total, not lose the whole board.
+  const countSummary = board.counts ? `${board.counts.open} open · ${board.counts.ended} ended` : undefined;
+  const openStatuses = board.statuses.filter((status) => !endedStatuses.includes(status));
+  // The payload counts the days a posting has been gone for exactly the
+  // jobs whose card must warn rather than inform, so the chip, the banner
+  // and the review popup cannot disagree and the browser counts nothing.
+  const closedDaysById = Object.fromEntries((board.closed_review || []).map((row) => [row.id, row.days_closed]));
   const isEmpty = board.entries.length === 0;
   const anyGroupFilterActive = Object.values(filters).some((values) => values.length > 0);
   const noMatches = !isEmpty && filteredEntries.length === 0;
-  const noMatchesMessage = needsAttention && !anyGroupFilterActive ? 'Nothing needs attention.' : 'No jobs match these filters.';
+  const noMatchesMessage =
+    needsAttention && !anyGroupFilterActive ? 'Nothing needs attention.' : 'No jobs match these filters.';
   const needsAttentionCount = board.entries.filter((job) => job.needs_attention).length;
+  const closedCount = board.entries.filter((job) => job.closed).length;
+  const pendingClosedReview = (board.closed_review || []).filter((row) => !dismissedClosed.includes(row.id));
+  const reviewRows = (board.closed_review || [])
+    .map((row) => ({ job: board.entries.find((entry) => entry.id === row.id), days: row.days_closed }))
+    .filter((row) => row.job);
 
   const popupDuplicate = duplicate && duplicate.existing.in_pipeline !== false ? duplicate : null;
   const dialogDuplicate = duplicate && duplicate.existing.in_pipeline === false ? duplicate : null;
@@ -757,48 +1071,84 @@ export default function JobsBoard() {
           ? 'error'
           : 'ready';
 
-  const columns = board.statuses.map((status) => {
+  function renderCard(job, compact = false) {
+    return (
+      <JobCard
+        key={job.id}
+        job={job}
+        statuses={board.statuses}
+        statusLabels={board.status_labels || {}}
+        endedStatuses={endedStatuses}
+        functionLabels={functionLabels}
+        closedDays={closedDaysById[job.id]}
+        compact={compact}
+        canExplain={reasonSuggestions(job.status).length > 0}
+        onMove={handleMove}
+        onRetry={handleRetry}
+        onAddReason={(target) => openReason(target.id)}
+        dragHandlers={isPhone ? undefined : cardDragHandlers(job)}
+        isDragging={dragId === job.id}
+      />
+    );
+  }
+
+  const allColumns = openStatuses.map((status) => {
     const entries = filteredEntries.filter((job) => job.status === status);
     return {
       status,
-      title: titleCase(status),
+      title: statusLabel(status),
       count: entries.length,
       isEmpty: entries.length === 0,
       isOver: overColumn === status,
-      ...columnDragHandlers(status),
-      children: entries.map((job) => (
-        <JobCard
-          key={job.id}
-          job={job}
-          statuses={board.statuses}
-          functionLabels={functionLabels}
-          onMove={handleMove}
-          onRetry={handleRetry}
-          dragHandlers={cardDragHandlers(job)}
-          isDragging={dragId === job.id}
-        />
-      )),
+      ...(isPhone ? {} : columnDragHandlers(status)),
+      children: entries.map((job) => renderCard(job)),
     };
   });
 
-  return (
+  // Latest first inside a lane group, by the day the status last changed:
+  // "its latest 3 jobs" is about when a job ended, not when it was added.
+  const endedGroups = endedStatuses.map((status) => ({
+    status,
+    label: statusLabel(status),
+    jobs: filteredEntries
+      .filter((job) => job.status === status)
+      .sort((a, b) => String(b.status_changed || '').localeCompare(String(a.status_changed || ''))),
+    isOver: overColumn === `ended-${status}`,
+    ...(isPhone ? {} : endedGroupDragHandlers(status)),
+  }));
+
+  const lane = {
+    expanded: laneExpanded,
+    collapsible: !isPhone,
+    total: endedGroups.reduce((sum, group) => sum + group.jobs.length, 0),
+    groups: endedGroups,
+    searchSoFar: board.search_so_far || {},
+    isOver: overColumn === 'ended',
+    laneDragHandlers,
+    onToggle: () => setLaneExpanded((value) => !value),
+    renderCard: (job) => renderCard(job, true),
+  };
+
+  // The phone layout shows one column at a time, picked from a chip row
+  // with Ended as the last chip (D7). Nothing is dragged there, so every
+  // move goes through the status select, which runs the same flows.
+  const phoneSelection = phoneStatus || openStatuses[0];
+  const columns = isPhone ? allColumns.filter((column) => column.status === phoneSelection) : allColumns;
+  const laneProps = isPhone ? (phoneSelection === 'ended' ? lane : null) : lane;
+
+  const boardUi = (
     <Box padding={6}>
       <PageHeader title="Jobs" />
       {/* PageHeader's own items slot is `display: none` below the md
           breakpoint (gestalt/src/PageHeader/components.tsx
           PageHeaderItemsBlock), so Board/List lived there would be
           unreachable on mobile and the mobile list-rows fix would be moot.
-          This row has no such hiding and stays visible at every width. */}
+          This row has no such hiding and stays visible at every width.
+          D7 makes "Add a job" the one primary button, in words rather than
+          the plus icon it used to be. */}
       <Box marginTop={3} marginBottom={3}>
         <Flex gap={2} alignItems="center">
-          <IconButton
-            accessibilityLabel="Add a job"
-            accessibilityPopupRole="dialog"
-            icon="add"
-            bgColor="red"
-            size="lg"
-            onClick={() => setAddPopupOpen(true)}
-          />
+          <Button text="Add a job" color="red" accessibilityHaspopup onClick={() => setAddPopupOpen(true)} />
           <ButtonToggle text="Board" selected={view === 'board'} onClick={() => persistView('board')} />
           <ButtonToggle text="List" selected={view === 'list'} onClick={() => persistView('list')} />
         </Flex>
@@ -806,27 +1156,121 @@ export default function JobsBoard() {
       <FilterBar
         groups={FILTER_GROUPS}
         countNoun="jobs"
-        needsLabel="Needs attention"
         optionsByGroup={optionsByGroup}
         selected={filters}
         onToggleValue={toggleFilterValue}
         onClearGroup={clearFilterGroup}
         onClearGroups={clearFilterGroups}
-        needsAttention={needsAttention}
-        needsAttentionCount={needsAttentionCount}
-        onToggleNeedsAttention={toggleNeedsAttention}
+        toggles={[
+          {
+            key: 'needs-attention',
+            label: 'Needs attention',
+            count: needsAttentionCount,
+            countColor: 'var(--color-brand-violet)',
+            pressed: needsAttention,
+            onToggle: toggleNeedsAttention,
+          },
+          {
+            key: 'hide-closed',
+            label: 'Hide closed postings',
+            count: closedCount,
+            pressed: hideClosed,
+            onToggle: () => setHideClosed((value) => !value),
+          },
+        ]}
+        summaryText={countSummary}
         resultCount={filteredEntries.length}
         totalCount={board.entries.length}
       />
+      {pendingClosedReview.length > 0 ? (
+        <ClosedPostingsBanner
+          count={pendingClosedReview.length}
+          short={isPhone}
+          onReview={() => setReviewOpen(true)}
+          onNotNow={dismissClosedReview}
+        />
+      ) : null}
+      {isPhone && view === 'board' && !isEmpty ? (
+        <Box marginBottom={4} overflow="scrollX">
+          <Flex gap={2} alignItems="center" wrap={false}>
+            {allColumns.map((column) => (
+              <FilterChip
+                key={column.status}
+                label={column.title}
+                count={column.count}
+                dataTestId={`status-chip-${column.status}`}
+                selected={phoneSelection === column.status}
+                pressed={phoneSelection === column.status}
+                onClick={() => setPhoneStatus(column.status)}
+              />
+            ))}
+            <FilterChip
+              label="Ended"
+              count={lane.total}
+              dataTestId="status-chip-ended"
+              selected={phoneSelection === 'ended'}
+              pressed={phoneSelection === 'ended'}
+              onClick={() => setPhoneStatus('ended')}
+            />
+          </Flex>
+        </Box>
+      ) : null}
       {isEmpty ? (
         <Text color="subtle">{board.empty}</Text>
       ) : noMatches ? (
         <Text color="subtle">{noMatchesMessage}</Text>
       ) : view === 'board' ? (
-        <KanbanBoard columns={columns} />
+        <KanbanBoard columns={columns} lane={laneProps} canDrag={!isPhone} />
       ) : (
-        <ListView entries={filteredEntries} onRetry={handleRetry} />
+        <ListView entries={filteredEntries} statusLabels={board.status_labels || {}} onRetry={handleRetry} />
       )}
+      {chooserFor ? (
+        <EndingChooser
+          anchor={chooserFor.anchor}
+          jobTitle={chooserFor.job.title}
+          endedStatuses={endedStatuses}
+          statusLabels={board.status_labels || {}}
+          onPick={(status) => {
+            const { job } = chooserFor;
+            setChooserFor(null);
+            requestEnd(job.id, status);
+          }}
+          onDismiss={() => setChooserFor(null)}
+        />
+      ) : null}
+      {wonFor ? (
+        <WonConfirm
+          job={wonFor}
+          statusLabels={board.status_labels || {}}
+          onCancel={() => setWonFor(null)}
+          onConfirm={() => {
+            const job = wonFor;
+            setWonFor(null);
+            performMove(job.id, 'won', null);
+          }}
+        />
+      ) : null}
+      {reasonJob ? (
+        <ReasonPopup
+          job={reasonJob}
+          reasons={reasonSuggestions(reasonJob.status)}
+          noteTitle={board.end_note_title}
+          statusLabels={board.status_labels || {}}
+          busy={reasonBusy}
+          error={reasonError}
+          onSave={saveReason}
+          onSkip={() => setReasonForId(null)}
+        />
+      ) : null}
+      {reviewOpen ? (
+        <ClosedPostingsReview
+          rows={reviewRows}
+          busyId={reviewBusy}
+          onKeep={keepClosed}
+          onStop={stopClosed}
+          onDone={() => setReviewOpen(false)}
+        />
+      ) : null}
       {dialogDuplicate ? (
         <DuplicateDialog
           duplicate={dialogDuplicate}
@@ -863,6 +1307,8 @@ export default function JobsBoard() {
                     text={entry.text}
                     actionLabel={entry.actionLabel}
                     onAction={entry.onAction}
+                    secondaryLabel={entry.secondaryLabel}
+                    onSecondaryAction={entry.onSecondaryAction}
                     onDismiss={() => dismissToast(entry.id)}
                   />
                 ))}
@@ -873,4 +1319,10 @@ export default function JobsBoard() {
       ) : null}
     </Box>
   );
+
+  // Below the phone width every popup is a full-width sheet (D7). Gestalt
+  // renders Modal, Popover and Dropdown that way already once it is told
+  // the device is a phone, so the phone layout is one provider rather than
+  // a second set of mobile-only components.
+  return isPhone ? <DeviceTypeProvider deviceType="mobile">{boardUi}</DeviceTypeProvider> : boardUi;
 }

@@ -16,20 +16,37 @@
     "remote_ok": true,
     "notes": "",
     "note_list": [
-      { "id": "n1", "title": "On-call rotation", "body": "Ask about the rota.\nAnd about pager weeks.",
-        "created": "2026-10-14T12:20:00+00:00", "updated": "2026-10-14T12:20:00+00:00" }
+      {
+        "id": "n1",
+        "title": "On-call rotation",
+        "body": "Ask about the rota.\nAnd about pager weeks.",
+        "created": "2026-10-14T12:20:00+00:00",
+        "updated": "2026-10-14T12:20:00+00:00"
+      }
     ],
     "enriched": true,
     "summary": "Fictional role summary for test fixtures only.",
     "summary_source": "ai",
     "ingest_source": "llm",
     "description": "Fictional original posting text, long enough to show the collapsible section in tests.",
-    "skills": ["Python", "Kubernetes"],
-    "responsibilities": ["Own the platform roadmap", "Mentor two engineers"],
+    "skills": [
+      "Python",
+      "Kubernetes"
+    ],
+    "responsibilities": [
+      "Own the platform roadmap",
+      "Mentor two engineers"
+    ],
     "background": "5+ years of platform experience.",
-    "certifications": ["CKA"],
-    "function": ["engineering"],
-    "tags": ["tool:python"],
+    "certifications": [
+      "CKA"
+    ],
+    "function": [
+      "engineering"
+    ],
+    "tags": [
+      "tool:python"
+    ],
     "company_link_state": "linked",
     "ingest_state": "complete",
     "ingest_error": null,
@@ -43,26 +60,64 @@
       "skills": "done",
       "description_structured": "done"
     },
-    "field_provenance": { "title": "llm", "company": "llm" },
+    "field_provenance": {
+      "title": "llm",
+      "company": "llm"
+    },
     "posting_quality": "rich",
     "description_structured": {
       "summary": "Fictional role summary for test fixtures only.",
-      "requirements": ["5+ years of platform experience", "Strong Kubernetes skills"],
-      "nice_to_have": ["Rust experience"],
+      "requirements": [
+        "5+ years of platform experience",
+        "Strong Kubernetes skills"
+      ],
+      "nice_to_have": [
+        "Rust experience"
+      ],
       "method": "llm"
     },
     "occupation_code": null,
     "skill_codes": [],
     "history": [
-      { "ts": "2026-09-01T00:00:00+00:00", "event": "created", "detail": "Added to New" }
-    ]
+      {
+        "ts": "2026-09-01T00:00:00+00:00",
+        "event": "created",
+        "detail": "Added to New"
+      }
+    ],
+    "closed": false,
+    "closed_at": null,
+    "closed_reviewed_at": null,
+    "end_reason": null
   },
-  "company": { "id": "CO-001", "name": "Northwind Systems" },
-  "statuses": ["new", "interested", "applied", "interviewing", "offer", "rejected", "closed", "withdrawn"],
-  "function_labels": { "engineering": { "label": "Engineering", "local": false } },
+  "company": {
+    "id": "CO-001",
+    "name": "Northwind Systems"
+  },
+  "statuses": [
+    "new",
+    "interested",
+    "applied",
+    "interviewing",
+    "offer",
+    "won",
+    "rejected",
+    "stopped"
+  ],
+  "function_labels": {
+    "engineering": {
+      "label": "Engineering",
+      "local": false
+    }
+  },
   "notes": [
-    { "id": "n1", "title": "On-call rotation", "body": "Ask about the rota.\nAnd about pager weeks.",
-      "created": "2026-10-14T12:20:00+00:00", "updated": "2026-10-14T12:20:00+00:00" }
+    {
+      "id": "n1",
+      "title": "On-call rotation",
+      "body": "Ask about the rota.\nAnd about pager weeks.",
+      "created": "2026-10-14T12:20:00+00:00",
+      "updated": "2026-10-14T12:20:00+00:00"
+    }
   ],
   "has_description": true,
   "show_remote_chip": false,
@@ -70,17 +125,42 @@
   "watch_reason": "",
   "llm_pending": false,
   "history": [
-    { "ts": "2026-09-01T12:05:00+00:00", "label": "Job added", "detail": "Added to New" },
-    { "ts": "2026-10-14T12:10:00+00:00", "label": "Details read from the posting", "detail": null }
+    {
+      "ts": "2026-09-01T12:05:00+00:00",
+      "label": "Job added",
+      "detail": "Added to New"
+    },
+    {
+      "ts": "2026-10-14T12:10:00+00:00",
+      "label": "Details read from the posting",
+      "detail": null
+    }
   ],
   "classification": {
-    "sector": { "value": "Information and communication", "source": "company" },
-    "function": ["engineering"],
-    "tags": ["tool:python"]
+    "sector": {
+      "value": "Information and communication",
+      "source": "company"
+    },
+    "function": [
+      "engineering"
+    ],
+    "tags": [
+      "tool:python"
+    ]
   },
   "needs_input": null,
   "reading": false,
   "summary_effective": "Fictional role summary for test fixtures only.",
   "fit": null,
-  "fit_placeholder": "Not calculated yet"
+  "fit_placeholder": "Not calculated yet",
+  "status_labels": {
+    "new": "New",
+    "interested": "Interested",
+    "applied": "Applied",
+    "interviewing": "Interviewing",
+    "offer": "Offer",
+    "won": "Won",
+    "rejected": "Rejected",
+    "stopped": "Stopped"
+  }
 }

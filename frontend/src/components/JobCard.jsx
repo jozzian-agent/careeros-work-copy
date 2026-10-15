@@ -1,6 +1,7 @@
 import { Badge, Box, Button, Flex, Heading, Icon, Link, Text } from 'gestalt';
 import QuietChip from './QuietChip.jsx';
 import StatusSelect from './StatusSelect.jsx';
+import { countWord } from '../counts.js';
 
 // Label text only, per the owner's 2026-10-13 decision (design-system.md
 // "Badge usage"): the board shows a size class, never a numeric range.
@@ -75,6 +76,74 @@ export function IngestIndicator({ job, onRetry }) {
   return null;
 }
 
+// The closed posting, as the card's last row (D7). A posting that is gone
+// is a fact about the posting and never the owner's decision, so it is
+// this chip rather than a status.
+//
+// Two states, and which one shows is NOT decided here. `closedDays` is the
+// payload's own closed_review day count for this job, present only for the
+// jobs the banner asks about as well (a status before Applied, gone more
+// than a week, not kept). So the chip and the banner read one list and
+// cannot disagree, and no date arithmetic happens in the browser.
+//
+// The warning state is a recorded exception to design-system.md "Badge
+// usage" (a machine-state notice must never alarm): the canvas asks for
+// warning-weak ground and an alert icon here, because a posting going
+// stale for a week on a job the owner never applied to is the one closed
+// posting that wants their attention.
+export function ClosedChip({ job, closedDays }) {
+  if (!job.closed) return null;
+  if (closedDays === null || closedDays === undefined) {
+    return <QuietChip text="Posting closed" />;
+  }
+  return (
+    <Box
+      display="inlineBlock"
+      rounding="pill"
+      paddingX={3}
+      dangerouslySetInlineStyle={{
+        __style: {
+          background: 'var(--color-background-warning-weak)',
+          height: 'var(--space-600)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 'var(--space-100)',
+        },
+      }}
+    >
+      <Icon icon="alert" accessibilityLabel="" color="warning" size={12} />
+      <Text size="100" color="warning">
+        {`Closed ${countWord(closedDays, 'day')} ago`}
+      </Text>
+    </Box>
+  );
+}
+
+// An ended card says why the job ended, or offers to say it. A reason is
+// always optional (D7), so the link is an offer and never a task left open.
+function EndedReason({ job, canExplain, onAddReason }) {
+  if (job.end_reason) {
+    return (
+      <Text size="200" color="subtle">
+        {job.end_reason}
+      </Text>
+    );
+  }
+  // Won has no reason vocabulary, so nothing offers to pick one for it.
+  if (!canExplain) return null;
+  return (
+    <Box>
+      <Button
+        size="sm"
+        color="transparent"
+        text="Add a reason"
+        accessibilityLabel={`Add a reason ${job.title} ended`}
+        onClick={() => onAddReason(job)}
+      />
+    </Box>
+  );
+}
+
 // The card for one job on the board. Anatomy per the JobCard README,
 // minus the fit chip the README's top row had (owner decision 2026-10-15:
 // fit scoring is not built, nothing is written to `fit`, so every card
@@ -84,28 +153,53 @@ export function IngestIndicator({ job, onRetry }) {
 // 1. Top row: the status select, right-aligned.
 // 2. Title (bold, two lines max) and the company link, 4px apart.
 // 3. Location with a pin, then the dates, 6px apart.
-// The salary/industry/size/function badges and ingest indicator are kept
-// below those three groups; see CompanyDisplay/IngestIndicator above. No
+// 4. The closed posting, when there is one (D7, ClosedChip above).
+// The salary/industry/size/function badges and the ingest indicator are
+// kept below those groups; see CompanyDisplay/IngestIndicator above. No
 // source badge and no AI-generated badge here (design-system.md "Badge
 // usage"): the company name already identifies the posting, and
-// provenance badges are a detail-page-only signal -- JobDetail keeps its
+// provenance badges are a detail-page-only signal, so JobDetail keeps its
 // own AI-generated badge untouched.
-export default function JobCard({ job, statuses, functionLabels, onMove, onRetry, dragHandlers, isDragging }) {
+//
+// `compact` is the Ended lane's own card (D7): title, company, and the
+// reason the job ended or the link that adds one. An ended job needs
+// nothing said about its posting or its enrichment, but it keeps the
+// status select, because dragging it back into an open column has to have
+// a keyboard route too.
+export default function JobCard({
+  job,
+  statuses,
+  statusLabels,
+  endedStatuses,
+  functionLabels,
+  closedDays,
+  compact = false,
+  canExplain = false,
+  onMove,
+  onRetry,
+  onAddReason,
+  dragHandlers,
+  isDragging,
+}) {
+  const draggable = dragHandlers ? 'true' : 'false';
+
   return (
     <div
       data-testid={`job-card-${job.id}`}
-      draggable="true"
+      draggable={draggable}
       style={{ opacity: isDragging ? 0.4 : 1 }}
       {...dragHandlers}
     >
-      <Box color="default" borderStyle="sm" rounding={4} padding={4} marginBottom={3}>
-        <Flex direction="column" gap={3}>
+      <Box color="default" borderStyle="sm" rounding={4} padding={compact ? 3 : 4} marginBottom={3}>
+        <Flex direction="column" gap={compact ? 2 : 3}>
           <Flex justifyContent="end" alignItems="center" gap={2}>
             <StatusSelect
               id={job.id}
               jobTitle={job.title}
               status={job.status}
               statuses={statuses}
+              statusLabels={statusLabels}
+              endedStatuses={endedStatuses}
               onChange={(status) => onMove(job.id, status)}
             />
           </Flex>
@@ -117,31 +211,37 @@ export default function JobCard({ job, statuses, functionLabels, onMove, onRetry
             </Link>
             <CompanyDisplay job={job} />
           </Flex>
-          <Flex direction="column" gap={1.5}>
-            <Flex gap={1} alignItems="center">
-              <Icon icon="location" accessibilityLabel="" color="subtle" size={14} />
-              <Text size="200" color="subtle">
-                {job.location || 'Location unknown'}, added {job.added}
-              </Text>
-            </Flex>
-            {job.posted_date ? (
-              <Text size="200" color="subtle">
-                Posted {job.posted_date}
-              </Text>
-            ) : null}
-          </Flex>
-          <Flex gap={2} wrap>
-            {job.salary_info ? <Badge type="neutral" text="Salary disclosed" /> : null}
-            {job.company_industry ? <Badge type="neutral" text={job.company_industry} /> : null}
-            {job.company_size_class ? (
-              <Badge type="neutral" text={SIZE_CLASS_LABELS[job.company_size_class] || job.company_size_class} />
-            ) : null}
-            {!job.company_industry && !job.company_size_class ? <QuietChip text="Company details pending" /> : null}
-            {job.function.map((functionId) => (
-              <Badge key={functionId} type="neutral" text={functionLabels[functionId] || functionId} />
-            ))}
-          </Flex>
-          <IngestIndicator job={job} onRetry={onRetry} />
+          {compact ? <EndedReason job={job} canExplain={canExplain} onAddReason={onAddReason} /> : null}
+          {compact ? null : (
+            <>
+              <Flex direction="column" gap={1.5}>
+                <Flex gap={1} alignItems="center">
+                  <Icon icon="location" accessibilityLabel="" color="subtle" size={14} />
+                  <Text size="200" color="subtle">
+                    {job.location || 'Location unknown'}, added {job.added}
+                  </Text>
+                </Flex>
+                {job.posted_date ? (
+                  <Text size="200" color="subtle">
+                    Posted {job.posted_date}
+                  </Text>
+                ) : null}
+              </Flex>
+              <Flex gap={2} wrap>
+                {job.salary_info ? <Badge type="neutral" text="Salary disclosed" /> : null}
+                {job.company_industry ? <Badge type="neutral" text={job.company_industry} /> : null}
+                {job.company_size_class ? (
+                  <Badge type="neutral" text={SIZE_CLASS_LABELS[job.company_size_class] || job.company_size_class} />
+                ) : null}
+                {!job.company_industry && !job.company_size_class ? <QuietChip text="Company details pending" /> : null}
+                {job.function.map((functionId) => (
+                  <Badge key={functionId} type="neutral" text={functionLabels[functionId] || functionId} />
+                ))}
+              </Flex>
+              <IngestIndicator job={job} onRetry={onRetry} />
+              <ClosedChip job={job} closedDays={closedDays} />
+            </>
+          )}
         </Flex>
       </Box>
     </div>

@@ -6,3 +6,13 @@
     min-height: 44px;
   }
 }
+
+/* D7 asks for a divider before the three ended statuses. Gestalt's
+   Dropdown.Section only adds space above itself, so the rule is drawn here.
+   The Dropdown renders in a Layer (outside this component's own DOM) but
+   carries the id it is given, which is how the selector reaches it without
+   restyling every Dropdown.Section in the app. */
+[id^='status-dropdown-'] div[aria-label='Ended'] {
+  border-top: 1px solid var(--color-border-container);
+  padding-top: var(--space-100);
+}

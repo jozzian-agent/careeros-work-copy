@@ -2,26 +2,47 @@ import { expect, test } from '@playwright/test';
 import { loadBoardFixture, mockBoard, mockMove, mockRetry, selectStatus } from './helpers.js';
 
 const fixture = loadBoardFixture();
+// D7: the columns are the open statuses only. The three that end a job
+// live in the Ended lane instead (tests/ended-lane.spec.js), so the cards
+// asserted here are the open ones.
+const openStatuses = fixture.statuses.filter((status) => !fixture.ended_statuses.includes(status));
+const openEntries = fixture.entries.filter((entry) => !fixture.ended_statuses.includes(entry.status));
+const closedDays = Object.fromEntries(fixture.closed_review.map((row) => [row.id, row.days_closed]));
 
 test.beforeEach(async ({ page }) => {
   await mockBoard(page, fixture);
 });
 
-test('board columns render, one per status, with baseline card count', async ({ page }) => {
+test('board columns render, one per open status, with baseline card count', async ({ page }) => {
   await page.goto('/jobs');
-  for (const status of fixture.statuses) {
-    const label = status.charAt(0).toUpperCase() + status.slice(1);
+  for (const status of openStatuses) {
+    const label = fixture.status_labels[status];
     await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
   }
-  const cardTitles = fixture.entries.map((entry) => entry.title);
-  for (const title of cardTitles) {
+  for (const title of openEntries.map((entry) => entry.title)) {
     await expect(page.getByText(title, { exact: true })).toBeVisible();
   }
-  // At least one status has no entries in the fixture (withdrawn); its
-  // column still renders, just with a zero count chip, never missing.
-  const unusedStatus = fixture.statuses.find((status) => !fixture.entries.some((entry) => entry.status === status));
+  // No status that ends a job is a column: Won, Rejected and Stopped are
+  // the Ended lane, which starts collapsed.
+  for (const status of fixture.ended_statuses) {
+    await expect(page.getByTestId(`board-column-${status}`)).toHaveCount(0);
+  }
+  // At least one open status has no entries in the fixture (interviewing);
+  // its column still renders, just with a zero count chip, never missing.
+  const unusedStatus = openStatuses.find((status) => !fixture.entries.some((entry) => entry.status === status));
   expect(unusedStatus).toBeTruthy();
   await expect(page.getByTestId(`board-column-${unusedStatus}`).getByText('0', { exact: true })).toBeVisible();
+});
+
+test('each column is a labelled group naming its status and count', async ({ page }) => {
+  await page.goto('/jobs');
+  for (const status of openStatuses) {
+    const count = openEntries.filter((entry) => entry.status === status).length;
+    await expect(page.getByTestId(`board-column-${status}`)).toHaveAttribute(
+      'aria-label',
+      `${fixture.status_labels[status]}, ${count} ${count === 1 ? 'job' : 'jobs'}`,
+    );
+  }
 });
 
 test('list view switch shows the same entries in a table', async ({ page }) => {
@@ -39,9 +60,9 @@ test('needs attention toggle filters to needs_attention entries and back', async
   const toggle = page.getByRole('button', { name: 'Needs attention', exact: true });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
-  const baselineCount = fixture.entries.length;
-  const needsAttentionTitles = fixture.entries.filter((entry) => entry.needs_attention).map((entry) => entry.title);
-  const notNeedsAttentionTitles = fixture.entries.filter((entry) => !entry.needs_attention).map((entry) => entry.title);
+  const baselineCount = openEntries.length;
+  const needsAttentionTitles = openEntries.filter((entry) => entry.needs_attention).map((entry) => entry.title);
+  const notNeedsAttentionTitles = openEntries.filter((entry) => !entry.needs_attention).map((entry) => entry.title);
   expect(needsAttentionTitles.length).toBeGreaterThan(0);
   expect(needsAttentionTitles.length).toBeLessThan(baselineCount);
 
@@ -92,7 +113,7 @@ test('empty state renders the empty message from the API', async ({ page }) => {
 // Per-record scoped assertions: each fixture entry gets its own test, and
 // every assertion is scoped to that card's own testid, never page-wide, so
 // a dropped field on one card cannot hide behind another card's content.
-for (const entry of fixture.entries) {
+for (const entry of openEntries) {
   test(`board card ${entry.id} reflects every fixture field for "${entry.title}"`, async ({ page }) => {
     await page.goto('/jobs');
     const card = page.getByTestId(`job-card-${entry.id}`);
@@ -172,6 +193,21 @@ for (const entry of fixture.entries) {
 
     if (!entry.enriched && ['stub', 'fetched'].includes(entry.ingest_state)) {
       await expect(card.getByText('Details filling in…')).toBeVisible();
+    }
+
+    // The closed posting is the card's last row, and which of its two
+    // states shows is the payload's decision: a job in closed_review (not
+    // applied to, gone over a week) warns with the day count, any other
+    // closed posting just says so, and an open posting says nothing.
+    if (entry.closed && closedDays[entry.id] !== undefined) {
+      await expect(card.getByText(`Closed ${closedDays[entry.id]} days ago`, { exact: true })).toBeVisible();
+      await expect(card.getByText('Posting closed', { exact: true })).toHaveCount(0);
+    } else if (entry.closed) {
+      await expect(card.getByText('Posting closed', { exact: true })).toBeVisible();
+      await expect(card.getByText(/^Closed \d+ days? ago$/)).toHaveCount(0);
+    } else {
+      await expect(card.getByText('Posting closed', { exact: true })).toHaveCount(0);
+      await expect(card.getByText(/^Closed \d+ days? ago$/)).toHaveCount(0);
     }
   });
 }

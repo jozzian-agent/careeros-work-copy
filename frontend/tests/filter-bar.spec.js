@@ -1,24 +1,47 @@
+// Protects the board's filter bar: which chips it offers, that a choice
+// filters the board and shows a removable active-filter Tag, and that the
+// count on the right tells the open/ended split until a filter is on.
 import { expect, test } from '@playwright/test';
 import { loadBoardFixture, mockBoard } from './helpers.js';
 
 const fixture = loadBoardFixture();
+const total = fixture.entries.length;
+const SPLIT = `${fixture.counts.open} open · ${fixture.counts.ended} ended`;
 
 test.beforeEach(async ({ page }) => {
   await mockBoard(page, fixture);
 });
 
-test('chip order is Fit, Function, Location, More filters, Needs attention', async ({ page }) => {
+test('chip order is Function, Location, More filters, Needs attention, Hide closed postings', async ({ page }) => {
   await page.goto('/jobs');
   const chips = page.locator('[data-testid^="filter-chip-"]');
   await expect(chips).toHaveCount(5);
   const testIds = await chips.evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
   expect(testIds).toEqual([
-    'filter-chip-fit',
     'filter-chip-function',
     'filter-chip-location',
     'filter-chip-more',
     'filter-chip-needs-attention',
+    'filter-chip-hide-closed',
   ]);
+});
+
+// D7 removes the Fit facet outright: fit is not calculated, so the bar
+// offers no filter for it (M0-4 had only taken the chip off the card).
+test('there is no Fit facet', async ({ page }) => {
+  await page.goto('/jobs');
+  await expect(page.getByTestId('filter-chip-fit')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Fit', exact: true })).toHaveCount(0);
+});
+
+test('the count reads the open and ended split until a filter is on', async ({ page }) => {
+  await page.goto('/jobs');
+  await expect(page.getByText(SPLIT, { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Needs attention', exact: true }).click();
+  await expect(page.getByText(SPLIT, { exact: true })).toHaveCount(0);
+  const needing = fixture.entries.filter((entry) => entry.needs_attention).length;
+  await expect(page.getByText(`${needing} of ${total} jobs`, { exact: true })).toBeVisible();
 });
 
 test('a Function chip selection opens its panel, filters the board, and shows a removable active-filter Tag', async ({
@@ -30,9 +53,6 @@ test('a Function chip selection opens its panel, filters the board, and shows a 
   const nonMatching = fixture.entries.filter((entry) => !entry.function.includes(targetId));
   expect(matching.length).toBeGreaterThan(0);
   expect(nonMatching.length).toBeGreaterThan(0);
-  const total = fixture.entries.length;
-
-  await expect(page.getByText(`${total} jobs`, { exact: true })).toBeVisible();
 
   const chip = page.getByTestId('filter-chip-function');
   await expect(chip).toHaveAttribute('aria-expanded', 'false');
@@ -54,33 +74,39 @@ test('a Function chip selection opens its panel, filters the board, and shows a 
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(chip).toHaveAttribute('aria-expanded', 'false');
 
-  // Removing the Tag clears the filter, restores every card, and drops
-  // the result count back to the plain "N jobs" form.
+  // Removing the Tag clears the filter, restores every open card, and
+  // drops the result count back to the open/ended split.
   await page.getByRole('button', { name: `Remove ${tagText}` }).click();
-  for (const entry of fixture.entries) {
-    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
-  }
-  await expect(page.getByText(`${total} jobs`, { exact: true })).toBeVisible();
+  await expect(page.getByText(SPLIT, { exact: true })).toBeVisible();
 });
 
-test('Location and Fit filters combine, and Clear all resets every group and the result count', async ({ page }) => {
+test('Location and Function filters combine, and Clear all resets every group and the count', async ({ page }) => {
   await page.goto('/jobs');
 
-  await page.getByTestId('filter-chip-fit').click();
-  await page.getByRole('checkbox', { name: 'Excellent fit' }).check();
+  // An open job, so the card the filters keep is in a column rather than
+  // in the collapsed Ended lane.
+  const open = fixture.entries.filter((entry) => !fixture.ended_statuses.includes(entry.status));
+  const [functionId, functionLabel] = fixture.function_options.find(([id]) =>
+    open.some((entry) => entry.function.includes(id) && entry.location),
+  );
+  const location = open.find((entry) => entry.function.includes(functionId) && entry.location).location;
+
+  await page.getByTestId('filter-chip-function').click();
+  await page.getByRole('checkbox', { name: functionLabel }).check();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
   // Location has more than 6 distinct values in the fixture, so the panel's
   // own search field (rather than relying on where it falls in the
   // "Show N more" list) is the robust way to reach any one option.
-  const firstLocation = fixture.entries.find((entry) => entry.location)?.location;
   await page.getByTestId('filter-chip-location').click();
-  await page.getByRole('searchbox', { name: 'Search location' }).fill(firstLocation);
-  await page.getByRole('checkbox', { name: firstLocation }).check();
+  await page.getByRole('searchbox', { name: 'Search location' }).fill(location);
+  await page.getByRole('checkbox', { name: location }).check();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
-  const expected = fixture.entries.filter((entry) => entry.fit === 'excellent' && entry.location === firstLocation);
-  const excluded = fixture.entries.filter((entry) => !(entry.fit === 'excellent' && entry.location === firstLocation));
+  const expected = open.filter((entry) => entry.function.includes(functionId) && entry.location === location);
+  const excluded = fixture.entries.filter(
+    (entry) => !(entry.function.includes(functionId) && entry.location === location),
+  );
   for (const entry of expected) {
     await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
   }
@@ -92,10 +118,7 @@ test('Location and Fit filters combine, and Clear all resets every group and the
   await page.getByRole('button', { name: 'Clear all', exact: true }).click();
 
   await expect(page.getByText('Active filters')).toHaveCount(0);
-  for (const entry of fixture.entries) {
-    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
-  }
-  await expect(page.getByText(`${fixture.entries.length} jobs`, { exact: true })).toBeVisible();
+  await expect(page.getByText(SPLIT, { exact: true })).toBeVisible();
 });
 
 test('Needs attention alone shows Clear all, and clearing it resets the toggle', async ({ page }) => {
@@ -116,31 +139,71 @@ test('Needs attention alone shows Clear all, and clearing it resets the toggle',
   await expect(page.getByText('Active filters')).toHaveCount(0);
 });
 
-test('Clear all resets Needs attention together with a group filter', async ({ page }) => {
+test('Clear all resets both toggles together with a group filter', async ({ page }) => {
   await page.goto('/jobs');
-  const toggle = page.getByRole('button', { name: 'Needs attention', exact: true });
-  await toggle.click();
+  const needs = page.getByRole('button', { name: 'Needs attention', exact: true });
+  const hideClosed = page.getByRole('button', { name: 'Hide closed postings', exact: true });
+  await needs.click();
+  await hideClosed.click();
 
-  await page.getByTestId('filter-chip-fit').click();
-  await page.getByRole('checkbox', { name: 'Excellent fit' }).check();
+  await page.getByTestId('filter-chip-function').click();
+  await page.getByRole('checkbox', { name: fixture.function_options[0][1] }).check();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
   await expect(page.getByText('Active filters')).toBeVisible();
   await page.getByRole('button', { name: 'Clear all', exact: true }).click();
 
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(needs).toHaveAttribute('aria-pressed', 'false');
+  await expect(hideClosed).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByText('Active filters')).toHaveCount(0);
-  for (const entry of fixture.entries) {
+  await expect(page.getByText(SPLIT, { exact: true })).toBeVisible();
+});
+
+// D7: the toggle is off on every load, and it hides a flagged job wherever
+// it sits, which is why it is a filter and not a per-column rule.
+test('Hide closed postings hides every flagged job and is off again after reload', async ({ page }) => {
+  await page.goto('/jobs');
+  const toggle = page.getByRole('button', { name: 'Hide closed postings', exact: true });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+
+  const closed = fixture.entries.filter((entry) => entry.closed);
+  const openPosting = fixture.entries.filter(
+    (entry) => !entry.closed && !fixture.ended_statuses.includes(entry.status),
+  );
+  expect(closed.length).toBeGreaterThan(0);
+  for (const entry of closed) {
     await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
   }
-  await expect(page.getByText(`${fixture.entries.length} jobs`, { exact: true })).toBeVisible();
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  for (const entry of closed) {
+    await expect(page.getByText(entry.title, { exact: true })).toHaveCount(0);
+  }
+  for (const entry of openPosting) {
+    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
+  }
+  await expect(page.getByText(`${total - closed.length} of ${total} jobs`, { exact: true })).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Hide closed postings', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  for (const entry of closed) {
+    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
+  }
 });
 
 test('More filters opens Industry and Company size, and a selection narrows the board', async ({ page }) => {
   await page.goto('/jobs');
-  const target = fixture.entries.find((entry) => entry.industries?.length);
+  const target = fixture.entries.find(
+    (entry) => entry.industries?.length && !fixture.ended_statuses.includes(entry.status),
+  );
   expect(target).toBeTruthy();
-  const matching = fixture.entries.filter((entry) => (entry.industries || []).includes(target.industries[0]));
+  const matching = fixture.entries.filter(
+    (entry) => (entry.industries || []).includes(target.industries[0]) && !fixture.ended_statuses.includes(entry.status),
+  );
   const nonMatching = fixture.entries.filter((entry) => !(entry.industries || []).includes(target.industries[0]));
 
   await page.getByTestId('filter-chip-more').click();
@@ -164,10 +227,11 @@ test('More filters opens Industry and Company size, and a selection narrows the 
 // filters by the class its company carries.
 test('a Company size selection in More filters narrows the board by the company size class', async ({ page }) => {
   await page.goto('/jobs');
-  const matching = fixture.entries.filter((entry) => entry.company_size_class === 'medium');
+  const medium = fixture.entries.filter((entry) => entry.company_size_class === 'medium');
+  const matching = medium.filter((entry) => !fixture.ended_statuses.includes(entry.status));
   const nonMatching = fixture.entries.filter((entry) => entry.company_size_class !== 'medium');
   expect(matching.length).toBeGreaterThan(0);
-  expect(matching.some((entry) => typeof entry.employee_count !== 'number')).toBe(true);
+  expect(medium.some((entry) => typeof entry.employee_count !== 'number')).toBe(true);
 
   await page.getByTestId('filter-chip-more').click();
   await page.getByRole('checkbox', { name: 'Medium', exact: true }).check();

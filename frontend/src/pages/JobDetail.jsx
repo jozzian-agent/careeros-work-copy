@@ -134,7 +134,7 @@ export default function JobDetail() {
   }
 
   const {
-    job, company, statuses, notes, has_description: hasDescription,
+    job, company, statuses, status_labels: statusLabels, notes, has_description: hasDescription,
     watch_eligible: watchEligible, watch_reason: watchReason,
     history, classification, needs_input: needsInput, reading,
     summary_effective: summaryEffective, function_labels: functionLabels,
@@ -329,6 +329,7 @@ export default function JobDetail() {
                 jobTitle={job.title}
                 status={job.status}
                 statuses={statuses}
+                statusLabels={statusLabels || {}}
                 onChange={handleStatusChange}
               />
             </Box>
