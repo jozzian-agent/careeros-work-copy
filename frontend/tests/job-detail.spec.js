@@ -932,11 +932,145 @@ test('Edit job popup sends only the fields that actually changed', async ({ page
   await modal.getByRole('textbox', { name: 'Title' }).fill('Updated Title');
   await modal.getByRole('button', { name: 'Save job' }).click();
   await expect.poll(() => requests.length).toBe(1);
+  // The edited field is sent, which is what moves it to owner
+  // provenance and takes any AI label off it.
+  expect(requests[0].title).toBe('Updated Title');
   // Notes are their own records with their own endpoints, so Edit job
   // must not carry a notes field at all anymore.
-  for (const key of ['description_structured', 'summary', 'responsibilities', 'skills', 'notes']) {
+  for (const key of ['url', 'location', 'remote_ok', 'summary', 'responsibilities', 'skills',
+                     'description_structured', 'notes']) {
     expect(requests[0]).not.toHaveProperty(key);
   }
+});
+
+// The converse of the test above, for the fields that used to go out on
+// every save: the PUT marks every key it receives, so sending the
+// untouched title, posting link, location and Remote OK box back claimed
+// the owner had written a title a model read, read an empty location as
+// one they chose (which drops the "Not found in posting" row and the
+// setter that leads back here), and locked both against every later
+// reading. Both record shapes are covered: this is a job still rendering
+// its flat lists, the next one renders the groups.
+test('Edit job sends nothing but the summary when only the summary changed', async ({ page }) => {
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Summary' }).fill('A corrected summary.');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ summary: 'A corrected summary.' });
+});
+
+test('Edit job sends nothing but the summary on a grouped job too', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Summary' }).fill('A corrected summary.');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ summary: 'A corrected summary.' });
+});
+
+// The two fields no test touched before, which is how a fix that sent
+// them on every save stayed invisible: the box and the link are the two
+// keys the window can send without a line of text behind them.
+test('Edit job sends the Remote OK box and the posting link when those are what changed', async ({ page }) => {
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  const remote = modal.getByRole('checkbox', { name: 'Remote OK' });
+  await expect(remote).toBeChecked();
+  await remote.uncheck();
+  await modal.getByRole('textbox', { name: 'Posting link' })
+    .fill('https://northwind.example/careers/platform-engineer-senior');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({
+    remote_ok: false,
+    url: 'https://northwind.example/careers/platform-engineer-senior',
+  });
+});
+
+// Nothing changed, so there is nothing to say: a PUT with no keys marks
+// nothing and records nothing, and the owner waits on it for that.
+test('Edit job makes no request when the owner saves without changing anything', async ({ page }) => {
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect(modal).not.toBeVisible();
+  expect(requests.length).toBe(0);
+});
+
+// The three text fields send what they show with the whitespace taken
+// off, so they have to compare that way too. A stored value padded with
+// spaces compared against the trimmed field read as changed on every
+// save and never stopped reading as one -- and for the posting link that
+// is a url change to the server, which drops the record's ATS identity
+// and files it as a failed read of a posting nobody repointed.
+const paddedValues = {
+  ...fixture,
+  job: {
+    ...fixture.job,
+    title: '  Senior Platform Engineer  ',
+    url: ' https://northwind.example/careers/senior-platform-engineer ',
+    location: ' Zurich, CH ',
+  },
+};
+
+test('Edit job sends nothing when a stored value differs only by the space around it', async ({ page }) => {
+  await mockJobPage(page, paddedValues);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: paddedValues.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Summary' }).fill('A corrected summary.');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ summary: 'A corrected summary.' });
+});
+
+// The window stays mounted while the page re-reads the record, so the
+// value a save compares against has to be the one the window opened on.
+// Comparing against the live record let a reading that landed mid-edit
+// move the baseline: the seeded title then differed from the newly read
+// one and went out as the owner's edit, writing the stub back over what
+// had just been read and locking the field against every later reading.
+test('Edit job compares against the job it opened on, not a reading that landed since', async ({ page }) => {
+  let calls = 0;
+  await page.route('**/api/jobs/*?view=page', (route) => {
+    calls += 1;
+    // The mount effect runs twice under React StrictMode and one poll
+    // still reports the job unread, so the window opens on the stub with
+    // a poll's worth of room to spare and only the second poll brings
+    // the freshly read title.
+    const reading = calls <= 3;
+    route.fulfill({
+      json: {
+        ...fixture,
+        llm_pending: reading,
+        job: {
+          ...fixture.job,
+          title: reading ? 'Senior Platform Engineer' : 'Senior Platform Engineer, Payments',
+        },
+      },
+    });
+  });
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await expect(modal.getByRole('textbox', { name: 'Title' })).toHaveValue('Senior Platform Engineer');
+  await expect.poll(() => calls, { timeout: 15000 }).toBeGreaterThan(3);
+  await modal.getByRole('textbox', { name: 'Summary' }).fill('A corrected summary.');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ summary: 'A corrected summary.' });
 });
 
 // The posting yielded no requirements at all, which is the case the

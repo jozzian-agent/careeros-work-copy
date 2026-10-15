@@ -17,6 +17,33 @@ function listKey(entries) {
   return entries.map(entryKey).sort().join('\n');
 }
 
+// A list of lines compares as its field shows it, one per line: that is
+// the shape the owner edited, so a stored item carrying a newline of its
+// own is not an edit they made.
+function lineKey(list) {
+  return list.join('\n');
+}
+
+// A flat block compares by its two lists only: the summary and the method
+// a save carries over are not edited here.
+function blockKey(block) {
+  return JSON.stringify([lineKey(block.requirements), lineKey(block.nice_to_have)]);
+}
+
+// The one rule for every key this popup can send: a key belongs in the
+// PUT only when its field differs from the value the job seeded it with.
+// The PUT stamps owner provenance on every key it carries and marks the
+// covered ones done, so a key sent unchanged credits the owner for a
+// field they never edited, takes the AI label off it, reads an empty
+// value as one they chose, drops the "Not found in posting" row and the
+// setter that leads back here, and locks the field against every later
+// reading. `shape` is how the key compares, defaulting to the value
+// itself; a key whose stored shape says more than its field does passes
+// its own (listKey, lineKey, blockKey above).
+function addChanged(payload, key, value, seeded, shape = JSON.stringify) {
+  if (shape(value) !== shape(seeded)) payload[key] = value;
+}
+
 function linesFor(groups, level) {
   return groups.filter((entry) => entry.level === level && entry.group !== LANGUAGES_GROUP)
     .map((entry) => entry.text);
@@ -57,14 +84,28 @@ function groupFor(groups, text) {
 // Only the requirement lists change either way: a block's own summary is
 // carried over, and a key is omitted entirely when nothing in it
 // actually changed, so an untouched field never gets owner provenance.
-// The same rule applies to the summary, responsibilities and skills.
+// That is the rule for every field this popup holds, the title, the
+// posting link, the location and the Remote OK box included: see
+// `addChanged`.
 //
 // Notes are not here: a note is its own record with its own window
 // (NotePopup), opened from the Notes section.
 export default function EditJobPopup({ job, onSave, onDismiss }) {
-  const structured = job.description_structured;
-  const groups = job.requirement_groups || [];
-  const grouped = isGrouped(job);
+  // The job as it stood when this window opened. Every field here is
+  // seeded from it and every comparison a save makes is against it, so
+  // "differs from what Edit job seeded it with" is one object and not
+  // two. The record cannot be read live for this: the page re-reads it
+  // every few seconds for as long as any field is still being read, and
+  // this window stays mounted across those reads, so a reading that
+  // lands mid-edit would move the baseline under the owner. A field they
+  // never touched would then differ from the newly read value and go out
+  // as their edit, writing the value they were seeded with back over the
+  // one just read and locking the field against every later reading --
+  // which is the whole defect this comparison exists to prevent.
+  const [seed] = useState(job);
+  const structured = seed.description_structured;
+  const groups = seed.requirement_groups || [];
+  const grouped = isGrouped(seed);
   const flatLines = [...(structured?.requirements || []), ...(structured?.nice_to_have || [])];
   const writeGroups = grouped || flatLines.length === 0;
   const writeBlock = !grouped || !structured;
@@ -77,17 +118,17 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
   // provenance on a field they never touched.
   const seededMust = grouped ? linesFor(groups, 'must') : structured?.requirements || [];
   const seededNice = grouped ? linesFor(groups, 'nice') : structured?.nice_to_have || [];
-  const [title, setTitle] = useState(job.title || '');
-  const [url, setUrl] = useState(job.url || '');
-  const [location, setLocation] = useState(job.location || '');
-  const [remoteOk, setRemoteOk] = useState(Boolean(job.remote_ok));
-  const [summary, setSummary] = useState(job.summary || '');
+  const [title, setTitle] = useState(seed.title || '');
+  const [url, setUrl] = useState(seed.url || '');
+  const [location, setLocation] = useState(seed.location || '');
+  const [remoteOk, setRemoteOk] = useState(Boolean(seed.remote_ok));
+  const [summary, setSummary] = useState(seed.summary || '');
   const [requirements, setRequirements] = useState(seededMust.join('\n'));
   const [niceToHave, setNiceToHave] = useState(seededNice.join('\n'));
   const [languages, setLanguages] = useState(storedLanguages);
   const [newLanguage, setNewLanguage] = useState('');
-  const [responsibilities, setResponsibilities] = useState((job.responsibilities || []).join('\n'));
-  const [skills, setSkills] = useState(job.skills || []);
+  const [responsibilities, setResponsibilities] = useState((seed.responsibilities || []).join('\n'));
+  const [skills, setSkills] = useState(seed.skills || []);
   const [newSkill, setNewSkill] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -124,30 +165,53 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
     setBusy(true);
     setError(null);
     try {
-      const payload = { title: title.trim(), url: url.trim(), location, remote_ok: remoteOk };
-      if (summary !== (job.summary || '')) payload.summary = summary;
-      const newResponsibilities = linesToList(responsibilities);
-      if (newResponsibilities.join('\n') !== (job.responsibilities || []).join('\n')) {
-        payload.responsibilities = newResponsibilities;
-      }
-      if (skills.join('\n') !== (job.skills || []).join('\n')) payload.skills = skills;
+      const payload = {};
+      // The three text fields compare trimmed against trimmed, because
+      // that is what they send: comparing a trimmed field with a stored
+      // value that has whitespace around it would read as a change on
+      // every save and never stop reading as one, and a posting link
+      // that goes out for whitespace alone is a url change to the
+      // server, which drops the record's ATS identity and files it as a
+      // failed read of a posting nobody repointed.
+      addChanged(payload, 'title', title.trim(), (seed.title || '').trim());
+      addChanged(payload, 'url', url.trim(), (seed.url || '').trim());
+      addChanged(payload, 'location', location.trim(), (seed.location || '').trim());
+      // A job no reading has answered this for stores null, which the
+      // checkbox can only show as unchecked; sending the false back would
+      // turn "nobody has said" into the owner saying no. The cost is
+      // that an owner cannot record "not remote" on such a job at all:
+      // the box starts unchecked and the only edit it offers is checking
+      // it. A tri-state box would be the fix, and an unanswered field
+      // reading as nobody's answer is the one worth keeping.
+      addChanged(payload, 'remote_ok', remoteOk, Boolean(seed.remote_ok));
+      addChanged(payload, 'summary', summary, seed.summary || '');
+      addChanged(payload, 'responsibilities', linesToList(responsibilities),
+                 seed.responsibilities || [], lineKey);
+      addChanged(payload, 'skills', skills, seed.skills || [], lineKey);
       const newRequirements = linesToList(requirements);
       const newNiceToHave = linesToList(niceToHave);
       if (writeGroups) {
-        const edited = editedGroups(newRequirements, newNiceToHave);
-        if (listKey(edited) !== listKey(groups)) payload.requirement_groups = edited;
+        addChanged(payload, 'requirement_groups',
+                   editedGroups(newRequirements, newNiceToHave), groups, listKey);
       }
-      if (writeBlock
-          && (newRequirements.join('\n') !== seededMust.join('\n')
-              || newNiceToHave.join('\n') !== seededNice.join('\n'))) {
-        payload.description_structured = {
+      if (writeBlock) {
+        addChanged(payload, 'description_structured', {
           // The block's own summary is not edited here (the Summary field
           // above writes the job's summary), so it is carried over. The
           // method is this popup's own: these lines are the owner's now,
           // whoever read the ones they replaced.
           summary: structured?.summary || '', method: 'user',
           requirements: newRequirements, nice_to_have: newNiceToHave,
-        };
+        }, { requirements: seededMust, nice_to_have: seededNice }, blockKey);
+      }
+      // Nothing differs from the seed, so there is nothing to tell the
+      // server: a PUT with no keys marks nothing and records nothing,
+      // and the owner would wait on the round-trip for it. Save closes
+      // the window either way, because an owner who pressed it is done
+      // with it whether or not they changed their mind on the way.
+      if (Object.keys(payload).length === 0) {
+        onDismiss();
+        return;
       }
       await onSave(payload);
     } catch (err) {

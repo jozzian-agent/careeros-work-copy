@@ -114,6 +114,28 @@ write per reported field rather than by one flag:
   location carries neither, and a field nobody touched keeps the
   provenance it had.
 
+That last rule is the rule for every field of the window, not only the
+two requirement ones: a save carries a field only when it differs from
+what Edit job seeded it with. The PUT marks each key it receives as the
+owner's and a covered one as found, so a save that only reworded the
+summary used to also claim the owner had written the title a model read,
+turn an empty location into one they chose (which takes the Location
+"Not found in posting" row and its setter off the extraction popup), and
+lock both against every later reading. What it seeded them with is the
+record as the window opened on it, held still for as long as the window
+is open: the page re-reads a job while any of its fields is still being
+read, and a reading landing mid-edit must not become the thing the
+owner's untouched fields are measured against. A save that changed
+nothing sends no request at all, and still closes the window.
+
+The title, the posting link and the location compare with the whitespace
+around them taken off, since that is the shape they send. The Remote OK
+box is the one field the rule cannot fully serve: a job no reading has
+answered it for stores nothing, which a box can only show as unchecked,
+so checking it records "remote" and leaving it alone records nothing —
+an owner cannot record "not remote" on such a job until a reading or a
+tri-state box gives the field a third position.
+
 Emptying the two fields on a grouped job clears the groups and leaves
 the stored flat block alone, which is by design: the block is not what
 that job renders, and the owner cleared the list they were looking at.
@@ -229,6 +251,29 @@ inline in the delete `ModalAlert` rather than closing it. Empty related-item
 lists (a company with no jobs or experiences) show the dashed empty state.
 
 ## Verification
+
+2026-10-15 (F-NEW-1, what the Edit job window's save carries, after the
+review round):
+
+- `.venv/bin/python -m pytest tests -q` (1138, was 1136: two tests in
+  `tests/test_put_provenance.py` for the two halves of the PUT's marking
+  rule, a key the payload leaves out and a key it carries).
+- `cd frontend && npx playwright test` (243, was 237): `job-detail.spec.js`
+  is 87 (was 81), with the window sending nothing but the summary on
+  both record shapes, the Remote OK box and the posting link as the two
+  keys that changed, a save that changed nothing making no request at
+  all, a stored value padded with spaces reading as unchanged, and the
+  baseline holding still across a reading that landed mid-edit.
+- `cd frontend && npm run build`.
+- The four written in this round were each seen failing once against the
+  code they protect: the posting link dropped from the payload, the
+  empty-payload skip disabled, the comparison taken back to the
+  untrimmed stored value, and the baseline taken back to the live
+  record.
+- The mid-edit reading test turns on the page's 3s poll, so it was run
+  8 times clean on its own and 6 times clean under a concurrent full
+  suite.
+- Owner click-test on the live instance: pending.
 
 2026-10-14 (package 2, grouped requirements, after the second review
 round):
