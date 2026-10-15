@@ -932,11 +932,46 @@ test('Edit job popup sends only the fields that actually changed', async ({ page
   await modal.getByRole('textbox', { name: 'Title' }).fill('Updated Title');
   await modal.getByRole('button', { name: 'Save job' }).click();
   await expect.poll(() => requests.length).toBe(1);
+  // The edited field is sent, which is what moves it to owner
+  // provenance and takes any AI label off it.
+  expect(requests[0].title).toBe('Updated Title');
   // Notes are their own records with their own endpoints, so Edit job
   // must not carry a notes field at all anymore.
-  for (const key of ['description_structured', 'summary', 'responsibilities', 'skills', 'notes']) {
+  for (const key of ['url', 'location', 'remote_ok', 'summary', 'responsibilities', 'skills',
+                     'description_structured', 'notes']) {
     expect(requests[0]).not.toHaveProperty(key);
   }
+});
+
+// The converse of the test above, for the fields that used to go out on
+// every save: the PUT marks every key it receives, so sending the
+// untouched title, posting link, location and Remote OK box back claimed
+// the owner had written a title a model read, read an empty location as
+// one they chose (which drops the "Not found in posting" row and the
+// setter that leads back here), and locked both against every later
+// reading. Both record shapes are covered: this is a job still rendering
+// its flat lists, the next one renders the groups.
+test('Edit job sends nothing but the summary when only the summary changed', async ({ page }) => {
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Summary' }).fill('A corrected summary.');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ summary: 'A corrected summary.' });
+});
+
+test('Edit job sends nothing but the summary on a grouped job too', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Summary' }).fill('A corrected summary.');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toEqual({ summary: 'A corrected summary.' });
 });
 
 // The posting yielded no requirements at all, which is the case the

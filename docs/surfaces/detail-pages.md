@@ -114,6 +114,15 @@ write per reported field rather than by one flag:
   location carries neither, and a field nobody touched keeps the
   provenance it had.
 
+That last rule is the rule for every field of the window, not only the
+two requirement ones: a save carries a field only when it differs from
+what Edit job seeded it with. The PUT marks each key it receives as the
+owner's and a covered one as found, so a save that only reworded the
+summary used to also claim the owner had written the title a model read,
+turn an empty location into one they chose (which takes the Location
+"Not found in posting" row and its setter off the extraction popup), and
+lock both against every later reading.
+
 Emptying the two fields on a grouped job clears the groups and leaves
 the stored flat block alone, which is by design: the block is not what
 that job renders, and the owner cleared the list they were looking at.

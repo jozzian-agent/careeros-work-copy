@@ -17,6 +17,33 @@ function listKey(entries) {
   return entries.map(entryKey).sort().join('\n');
 }
 
+// A list of lines compares as its field shows it, one per line: that is
+// the shape the owner edited, so a stored item carrying a newline of its
+// own is not an edit they made.
+function lineKey(list) {
+  return list.join('\n');
+}
+
+// A flat block compares by its two lists only: the summary and the method
+// a save carries over are not edited here.
+function blockKey(block) {
+  return JSON.stringify([lineKey(block.requirements), lineKey(block.nice_to_have)]);
+}
+
+// The one rule for every key this popup can send: a key belongs in the
+// PUT only when its field differs from the value the job seeded it with.
+// The PUT stamps owner provenance on every key it carries and marks the
+// covered ones done, so a key sent unchanged credits the owner for a
+// field they never edited, takes the AI label off it, reads an empty
+// value as one they chose, drops the "Not found in posting" row and the
+// setter that leads back here, and locks the field against every later
+// reading. `shape` is how the key compares, defaulting to the value
+// itself; a key whose stored shape says more than its field does passes
+// its own (listKey, lineKey, blockKey above).
+function addChanged(payload, key, value, seeded, shape = JSON.stringify) {
+  if (shape(value) !== shape(seeded)) payload[key] = value;
+}
+
 function linesFor(groups, level) {
   return groups.filter((entry) => entry.level === level && entry.group !== LANGUAGES_GROUP)
     .map((entry) => entry.text);
@@ -57,7 +84,9 @@ function groupFor(groups, text) {
 // Only the requirement lists change either way: a block's own summary is
 // carried over, and a key is omitted entirely when nothing in it
 // actually changed, so an untouched field never gets owner provenance.
-// The same rule applies to the summary, responsibilities and skills.
+// That is the rule for every field this popup holds, the title, the
+// posting link, the location and the Remote OK box included: see
+// `addChanged`.
 //
 // Notes are not here: a note is its own record with its own window
 // (NotePopup), opened from the Notes section.
@@ -124,30 +153,33 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
     setBusy(true);
     setError(null);
     try {
-      const payload = { title: title.trim(), url: url.trim(), location, remote_ok: remoteOk };
-      if (summary !== (job.summary || '')) payload.summary = summary;
-      const newResponsibilities = linesToList(responsibilities);
-      if (newResponsibilities.join('\n') !== (job.responsibilities || []).join('\n')) {
-        payload.responsibilities = newResponsibilities;
-      }
-      if (skills.join('\n') !== (job.skills || []).join('\n')) payload.skills = skills;
+      const payload = {};
+      addChanged(payload, 'title', title.trim(), job.title || '');
+      addChanged(payload, 'url', url.trim(), job.url || '');
+      addChanged(payload, 'location', location, job.location || '');
+      // A job no reading has answered this for stores null, which the
+      // checkbox can only show as unchecked; sending the false back would
+      // turn "nobody has said" into the owner saying no.
+      addChanged(payload, 'remote_ok', remoteOk, Boolean(job.remote_ok));
+      addChanged(payload, 'summary', summary, job.summary || '');
+      addChanged(payload, 'responsibilities', linesToList(responsibilities),
+                 job.responsibilities || [], lineKey);
+      addChanged(payload, 'skills', skills, job.skills || [], lineKey);
       const newRequirements = linesToList(requirements);
       const newNiceToHave = linesToList(niceToHave);
       if (writeGroups) {
-        const edited = editedGroups(newRequirements, newNiceToHave);
-        if (listKey(edited) !== listKey(groups)) payload.requirement_groups = edited;
+        addChanged(payload, 'requirement_groups',
+                   editedGroups(newRequirements, newNiceToHave), groups, listKey);
       }
-      if (writeBlock
-          && (newRequirements.join('\n') !== seededMust.join('\n')
-              || newNiceToHave.join('\n') !== seededNice.join('\n'))) {
-        payload.description_structured = {
+      if (writeBlock) {
+        addChanged(payload, 'description_structured', {
           // The block's own summary is not edited here (the Summary field
           // above writes the job's summary), so it is carried over. The
           // method is this popup's own: these lines are the owner's now,
           // whoever read the ones they replaced.
           summary: structured?.summary || '', method: 'user',
           requirements: newRequirements, nice_to_have: newNiceToHave,
-        };
+        }, { requirements: seededMust, nice_to_have: seededNice }, blockKey);
       }
       await onSave(payload);
     } catch (err) {
