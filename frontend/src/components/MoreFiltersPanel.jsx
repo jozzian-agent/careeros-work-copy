@@ -30,22 +30,21 @@ function GroupFieldset({ groupKey, legend, options, selected, onToggle }) {
   );
 }
 
-// The More filters side panel (Industry, Company size), per the
-// FilterPanels README: OverlayPanel, one Fieldset per group, "(estimated)"
-// on fields CareerOS classifies rather than ones the posting states
-// directly. Checking a box filters the board immediately, same as the
-// single-chip Popovers; "Show N jobs" and the panel's own dismiss button
-// just close it.
+// The More filters side panel, per the FilterPanels README: OverlayPanel,
+// one Fieldset per group it is given, in that order, with the group's own
+// `legend` wording ("(estimated)" on fields CareerOS classifies rather
+// than ones the posting states directly). Checking a box filters
+// immediately, same as the single-chip Popovers; "Show N jobs" and the
+// panel's own dismiss button just close it.
 export default function MoreFiltersPanel({
-  industryOptions,
-  companySizeOptions,
-  selectedIndustry,
-  selectedCompanySize,
-  onToggleIndustry,
-  onToggleCompanySize,
+  groups,
+  optionsByGroup,
+  selected,
+  onToggle,
   onClearAll,
   onDismiss,
   resultCount,
+  countNoun,
 }) {
   return (
     <OverlayPanel
@@ -55,25 +54,21 @@ export default function MoreFiltersPanel({
       footer={
         <Flex justifyContent="between" alignItems="center">
           <Button text="Clear all" color="transparent" onClick={onClearAll} />
-          <Button text={`Show ${resultCount} jobs`} color="red" onClick={onDismiss} />
+          <Button text={`Show ${resultCount} ${countNoun}`} color="red" onClick={onDismiss} />
         </Flex>
       }
     >
       <Flex direction="column" gap={4}>
-        <GroupFieldset
-          groupKey="industry"
-          legend="Industry (estimated)"
-          options={industryOptions}
-          selected={selectedIndustry}
-          onToggle={onToggleIndustry}
-        />
-        <GroupFieldset
-          groupKey="companySize"
-          legend="Company size (estimated)"
-          options={companySizeOptions}
-          selected={selectedCompanySize}
-          onToggle={onToggleCompanySize}
-        />
+        {groups.map(({ key, label, legend }) => (
+          <GroupFieldset
+            key={key}
+            groupKey={key}
+            legend={legend || label}
+            options={optionsByGroup[key]}
+            selected={selected[key]}
+            onToggle={(value) => onToggle(key, value)}
+          />
+        ))}
       </Flex>
     </OverlayPanel>
   );

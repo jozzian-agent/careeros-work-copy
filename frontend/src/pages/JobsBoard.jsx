@@ -19,6 +19,7 @@ import JobCard, { CompanyDisplay, IngestIndicator } from '../components/JobCard.
 import FloatingMessage from '../components/Message.jsx';
 import AddJobPopup from '../components/AddJobPopup.jsx';
 import FilterBar from '../components/FilterBar.jsx';
+import { countBy, presentOptions, sortedOptions } from '../filters.js';
 
 const VIEW_KEY = 'careerJobsView';
 const NEEDS_ATTENTION_KEY = 'careerNeedsAttention';
@@ -28,6 +29,13 @@ const AUTO_REFRESH_AFTER_MS = 30000;
 // them (owner decision, Message README).
 const TOAST_LIFETIME_MS = 4000;
 
+const FILTER_GROUPS = [
+  { key: 'fit', label: 'Fit' },
+  { key: 'function', label: 'Function' },
+  { key: 'location', label: 'Location' },
+  { key: 'industry', label: 'Industry', legend: 'Industry (estimated)', inMore: true },
+  { key: 'companySize', label: 'Company size', legend: 'Company size (estimated)', inMore: true },
+];
 const EMPTY_FILTERS = { fit: [], function: [], location: [], industry: [], companySize: [] };
 const COULD_NOT_READ_MESSAGE = "Could not read that posting. It's saved, so Try again only retries the read.";
 const FIT_LABELS = [
@@ -36,25 +44,6 @@ const FIT_LABELS = [
   ['lucky', 'Lucky'],
   ['excellent', 'Excellent fit'],
 ];
-// Mirrors careeros/vault.py's SIZE_CLASS_THRESHOLDS (10/50/250, else
-// large): the board's own "Company size" facet is computed client-side
-// from each job's raw employee_count, with the same boundaries the
-// backend uses for a company's size_class, rather than asking the backend
-// for a value it does not expose on job records (BUILD_NOTES.md).
-const COMPANY_SIZE_BUCKETS = [
-  { value: 'micro', label: 'Micro (1-10)', max: 10 },
-  { value: 'small', label: 'Small (11-50)', max: 50 },
-  { value: 'medium', label: 'Medium (51-250)', max: 250 },
-];
-
-function companySizeBucket(employeeCount) {
-  const match = COMPANY_SIZE_BUCKETS.find((bucket) => employeeCount <= bucket.max);
-  return match ? match.value : 'large';
-}
-
-function companySizeLabel(value) {
-  return COMPANY_SIZE_BUCKETS.find((bucket) => bucket.value === value)?.label || 'Large (251+)';
-}
 
 function fitValue(job) {
   return job.fit && FIT_LABELS.some(([value]) => value === job.fit) ? job.fit : 'needs_input';
@@ -67,23 +56,6 @@ function looksLikeUrl(value) {
   } catch {
     return false;
   }
-}
-
-function countBy(entries, getValues) {
-  const counts = new Map();
-  entries.forEach((entry) => {
-    getValues(entry).forEach((value) => {
-      if (value === null || value === undefined || value === '') return;
-      counts.set(value, (counts.get(value) || 0) + 1);
-    });
-  });
-  return counts;
-}
-
-function sortedOptions(counts) {
-  return Array.from(counts.entries())
-    .map(([value, count]) => ({ value, label: value, count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 function readStoredView() {
@@ -705,15 +677,23 @@ export default function JobsBoard() {
     return sortedOptions(countBy(board.entries, (job) => job.industries || []));
   }, [board]);
 
+  // One size scale across both pages (owner decision 2026-10-15): the
+  // facet reads the linked company's stored size_class, over the class
+  // vocabulary the backend sends (`size_classes`), exactly as the
+  // Companies directory's Size filter does. It used to bucket each job's
+  // own raw employee_count client-side, which disagreed with the card's
+  // own size badge whenever a posting carried no headcount but its
+  // company was classified anyway.
   const companySizeOptions = useMemo(() => {
     if (!board) return [];
-    const counts = countBy(
-      board.entries,
-      (job) => (typeof job.employee_count === 'number' ? [companySizeBucket(job.employee_count)] : []),
+    return presentOptions(
+      // Defaulted, not assumed: `size_classes` is a new payload key, and a
+      // bundle loaded against a server that predates it must lose the
+      // facet's options, not the whole board.
+      board.size_classes || [],
+      countBy(board.entries, (job) => [job.company_size_class]),
+      titleCase,
     );
-    return ['micro', 'small', 'medium', 'large']
-      .filter((value) => counts.has(value))
-      .map((value) => ({ value, label: companySizeLabel(value), count: counts.get(value) }));
   }, [board]);
 
   const optionsByGroup = useMemo(
@@ -734,9 +714,7 @@ export default function JobsBoard() {
       const functionOk = filters.function.length === 0 || (job.function || []).some((f) => filters.function.includes(f));
       const locationOk = filters.location.length === 0 || filters.location.includes(job.location);
       const industryOk = filters.industry.length === 0 || (job.industries || []).some((v) => filters.industry.includes(v));
-      const sizeOk =
-        filters.companySize.length === 0 ||
-        (typeof job.employee_count === 'number' && filters.companySize.includes(companySizeBucket(job.employee_count)));
+      const sizeOk = filters.companySize.length === 0 || filters.companySize.includes(job.company_size_class);
       const needsOk = !needsAttention || job.needs_attention;
       return fitOk && functionOk && locationOk && industryOk && sizeOk && needsOk;
     });
@@ -826,6 +804,9 @@ export default function JobsBoard() {
         </Flex>
       </Box>
       <FilterBar
+        groups={FILTER_GROUPS}
+        countNoun="jobs"
+        needsLabel="Needs attention"
         optionsByGroup={optionsByGroup}
         selected={filters}
         onToggleValue={toggleFilterValue}

@@ -4,8 +4,9 @@ import QuietChip from './QuietChip.jsx';
 import StatusSelect from './StatusSelect.jsx';
 
 // Label text only, per the owner's 2026-10-13 decision (design-system.md
-// "Badge usage"): the board shows a size class, never the numeric range
-// JobsBoard's own COMPANY_SIZE_BUCKETS pairs with it for filtering.
+// "Badge usage"): the board shows a size class, never a numeric range.
+// Since 2026-10-15 the board's own Company size filter reads the same
+// `company_size_class` this badge does, so the two cannot disagree.
 const SIZE_CLASS_LABELS = { micro: 'Micro', small: 'Small', medium: 'Medium', large: 'Large' };
 
 function jobHref(id) {

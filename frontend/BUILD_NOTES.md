@@ -1044,3 +1044,74 @@ extracts one, so no languages editor ships here: it would be an interface
 element standing for a feature that does not exist. Languages arrive with
 package 2's requirement groups, which the `Requirements` component already
 renders.
+
+## Companies list rework (2026-10-15)
+
+Surface-level summary and the owner's locked decisions:
+`docs/surfaces/companies.md`. This is the implementation rationale.
+
+### FilterBar stopped being jobs-only
+
+The brief asked the Companies list to reuse the board's filter bar, which
+held three jobs-only constants (`POPOVER_GROUPS`, `MORE_GROUPS`, the word
+"jobs" in the result count) and a hard-coded "Needs attention" label.
+Those are now three props — `groups`, `countNoun`, `needsLabel` — passed
+by each page, with `inMore: true` on a group marking it as living inside
+the More filters panel and `legend` carrying that panel's own wording.
+`MoreFiltersPanel` went the same way: it took `industryOptions`,
+`companySizeOptions` and a toggle per group, and now renders one
+`GroupFieldset` per group it is handed. The Companies page passes no
+`inMore` group, so it gets no More filters chip at all (the chip renders
+only when some group lives there).
+
+`countBy` and `sortedOptions` moved out of `JobsBoard.jsx` into
+`src/filters.js`, which both pages import, plus one new helper,
+`presentOptions`: options over a fixed vocabulary, kept in the
+vocabulary's order and dropping values no record has. That is what keeps
+the Size panel reading Small → Large (never micro, which no company is
+in) rather than ordering size classes by popularity.
+
+### Open jobs is a tri-state facet on a two-checkbox model
+
+The owner asked for "Any / With open jobs / Without open jobs". FilterBar's
+model is a list of checked values per group, so the facet ships as two
+checkboxes whose cleared state IS "Any": nothing checked matches every
+company, and so does checking both. This reuses the existing panel and
+active-filter machinery instead of adding a radio-group concept (and its
+own Tag/Clear semantics) to a component two pages now share.
+
+### The grid, and why the card height is a constant
+
+`repeat(auto-fill, minmax(260px, 1fr))` with a 16px gap, through Box's
+`dangerouslySetInlineStyle` (Gestalt has no grid primitive; same escape
+hatch FilterBar's divider uses). Equal width comes from `1fr`; equal
+height cannot, because a grid row sizes to its tallest item and one ISIC
+section label ("Public administration and defence; compulsory social
+security") is 61 characters. So the card carries a fixed height with
+`overflow="hidden"`, the text rows are `lineClamp`ed, and the chip row is
+pinned with `marginTop="auto"`. The spec measures bounding boxes at 1280px
+and 390px and asserts one distinct height across every card, so a future
+content change that stretches a card fails rather than quietly raggedizing
+the grid again.
+
+### Name truncation and the tooltip
+
+30 characters plus one ellipsis, per the owner's decision, applied in the
+frontend only. `Heading`'s own `lineClamp` sets `title` to its children
+when they are a string — which would have put the *truncated* name in the
+tooltip — so the name renders as a `<span title={fullName}>` child, which
+leaves Heading's auto-title off and keeps the clamp. The sector line uses
+`Text`'s own `title` prop for the same reason, since its labels are what
+actually overflow two lines.
+
+### Company size on the board now reads the company's class
+
+`COMPANY_SIZE_BUCKETS` and `companySizeBucket()` are gone. They
+re-implemented `org_intake.classify.SIZE_CLASS_THRESHOLDS` in JS over each
+job's raw `employee_count`, which meant the facet disagreed with the
+card's own size badge (that badge has always read `company_size_class`)
+for every posting that stated no headcount but whose company is
+classified. The board payload now carries `size_classes`, the same
+vocabulary key the Companies contracts already had, so the order the panel
+lists classes in also comes from the backend rather than a literal array
+in JS.

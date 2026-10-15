@@ -18,6 +18,9 @@ DIRECTORY_SHAPE = {'counts': {'CO-001': 'int'},
               'locations': ['str'],
               'name': 'str',
               'name_source': 'str',
+              # Derived for the directory's Needs-your-input filter: any
+              # review flag stands against the record.
+              'needs_attention': 'bool',
               'note_list': [],
               'notes': 'str',
               'review_flags': ['str'],

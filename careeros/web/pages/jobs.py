@@ -30,6 +30,11 @@ def board_context(entries, companies, function_labels):
         statuses=vault.STATUSES,
         empty=EMPTY_STATE,
         function_options=function_options,
+        # The one company-size scale, for the board's Company size facet.
+        # Sent here rather than hard-coded in JS so the board and the
+        # Companies directory read the same vocabulary from the same place
+        # (owner decision 2026-10-15: classes, never a numeric range).
+        size_classes=vault.SIZE_CLASSES,
     )
 
 def company_summaries(companies, isic_sections):
