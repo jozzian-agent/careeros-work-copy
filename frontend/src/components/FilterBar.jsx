@@ -4,23 +4,22 @@ import FilterChip from './FilterChip.jsx';
 import FilterPopoverPanel from './FilterPopoverPanel.jsx';
 import MoreFiltersPanel from './MoreFiltersPanel.jsx';
 
-const POPOVER_GROUPS = [
-  { key: 'fit', label: 'Fit' },
-  { key: 'function', label: 'Function' },
-  { key: 'location', label: 'Location' },
-];
-const MORE_GROUPS = [
-  { key: 'industry', label: 'Industry' },
-  { key: 'companySize', label: 'Company size' },
-];
-const ALL_GROUPS = [...POPOVER_GROUPS, ...MORE_GROUPS];
-
-// The filter row above the board/list, per the FilterBar README: chip
-// order Fit, Function, Location, More filters, a divider, Needs
-// attention, then the result count on the right, plus the active-filters
-// Tag row with Clear all. One Popover (or the More filters OverlayPanel)
-// is open at a time, anchored off the chip that opened it.
+// The filter row above the board/list, per the FilterBar README: one chip
+// per filter group in the order given, then "More filters" when any group
+// lives in that panel, a divider, the needs-your-input toggle, and the
+// result count on the right, plus the active-filters Tag row with Clear
+// all. One Popover (or the More filters OverlayPanel) is open at a time,
+// anchored off the chip that opened it.
+//
+// The groups, the word the count counts ("jobs", "companies") and the
+// toggle's label are the surface's to name, so the same bar serves the
+// Jobs board and the Companies directory: a group with `inMore` moves
+// from its own chip into the More filters panel, where `legend` is the
+// fieldset's wording.
 export default function FilterBar({
+  groups,
+  countNoun,
+  needsLabel,
   optionsByGroup,
   selected,
   onToggleValue,
@@ -45,14 +44,16 @@ export default function FilterBar({
     setOpenPanel((current) => (current === key ? null : key));
   }
 
-  const anyGroupActive = ALL_GROUPS.some(({ key }) => selected[key].length > 0);
+  const popoverGroups = groups.filter((group) => !group.inMore);
+  const moreGroups = groups.filter((group) => group.inMore);
+  const anyGroupActive = groups.some(({ key }) => selected[key].length > 0);
   const filtersActive = anyGroupActive || needsAttention;
-  const moreCount = MORE_GROUPS.reduce((sum, { key }) => sum + selected[key].length, 0);
+  const moreCount = moreGroups.reduce((sum, { key }) => sum + selected[key].length, 0);
 
   return (
     <Box marginBottom={4}>
       <Flex gap={3} alignItems="center" wrap>
-        {POPOVER_GROUPS.map(({ key, label }) => (
+        {popoverGroups.map(({ key, label }) => (
           <FilterChip
             key={key}
             label={label}
@@ -66,20 +67,22 @@ export default function FilterBar({
             dataTestId={`filter-chip-${key}`}
           />
         ))}
-        <FilterChip
-          label="More filters"
-          icon="filter"
-          count={moreCount}
-          selected={moreCount > 0}
-          haspopup
-          expanded={openPanel === 'more'}
-          anchorRef={setAnchor('more')}
-          onClick={() => togglePanel('more')}
-          dataTestId="filter-chip-more"
-        />
+        {moreGroups.length > 0 ? (
+          <FilterChip
+            label="More filters"
+            icon="filter"
+            count={moreCount}
+            selected={moreCount > 0}
+            haspopup
+            expanded={openPanel === 'more'}
+            anchorRef={setAnchor('more')}
+            onClick={() => togglePanel('more')}
+            dataTestId="filter-chip-more"
+          />
+        ) : null}
         <Box width={1} height={24} dangerouslySetInlineStyle={{ __style: { background: 'var(--color-border-container)' } }} />
         <FilterChip
-          label="Needs attention"
+          label={needsLabel}
           count={needsAttentionCount}
           countColor="var(--color-brand-violet)"
           dataTestId="filter-chip-needs-attention"
@@ -89,7 +92,7 @@ export default function FilterBar({
         />
         <Box marginStart="auto">
           <Text color="subtle" size="200">
-            {filtersActive ? `${resultCount} of ${totalCount} jobs` : `${totalCount} jobs`}
+            {filtersActive ? `${resultCount} of ${totalCount} ${countNoun}` : `${totalCount} ${countNoun}`}
           </Text>
         </Box>
       </Flex>
@@ -100,7 +103,7 @@ export default function FilterBar({
             <Text color="subtle" size="200">
               Active filters
             </Text>
-            {ALL_GROUPS.flatMap(({ key, label }) =>
+            {groups.flatMap(({ key, label }) =>
               selected[key].map((value) => {
                 const option = optionsByGroup[key].find((candidate) => candidate.value === value);
                 const text = `${label}: ${option ? option.label : value}`;
@@ -116,8 +119,8 @@ export default function FilterBar({
             )}
             {needsAttention ? (
               <Tag
-                text="Needs attention"
-                accessibilityRemoveIconLabel="Remove Needs attention"
+                text={needsLabel}
+                accessibilityRemoveIconLabel={`Remove ${needsLabel}`}
                 onRemove={onToggleNeedsAttention}
               />
             ) : null}
@@ -126,7 +129,7 @@ export default function FilterBar({
               color="transparent"
               size="sm"
               onClick={() => {
-                onClearGroups(ALL_GROUPS.map(({ key }) => key));
+                onClearGroups(groups.map(({ key }) => key));
                 if (needsAttention) onToggleNeedsAttention();
               }}
             />
@@ -138,7 +141,7 @@ export default function FilterBar({
         <Popover anchor={anchors.current[openPanel]} onDismiss={() => setOpenPanel(null)} idealDirection="down" size="flexible">
           <FilterPopoverPanel
             groupKey={openPanel}
-            label={POPOVER_GROUPS.find((group) => group.key === openPanel).label}
+            label={popoverGroups.find((group) => group.key === openPanel).label}
             options={optionsByGroup[openPanel]}
             selected={selected[openPanel]}
             onToggle={(value) => onToggleValue(openPanel, value)}
@@ -150,15 +153,14 @@ export default function FilterBar({
 
       {openPanel === 'more' ? (
         <MoreFiltersPanel
-          industryOptions={optionsByGroup.industry}
-          companySizeOptions={optionsByGroup.companySize}
-          selectedIndustry={selected.industry}
-          selectedCompanySize={selected.companySize}
-          onToggleIndustry={(value) => onToggleValue('industry', value)}
-          onToggleCompanySize={(value) => onToggleValue('companySize', value)}
-          onClearAll={() => onClearGroups(['industry', 'companySize'])}
+          groups={moreGroups}
+          optionsByGroup={optionsByGroup}
+          selected={selected}
+          onToggle={onToggleValue}
+          onClearAll={() => onClearGroups(moreGroups.map(({ key }) => key))}
           onDismiss={() => setOpenPanel(null)}
           resultCount={resultCount}
+          countNoun={countNoun}
         />
       ) : null}
     </Box>

@@ -68,6 +68,9 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
               'url': 'str',
               'valid_through': 'str'}],
  'function_options': [['str']],
+ # The one company-size scale, which the board's Company size facet reads
+ # instead of bucketing employee counts of its own.
+ 'size_classes': ['str'],
  'statuses': ['str']}
 
 def test_board_contract(api_client, assert_json_shape):

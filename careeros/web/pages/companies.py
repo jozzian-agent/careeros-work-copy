@@ -29,13 +29,24 @@ def page_context(root):
                              sectors.load_isic_sections())
 
 def directory_context(jobs, entries, isic_sections):
-    counts = {c.get('id'): sum(j.get('company_id') == c.get('id') and j.get('status') not in ('rejected', 'closed', 'withdrawn') for j in jobs) for c in entries}
+    # Open-jobs count per company, over vault.is_open_job: the one place
+    # that says which statuses still count as open, shared with every
+    # filter built on this number.
+    counts = {c.get('id'): sum(j.get('company_id') == c.get('id') and vault.is_open_job(j) for j in jobs)
+              for c in entries}
     isic_labels = {section['code']: section['label'] for section in isic_sections}
     # Human sector labels per company, read-time only: the card and filter
     # controls must show ISIC labels, never the bare section codes stored
     # on the record (Section 3's display requirement).
     sector_labels = {c.get('id'): [isic_labels.get(code, code) for code in c.get('sectors', [])]
                      for c in entries}
+    # needs_attention on a company is "any review flag stands against this
+    # record", which is what the directory's Needs-your-input filter asks
+    # for. Derived here rather than in JS, the same way the board derives
+    # it for a job (jobs.needs_attention). It is deliberately broader than
+    # the detail page's `needs_input`, which asks only about a field
+    # automation has run out of ideas on.
+    entries = [c | {'needs_attention': bool(c.get('review_flags'))} for c in entries]
     return dict(
         entries=entries,
         counts=counts,
@@ -81,8 +92,12 @@ def field_flagged(company, field):
 def field_value(company, field, isic_labels):
     """Owner-facing value for one classification field, or None.
 
-    Size prefers the raw range the source reported over the derived EU
-    class, matching what the directory card and header already show.
+    Size still prefers the raw range the source reported over the derived
+    EU class (legacy `size`, then `size_range`, then `size_class`). The
+    directory card no longer does -- since the class-scale rework it reads
+    `size_class` only -- so the two surfaces can disagree on a record that
+    carries both, which is an open question in
+    `docs/surfaces/companies.md`, not a settled match.
     """
     if field == 'sector':
         return sector_display(company, isic_labels)

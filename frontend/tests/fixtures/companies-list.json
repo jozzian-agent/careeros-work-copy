@@ -1,19 +1,75 @@
 {
   "empty": "No companies yet — add a job to start your directory.",
   "entries": [
-    { "id": "CO-001", "name": "Harbor Labs", "sectors": ["J"], "size_class": "small", "size_range": null },
-    { "id": "CO-002", "name": "Fern Robotics", "sectors": ["C"], "size_class": "large", "size_range": null },
-    { "id": "CO-003", "name": "Lantern Peak", "sectors": ["J", "C"], "size_class": "medium", "size_range": "51-250" }
+    {
+      "id": "CO-001",
+      "name": "Harbor Labs",
+      "sectors": ["J"],
+      "size_class": "small",
+      "size_range": null,
+      "review_flags": [],
+      "needs_attention": false
+    },
+    {
+      "id": "CO-002",
+      "name": "Fern Robotics",
+      "sectors": ["C"],
+      "size_class": "large",
+      "size_range": null,
+      "review_flags": ["size-inconsistent"],
+      "needs_attention": true
+    },
+    {
+      "id": "CO-003",
+      "name": "Lantern Peak",
+      "sectors": ["J", "C"],
+      "size_class": "medium",
+      "size_range": "51-250",
+      "review_flags": [],
+      "needs_attention": false
+    },
+    {
+      "id": "CO-004",
+      "name": "Übersee Kantonalbank und ihre Nebengesellschaften",
+      "sectors": ["K", "O"],
+      "size_class": "large",
+      "size_range": "1000+",
+      "review_flags": [],
+      "needs_attention": false
+    },
+    {
+      "id": "CO-005",
+      "name": "Bluegrass Partners",
+      "sectors": [],
+      "size_class": null,
+      "size_range": null,
+      "review_flags": ["sector-ambiguous"],
+      "needs_attention": true
+    },
+    {
+      "id": "CO-006",
+      "name": "Cobalt Freight",
+      "sectors": [],
+      "size_class": null,
+      "size_range": "51-250",
+      "review_flags": [],
+      "needs_attention": false
+    }
   ],
-  "counts": { "CO-001": 3, "CO-002": 1, "CO-003": 0 },
+  "counts": { "CO-001": 3, "CO-002": 1, "CO-003": 0, "CO-004": 0, "CO-005": 2, "CO-006": 0 },
   "isic_sections": [
+    { "code": "C", "label": "Manufacturing" },
     { "code": "J", "label": "Information and communication" },
-    { "code": "C", "label": "Manufacturing" }
+    { "code": "K", "label": "Financial and insurance activities" },
+    { "code": "O", "label": "Public administration and defence; compulsory social security" }
   ],
   "sector_labels": {
     "CO-001": ["Information and communication"],
     "CO-002": ["Manufacturing"],
-    "CO-003": ["Information and communication", "Manufacturing"]
+    "CO-003": ["Information and communication", "Manufacturing"],
+    "CO-004": ["Financial and insurance activities", "Public administration and defence; compulsory social security"],
+    "CO-005": [],
+    "CO-006": []
   },
   "size_classes": ["micro", "small", "medium", "large"]
 }

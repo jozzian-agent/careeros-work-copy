@@ -389,6 +389,18 @@ def delete_experience(root, identifier):
 # Chunk 3 records share the established tolerant reader and atomic writer.
 STATUSES = ('new', 'interested', 'applied', 'interviewing', 'offer', 'rejected', 'closed', 'withdrawn')
 
+# The three statuses that end a job: it is no longer something the owner
+# can still pursue. Lives here, beside the status vocabulary it is drawn
+# from, so every reader of "is this job still open" (the Companies
+# directory count and the filters built on it) shares one definition
+# instead of repeating a status tuple of its own.
+ENDED_STATUSES = ('rejected', 'closed', 'withdrawn')
+
+def is_open_job(job):
+    """True while a job is still open, per ENDED_STATUSES. A record with
+    no status at all counts as open: the default status is `new`."""
+    return job.get('status') not in ENDED_STATUSES
+
 def _records(root, kind):
     for path in sorted((Path(root) / kind).glob('*.yaml')):
         data = _read(path)

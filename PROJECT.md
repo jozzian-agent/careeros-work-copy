@@ -44,6 +44,27 @@ and the Skills group overlap, and the owner's decision is to keep both,
 so the Requirements section shows the group plus any stored skill the
 group does not carry.
 
+2026-10-15: the Companies list was reworked against the owner's locked
+decisions ([sketch update](docs/surfaces/companies.md)). The grid is now a
+real grid — equal card widths and a fixed card height, so a long ISIC
+label can no longer stretch one card past its neighbours — a company name
+is shown as at most 30 characters plus an ellipsis with the full name as
+its tooltip, and the open-jobs chip reads "1 open job" / "N open jobs" /
+"No open jobs" instead of the old always-plural badge on every company,
+zero-count ones included. The two coexisting size scales are settled in
+favour of the classes (see the Size fixed list below): the page shows the
+class, the Jobs board's own Company size facet now reads each job's
+company class over the same backend vocabulary instead of bucketing raw
+employee counts in JS, and `scripts/migrate_company_size_scale.py` retires
+the stored numeric ranges — dry run by default, `--apply` owner-gated and
+not run as part of this build. The page also gained the Jobs board's own
+FilterBar (sector, size, open jobs, a "Needs your input" toggle over any
+review flag, active-filter chips, Clear all, result count, remembered in
+localStorage with no URL state), which made the component's groups, count
+noun and toggle label props rather than jobs-only constants. Backend:
+"open" is one definition in one place (`vault.ENDED_STATUSES` /
+`is_open_job`), which the count and the Open jobs filter both read.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -164,11 +185,21 @@ Friends never delete jobs or companies. Only the owner edits shared records.
 - Requirement level. Must have, nice to have. Stored as `must` and
   `nice`; a requirement with no stated level is a must-have, since a
   posting insists unless it says otherwise.
+- Company size. Micro, Small, Medium, Large, by headcount (micro up to
+  10, small up to 50, medium up to 250, above that large — the
+  `org_intake.classify` thresholds), stored as `size_class` over
+  `vault.SIZE_CLASSES`. Settled by owner decision 2026-10-15: the class
+  is the ONLY size scale, so the numeric `size_range` the intake cascade
+  also derives is retired by `scripts/migrate_company_size_scale.py` (dry
+  run by default, `--apply` owner-gated) and every surface shows the
+  class. Where a record still carries both, the class wins.
+- Job statuses that end a job. Rejected, closed, withdrawn
+  (`vault.ENDED_STATUSES`). A job in any other status is open, which is
+  what the Companies list counts and filters on.
 
 ### Fixed lists, to settle in milestone M1
 
 - Sector. Stored as ISIC, on purpose, so that Journey 3 can use standard codes. Show plain labels only if friends find the names confusing.
-- Size. Check whether Small, Medium, Large and 1000+ come from one scale. If not, define one by headcount.
 - Location. One format. The prototype shows the same place written several ways.
 - Function. The filter exists, its values go in this list.
 

@@ -158,19 +158,24 @@ test('More filters opens Industry and Company size, and a selection narrows the 
   await expect(page.getByRole('heading', { name: 'More filters' })).toHaveCount(0);
 });
 
-test('a Company size selection in More filters narrows the board by the matching bucket', async ({ page }) => {
+// Company size filters on the linked company's own size class (the one
+// scale the Companies directory uses too), not on the posting's raw
+// employee count: a job whose posting never stated a headcount still
+// filters by the class its company carries.
+test('a Company size selection in More filters narrows the board by the company size class', async ({ page }) => {
   await page.goto('/jobs');
-  const target = fixture.entries.find((entry) => typeof entry.employee_count === 'number' && entry.employee_count <= 10);
-  expect(target).toBeTruthy();
+  const matching = fixture.entries.filter((entry) => entry.company_size_class === 'medium');
+  const nonMatching = fixture.entries.filter((entry) => entry.company_size_class !== 'medium');
+  expect(matching.length).toBeGreaterThan(0);
+  expect(matching.some((entry) => typeof entry.employee_count !== 'number')).toBe(true);
 
   await page.getByTestId('filter-chip-more').click();
-  await page.getByRole('checkbox', { name: /^Micro/ }).check();
+  await page.getByRole('checkbox', { name: 'Medium', exact: true }).check();
 
-  await expect(page.getByText(target.title, { exact: true })).toBeVisible();
-  const outOfBucket = fixture.entries.find(
-    (entry) => typeof entry.employee_count === 'number' && entry.employee_count > 10,
-  );
-  if (outOfBucket) {
-    await expect(page.getByText(outOfBucket.title, { exact: true })).toHaveCount(0);
+  for (const entry of matching) {
+    await expect(page.getByText(entry.title, { exact: true })).toBeVisible();
+  }
+  for (const entry of nonMatching) {
+    await expect(page.getByText(entry.title, { exact: true })).toHaveCount(0);
   }
 });

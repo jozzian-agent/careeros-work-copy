@@ -9,6 +9,12 @@
     "closed",
     "withdrawn"
   ],
+  "size_classes": [
+    "micro",
+    "small",
+    "medium",
+    "large"
+  ],
   "empty": "No jobs yet, paste a posting link to get started.",
   "function_options": [
     [

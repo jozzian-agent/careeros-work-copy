@@ -188,6 +188,21 @@ rebuild (JOZ-279)" section; this is the surface-level summary.
 - **Needs attention count.** The toggle now carries the same count badge
   style as the other chips, computed from the existing `needs_attention`
   field — no backend change.
+- **Company size filters on the company's class (2026-10-15).** The facet
+  reads each job's `company_size_class` over the `size_classes` vocabulary
+  the board payload now carries, which is the one size scale the
+  [Companies list](companies.md) uses too (owner decision: classes, never
+  a numeric range). It used to bucket each job's own raw `employee_count`
+  in JS with a copy of the backend's thresholds, which disagreed with the
+  card's own size badge for every posting that stated no headcount but
+  whose company is classified anyway. Labels are the plain class words
+  (Micro, Small, Medium, Large), and only classes some job's company is
+  actually in are offered.
+- **FilterBar serves both pages.** The chip groups, the word the result
+  count counts and the needs-toggle label are props, so the Companies list
+  drives the same component with its own filters; a group marked `inMore`
+  renders inside the More filters panel, which the Companies page has
+  none of.
 - **Add-job popup.** Replaces the JOZ-278 shell with the full flow: a
   posting-link `TextField`, Cancel/Add job, and the five README states
   (ready, reading, not a link, already on your board, couldn't read). For a

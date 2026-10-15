@@ -26,6 +26,14 @@ contracts below are, likewise, now read by React pages instead of Jinja
 as JOZ-280; see [Search](preferences.md), [Experiences list](experiences.md)
 and [Companies list](companies.md)). No contract field changed.
 
+2026-10-15 (Companies list rework): two additive keys, no field removed.
+The board gains `size_classes`, the one company-size scale, so the board's
+Company size facet reads the same vocabulary the Companies page already
+reads instead of bucketing employee counts in JS. Each company in the
+Companies collection gains `needs_attention`, true when any review flag
+stands against the record, derived server-side the way the board derives
+it for a job.
+
 2026-10-14 (detail-pages realignment, backend round B1 to B6): the Job
 detail and Company detail `view=page` contracts gained the canvas keys
 listed below, and the company taxonomy endpoint is gone along with its
@@ -83,7 +91,10 @@ All existing default record responses and write methods retain their contracts.
 `view` selects GET representations only; writes still return records. JSON
 converts template tuples to arrays and rendered Markdown to strings.
 
-- Board: `statuses`, `entries`, `companies`, `function_options`, `empty`.
+- Board: `statuses`, `size_classes`, `entries`, `companies`,
+  `function_options`, `empty`. `size_classes` is the company-size scale
+  (micro, small, medium, large), the same key the Companies contracts
+  carry, so both pages filter over one vocabulary.
   Entries retain record fields and add `needs_attention`, `company_name`,
   `company_industry`, `company_size_class` and `pending`. Companies maps IDs
   to `{name, industry, size_class}`: `industry` is the company's first ISIC
@@ -134,7 +145,13 @@ converts template tuples to arrays and rendered Markdown to strings.
   matches list in the current template or criteria model, so none is invented.
 - Companies: `entries`, `counts`, `sector_labels`, `isic_sections`,
   `size_classes`, `empty`. Entries retain kind, locations, sectors, size,
-  enrichment states and review flags.
+  enrichment states and review flags, and add `needs_attention`: true when
+  the record carries any review flag, which is what the directory's
+  "Needs your input" filter asks for (broader than the detail contract's
+  one-field `needs_input`). `counts` is the number of OPEN jobs linked to
+  each company — open meaning any status but rejected, closed and
+  withdrawn (`vault.ENDED_STATUSES`, the one definition both the count and
+  the page's Open jobs filter read).
 - Company detail: `company`, `entries`, `experiences`, `companies`,
   `sector_labels`, `isic_sections`, `size_classes`, `kinds`,
   `classification`, `needs_input`, `notes`, `jobs`. Existing raw GET
