@@ -41,6 +41,12 @@ REGISTRY = {
     're_extract_not_started': ('Reading the posting again could not start', True),
     # The label is built from the stored detail ('new -> interested').
     'status_changed':     (None, True),
+    # D7's optional ending reason, also labeled from its stored detail
+    # ('stopped: Salary or conditions'). Its own type because a reason
+    # arrives on its own schedule: the popup opens from the Undo message
+    # or from an ended card, long after the move the status event already
+    # recorded, so there is no event it could have ridden along on.
+    'end_reason_set':     (None, True),
     'note_added':         ('Note added', True),
     'promoted':           ('Added to your board', True),
     'posting_changed':    ('Posting changed', True),
@@ -66,10 +72,14 @@ REGISTRY = {
 
 
 def status_label(status):
-    """Human label for a stored status value, from vault.STATUS_LABELS when
-    that mapping exists and title case otherwise."""
-    labels = getattr(vault, 'STATUS_LABELS', None) or {}
-    return labels.get(status) or str(status).replace('_', ' ').title()
+    """Human label for a stored status value, from vault.STATUS_LABELS.
+
+    Title case is the fallback for a status the vocabulary no longer
+    carries: history is a record of what happened, so an event written
+    while Closed or Withdrawn was still a status keeps reading in the
+    words of its own time rather than being relabeled or dropped.
+    """
+    return vault.STATUS_LABELS.get(status) or str(status).replace('_', ' ').title()
 
 
 def status_changed_label(detail):
@@ -82,14 +92,33 @@ def status_changed_label(detail):
     return 'Status changed'
 
 
+def end_reason_label(detail):
+    """Turn a stored 'status: reason' detail into owner-facing words, as in
+    'Stopped: Salary or conditions'.
+
+    A detail that does not carry both sides degrades to the bare fact, the
+    same rule status_changed_label follows, so a line never reads with a
+    blank or a stray separator in it.
+    """
+    status, separator, reason = str(detail or '').partition(':')
+    if separator and status.strip() and reason.strip():
+        return f'{status_label(status.strip())}: {reason.strip()}'
+    return 'Ending reason recorded'
+
+
+# Event types whose label is built from the stored detail rather than read
+# from the registry, which is why each carries None as its registry label.
+DETAIL_LABELS = {'status_changed': status_changed_label, 'end_reason_set': end_reason_label}
+
+
 def label_for(event, detail=None):
     """Registry label for one event type, or None when the type is unknown
     or marked invisible."""
     entry = REGISTRY.get(event)
     if entry is None or not entry[1]:
         return None
-    if event == 'status_changed':
-        return status_changed_label(detail)
+    if event in DETAIL_LABELS:
+        return DETAIL_LABELS[event](detail)
     return entry[0]
 
 

@@ -65,6 +65,37 @@ noun and toggle label props rather than jobs-only constants. Backend:
 "open" is one definition in one place (`vault.ENDED_STATUSES` /
 `is_open_job`), which the count and the Open jobs filter both read.
 
+2026-10-15: the Jobs board was reworked to the owner's status decision D7
+([brief](docs/briefs/2026-10-15-jobs-board-d7.md),
+[surface](docs/surfaces/jobs.md)), backend half. The statuses are now New,
+Interested, Applied, Interviewing, Offer, Won, Rejected, Stopped:
+Withdrawn is renamed to Stopped, and Closed stops being a status at all,
+because a posting that is gone is a fact about the posting rather than the
+owner's decision. It becomes a `closed` flag with a `closed_at` date, set
+by the watcher's existing "posting gone" event without touching the job's
+status. Open means not ended, defined once in `vault.ENDED_STATUSES` with
+`vault.OPEN_STATUSES` derived from it, which the board split, the status
+vocabulary and the Companies list count all read. A job also gains an
+optional `end_reason` from two fixed suggestion lists (see the Fixed lists
+below), whose free-text half is an ordinary dated note rather than a
+second field, and a `closed_reviewed_at` marker the closed-postings review
+sets when the owner keeps a job anyway. History says it in plain words:
+"Status changed from Applied to Stopped", and "Stopped: Salary or
+conditions" for the reason, which is its own event because a reason
+arrives on its own schedule. The board payload gained the open/ended
+split, the status words, the suggestion lists, the closed-postings review
+list (a job before Applied whose posting has been gone over 7 days and
+that has not been kept) and the "Your search so far" counts, all read from
+history so an ended job still counts for the interview it got. Nothing new
+was endpointed: a move, a reason and the Keep marker all go through the
+existing job PUT, and the free-text note through the existing notes
+endpoint. `scripts/migrate_board_d7_statuses.py` moves a stored vault onto
+the list (dry run by default, `--apply` owner-gated, not run as part of
+this build; [runbook](docs/runbooks/migrate-board-d7.md)). The board
+layout the brief draws (five open columns, the Ended lane, the ending
+chooser, the reason popup, the banner and its review popup, "Your search
+so far" and the phone layout) is the frontend chunk and is not built yet.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -140,7 +171,13 @@ The six owner rules live in the Journey 1 spec. These are the ones the flows bel
 | Rejected | Decision |
 | Stopped | Decision. Replaces Withdrawn. |
 
-Closed, Changed and Needs your input are facts or open questions about a job. They show as flags on the card and are not statuses. The board shows New to Offer as columns. Won, Rejected and Stopped sit together in one collapsed Ended lane. Proposed.
+Settled by owner decision D7, 2026-10-15, and in force in the data
+(`vault.STATUSES`, in this order). Closed, Changed and Needs your input
+are facts or open questions about a job, so they are flags on the record
+and never statuses: a closed posting is the `closed` flag with its
+`closed_at` date. The board shows New to Offer as columns, and Won,
+Rejected and Stopped sit together in one collapsed Ended lane; that layout
+is the frontend chunk and is not built yet.
 
 ### Surfaces
 
@@ -196,9 +233,18 @@ Friends never delete jobs or companies. Only the owner edits shared records.
   write persists a range any more either: `vault.save_company` drops one
   from every payload (M0-7), so only a record written before that still
   carries one, and only an explicit clear is let through.
-- Job statuses that end a job. Rejected, closed, withdrawn
-  (`vault.ENDED_STATUSES`). A job in any other status is open, which is
-  what the Companies list counts and filters on.
+- Job statuses that end a job. Won, rejected, stopped
+  (`vault.ENDED_STATUSES`, owner decision D7 2026-10-15). A job in any
+  other status is open, which is what `vault.OPEN_STATUSES` is derived
+  from and what the board's open/ended split and the Companies list count
+  and filter on.
+- Reason a job ended. Optional, picked never typed, and stored verbatim as
+  `end_reason`. Stopped: Not interested anymore, Salary or conditions,
+  Location or commute, Took another offer, Posting closed, No response.
+  Rejected: No reason given, After interview, Experience did not match,
+  Position filled (`vault.STOPPED_REASONS`, `vault.REJECTED_REASONS`).
+  Won has none. Free text the owner adds beside a reason is a dated note
+  on the job, under `vault.END_NOTE_TITLE`, not a second field.
 
 ### Fixed lists, to settle in milestone M1
 

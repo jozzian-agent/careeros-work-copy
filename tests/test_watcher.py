@@ -72,7 +72,7 @@ def test_legacy(tmp_path,job):
     assert watcher.scan(tmp_path,fetch=lambda _: 'body') == []
     assert [e['event'] for e in read(tmp_path,job)['history']] == ['watch_started']
 
-@pytest.mark.parametrize('status', ['offer','rejected','closed','withdrawn'])
+@pytest.mark.parametrize('status', ['offer','won','rejected','stopped'])
 def test_skip(tmp_path,job,status):
     vault.save_job(tmp_path,{'status':status},job['id'])
     assert watcher.scan(tmp_path,fetch=lambda _: pytest.fail('ineligible fetched')) == []
@@ -111,7 +111,7 @@ def test_concurrent_edit(tmp_path,job,mutation):
         if mutation == 'delete':
             vault.delete_job(tmp_path,job['id'])
         else:
-            updates={'url':{'url':'https://other.example/job'},'status':{'status':'closed'},
+            updates={'url':{'url':'https://other.example/job'},'status':{'status':'stopped'},
                      'notes':{'notes':'Owner edit'},'salary':{'salary_note':'Owner salary'}}[mutation]
             vault.save_job(tmp_path,updates,job['id'])
         return 'Salary CHF 120,000-140,000'
@@ -229,7 +229,7 @@ def test_lock_rejects_nesting_without_second_flock(tmp_path, monkeypatch):
     assert calls == [vault.fcntl.LOCK_EX, vault.fcntl.LOCK_UN] * 2
 
 
-@pytest.mark.parametrize('updates', [{'status': 'closed'}, {'url': ''}])
+@pytest.mark.parametrize('updates', [{'status': 'stopped'}, {'url': ''}])
 def test_ineligible_scan_and_button(tmp_path, job, updates, monkeypatch):
     # JOZ-280: the job detail page's disabled "Check posting" button with
     # its title tooltip is a React rendering decision now (DetailHeader's

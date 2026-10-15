@@ -227,6 +227,89 @@ rebuild (JOZ-279)" section; this is the surface-level summary.
   capability, the pre-existing field and Add button below the board are
   gone (fewest-elements); intake lives only behind the plus button.
 
+## D7 statuses and the closed posting (backend, 2026-10-15)
+
+Owner decision D7 and the [board brief](../briefs/2026-10-15-jobs-board-d7.md)
+reworked the status list and made a closed posting a flag. This is the
+backend half, which is built. **The board layout the brief draws -- five
+open columns, the Ended lane, the ending chooser, the reason popup, the
+closed-postings banner and its review popup, "Your search so far" and the
+phone layout -- is the frontend chunk and is not built yet.** The React
+board still renders one column per status, so it shows eight columns
+until that chunk lands.
+
+### Statuses
+
+New, Interested, Applied, Interviewing, Offer, Won, Rejected, Stopped, in
+that order (`vault.STATUSES`, with `vault.STATUS_LABELS` for the words).
+Stopped replaces Withdrawn. Closed is not a status: a posting that is gone
+is a fact about the posting, so it is the `closed` flag below.
+
+Open means not ended. `vault.ENDED_STATUSES` is Won, Rejected and Stopped,
+and `vault.OPEN_STATUSES` is derived from it, so the board split, the
+status select and the [Companies list](companies.md) open-jobs count all
+read one definition. A stored status outside the eight is refused by
+`vault.save_job`; a vault written before D7 is moved onto the list by
+[its runbook](../runbooks/migrate-board-d7.md), once.
+
+### The closed flag
+
+A job record carries `closed` (boolean), `closed_at` (the day the posting
+was found gone), `closed_reviewed_at` (the day the owner kept the job
+anyway) and `end_reason` (one of the suggestions, or null).
+
+- The watcher sets `closed` and `closed_at` when it finds a posting gone,
+  and leaves the status alone: ending a job is the owner's decision.
+- `closed_at` keeps the day the posting was FIRST missed, which is the day
+  the week below is counted from.
+- The flag is never cleared by the product. Nothing clears it if a posting
+  comes back online, which is an open question below.
+
+### What the board payload carries
+
+`GET /api/jobs?view=board` adds to the keys it already had:
+
+- `status_labels`, `ended_statuses`: the words, and which statuses belong
+  in the Ended lane.
+- `counts`: the split the filter bar shows, as "N open · M ended".
+- `end_reasons`: the suggestions per ended status, and `end_note_title`
+  the title the free text beside them is saved under as a note.
+- `closed_review`: the banner and review-popup list. One row per job the
+  owner has not applied to (a status before Applied), whose posting has
+  been gone for more than 7 days, and which they have not kept, as
+  `{id, closed_at, days_closed}`. This is the same set whose card shows
+  the warning chip rather than the neutral one, so the chip and the banner
+  cannot disagree, and `days_closed` is counted here so the card wording
+  and the threshold count the same days. A closed job with no `closed_at`
+  is left out: without the date there is no week to measure.
+- `search_so_far`: `applied_to`, `interviews` and `offers`, counted over
+  each job's history (both sides of every recorded move, plus its current
+  status) so an ended job still counts for the interview it got, plus
+  `top_stopped_reason` as `{reason, count}`. That last key is absent while
+  no stopped job carries a reason.
+
+Every entry keeps the whole job record, so `status`, `closed`,
+`closed_at`, `end_reason` and `closed_reviewed_at` ride along with it.
+
+### Moving a job, and the reason
+
+The existing `PUT /api/jobs/<id>` takes every D7 status, and the ending
+flow needs no endpoint of its own:
+
+- A move records history in plain words, "Status changed from Applied to
+  Stopped".
+- `end_reason` on the same or a later PUT records "Stopped: Salary or
+  conditions". Saving the same reason again records nothing.
+- The free text beside a reason is an ordinary dated note
+  (`POST /api/jobs/<id>/notes`), under the `end_note_title` title, not a
+  second note store and not a field.
+- The Keep action is a PUT of `closed_reviewed_at`, which takes the job
+  out of `closed_review` and leaves its flag alone.
+- Won needs no backend behaviour: the confirmation is the front end's, and
+  nothing happens to any other job.
+- "Hide closed postings" is a filter over the payload, so there is nothing
+  behind it here.
+
 ## States
 
 Board/list, empty board and no attention matches follow the sketch above.
@@ -239,10 +322,26 @@ show a toast.
 
 The recorded navigation follow-up and Jinja cutover await the later audit.
 
+- "Your search so far" reads history, which the vault caps at 50 entries per
+  job. A very long-lived job could age out of its own applied/interviewing
+  evidence and under-count. No live job is near the cap yet; revisit if the
+  numbers ever disagree with a hand count.
+- Clearing a stored ending reason takes `end_reason: null` on the job PUT;
+  the empty string is rejected like any other off-vocabulary value.
+
 - Does the filter bar keep its Fit facet while no job carries a fit? The
   chip and its popover still work, and the facet is left in place rather
   than removed on an agent's judgement (M0-4 was scoped to the card), but
-  it currently groups every job under one option.
+  it currently groups every job under one option. The D7 brief answers it
+  for the reworked bar (no Fit filter until fit exists); the facet is on
+  the board until the frontend chunk lands.
+- Nothing clears a job's `closed` flag if the posting comes back online.
+  The watcher sets it, and the Keep action only quiets the warning. D7
+  does not say what should happen, so nothing was built for it.
+- An ended job keeps the reason it was given when it is dragged back to an
+  open column. The record keeps what the owner said rather than being
+  rewritten behind them, and only a stopped job's reason is counted in
+  "Your search so far", but no surface shows a reason on an open card.
 
 ## JOZ-280: job card links now depend on the React flag
 

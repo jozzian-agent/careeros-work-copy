@@ -155,11 +155,17 @@ def test_registry_covers_every_description_refresh_outcome():
 
 
 def test_registry_entries_are_well_formed():
+    """Every visible entry carries words, except the ones whose words are
+    built from the stored detail (history.DETAIL_LABELS), which is why
+    those carry None as their registry label."""
     for event, entry in history.REGISTRY.items():
         label, visible = entry
         assert isinstance(visible, bool), event
-        if visible and event != 'status_changed':
+        if visible and event not in history.DETAIL_LABELS:
             assert label, event
+    assert set(history.DETAIL_LABELS) <= set(history.REGISTRY)
+    for event in history.DETAIL_LABELS:
+        assert history.REGISTRY[event] == (None, True), event
 
 
 def test_read_label_is_the_words_the_job_page_matches_on():

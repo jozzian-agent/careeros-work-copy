@@ -8,6 +8,9 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
               'ats_tenant': 'NoneType',
               'background': 'str',
               'certifications': [],
+              'closed': 'bool',
+              'closed_at': 'NoneType',
+              'closed_reviewed_at': 'NoneType',
               'company': 'str',
               'company_id': 'str',
               'company_industry': 'str',
@@ -23,6 +26,7 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
               'employee_count': 'NoneType',
               'employer_named_in_posting': 'NoneType',
               'employment_type': 'str',
+              'end_reason': 'NoneType',
               'enriched': 'bool',
               'field_provenance': {},
               'field_status': {},
@@ -72,7 +76,24 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
  # The one company-size scale, which the board's Company size facet reads
  # instead of bucketing employee counts of its own.
  'size_classes': ['str'],
- 'statuses': ['str']}
+ # D7's status vocabulary as the board reads it: the ordered list, the
+ # words for each one, which of them end a job, and the open/ended split
+ # the filter bar shows.
+ 'statuses': ['str'],
+ 'status_labels': {'new': 'str', 'interested': 'str', 'applied': 'str', 'interviewing': 'str',
+                   'offer': 'str', 'won': 'str', 'rejected': 'str', 'stopped': 'str'},
+ 'ended_statuses': ['str'],
+ 'counts': {'open': 'int', 'ended': 'int'},
+ # The ending-reason suggestions, and the title the free text beside them
+ # is saved under as a note on the job.
+ 'end_reasons': {'stopped': ['str'], 'rejected': ['str']},
+ 'end_note_title': 'str',
+ # Empty for this fixture, whose one job has no closed posting. A row is
+ # {id, closed_at, days_closed}; tests/test_board_d7.py pins that.
+ 'closed_review': [],
+ # top_stopped_reason is absent while no stopped job carries a reason,
+ # which is this fixture.
+ 'search_so_far': {'applied_to': 'int', 'interviews': 'int', 'offers': 'int'}}
 
 def test_board_contract(api_client, assert_json_shape):
     response = api_client.get('/api/jobs?view=board')
@@ -121,6 +142,9 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'ats_tenant': 'NoneType',
          'background': 'str',
          'certifications': [],
+         'closed': 'bool',
+         'closed_at': 'NoneType',
+         'closed_reviewed_at': 'NoneType',
          'company': 'str',
          'company_id': 'str',
          'company_link_reason': 'NoneType',
@@ -133,6 +157,7 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'employee_count': 'NoneType',
          'employer_named_in_posting': 'NoneType',
          'employment_type': 'str',
+         'end_reason': 'NoneType',
          'enriched': 'bool',
          'field_provenance': {},
          'field_status': {},
@@ -186,6 +211,8 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
  'reading': 'bool',
  'show_remote_chip': 'bool',
  'statuses': ['str'],
+ 'status_labels': {'new': 'str', 'interested': 'str', 'applied': 'str', 'interviewing': 'str',
+                    'offer': 'str', 'won': 'str', 'rejected': 'str', 'stopped': 'str'},
  'summary_effective': 'str',
  'watch_eligible': 'bool',
  'watch_reason': 'str'}

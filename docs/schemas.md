@@ -82,7 +82,7 @@ the sample workflow. Back up the destination vault before a future import.
 | url | HTTP(S) pasted posting URL |
 | original_url | Original HTTP(S) posting URL; ATS intake retains the pasted URL here and in url |
 | source | ATS platform label (Personio, Greenhouse, Lever, Workable, Ashby, SmartRecruiters, BambooHR, Monday, jobs.ch); otherwise domain guess |
-| status | new, interested, applied, interviewing, offer, rejected, closed, withdrawn |
+| status | new, interested, applied, interviewing, offer, won, rejected, stopped (`vault.STATUSES`, owner decision D7). Won, rejected and stopped end a job (`vault.ENDED_STATUSES`); every other status leaves it open. Closed and withdrawn are retired: a closed posting is the `closed` flag below, and stopped replaced withdrawn |
 | posted_date | ISO date or null |
 | added | ISO date, server-local today on creation |
 | salary_info | Boolean, public disclosure present |
@@ -96,6 +96,10 @@ the sample workflow. Back up the destination vault before a future import.
 | valid_through | String from JSON-LD validThrough (date or timestamp), otherwise empty |
 | custom | Mapping with string keys |
 | status_changed | ISO date, set/overwritten when an existing job changes status |
+| closed | Boolean, true once the posting is no longer online. A fact about the posting, set by the watcher, never a status |
+| closed_at | ISO date the posting was first found gone, or null |
+| closed_reviewed_at | ISO date the owner kept a job whose posting closed, or null. Takes it out of the board's closed-postings review |
+| end_reason | One of `vault.STOPPED_REASONS` / `vault.REJECTED_REASONS`, or null. Always optional; the free text the owner adds beside it is an ordinary note on the job, under `vault.END_NOTE_TITLE` |
 
 Requirements are stored twice over, on purpose. `description_structured`
 holds the flat shape every job written before package 2 has
@@ -164,7 +168,7 @@ No original company URL is invented from an ATS URL.
 GET `/api/companies` lists profiles by name. GET/PUT `/api/companies/<id>`
 reads or partially updates a profile with the same 400/404 conventions. The UI
 edits profile fields except ID and server-managed name_source and links its jobs. Open-job counts exclude
-rejected, closed, and withdrawn jobs (offers still count as open).
+won, rejected and stopped jobs (offers still count as open).
 
 Both collections use max existing numeric ID plus one, ID-suffixed slugs, and
 atomic saves, like experiences. Missing directories are empty; corrupt,
@@ -221,7 +225,7 @@ Mobile list view hides table headers and offers a Sort by selector using the sam
 ### Chunk 3.5b deletion and company metadata
 
 DELETE `/api/companies/<id>` returns `{"deleted": "<id>"}`; unknown IDs
-return 404. Any linked job (including closed jobs) blocks deletion with 409,
+return 404. Any linked job (including ended ones) blocks deletion with 409,
 `count`, and `error: "Still linked to N jobs"`. Jobs are never cascade-deleted.
 Job and company detail pages require confirmation before deletion.
 

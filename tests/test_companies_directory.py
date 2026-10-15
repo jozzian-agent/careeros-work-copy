@@ -24,11 +24,13 @@ def job(status, company_id='CO-001'):
 # --- open jobs ------------------------------------------------------------
 
 def test_ended_statuses_are_exactly_the_closed_end_of_the_vocabulary():
-    """The rule itself: rejected, closed and withdrawn end a job, every
-    other stored status leaves it open."""
+    """The rule itself (D7): won, rejected and stopped end a job, every
+    other stored status leaves it open, and the open list is derived from
+    that one decision rather than typed out beside it."""
     open_statuses = [s for s in vault.STATUSES if vault.is_open_job({'status': s})]
     assert open_statuses == ['new', 'interested', 'applied', 'interviewing', 'offer']
-    assert vault.ENDED_STATUSES == ('rejected', 'closed', 'withdrawn')
+    assert vault.ENDED_STATUSES == ('won', 'rejected', 'stopped')
+    assert vault.OPEN_STATUSES == tuple(open_statuses)
 
 
 def test_a_job_with_no_status_counts_as_open():
@@ -37,7 +39,7 @@ def test_a_job_with_no_status_counts_as_open():
 
 def test_the_count_leaves_out_every_ended_job():
     jobs = [job(status) for status in vault.STATUSES]
-    assert context([company()], jobs)['counts'] == {'CO-001': 5}
+    assert context([company()], jobs)['counts'] == {'CO-001': len(vault.OPEN_STATUSES)}
 
 
 def test_the_count_is_per_company():

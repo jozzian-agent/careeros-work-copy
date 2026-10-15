@@ -387,14 +387,51 @@ def delete_experience(root, identifier):
     return False
 
 # Chunk 3 records share the established tolerant reader and atomic writer.
-STATUSES = ('new', 'interested', 'applied', 'interviewing', 'offer', 'rejected', 'closed', 'withdrawn')
+# The owner's status list (decision D7, 2026-10-15), in the order a job
+# moves through it, which is also the order the board shows. Won means the
+# owner got the job and Stopped means they quit pursuing it without a
+# rejection, replacing the former Withdrawn. There is no Closed status: a
+# posting that is gone is a fact about the posting rather than the owner
+# decision, so it is the `closed` flag on the record instead.
+STATUSES = ('new', 'interested', 'applied', 'interviewing', 'offer', 'won', 'rejected', 'stopped')
+
+# The owner-facing name of every status, for any surface that shows one:
+# the board payload, the status select and the history labels all read
+# these words from here rather than reformatting the stored id.
+STATUS_LABELS = {'new': 'New', 'interested': 'Interested', 'applied': 'Applied',
+                 'interviewing': 'Interviewing', 'offer': 'Offer', 'won': 'Won',
+                 'rejected': 'Rejected', 'stopped': 'Stopped'}
 
 # The three statuses that end a job: it is no longer something the owner
 # can still pursue. Lives here, beside the status vocabulary it is drawn
-# from, so every reader of "is this job still open" (the Companies
-# directory count and the filters built on it) shares one definition
-# instead of repeating a status tuple of its own.
-ENDED_STATUSES = ('rejected', 'closed', 'withdrawn')
+# from, so every reader of "is this job still open" (the board split, the
+# Companies directory count and the filters built on it) shares one
+# definition instead of repeating a status tuple of its own.
+ENDED_STATUSES = ('won', 'rejected', 'stopped')
+
+# Open means not ended, which is why it is derived here and never typed
+# out a second time: the two lists cannot drift apart.
+OPEN_STATUSES = tuple(status for status in STATUSES if status not in ENDED_STATUSES)
+
+# The reasons the ending popup offers for the two statuses that have them
+# (D7). A reason is always optional, is picked from these words rather
+# than typed, and is stored verbatim as the string the owner picked, so no
+# second label map has to agree with it. Free text the owner adds beside a
+# reason is a dated note on the job (END_NOTE_TITLE), never a second
+# stored field. Won has no suggestions: there is nothing to explain about
+# getting the job.
+STOPPED_REASONS = ('Not interested anymore', 'Salary or conditions', 'Location or commute',
+                   'Took another offer', 'Posting closed', 'No response')
+REJECTED_REASONS = ('No reason given', 'After interview', 'Experience did not match',
+                    'Position filled')
+END_REASONS = {'stopped': STOPPED_REASONS, 'rejected': REJECTED_REASONS}
+END_REASON_VALUES = frozenset(STOPPED_REASONS + REJECTED_REASONS)
+
+# The title the free-text half of an ending reason is saved under. The
+# notes list shows titles, so the free text needs one, and it is decided
+# here with the rest of the ending vocabulary rather than by whichever
+# surface opens the popup.
+END_NOTE_TITLE = 'Why this ended'
 
 def is_open_job(job):
     """True while a job is still open, per ENDED_STATUSES. A record with
@@ -617,6 +654,13 @@ def _record_defaults(kind):
                  employer_named_in_posting=None, company_review=None,
                  field_status={}, field_status_reason={}, posting_quality=None, description_structured=None,
                  requirement_groups=[],
+                 # D7: the posting being gone is a fact about the posting,
+                 # so it is this flag and never a status. closed_at is the
+                 # day it was found gone, closed_reviewed_at the day the
+                 # owner kept the job anyway (which stops the closed-
+                 # postings review suggesting it again), and end_reason the
+                 # optional suggestion behind an ended job.
+                 closed=False, closed_at=None, closed_reviewed_at=None, end_reason=None,
                  occupation_code=None, skill_codes=None) if job else
             dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                  contact_email='', notes='', note_list=[], custom={}, enrichment={},
@@ -700,6 +744,15 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         result['tags'] = validate_tags(root, result['tags'], proposed=proposed)
         if result['status'] not in STATUSES:
             raise ValueError('Invalid job status.')
+        if type(result['closed']) is not bool:
+            raise ValueError('closed must be boolean.')
+        # A reason is one of the words the popup offers, checked against
+        # the union of both vocabularies rather than against the job
+        # current status: a job dragged from Stopped to Rejected keeps the
+        # reason it was given until the owner changes it, and a record is
+        # not rewritten behind their back.
+        if result['end_reason'] is not None and result['end_reason'] not in END_REASON_VALUES:
+            raise ValueError('Invalid end_reason.')
         if result['ingest_state'] not in INGEST_STATES:
             raise ValueError('Invalid ingest_state.')
         if result['origin'] not in ('manual', 'discovered'):
@@ -800,9 +853,11 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         for key in ('salary_info', 'enriched', 'remote_ok'):
             if type(result[key]) is not bool and not (key == 'remote_ok' and result[key] is None):
                 raise ValueError(f'{key} must be boolean' + (' or null.' if key == 'remote_ok' else '.'))
-        for key in ('posted_date', 'added'):
+        for key in ('posted_date', 'added', 'closed_at', 'closed_reviewed_at'):
             value = result[key]
-            if value is None and key == 'posted_date':
+            # `added` is the one date every job has; the other three are
+            # null until the thing they date happens.
+            if value is None and key != 'added':
                 continue
             try:
                 result[key] = date.fromisoformat(str(value)).isoformat()
@@ -813,9 +868,22 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         if existing and result['status'] != existing[1].get('status'):
             result['status_changed'] = date.today().isoformat()
             append_event(result, 'status_changed', f"{existing[1].get('status')} -> {result['status']}")
-            if (result['status'] in ('new', 'interested', 'applied', 'interviewing')
+            # A job the owner is pursuing again is watched again, so the
+            # gone verdict is dropped and the next scan decides afresh.
+            # The statuses that qualify are the watcher's own list, imported
+            # here rather than repeated so the two cannot disagree (inside
+            # the function: the watcher imports this module at its top).
+            from careeros.watcher import WATCH_STATUSES
+            if (result['status'] in WATCH_STATUSES
                     and result.get('watch', {}).get('watch_status') == 'gone'):
                 result['watch'] = {}
+        # D7: the optional ending reason, in the words the owner picked.
+        # Its own event rather than part of the status move, because the
+        # reason usually arrives after the move: the popup opens from the
+        # Undo message or from an ended card, and Skip saves nothing at
+        # all, so a move may carry no reason for days or ever.
+        if result['end_reason'] and result['end_reason'] != (existing[1].get('end_reason') if existing else None):
+            append_event(result, 'end_reason_set', f"{result['status']}: {result['end_reason']}")
         if correction_detail:
             append_event(result, 'company_correction', correction_detail)
         if history_event:
@@ -1029,8 +1097,14 @@ def _migrate_one_job(data):
     # same reason: an existing job keeps its flat must/nice lists until
     # the owner re-extracts it, and an empty list is how a reader tells
     # "not grouped yet" from "grouped, and the posting asked for nothing".
+    # D7 adds closed/closed_at/closed_reviewed_at/end_reason on the same
+    # terms: an existing job has no closed posting recorded and no ending
+    # reason until something says so, and `closed: false` is the complete
+    # answer rather than a missing key.
     for key, default in (('field_status', {}), ('posting_quality', None),
                          ('description_structured', None), ('requirement_groups', []),
+                         ('closed', False), ('closed_at', None),
+                         ('closed_reviewed_at', None), ('end_reason', None),
                          ('occupation_code', None), ('skill_codes', None)):
         if key not in data:
             data[key] = default

@@ -70,9 +70,9 @@ under `careerCompaniesFilters`; there is no URL state (owner decision).
    numeric `size_range`: a company carrying both reads as its class
    everywhere on this page. The stored ranges are retired by the migration
    below, not by read-time rewriting.
-3. **Open jobs.** A job is open unless its status is rejected, closed or
-   withdrawn — `vault.ENDED_STATUSES` / `vault.is_open_job`, the one place
-   that says so, which the count and the Open jobs filter both read.
+3. **Open jobs.** A job is open unless its status is won, rejected or
+   stopped (`vault.ENDED_STATUSES` / `vault.is_open_job`, the one place
+   that says so, which the count and the Open jobs filter both read).
 4. **Chip.** "N open job(s)" when there are any, "No open jobs" when there
    are none, pinned to the card's bottom.
 5. **Grid.** `repeat(auto-fill, minmax(260px, 1fr))`, 16px gap, fixed card

@@ -91,10 +91,26 @@ All existing default record responses and write methods retain their contracts.
 `view` selects GET representations only; writes still return records. JSON
 converts template tuples to arrays and rendered Markdown to strings.
 
-- Board: `statuses`, `size_classes`, `entries`, `companies`,
-  `function_options`, `empty`. `size_classes` is the company-size scale
+- Board: `statuses`, `status_labels`, `ended_statuses`, `counts`,
+  `end_reasons`, `end_note_title`, `closed_review`, `search_so_far`,
+  `size_classes`, `entries`, `companies`, `function_options`, `empty`.
+  `size_classes` is the company-size scale
   (micro, small, medium, large), the same key the Companies contracts
   carry, so both pages filter over one vocabulary.
+  The D7 keys (see [Jobs](jobs.md) for the rules behind them):
+  `statuses` is the eight owner statuses in board order,
+  `status_labels` the word for each one, and `ended_statuses` the three
+  that end a job, so the columns and the Ended lane are not decided in
+  JS. `counts` is the split, `{open, ended}`. `end_reasons` is
+  `{stopped: [...], rejected: [...]}`, the suggestions the ending popup
+  offers, and `end_note_title` the title the free text beside them is
+  saved under through the notes endpoints. `closed_review` is the
+  closed-postings banner list, one `{id, closed_at, days_closed}` per job
+  before Applied whose posting has been gone for over 7 days and which has
+  no `closed_reviewed_at`; it is also the set whose card shows the warning
+  chip. `search_so_far` is `{applied_to, interviews, offers}` counted over
+  each job's history, plus `top_stopped_reason` as `{reason, count}`,
+  which is absent while no stopped job carries a reason.
   Entries retain record fields and add `needs_attention`, `company_name`,
   `company_industry`, `company_size_class` and `pending`. Companies maps IDs
   to `{name, industry, size_class}`: `industry` is the company's first ISIC
@@ -102,7 +118,7 @@ converts template tuples to arrays and rendered Markdown to strings.
   `size_class` is the raw micro/small/medium/large value (`None` when unset).
   Pending means not enriched, matching the existing card attribute; it is
   distinct from active detail enrichment.
-- Job detail: `job`, `company`, `statuses`, `function_labels`, `notes`,
+- Job detail: `job`, `company`, `statuses`, `status_labels`, `function_labels`, `notes`,
   `has_description`, `show_remote_chip`, `watch_eligible`, `watch_reason`,
   `llm_pending`, `history`, `classification`, `needs_input`, `reading`,
   `summary_effective`, `fit`, `fit_placeholder`. There is no posting-text
@@ -149,9 +165,9 @@ converts template tuples to arrays and rendered Markdown to strings.
   the record carries any review flag, which is what the directory's
   "Needs your input" filter asks for (broader than the detail contract's
   one-field `needs_input`). `counts` is the number of OPEN jobs linked to
-  each company — open meaning any status but rejected, closed and
-  withdrawn (`vault.ENDED_STATUSES`, the one definition both the count and
-  the page's Open jobs filter read).
+  each company, where open means any status but won, rejected and stopped
+  (`vault.ENDED_STATUSES`, the one definition the count, the page's Open
+  jobs filter and the board's own split all read).
 - Company detail: `company`, `entries`, `experiences`, `companies`,
   `sector_labels`, `isic_sections`, `size_classes`, `kinds`,
   `classification`, `needs_input`, `notes`, `jobs`. Existing raw GET

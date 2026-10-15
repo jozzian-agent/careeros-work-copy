@@ -214,7 +214,7 @@ def test_board_badges(client):
     assert 'Enrichment pending' in html
     company_id = client.get('/api/jobs/JOB-001').json['company_id']
     assert client.get('/api/companies?view=page').json['counts'][company_id] == 2
-    assert client.put('/api/jobs/JOB-001',json={'status':'closed'}).status_code==200
+    assert client.put('/api/jobs/JOB-001',json={'status':'stopped'}).status_code==200
     assert client.get('/api/companies?view=page').json['counts'][company_id] == 1
 
 

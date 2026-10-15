@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import re
+from datetime import date
 from pathlib import Path
 import sys
 from urllib.error import HTTPError
@@ -95,6 +96,16 @@ def scan(root, fetch=None, dry_run=False, *, job_id=None, lock=None) -> list[Eve
                 watch['watch_status'] = 'gone' if gone else 'error'
                 if gone:
                     record('posting_gone', f'HTTP {error.code}' if immediate else 'unreachable')
+                    # D7: a posting that is gone is a fact about the
+                    # posting, so the scan sets the flag and the date it
+                    # was found and leaves the status alone. Ending a job
+                    # is the owner's decision, and this is not it. An
+                    # earlier closed_at is kept: the day the posting went
+                    # is the day it was first found gone, which is what
+                    # the closed-postings review counts the week from.
+                    job['closed'] = True
+                    if not job.get('closed_at'):
+                        job['closed_at'] = date.today().isoformat()
             else:
                 watch.update(watch_status='ok', consecutive_errors=0)
                 if not watch.get('content_hash'):

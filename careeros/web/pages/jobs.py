@@ -1,4 +1,5 @@
 """Posting board and job detail."""
+from datetime import date
 import re
 
 from flask import abort, current_app
@@ -8,6 +9,21 @@ from careeros.web.ui import page
 
 EMPTY_STATE = 'No jobs yet — paste a posting link to get started.'
 
+# How long a closed posting sits on a job the owner has not applied to
+# before the board asks about it (D7).
+CLOSED_REVIEW_DAYS = 7
+
+# The statuses the closed-posting question applies to: every open status
+# before Applied. A job in Applied or later keeps the neutral chip,
+# because a closed posting does not end an application. Read off the one
+# status ladder rather than typed out again here.
+BEFORE_APPLIED = vault.OPEN_STATUSES[:vault.OPEN_STATUSES.index('applied')]
+
+# The statuses that count as having applied, for "Your search so far".
+# Won counts too: a job can be dropped straight onto the Won lane from
+# Interested, and you cannot win a job you never applied to.
+APPLIED_OR_LATER = tuple(vault.OPEN_STATUSES[vault.OPEN_STATUSES.index('applied'):]) + ('won',)
+
 def needs_attention(job):
     """M1 audit batch B: a job needs owner action when the company link is
     unresolved or ingest got stuck, mirroring company_link_state/ingest_state
@@ -15,12 +31,94 @@ def needs_attention(job):
     return (job.get('company_link_state') == 'needs_review'
             or job.get('ingest_state') in ('fetch_failed', 'extract_failed'))
 
+def days_closed(job, today):
+    """Whole days since this job posting was found gone, or None when the
+    record does not say. A record can carry the flag without a date (a
+    posting gone before the date was stored), and a week cannot be
+    measured from a date that is not there."""
+    try:
+        found = date.fromisoformat(str(job.get('closed_at')))
+    except (TypeError, ValueError):
+        return None
+    return (today - found).days
+
+
+def closed_review(entries, today):
+    """The jobs the closed-postings banner and its review popup ask about:
+    the owner has not applied, the posting has been gone for more than a
+    week, and they have not already kept the job.
+
+    This is also the set whose card shows the warning chip rather than the
+    neutral one, so the front end reads one list for both and the chip can
+    never disagree with the banner. `days_closed` rides along because the
+    threshold is decided here: a card that says "Closed 8 days ago" and a
+    banner that says "over a week" have to be counting the same days.
+    """
+    rows = []
+    for job in entries:
+        if (job.get('status') not in BEFORE_APPLIED or not job.get('closed')
+                or job.get('closed_reviewed_at')):
+            continue
+        days = days_closed(job, today)
+        if days is None or days <= CLOSED_REVIEW_DAYS:
+            continue
+        rows.append({'id': job.get('id'), 'closed_at': job.get('closed_at'), 'days_closed': days})
+    return rows
+
+
+def statuses_held(job):
+    """Every status this job is recorded as having held: the one it is in
+    now, plus both sides of every status move in its history.
+
+    Both sides, because a move records where the job came from as well as
+    where it went, so one event is evidence of two statuses. The current
+    status is counted too: a job can be written straight into a status
+    without a move ever being recorded.
+    """
+    held = {job.get('status') or 'new'}
+    for event in job.get('history') or []:
+        if isinstance(event, dict) and event.get('event') == 'status_changed':
+            held.update(part.strip() for part in str(event.get('detail') or '').split('->') if part.strip())
+    return held
+
+
+def search_so_far(entries):
+    """The counts the Ended lane heads with (D7).
+
+    Every count is over history rather than over where a job sits now, so
+    an ended job still counts for the interview it got. The most common
+    reason to stop is left out entirely while no stopped job carries one:
+    a line reading "Most common reason to stop: none" would be a fact
+    about the field rather than about the search. Ties go to the earlier
+    reason in the suggestion list, so the same records always report the
+    same answer.
+    """
+    held = [statuses_held(job) for job in entries]
+    applied = set(APPLIED_OR_LATER)
+    stats = dict(
+        applied_to=sum(bool(statuses & applied) for statuses in held),
+        interviews=sum('interviewing' in statuses for statuses in held),
+        offers=sum('offer' in statuses for statuses in held),
+    )
+    counts = {}
+    for job in entries:
+        reason = job.get('end_reason')
+        if job.get('status') == 'stopped' and reason:
+            counts[reason] = counts.get(reason, 0) + 1
+    if counts:
+        order = {reason: index for index, reason in enumerate(vault.STOPPED_REASONS)}
+        top = max(counts, key=lambda reason: (counts[reason], -order.get(reason, len(order))))
+        stats['top_stopped_reason'] = {'reason': top, 'count': counts[top]}
+    return stats
+
+
 def page_context(root):
     return board_context(vault.list_jobs(root), vault.list_companies(root),
                          vault.function_label_map(root))
 
-def board_context(entries, companies, function_labels):
+def board_context(entries, companies, function_labels, today=None):
     """Build the board context without I/O or mutating input records."""
+    today = today or date.today()
     function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
                               key=lambda pair: pair[1].casefold())
     entries = [job | {'needs_attention': needs_attention(job)} for job in entries]
@@ -28,6 +126,21 @@ def board_context(entries, companies, function_labels):
         entries=entries,
         companies={c['id']: c for c in companies if 'id' in c},
         statuses=vault.STATUSES,
+        # The words every surface shows for a status, and which of them
+        # end a job, both from the one vocabulary in the vault: the board
+        # columns are the open statuses in order and the Ended lane holds
+        # the rest, so neither list is computed in JS.
+        status_labels=vault.STATUS_LABELS,
+        ended_statuses=vault.ENDED_STATUSES,
+        # The split the filter bar reads as "N open · M ended".
+        counts=dict(open=sum(vault.is_open_job(job) for job in entries),
+                    ended=sum(not vault.is_open_job(job) for job in entries)),
+        # The suggestions the ending popup offers, per ended status, and
+        # the title the free text beside them is saved under as a note.
+        end_reasons={status: list(reasons) for status, reasons in vault.END_REASONS.items()},
+        end_note_title=vault.END_NOTE_TITLE,
+        closed_review=closed_review(entries, today),
+        search_so_far=search_so_far(entries),
         empty=EMPTY_STATE,
         function_options=function_options,
         # The one company-size scale, for the board's Company size facet.
@@ -176,6 +289,7 @@ def job_context(job, company, function_labels, llm_pending=False, isic_sections=
         watch_reason=watcher.NOT_WATCHED_REASON,
         company=company,
         statuses=vault.STATUSES,
+        status_labels=vault.STATUS_LABELS,
         function_labels=function_labels,
         # The owner's notes, as the list the Notes section renders. The
         # `markdown` key this replaces rendered the single legacy notes
