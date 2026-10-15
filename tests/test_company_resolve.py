@@ -643,8 +643,11 @@ def test_r1_owner_edit_mid_cascade_survives(client, monkeypatch, edit):
     thread = client.application.config['CASCADE_THREADS'][cid]
     try:
         assert entered.wait(2)
-        expected = (None, None) if edit == 'owner_empty' else ('250+', 'large')
-        values = dict(zip(('size_range', 'size_class'), expected))
+        # The edit is a size class: that is the only size scale (owner
+        # decision 2026-10-15), and the numeric range the cascade's own
+        # result still carries is never persisted by either writer.
+        expected = (None, None if edit == 'owner_empty' else 'large')
+        values = {'size_class': expected[1]}
         if edit == 'automation':
             vault.save_company(root, values, cid)
         else:

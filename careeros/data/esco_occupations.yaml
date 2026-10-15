@@ -3,7 +3,32 @@
 # entries; it is not consulted directly at runtime. Re-confirm esco_uri values
 # against the live ESCO portal before relying on them; they are best-citation
 # placeholders, not verified facts.
+#
+# NEEDS OWNER CHECK (proposed 2026-10-15, task M0-1). The four entries that
+# existed before this round are ict-product-manager, software-developer,
+# ict-service-manager and financial-investment-adviser. Every other entry
+# below is a proposal for the owner's own market, which is white-collar work
+# in the Zurich region: software, data, product, design, marketing, finance,
+# operations, HR, sales engineering and consulting. For each proposed entry
+# two things are unverified, and both need the owner or a check against the
+# live ESCO portal:
+#
+#   * the esco_uri, which no entry added in this round carries, so none of
+#     them claims an ESCO concept it has not been matched to
+#   * the isco code, which is this file's best reading of ISCO-08 and is not
+#     a citation
+#
+# `vault.seed_function_facet` already refuses to treat an entry with no
+# esco_uri as ESCO-backed: it seeds such an entry as a local extension with
+# a visible marker and with isco cleared (decision 25), so no unverified
+# code reaches a vault and no roll-up claims a parent it has not earned.
+# Confirming an entry means filling in its esco_uri here and re-running the
+# seed, which adds nothing twice and overwrites nothing.
+#
+# A label or an id below that the owner does not search in is better removed
+# than left to bias the extraction prompt, which is given every entry.
 occupations:
+  # --- Software, IT and data ---------------------------------------------
   - id: ict-product-manager
     label: "ICT product manager"
     label_de: "ICT-Produktmanager"
@@ -22,9 +47,179 @@ occupations:
     isco: "1330"
     esco_uri: null
     keywords: ["ict service manager", "it service manager"]
+  - id: software-architect
+    label: "Software architect"
+    label_de: "Softwarearchitekt"
+    isco: "2512"
+    esco_uri: null
+    keywords: ["software architect", "solution architect", "softwarearchitekt", "lösungsarchitekt"]
+  - id: ict-system-administrator
+    label: "ICT system administrator"
+    label_de: "Systemadministrator"
+    isco: "2522"
+    esco_uri: null
+    keywords: ["system administrator", "sysadmin", "systemadministrator", "platform engineer",
+               "devops engineer", "site reliability engineer"]
+  - id: ict-security-manager
+    label: "ICT security manager"
+    label_de: "IT-Sicherheitsmanager"
+    isco: "1330"
+    esco_uri: null
+    keywords: ["security manager", "information security", "ciso", "it-sicherheit",
+               "informationssicherheit"]
+  - id: ict-project-manager
+    label: "ICT project manager"
+    label_de: "IT-Projektleiter"
+    isco: "1330"
+    esco_uri: null
+    keywords: ["project manager", "it project manager", "projektleiter", "programme manager",
+               "scrum master", "agile coach"]
+  - id: ict-business-analyst
+    label: "ICT business analyst"
+    label_de: "IT-Business-Analyst"
+    isco: "2511"
+    esco_uri: null
+    keywords: ["business analyst", "requirements engineer", "business analyst it",
+               "anforderungsanalyst"]
+  - id: data-scientist
+    label: "Data scientist"
+    label_de: "Data Scientist"
+    isco: "2511"
+    esco_uri: null
+    keywords: ["data scientist", "machine learning engineer", "ml engineer",
+               "applied scientist", "datenwissenschaftler"]
+  - id: data-engineer
+    label: "Data engineer"
+    label_de: "Data Engineer"
+    isco: "2521"
+    esco_uri: null
+    keywords: ["data engineer", "analytics engineer", "data platform engineer",
+               "dateningenieur"]
+  - id: data-analyst
+    label: "Data analyst"
+    label_de: "Datenanalyst"
+    isco: "2511"
+    esco_uri: null
+    keywords: ["data analyst", "business intelligence analyst", "bi analyst",
+               "datenanalyst", "reporting analyst"]
+  # --- Product and design -------------------------------------------------
+  - id: user-experience-analyst
+    label: "User experience analyst"
+    label_de: "User-Experience-Analyst"
+    isco: "2166"
+    esco_uri: null
+    keywords: ["ux designer", "user experience", "ux researcher", "product designer",
+               "ux-designer"]
+  - id: user-interface-designer
+    label: "User interface designer"
+    label_de: "User-Interface-Designer"
+    isco: "2166"
+    esco_uri: null
+    keywords: ["ui designer", "user interface designer", "visual designer", "ui-designer",
+               "interaction designer"]
+  # --- Marketing, sales and communication ---------------------------------
+  - id: marketing-manager
+    label: "Marketing manager"
+    label_de: "Marketingleiter"
+    isco: "1221"
+    esco_uri: null
+    keywords: ["marketing manager", "digital marketing", "growth marketing", "brand manager",
+               "marketingleiter", "online marketing"]
+  - id: sales-manager
+    label: "Sales manager"
+    label_de: "Vertriebsleiter"
+    isco: "1221"
+    esco_uri: null
+    keywords: ["sales manager", "head of sales", "vertriebsleiter", "verkaufsleiter"]
+  - id: technical-sales-representative
+    label: "Technical sales representative"
+    label_de: "Technischer Vertriebsmitarbeiter"
+    isco: "2433"
+    esco_uri: null
+    keywords: ["sales engineer", "technical sales", "solution engineer", "presales",
+               "vertriebsingenieur", "technischer vertrieb"]
+  # --- Finance and risk ---------------------------------------------------
   - id: financial-investment-adviser
     label: "Financial and investment adviser"
     label_de: "Finanz- und Anlageberater"
     isco: "2412"
     esco_uri: null
     keywords: ["investment adviser", "financial adviser"]
+  - id: financial-analyst
+    label: "Financial analyst"
+    label_de: "Finanzanalyst"
+    isco: "2413"
+    esco_uri: null
+    keywords: ["financial analyst", "equity analyst", "fp&a", "finanzanalyst",
+               "investment analyst"]
+  - id: accountant
+    label: "Accountant"
+    label_de: "Buchhalter"
+    isco: "2411"
+    esco_uri: null
+    keywords: ["accountant", "accounting specialist", "buchhalter", "rechnungswesen",
+               "financial accountant"]
+  - id: financial-manager
+    label: "Financial manager"
+    label_de: "Leiter Finanzen"
+    isco: "1211"
+    esco_uri: null
+    keywords: ["finance manager", "financial controller", "controller", "head of finance",
+               "cfo", "leiter finanzen"]
+  - id: risk-manager
+    label: "Risk manager"
+    label_de: "Risikomanager"
+    isco: "2413"
+    esco_uri: null
+    keywords: ["risk manager", "risk analyst", "credit risk", "risikomanager",
+               "operational risk"]
+  - id: compliance-officer
+    label: "Compliance officer"
+    label_de: "Compliance-Beauftragter"
+    isco: "2619"
+    esco_uri: null
+    keywords: ["compliance officer", "compliance manager", "regulatory compliance",
+               "compliance-beauftragter", "aml"]
+  # --- People, operations and consulting ----------------------------------
+  - id: human-resources-manager
+    label: "Human resources manager"
+    label_de: "Personalleiter"
+    isco: "1212"
+    esco_uri: null
+    keywords: ["hr manager", "human resources", "people partner", "hr business partner",
+               "personalleiter", "personalwesen"]
+  - id: recruitment-consultant
+    label: "Recruitment consultant"
+    label_de: "Personalberater"
+    isco: "2423"
+    esco_uri: null
+    keywords: ["recruiter", "talent acquisition", "recruitment consultant", "personalberater",
+               "talent partner"]
+  - id: management-consultant
+    label: "Management consultant"
+    label_de: "Unternehmensberater"
+    isco: "2421"
+    esco_uri: null
+    keywords: ["management consultant", "strategy consultant", "business consultant",
+               "unternehmensberater", "strategieberater"]
+  - id: supply-chain-manager
+    label: "Supply chain manager"
+    label_de: "Supply-Chain-Manager"
+    isco: "1324"
+    esco_uri: null
+    keywords: ["supply chain manager", "procurement manager", "logistics manager",
+               "einkaufsleiter", "supply chain"]
+  - id: operations-manager
+    label: "Operations manager"
+    label_de: "Betriebsleiter"
+    isco: "1219"
+    esco_uri: null
+    keywords: ["operations manager", "head of operations", "business operations",
+               "betriebsleiter", "coo"]
+  - id: customer-service-manager
+    label: "Customer service manager"
+    label_de: "Kundendienstleiter"
+    isco: "1219"
+    esco_uri: null
+    keywords: ["customer service manager", "customer success manager", "head of support",
+               "kundendienstleiter", "customer success"]

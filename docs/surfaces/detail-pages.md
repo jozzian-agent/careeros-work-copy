@@ -2,7 +2,7 @@
 type: Surface
 title: "Detail pages"
 description: "Describe the shared Job/Experience/Company/Classification detail-page skeleton."
-timestamp: 2026-10-14
+timestamp: 2026-10-15
 ---
 
 # Detail pages
@@ -341,6 +341,13 @@ the accounting of converted vs. removed tests), Playwright 106 (was 78).
 
 ## Open questions
 
+- The extraction popup does not read `field_status_reason`, the per-field
+  reason the backend gained on 2026-10-15 (M0-2). Its first writer is the
+  function-id drop: when a reading returns function ids the vault's
+  function list does not carry, the row still says only "Not found in
+  posting", while the record now also holds the sentence that says the
+  reading did answer and the ids could not be stored. Showing it is
+  frontend work this backend change deliberately did not do.
 - Live-polling for in-progress enrichment (the old page's 4s interval) is
   not carried over; the page shows the loaded snapshot, polls while a
   field is pending, and offers Retry.

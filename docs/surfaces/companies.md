@@ -113,11 +113,30 @@ by validation is reported on stderr and the run exits non-zero.
 .venv/bin/python scripts/migrate_company_size_scale.py --vault /path/to/vault --apply
 ```
 
-Known follow-up: the org-intake capability derives `size_range` and
-`size_class` together (`org_intake.classify.derive_size`), so a newly
-enriched company gets a range again and the migration is re-runnable by
-design, per the owner's "manual single run, not lazy migration on read"
-convention.
+Settled 2026-10-15 (M0-7), replacing the follow-up this section used to
+record: the org-intake capability still derives `size_range` and
+`size_class` together (`org_intake.classify.derive_size` is a pinned
+capability with its own contract, unchanged here), but no product write
+persists the range any more. `vault._drop_retired_size_range` takes it
+off every payload at `save_company`, the one gate every company write
+passes through, so a new signal cannot reintroduce the second scale
+through a path nobody remembered. An explicit null still gets through,
+because clearing a range an older record carries is what this migration
+and the re-kind path in `careeros/enrich.py` do. A newly enriched company
+therefore stays on the class scale, and the migration no longer has to be
+re-runnable to keep it there.
+
+Two consequences at the product's own size write sites, both so the
+remaining scale stays coherent rather than coming back under another
+name. The posting's own bucket string now defers to a stored
+`size_class` rather than to a stored `size_range` when
+`fill_company_metadata` decides whether to fill the legacy `size` field,
+and the enrichment cascade's "this field is filled" accounting reads
+`size_class` alone. The legacy free-text `size` field is still written
+when a posting states a size and the company has no class at all; that
+field is outside the retirement this task covered, and
+`scripts/migrate_company_size_scale.py` reports it rather than touching
+it.
 
 ## States
 
@@ -156,5 +175,8 @@ view removed rather than kept as a flag-off fallback
 - Does the Company detail page's size value follow the same
   classes-win rule? It still prefers the raw range it was given
   (`companies.field_value`), which only matters until `--apply` runs.
-- Should `careeros` stop storing `size_range` at its own write sites, so
-  the unified scale survives the next enrichment without a re-run?
+- Should the legacy free-text `size` field go the same way as
+  `size_range`? A posting that states a size still fills it on a company
+  with no class, and the detail page prefers it over the class, so the
+  two scales can still disagree on a record written that way. M0-7 was
+  scoped to `size_range`.

@@ -118,6 +118,7 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
               'enriched': 'bool',
               'field_provenance': {},
               'field_status': {},
+              'field_status_reason': {},
               'function': ['str'],
               'history': [{'detail': 'str', 'event': 'str', 'ts': 'str'}],
               'id': 'str',

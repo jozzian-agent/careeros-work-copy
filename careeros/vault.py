@@ -615,7 +615,7 @@ def _record_defaults(kind):
                  ats_provider=None, ats_tenant=None, ats_posting_id=None,
                  company_link_state='pending', company_link_reason=None,
                  employer_named_in_posting=None, company_review=None,
-                 field_status={}, posting_quality=None, description_structured=None,
+                 field_status={}, field_status_reason={}, posting_quality=None, description_structured=None,
                  requirement_groups=[],
                  occupation_code=None, skill_codes=None) if job else
             dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
@@ -739,6 +739,20 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         if not isinstance(result['field_status'], dict) or any(
                 not isinstance(k, str) or v not in FIELD_STATUS_VALUES for k, v in result['field_status'].items()):
             raise ValueError('field_status must map field names to pending, done, failed, or not_evidenced.')
+        if not isinstance(result['field_status_reason'], dict) or any(
+                not isinstance(k, str) or not isinstance(v, str) or not v.strip()
+                for k, v in result['field_status_reason'].items()):
+            raise ValueError('field_status_reason must map field names to non-empty text.')
+        # A reason only ever explains a field field_status reports as
+        # not_evidenced: the reader covered the field and the record still
+        # has no value, and the reason is the one thing that says why. So
+        # whatever moves that field on -- a later reading that fills it, an
+        # owner edit, a retry putting it back to pending -- takes the
+        # reason with it, the same rule ingest_error follows for the
+        # record's own failure states. Nothing has to remember to clear it.
+        result['field_status_reason'] = {
+            field: reason for field, reason in result['field_status_reason'].items()
+            if result['field_status'].get(field) == 'not_evidenced'}
         if result['posting_quality'] is not None and result['posting_quality'] not in POSTING_QUALITY_VALUES:
             raise ValueError('Invalid posting_quality.')
         if result['description_structured'] is not None:
@@ -898,14 +912,17 @@ def save_job(root, data, identifier=None, *, correction_detail=None, history_eve
     return result
 
 def _translate_legacy_company_fields(root, data, identifier=None):
-    """Translate legacy sector/size into sectors/size_range on the raw
-    incoming payload, before _save_record validates and persists it, per
-    decision 6: the new-shape field always wins when a payload carries both.
-    A bucket-only legacy size string yields size_range but never a confident
-    size_class, since that needs a raw employee count this payload lacks.
-    The new-shape value already stored on the record wins too: a legacy
-    signal must never clobber owner-set or previously derived sectors,
-    size_range, or size_class."""
+    """Translate a legacy sector string into sectors on the raw incoming
+    payload, before _save_record validates and persists it, per decision 6:
+    the new-shape field always wins when a payload carries both. The
+    new-shape value already stored on the record wins too, so a legacy
+    signal never clobbers owner-set or previously derived sectors.
+
+    The legacy size half of that translation is gone (owner decision
+    2026-10-15): it produced a `size_range`, which is the scale the class
+    retired, and the raw employee count a `size_class` needs is not in a
+    legacy payload. A legacy `size` string is persisted as itself and
+    translated into nothing. See _drop_retired_size_range."""
     if not isinstance(data, dict):
         return data
     stored = load_company(root, identifier) if identifier else None
@@ -915,13 +932,29 @@ def _translate_legacy_company_fields(root, data, identifier=None):
         matched = match_sectors(data['sector'])
         if matched:
             data['sectors'] = matched
-    new_size = 'size_range' in data or (stored or {}).get('size_range')
-    if 'size' in data and not new_size and isinstance(data.get('size'), str) and data['size']:
-        data['size_range'] = data['size']
+    return data
+
+def _drop_retired_size_range(data):
+    """Never persist a numeric size_range value again (owner decision
+    2026-10-15: size_class is the only size scale).
+
+    The intake cascade still derives the pair, because
+    `org_intake.classify.derive_size` is a shared capability with its own
+    contract and a second consumer may want the range. The product drops
+    it here, at the one gate every company write passes through, rather
+    than at each call site that could supply one, so a new signal cannot
+    reintroduce the second scale through a path nobody remembered.
+
+    Clearing a range an older record still carries (an explicit null) is
+    let through: that is what scripts/migrate_company_size_scale.py and
+    the re-kind path in careeros/enrich.py do, and retiring the stored
+    values needs it."""
+    if isinstance(data, dict) and data.get('size_range') is not None:
+        return {key: value for key, value in data.items() if key != 'size_range'}
     return data
 
 def save_company(root, data, identifier=None):
-    data = _translate_legacy_company_fields(root, data, identifier)
+    data = _drop_retired_size_range(_translate_legacy_company_fields(root, data, identifier))
     result, _ = _save_record(root, 'companies', data, identifier)
     return result
 

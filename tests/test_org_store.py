@@ -11,7 +11,7 @@ def test_store_round_trip_merges_records_and_replaces_lists(tmp_path):
     assert store.load_organisation('CO-999') is None
     company = store.save_organisation({
         'name': 'Northwind Logistics', 'notes': 'Owner notes',
-        'sectors': ['H'], 'size_range': '11-50', 'size_class': 'small',
+        'sectors': ['H'], 'size_class': 'small',
         'identifiers': [{'type': 'domain', 'value': 'northwind.example',
                          'provenance': 'user'}],
         'sources': [{'id': 'SRC-1', 'kind': 'careers_page',
@@ -23,7 +23,6 @@ def test_store_round_trip_merges_records_and_replaces_lists(tmp_path):
     }, company['id'])
     assert saved['name'] == 'Northwind Freight'
     assert saved['notes'] == 'Owner notes'
-    assert saved['size_range'] == '11-50'
     assert saved['size_class'] == 'small'
     assert saved['sectors'] == saved['identifiers'] == saved['sources'] == []
     assert VaultOrganisationStore(tmp_path).load_organisation(company['id']) == saved

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from careeros import vault
+from tests.conftest import write_legacy_size_range
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'migrate_company_size_scale.py'
 
@@ -24,16 +25,23 @@ def script():
 @pytest.fixture
 def vault_root(tmp_path):
     """Four synthetic companies: a range with a class, a range with no
-    class, a range holding no headcount, and one already on the scale."""
+    class, a range holding no headcount, and one already on the scale.
+
+    The three ranges are stamped onto the stored YAML, because a write no
+    longer persists one (owner decision 2026-10-15), and a record this
+    migration exists for is by definition one an older write left
+    behind."""
     for kind in ('companies', 'jobs', 'experiences'):
         (tmp_path / kind).mkdir()
-    for name, fields in (
-        ('Harbor Labs', {'size_range': '1000+', 'size_class': 'small'}),
-        ('Fern Robotics', {'size_range': '1000+'}),
-        ('Lantern Peak', {'size_range': 'lots of people'}),
-        ('Bluegrass Partners', {'size_class': 'medium'}),
+    for name, size_class, size_range in (
+        ('Harbor Labs', 'small', '1000+'),
+        ('Fern Robotics', None, '1000+'),
+        ('Lantern Peak', None, 'lots of people'),
+        ('Bluegrass Partners', 'medium', None),
     ):
-        vault.save_company(tmp_path, {'name': name} | fields)
+        company = vault.save_company(tmp_path, {'name': name, 'size_class': size_class})
+        if size_range:
+            write_legacy_size_range(tmp_path, company['id'], size_range)
     return tmp_path
 
 
@@ -65,9 +73,9 @@ def test_the_map_never_claims_the_smallest_class(script):
 
 
 def test_only_the_bucket_grammar_reads_as_a_headcount(script):
-    """A stored range is free text on the way in (`save_company`
-    translates a legacy `size` string verbatim), so anything can reach
-    the parser. Only the vault's own bucket labels are readable; every
+    """A stored range was free text when the writes that produced it still
+    ran (they copied a legacy `size` string verbatim), so anything can
+    reach the parser. Only the vault's own bucket labels are readable; every
     other shape is unreadable rather than a number to guess from, because
     guessing writes a wrong class AND clears the evidence.
 
@@ -173,9 +181,9 @@ def test_a_second_apply_has_nothing_left_to_change(script, vault_root, capsys):
 
 
 def test_the_legacy_free_text_size_is_reported_and_untouched(script, vault_root, capsys):
-    # size_range passed explicitly so save_company does not translate the
-    # legacy string into one: this record is a pure legacy-size case.
-    legacy = vault.save_company(vault_root, {'name': 'Old Shape', 'size': '200-500', 'size_range': None})
+    # A pure legacy-size case: the legacy string is persisted as itself and
+    # translated into no range at all.
+    legacy = vault.save_company(vault_root, {'name': 'Old Shape', 'size': '200-500'})
     script.main(['--vault', str(vault_root), '--apply'])
     output = capsys.readouterr().out
 
@@ -186,8 +194,9 @@ def test_the_legacy_free_text_size_is_reported_and_untouched(script, vault_root,
 
 
 def test_apply_moves_a_hand_set_ranges_provenance_onto_the_class(script, vault_root):
-    record = vault.save_company(vault_root, {'name': 'Cobalt Freight', 'size_range': '51-250',
+    record = vault.save_company(vault_root, {'name': 'Cobalt Freight',
                                              'field_provenance': {'size_range': 'user'}})
+    write_legacy_size_range(vault_root, record['id'], '51-250')
     script.main(['--vault', str(vault_root), '--apply'])
 
     written = vault.load_company(vault_root, record['id'])
@@ -214,7 +223,8 @@ def test_a_vault_whose_only_findings_are_reports_is_not_told_to_apply(script, tm
     """--apply would write nothing here, so the footer must not offer it."""
     for kind in ('companies', 'jobs', 'experiences'):
         (tmp_path / kind).mkdir()
-    vault.save_company(tmp_path, {'name': 'Lantern Peak', 'size_range': '10k+'})
+    company = vault.save_company(tmp_path, {'name': 'Lantern Peak'})
+    write_legacy_size_range(tmp_path, company['id'], '10k+')
     script.main(['--vault', str(tmp_path)])
     output = capsys.readouterr().out
 

@@ -77,9 +77,9 @@ def headcount(size_range):
     one ("1000+") by the only bound it has.
 
     Anything outside that grammar is unreadable rather than a number to
-    guess from: `size_range` is free text on the way in
-    (`vault._translate_legacy_company_fields` copies a legacy `size`
-    string in verbatim), so a thousands separator ("10,000+", "1.000+"),
+    guess from: a stored `size_range` was free text when the writes that
+    produced it still ran (they copied a legacy `size` string in
+    verbatim), so a thousands separator ("10,000+", "1.000+"),
     an abbreviation ("10k+"), an approximation ("~12,000"), a bare number
     ("50") or prose ("Fortune 500") all reach this function. Reading a
     number out of those would record a 10 000-person company as `small`

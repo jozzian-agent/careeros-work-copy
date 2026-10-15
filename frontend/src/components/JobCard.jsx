@@ -1,5 +1,4 @@
 import { Badge, Box, Button, Flex, Heading, Icon, Link, Text } from 'gestalt';
-import FitChip from './FitChip.jsx';
 import QuietChip from './QuietChip.jsx';
 import StatusSelect from './StatusSelect.jsx';
 
@@ -76,9 +75,13 @@ export function IngestIndicator({ job, onRetry }) {
   return null;
 }
 
-// The card for one job on the board. Anatomy per the JobCard README:
-// 1. Top row: fit chip (or needs-input) on the left, status select on the
-//    right.
+// The card for one job on the board. Anatomy per the JobCard README,
+// minus the fit chip the README's top row had (owner decision 2026-10-15:
+// fit scoring is not built, nothing is written to `fit`, so every card
+// read "Needs your input" for a rating nobody can give. The chip comes
+// back with the scoring itself; the Job detail page keeps saying "Not
+// calculated yet", which is the honest answer to the same question):
+// 1. Top row: the status select, right-aligned.
 // 2. Title (bold, two lines max) and the company link, 4px apart.
 // 3. Location with a pin, then the dates, 6px apart.
 // The salary/industry/size/function badges and ingest indicator are kept
@@ -97,8 +100,7 @@ export default function JobCard({ job, statuses, functionLabels, onMove, onRetry
     >
       <Box color="default" borderStyle="sm" rounding={4} padding={4} marginBottom={3}>
         <Flex direction="column" gap={3}>
-          <Flex justifyContent="between" alignItems="center" gap={2}>
-            <FitChip fit={job.fit} />
+          <Flex justifyContent="end" alignItems="center" gap={2}>
             <StatusSelect
               id={job.id}
               jobTitle={job.title}

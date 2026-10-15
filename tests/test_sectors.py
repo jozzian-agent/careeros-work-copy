@@ -12,6 +12,7 @@ from careeros import enrich as product_enrich, intake, vault
 from org_intake import enrich as company_lookup, classify as sectors
 from org_intake.fetch import default_fetch
 from careeros.server import create_app
+from tests.conftest import write_legacy_size_range
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -203,7 +204,7 @@ def test_legacy_null_sectors_load_as_empty_list(root):
     assert vault.load_company(root, data['id'])['sectors'] == []
 
 
-# --- Legacy sector/size -> sectors/size_range translation (decision 6) ----
+# --- Legacy sector -> sectors translation (decision 6) --------------------
 
 def test_legacy_sector_translates_to_sectors_on_confident_match(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Fiction Co', 'sector': 'Software and IT services'})
@@ -221,10 +222,37 @@ def test_new_shape_wins_over_legacy_when_both_sent(tmp_path):
     assert company['sectors'] == ['J']
 
 
-def test_legacy_size_copies_verbatim_to_size_range_without_size_class(tmp_path):
+def test_legacy_size_translates_into_nothing_and_never_lands_as_a_range(tmp_path):
+    """Owner decision 2026-10-15: the class is the only size scale, so the
+    legacy bucket string is no longer copied into size_range (and a bucket
+    label alone still cannot yield a confident class, which needs a raw
+    headcount). It stays the legacy field it arrived as, and nothing is
+    derived from it."""
     company = vault.save_company(tmp_path, {'name': 'Fiction Co', 'size': '50-200'})
-    assert company['size_range'] == '50-200'
-    assert company['size_class'] is None  # a bucket label alone cannot yield a confident size_class
+    assert company['size'] == '50-200'
+    assert company['size_range'] is None
+    assert company['size_class'] is None
+
+
+def test_a_company_write_never_persists_a_size_range(tmp_path):
+    """The one gate every company write passes through: a range in the
+    payload, whoever derived it, is dropped rather than stored. Clearing a
+    range an older record still carries is the one write that gets
+    through, because retiring the stored values needs it."""
+    company = vault.save_company(tmp_path, {'name': 'Fiction Co',
+                                            'size_range': '1000+', 'size_class': 'large'})
+    assert company['size_range'] is None
+    assert company['size_class'] == 'large'  # the scale that is kept is untouched
+    assert vault.save_company(tmp_path, {'size_range': None}, company['id'])['size_range'] is None
+
+
+def test_an_enrichment_result_carrying_a_size_range_saves_without_it(tmp_path):
+    """The capability still derives the pair (`derive_size` is vendored and
+    read-only here), so the product's own write is where the range stops."""
+    derived = sectors.derive_size(1500)
+    assert derived == {'size_range': '1000+', 'size_class': 'large'}  # unchanged capability output
+    company = vault.save_company(tmp_path, {'name': 'Enriched Co'} | derived)
+    assert company['size_class'] == 'large' and company['size_range'] is None
 
 
 def test_size_class_enum_validated(tmp_path):
@@ -240,8 +268,8 @@ def test_job_intake_employee_count_reaches_job_and_new_company(client, monkeypat
     monkeypatch.setattr(intake, 'fetch_url', lambda url: html)
     data = client.post('/api/jobs/intake', json={'url': 'https://fresh.example/job'}).json
     assert data['job']['employee_count'] == 42
-    assert data['company']['size_range'] == '11-50'
     assert data['company']['size_class'] == 'small'
+    assert data['company']['size_range'] is None  # one scale: the class
 
 
 def test_job_intake_employee_count_reaches_existing_company(client, root, monkeypatch):
@@ -251,8 +279,8 @@ def test_job_intake_employee_count_reaches_existing_company(client, root, monkey
     monkeypatch.setattr(intake, 'fetch_url', lambda url: html)
     data = client.post('/api/jobs/intake', json={'url': 'https://fresh.example/job'}).json
     assert data['company']['id'] == company['id']
-    assert data['company']['size_range'] == '201-1000'
     assert data['company']['size_class'] == 'large'
+    assert data['company']['size_range'] is None  # one scale: the class
 
 
 def test_enrich_job_fills_employee_count_on_company(client, monkeypatch):
@@ -262,7 +290,7 @@ def test_enrich_job_fills_employee_count_on_company(client, monkeypatch):
     result = client.post('/api/jobs/JOB-001/enrich')
     assert result.status_code == 200
     company = client.get('/api/companies/' + result.json['company_id']).json
-    assert company['size_range'] == '1-10' and company['size_class'] == 'micro'
+    assert company['size_class'] == 'micro' and company['size_range'] is None
 
 
 # --- Section 1's enrich.py gating: kind != employer never aggregates sectors
@@ -644,7 +672,8 @@ def test_backfill_promotes_from_job_aggregation_before_external_fetch(tmp_path):
 
 
 def test_backfill_size_cascade_respects_consistency_with_populated_range(root):
-    company = vault.save_company(root, {'name': 'Partial Labs', 'size_range': '1-10'})
+    company = vault.save_company(root, {'name': 'Partial Labs'})
+    write_legacy_size_range(root, company['id'], '1-10')
 
     def fake_jsonld(c, fetch=None, warn=None, deadline=None):
         return {'employee_count': 500}  # contradicts the already-populated size_range
@@ -679,20 +708,23 @@ def _wikidata_fetch_for_count(count):
     return fetch
 
 
-def test_wikidata_signal_point_value_fills_both_size_fields(root):
+def test_wikidata_signal_point_value_fills_the_size_class(root):
     company = vault.save_company(root, {'name': 'Headcount Co'})
     collector = company_lookup.BackfillAccounting()
     product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500), collector=collector)
     saved = vault.load_company(root, company['id'])
-    assert saved['size_range'] == '1000+'
     assert saved['size_class'] == 'large'
+    # The capability derives the numeric range beside the class; the
+    # product keeps the class alone (owner decision 2026-10-15).
+    assert saved['size_range'] is None
     events = {(e['signal'], e['field'], e['outcome']) for e in collector.events}
     assert ('wikidata', 'size', 'matched') in events
 
 
 def test_wikidata_signal_count_contradicting_existing_size_range_fills_nothing(root):
-    company = vault.save_company(root, {'name': 'Mismatched Co', 'size_range': '1-10'})
+    company = vault.save_company(root, {'name': 'Mismatched Co'})
+    write_legacy_size_range(root, company['id'], '1-10')
     product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500))
     saved = vault.load_company(root, company['id'])
@@ -701,13 +733,18 @@ def test_wikidata_signal_count_contradicting_existing_size_range_fills_nothing(r
     assert company_lookup.FLAG_SIZE_INCONSISTENT in saved['review_flags']
 
 
-def test_wikidata_signal_size_class_present_and_consistent_fills_only_size_range(root):
+def test_wikidata_signal_count_consistent_with_a_stored_class_changes_nothing(root):
+    """A company whose class is already stored has its size settled, so a
+    consistent count has nothing left to fill and nothing to flag. Before
+    the class became the only scale, this call filled the numeric range
+    beside it; that second scale is retired, so there is no half-filled
+    pair left for it to complete."""
     company = vault.save_company(root, {'name': 'Half Filled Co', 'size_class': 'large'})
     product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500))
     saved = vault.load_company(root, company['id'])
-    assert saved['size_range'] == '1000+'
     assert saved['size_class'] == 'large'
+    assert saved['size_range'] is None
     assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
 
 
@@ -749,8 +786,9 @@ def test_wikidata_signal_multiple_statements_latest_wins_through_cascade(root):
 
     product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,), fetch=fetch)
     saved = vault.load_company(root, company['id'])
-    assert saved['size_range'] == '1000+'
+    # The 2024 count (1500, large) rather than the 2020 one (100, medium).
     assert saved['size_class'] == 'large'
+    assert saved['size_range'] is None
 
 
 def test_backfill_sector_ambiguous_signal_flags_for_review(root):
@@ -901,7 +939,9 @@ def test_sectors_cascade_promotion_conflict_records_ambiguous_and_skips_external
 
 
 def test_size_cascade_already_populated_records_not_attempted(tmp_path):
-    company = vault.save_company(tmp_path, {'name': 'Sized Labs', 'size_range': '1-10', 'size_class': 'micro'})
+    # A legacy record carrying both scales, as the capability still has to
+    # read one: it is handed the record dict, so no vault write is needed.
+    company = vault.save_company(tmp_path, {'name': 'Sized Labs', 'size_class': 'micro'}) | {'size_range': '1-10'}
     collector = company_lookup.BackfillAccounting()
     updates, flag = company_lookup.classify_size(
         company, signals=(company_lookup._jsonld_signal, company_lookup._wikidata_signal), collector=collector, **product_enrich.classification_options())
@@ -1083,7 +1123,7 @@ def test_backfill_sectors_and_size_are_independent_cascades(root):
     saved = vault.load_company(root, company['id'])
     assert company['id'] in updated
     assert saved['sectors'] == ['K']  # untouched: already populated
-    assert saved['size_range'] == '11-50' and saved['size_class'] == 'small'
+    assert saved['size_class'] == 'small' and saved['size_range'] is None
 
 
 # --- Companies page: sector/size filter controls (engineering item 8) -----
@@ -1390,7 +1430,8 @@ def test_size_cascade_structured_contradiction_short_circuits_before_llm(tmp_pat
     def contradicting_signal(c, fetch=None, warn=None, deadline=None):
         return {'employee_count': 500}  # contradicts the already-populated size_range
 
-    company = vault.save_company(tmp_path, {'name': 'Contradicted Co', 'size_range': '1-10'})
+    # Legacy record shape, read straight by the capability (no vault write).
+    company = vault.save_company(tmp_path, {'name': 'Contradicted Co'}) | {'size_range': '1-10'}
     updates, flag = company_lookup.classify_size(
         company, signals=(contradicting_signal, company_lookup._llm_signal), **product_enrich.classification_options())
     assert updates is None and flag == company_lookup.FLAG_SIZE_INCONSISTENT
@@ -1571,7 +1612,8 @@ def test_llm_signal_size_hint_compatible_with_populated_range_fills_size_class(t
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
-    company = vault.save_company(tmp_path, {'name': 'Compatible Range Co', 'size_range': '1000+'})
+    company = vault.save_company(tmp_path, {'name': 'Compatible Range Co'})
+    write_legacy_size_range(tmp_path, company['id'], '1000+')
     product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] == 'large'
@@ -1586,7 +1628,8 @@ def test_llm_signal_size_hint_contradicts_populated_range_flags_without_filling(
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
-    company = vault.save_company(tmp_path, {'name': 'Tiny Shop Co', 'size_range': '1-10'})
+    company = vault.save_company(tmp_path, {'name': 'Tiny Shop Co'})
+    write_legacy_size_range(tmp_path, company['id'], '1-10')
     product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] is None  # nothing filled
@@ -1604,7 +1647,8 @@ def test_llm_signal_size_hint_boundary_spanning_range_treated_as_compatible(tmp_
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
         'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'medium'})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
-    company = vault.save_company(tmp_path, {'name': 'Boundary Co', 'size_range': '201-1000'})
+    company = vault.save_company(tmp_path, {'name': 'Boundary Co'})
+    write_legacy_size_range(tmp_path, company['id'], '201-1000')
     product_enrich.backfill(tmp_path, sector_signals=(), size_signals=())
     saved = vault.load_company(tmp_path, company['id'])
     assert saved['size_class'] == 'medium'
@@ -1747,7 +1791,7 @@ def test_company_detail_shows_retry_when_review_flags_present(client, root):
 
 def test_company_detail_hides_retry_when_fields_are_filled(client, root):
     company = vault.save_company(root, {'name': 'Filled Labs', 'sectors': ['J'],
-                                        'size_range': '1-10', 'size_class': 'micro', 'enrichment': {
+                                        'size_class': 'micro', 'enrichment': {
         'field_states': {'sectors': {'state': 'filled'}, 'size': {'state': 'filled'}}}})
     data = client.get('/api/companies/' + company['id']).json
     assert data['enrichment']['field_states']['sectors']['state'] == 'filled'

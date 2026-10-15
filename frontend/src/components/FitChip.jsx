@@ -47,20 +47,22 @@ const ROW_STYLE = {
   fontWeight: 700,
 };
 
-// The fit chip (read-only everywhere), or words instead of a rating when
-// the job has none. The two are never shown together.
+// The fit chip (read-only everywhere), or the `placeholder` words instead
+// of a rating when the job has none. The two are never shown together.
 //
-// Two different "no rating" cases, which must not read alike:
+// The Job detail page is the one caller, and it always passes the
+// backend's fit_placeholder ("Not calculated yet"): nothing is being
+// asked of the owner, because fit scoring is not built. Neutral colours
+// and no control, since an empty dropdown here would stand for a feature
+// that does not exist.
 //
-//   - `placeholder` given (the Job detail page passes the backend's
-//     fit_placeholder, "Not calculated yet"): nothing is being asked of
-//     the owner, because fit scoring is not built. Neutral colours, no
-//     violet dot, no control -- an empty dropdown here would stand for a
-//     feature that does not exist.
-//   - no placeholder (the board): the owner's own rating is missing, so
-//     the violet "Needs your input" chip applies.
-export default function FitChip({ fit, placeholder }) {
-  if ((!fit || !LEVELS[fit]) && placeholder) {
+// A second, violet "Needs your input" state used to cover the caller that
+// passed no placeholder, which was the board card. That card no longer
+// shows fit at all (owner decision 2026-10-15), and the words asked the
+// owner for a rating they have no way to give, so the state is gone with
+// its caller.
+export default function FitChip({ fit, placeholder = 'Not calculated yet' }) {
+  if (!fit || !LEVELS[fit]) {
     return (
       <Box
         dangerouslySetInlineStyle={{
@@ -79,26 +81,6 @@ export default function FitChip({ fit, placeholder }) {
       </Box>
     );
   }
-  if (!fit || !LEVELS[fit]) {
-    return (
-      <Box
-        dangerouslySetInlineStyle={{
-          __style: { ...ROW_STYLE, background: 'var(--color-brand-wash-violet)', padding: '0 10px 0 8px' },
-        }}
-      >
-        <Box
-          rounding="circle"
-          dangerouslySetInlineStyle={{
-            __style: { width: 'var(--space-200)', height: 'var(--space-200)', border: '2px solid var(--color-brand-violet)' },
-          }}
-        />
-        <Text size="100" weight="bold">
-          Needs your input
-        </Text>
-      </Box>
-    );
-  }
-
   const level = LEVELS[fit];
   return (
     <Box

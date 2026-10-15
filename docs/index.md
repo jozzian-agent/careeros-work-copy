@@ -2,7 +2,7 @@
 type: Index
 title: "Documentation"
 description: "Catalog the current CareerOS documentation."
-timestamp: 2026-10-11
+timestamp: 2026-10-15
 ---
 
 # Documentation
@@ -19,6 +19,7 @@ timestamp: 2026-10-11
 - [Learnings](learnings.md): Carry forward dated surprises from enrichment, intake and verification.
 - [Link styling convention](link-styling.md): Describe the Jinja theme treatments for internal and external links.
 - [Responsive breakpoint convention](responsive.md): Describe the Jinja theme breakpoint and responsive treatments.
+- [Seed the function facet in a vault](runbooks/seed-function-facet.md): Run the one-time function-facet seed against a live vault and verify it.
 - [Vault schemas — Chunk 3](schemas.md): Describe vault records and their JSON API representation.
 - [Job](surfaces/job.md): Describe the approved summary-first job detail page.
 - [Jobs](surfaces/jobs.md): Describe the approved React Jobs board and its acceptance state.

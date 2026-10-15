@@ -2,7 +2,7 @@
 type: Flow
 title: "CareerOS — Journey Specs (handoff to coding agent)"
 description: "Describe adding a job by link and the constraints on later journeys."
-timestamp: 2026-10-11
+timestamp: 2026-10-15
 ---
 
 # CareerOS — Journey Specs (handoff to coding agent)
@@ -80,6 +80,7 @@ While unresolved, the job shows "Company: pending" or "Company: needs your input
 - Set `posting_quality: thin | ok | rich` from the text and show it. Thin postings display a notice that extraction will be limited.
 - Extraction applies per field, respecting global rule 1.
 - LLM failure → `ingest_state: extract_failed`, visible, with **Retry**.
+- A function id the reading returns that the vault's `function` facet does not carry cannot be stored, so it is dropped (decision 23). The drop is never silent: the count and the ids are logged, and when no id survives, `field_status.function` stays `not_evidenced` with a `field_status_reason` naming the ids, which is what tells an unseeded registry apart from a posting that said nothing about the role. Seeding the facet is [its own runbook](../runbooks/seed-function-facet.md).
 
 **Step 7 — Soft duplicate check (after company + title known).** Compare company + title + location (normalized). Possible match → non-blocking warning on the job: "Possible duplicate of JOB-0xx" with the compared fields and a confidence reason; actions **Open other** / **Not a duplicate** / **Mark as duplicate (close this one)**. Never auto-merge.
 
@@ -136,6 +137,7 @@ States: `never_tried` → `filled` | `flagged` | `exhausted`.
 - `ingest_state`: stub | fetched | complete | fetch_failed | extract_failed
 - `ingest_error`: {stage, reason, at}
 - `field_status`: map of extracted field → pending | done | failed | not_evidenced
+- `field_status_reason`: map of extracted field → text, saying why that field reads as it does when the status word alone would mislead. Only a field whose status is `not_evidenced` can carry one, and the vault drops the entry as soon as the field moves on, so a reason can never outlive the state it explains. Its first writer is the function-id drop below.
 - `field_provenance`: map of field → user | llm | scrape | ...
 - `posting_quality`: thin | ok | rich
 - `company_link_state`: linked | pending | needs_review; `company_link_reason`

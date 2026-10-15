@@ -21,6 +21,26 @@ def offline(monkeypatch):
 
 
 
+def write_legacy_size_range(root, company_id, size_range):
+    """Put a numeric `size_range` on a stored company, the way a vault
+    written before the size scale was settled still holds one.
+
+    `vault.save_company` refuses to persist a range now (owner decision
+    2026-10-15: the class is the only size scale), so a test that needs
+    the records the consistency guards and the retirement migration exist
+    for has to write the YAML the old path left behind. Returns the
+    reloaded record."""
+    import yaml
+    from pathlib import Path
+    from careeros import vault
+
+    path = next(Path(root, 'companies').glob(f'*-{company_id.lower()}.yaml'))
+    data = yaml.safe_load(path.read_text())
+    data['size_range'] = size_range
+    path.write_text(yaml.safe_dump(data))
+    return vault.load_company(root, company_id)
+
+
 @pytest.fixture
 def api_client(tmp_path):
     """Isolated page-contract records, using the suite's offline guard."""

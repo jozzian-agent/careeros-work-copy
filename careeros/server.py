@@ -211,6 +211,43 @@ def reread_field_status(job, filled_fields):
     return status
 
 
+def function_drop_reason(dropped):
+    """The owner-facing sentence for function ids a reading produced that
+    the vault's function registry does not carry (decision 23: every
+    returned id is validated against tags.yaml and an unknown id is
+    dropped). It names the count and the ids, because the usual cause is a
+    registry that has not been seeded yet rather than a posting that said
+    nothing about the role."""
+    return (f'The reading suggested {len(dropped)} function id(s) the vault function list '
+            f'does not contain: {", ".join(dropped)}.')
+
+
+def function_drop_status(job, kept, dropped, status=None):
+    """The record changes that make a dropped function id visible, or {}.
+
+    Dropping every id a reading returned used to leave no trace at all:
+    the field read as not_evidenced, which says the posting did not
+    support a function, while what actually happened is that the reader
+    answered and the answer could not be stored. So the status stays the
+    same word (nothing was evidenced that this vault can hold) and it
+    gains the reason that tells the two apart, per the product rule that
+    failures and unknowns are visible states with a reason.
+
+    Nothing is recorded when some id survived (the field has a value), the
+    field is already settled as done, or the owner wrote it themselves
+    (global rule 1). `status` is this write's field_status when the caller
+    computed one, the stored one otherwise."""
+    status = dict(job.get('field_status', {}) if status is None else status)
+    if (not dropped or kept or job.get('function')
+            or status.get('function') == 'done'
+            or job.get('field_provenance', {}).get('function') == 'user'):
+        return {}
+    status['function'] = 'not_evidenced'
+    return {'field_status': status,
+            'field_status_reason': {**job.get('field_status_reason', {}),
+                                    'function': function_drop_reason(dropped)}}
+
+
 def fail_pending_field_status(job):
     """A total extraction failure (no fields at all came back) turns any
     field still pending into failed: visibly distinct from not_evidenced
@@ -366,6 +403,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if size_changes and 'identifiers' in size_changes:
             identifiers.extend(size_changes['identifiers'])
             size_changes = {k: v for k, v in size_changes.items() if k != 'identifiers'}
+        # The capability derives the class and the numeric range together;
+        # the product keeps the class alone (owner decision 2026-10-15),
+        # so the range comes off here rather than at the write. The
+        # accounting below reports what it filled, and naming a value no
+        # write persists would report a fill that did not happen.
+        if size_changes:
+            size_changes = {k: v for k, v in size_changes.items() if k != 'size_range'}
         with write_lock:
             current = storage.load_company(root, company_id)
             if current is None or current.get('kind', 'employer') != 'employer':
@@ -381,10 +425,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
             applied = []
             flags = current.get('review_flags', [])
             states = dict(current.get('enrichment', {}).get('field_states', {}))
-            for field, keys, proposed, flag, resolved in (
-                ('sectors', ('sectors',), {'sectors': new_sectors} if new_sectors else {},
+            # `keys` is every field this signal's evidence was read
+            # against, so a stale or owner-touched one stops the write.
+            # `stored_keys` is the subset the product persists, which is
+            # what "this field is filled" can honestly mean: a company
+            # with a size_class and no size_range has a known size, since
+            # the range is the scale the class retired.
+            for field, keys, stored_keys, proposed, flag, resolved in (
+                ('sectors', ('sectors',), ('sectors',), {'sectors': new_sectors} if new_sectors else {},
                  sector_flag, (org_enrich.FLAG_SECTOR_AMBIGUOUS, org_enrich.FLAG_SECTOR_CONFLICT)),
-                ('size', ('size_range', 'size_class'), size_changes or {}, size_flag,
+                ('size', ('size_range', 'size_class'), ('size_class',), size_changes or {}, size_flag,
                  (org_enrich.FLAG_SIZE_INCONSISTENT,)),
             ):
                 # Size is a consistency-checked pair: discard stale evidence if either changed.
@@ -398,7 +448,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 elif flag:
                     flags = company_enrichment._merge_flags(flags, flag)
                 states[field] = {
-                    'state': 'filled' if eligible or all(current.get(k) for k in keys)
+                    'state': 'filled' if eligible or all(current.get(k) for k in stored_keys)
                              else 'flagged' if flag else 'exhausted',
                     'attempted_at': storage.timestamp(),
                     # Preserve BackfillAccounting's event/summary shape, including empty outcomes.
@@ -450,7 +500,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if kind == 'employer':
             if extracted.get('sector') and not company.get('sector') and not company.get('sectors'):
                 changes['sector'] = extracted['sector']
-            if extracted.get('size') and not company.get('size') and not company.get('size_range'):
+            # The derived class is what settles a company's size now (owner
+            # decision 2026-10-15), so it is the class a stored posting
+            # bucket defers to. This read the derived range until that
+            # decision retired it; leaving it there would have let the
+            # posting's own bucket string fill a company whose size is
+            # already known, which is the second scale coming back under
+            # the legacy field's name.
+            if extracted.get('size') and not company.get('size') and not company.get('size_class'):
                 changes['size'] = extracted['size']
             changes.update(sectors.fill_size_updates(
                 extracted.get('employee_count'), company.get('size_range'), company.get('size_class')))
@@ -543,6 +600,24 @@ def create_app(vault: str | Path | None = None) -> Flask:
             return None
         return (company, 'ats_tenant' if posting_ats(posting_url) is not None else 'domain')
 
+    def accept_function_ids(root, values):
+        """Split the function ids a reading returned into the ones the vault
+        registry knows and the ones it does not, logging the drop count.
+
+        `vault.save_job` rejects an unknown id outright, so a reading's
+        ids have to be filtered before they reach it (decision 23). The
+        drop is logged here, at the one place that does the filtering, so
+        a run can be read back for how often the registry came up short
+        -- an empty or narrow function facet is the expected cause, and
+        before this it left no record anywhere."""
+        known = storage.known_function_ids(root)
+        kept = [value for value in values if value in known]
+        dropped = [value for value in values if value not in known]
+        if dropped:
+            app.logger.warning('Dropped %d function id(s) missing from the vault function list: %s',
+                               len(dropped), ', '.join(dropped))
+        return kept, dropped
+
     def apply_llm_update(root, baseline, fields, token):
         """Apply under the caller-held write lock. The baseline contains only
         values automation wrote; fresh owner provenance always takes priority."""
@@ -560,9 +635,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
         fields = ingest.redact(fields)
         if not ingest.is_valid_contact_email(fields.get('contact_email')):
             fields.pop('contact_email', None)
+        dropped_functions = []
         if 'function' in fields:
-            known = storage.known_function_ids(root)
-            fields['function'] = [value for value in fields['function'] if value in known]
+            fields['function'], dropped_functions = accept_function_ids(root, fields['function'])
         if fields.get('requirements') or fields.get('nice_to_have') or fields.get('summary'):
             fields['description_structured'] = {
                 'summary': fields.get('summary') or '', 'requirements': fields.get('requirements') or [],
@@ -629,6 +704,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 if resolution.get('company_link_reason') == 'new_company':
                     new_company_id = resolution['company_id']
         updates['field_status'] = apply_field_status(job, updates)
+        updates.update(function_drop_status(job, fields.get('function'), dropped_functions,
+                                            updates['field_status']))
         updates['enriched'] = True
         detail = None
         if changed_company:
@@ -1047,12 +1124,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     company = storage.load_company(root, resolution['company_id']) if resolution['company_id'] else None
                     if company is not None:
                         # employee_count has no company-schema home of its own (the
-                        # company only ever stores the derived size_range/size_class).
+                        # company only ever stores the derived size_class; the range
+                        # the capability derives beside it is dropped on the way in,
+                        # see vault._drop_retired_size_range).
                         # A freshly created company (no website/metadata yet) gets the
                         # same size derivation JOZ-265 always applied at creation time;
                         # an already-existing company only gets its metadata filled in
                         # (fill_company_metadata already fills-empty-only).
-                        if resolution['company_link_reason'] == 'new_company' and not company.get('size_range'):
+                        if resolution['company_link_reason'] == 'new_company' and not company.get('size_class'):
                             derived = sectors.derive_size(metadata.get('employee_count'))
                             if derived:
                                 company = storage.save_company(root, derived, company['id'])
@@ -1228,9 +1307,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 return jsonify(error='Job not found.'), 404
             if job.get('url') != url:
                 return jsonify(error='Posting URL changed during enrichment. Try again.'), 409
+            dropped_functions = []
             if 'function' in extracted:
-                known = storage.known_function_ids(root)
-                extracted['function'] = [value for value in extracted['function'] if value in known]
+                extracted['function'], dropped_functions = accept_function_ids(root, extracted['function'])
             fill_fields = ('title', 'location', 'source', 'posted_date',
                            'employment_type', 'valid_through', 'description', 'company',
                            'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
@@ -1324,6 +1403,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     storage.save_company(root, {'website': website}, target['id'])
             if provenance.get('company_id') == 'user':
                 updates.pop('company_id', None)
+            # This path writes no per-field status of its own (it fills
+            # empty fields and says so through provenance), so the drop is
+            # the one thing it does have to say about a field: the reader
+            # answered for function and nothing storable came of it.
+            updates.update(function_drop_status(job, extracted.get('function'), dropped_functions))
             updates['enriched'] = True
             result = storage.save_job(root, updates, identifier)
             if new_company_id is not None:

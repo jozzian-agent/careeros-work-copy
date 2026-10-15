@@ -2,7 +2,7 @@
 type: Surface
 title: "Jobs"
 description: "Describe the approved React Jobs board and its acceptance state."
-timestamp: 2026-10-12
+timestamp: 2026-10-15
 ---
 
 # Jobs
@@ -133,11 +133,22 @@ above. Component-level detail (exact props, geometry, token wiring) lives in
 `frontend/BUILD_NOTES.md`'s "Jobs board rebuild (JOZ-278)" section; this is
 the surface-level summary.
 
-- **Fit chip.** Each card shows a read-only fit chip: one of three rated
-  states (`no_fit`, `lucky`, `excellent` — icon + label, brand-coloured
-  background) or, when the job has no fit yet, a "Needs your input" chip.
-  The two never appear together. Fit is set elsewhere (job detail page,
-  later calculated automatically); the board only displays it.
+- **Fit chip. Removed 2026-10-15 (owner decision Q14).** The card used to
+  show a read-only fit chip: one of three rated states (`no_fit`,
+  `lucky`, `excellent`, icon plus label on a brand-coloured background)
+  or, when the job had no fit yet, a "Needs your input" chip. Nothing
+  writes a job's fit, because fit scoring is not built, so every card
+  showed the unrated state and asked the owner for a rating they have no
+  way to give. The card now says nothing about fit until the scoring
+  milestone lands. The Job detail page keeps its own honest placeholder
+  ("Not calculated yet", backend-owned via `fit_placeholder`), which is
+  the one place that answers the question without pretending the feature
+  exists.
+  The filter bar's Fit facet stays: it still renders, and removing a
+  working control is a separate decision from removing a chip that stood
+  for nothing. With no job carrying a fit, every job groups under the
+  facet's unrated option, so the facet filters nothing in practice. It is
+  listed here as an open question rather than quietly dropped.
 - **Status control.** Replaces the old `SelectList` with a compact button
   that opens a Dropdown (`StatusSelect.jsx`), reachable the same way by
   click or keyboard; it is also the keyboard/screen-reader route for moving
@@ -227,6 +238,11 @@ show a toast.
 ## Open questions
 
 The recorded navigation follow-up and Jinja cutover await the later audit.
+
+- Does the filter bar keep its Fit facet while no job carries a fit? The
+  chip and its popover still work, and the facet is left in place rather
+  than removed on an agent's judgement (M0-4 was scoped to the card), but
+  it currently groups every job under one option.
 
 ## JOZ-280: job card links now depend on the React flag
 

@@ -1115,3 +1115,33 @@ classified. The board payload now carries `size_classes`, the same
 vocabulary key the Companies contracts already had, so the order the panel
 lists classes in also comes from the backend rather than a literal array
 in JS.
+
+## Fit chip removed from the board card (M0-4, 2026-10-15)
+
+Owner decision Q14: the board card says nothing about fit until fit
+scoring exists. `JobCard.jsx` no longer renders `FitChip`, so its top row
+holds the status select alone (`justifyContent="end"` in place of
+`"between"`, since there is no left-hand element left to space against).
+No board payload or contract changed: `job.fit` was never a stored field
+(it is not in `vault.job_field_names()`, so even the JOZ-280 Fit dropdown's
+`PUT` never persisted one), which is exactly why every card showed the
+unrated state.
+
+`FitChip.jsx` stays, because the Job detail page renders it with the
+backend's `fit_placeholder` ("Not calculated yet"). Its second, violet
+"Needs your input" state is gone with the board: that branch only ran for
+a caller that passed no `placeholder`, the board card was the only such
+caller, and the words asked the owner for a rating they have no way to
+give. The three rated levels are kept as they are, so the chip is ready
+for the scoring milestone.
+
+Tests: `tests/fit-chip.spec.js` is deleted, since both of its cases
+asserted board-card chips. `tests/jobs-board.spec.js` gains one case that
+fails if any rated label or the placeholder reappears on a card; the
+fixture entries still carry `fit` values, so the assertion has something
+to catch. The detail page's own placeholder case in
+`tests/job-detail.spec.js` is untouched and still covers the surviving
+rendering path. The filter bar's Fit facet is left in place (see
+[jobs surface](../docs/surfaces/jobs.md) open questions): it renders and
+works, and dropping a working control was not this task's decision to
+make.

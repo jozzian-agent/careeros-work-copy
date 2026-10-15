@@ -65,6 +65,22 @@ test('needs attention toggle filters to needs_attention entries and back', async
 // Company size/Clear all/result count) moved to tests/filter-bar.spec.js
 // with the JOZ-279 filter bar rebuild; it is no longer a SelectList here.
 
+// Owner decision 2026-10-15: no card says anything about fit until fit
+// scoring exists. The fixture entries carry rated `fit` values, so this
+// fails the moment a card renders one again (and the old unrated state,
+// "Needs your input" for a rating nobody can give, is gone with it; the
+// same words for an unresolved company match are a different concept and
+// are asserted per card above).
+test('no board card shows a fit rating', async ({ page }) => {
+  await page.goto('/jobs');
+  const rated = fixture.entries.filter((entry) => entry.fit);
+  expect(rated.length).toBeGreaterThan(0);
+  await expect(page.getByTestId(`job-card-${rated[0].id}`)).toBeVisible();
+  for (const label of ['No fit', 'Lucky', 'Excellent fit', 'Not calculated yet']) {
+    await expect(page.getByText(label, { exact: true })).toHaveCount(0);
+  }
+});
+
 test('empty state renders the empty message from the API', async ({ page }) => {
   const emptyBoard = { ...fixture, entries: [], empty: 'No jobs match this test fixture.' };
   await mockBoard(page, emptyBoard);

@@ -680,10 +680,13 @@ def test_rich_company_intake(client, monkeypatch):
     data = client.post('/api/jobs/intake', json={'url':'https://rich.example/job'}).json
     assert data['company']['sector'] == 'Software'
     # With a raw employee count present, the creation payload carries the
-    # atomically derived pair and drops the bucket-only legacy string, so
-    # size_range and size_class always come from the same count in one write.
+    # class derived from that count and drops the bucket-only legacy
+    # string, so a company's size always comes from the count rather than
+    # from whichever bucket the posting happened to state. The numeric
+    # range the capability derives beside the class is not persisted at
+    # all (owner decision 2026-10-15: the class is the only size scale).
     assert data['company']['size'] is None
-    assert data['company']['size_range'] == '51-200'
+    assert data['company']['size_range'] is None
     assert data['company']['size_class'] == 'medium'  # 125 employees per EU thresholds
     assert data['company']['locations'] == ['Basel','BS','CH']
     assert data['job']['location'] == 'Basel, BS, CH'
