@@ -91,9 +91,21 @@ function groupFor(groups, text) {
 // Notes are not here: a note is its own record with its own window
 // (NotePopup), opened from the Notes section.
 export default function EditJobPopup({ job, onSave, onDismiss }) {
-  const structured = job.description_structured;
-  const groups = job.requirement_groups || [];
-  const grouped = isGrouped(job);
+  // The job as it stood when this window opened. Every field here is
+  // seeded from it and every comparison a save makes is against it, so
+  // "differs from what Edit job seeded it with" is one object and not
+  // two. The record cannot be read live for this: the page re-reads it
+  // every few seconds for as long as any field is still being read, and
+  // this window stays mounted across those reads, so a reading that
+  // lands mid-edit would move the baseline under the owner. A field they
+  // never touched would then differ from the newly read value and go out
+  // as their edit, writing the value they were seeded with back over the
+  // one just read and locking the field against every later reading --
+  // which is the whole defect this comparison exists to prevent.
+  const [seed] = useState(job);
+  const structured = seed.description_structured;
+  const groups = seed.requirement_groups || [];
+  const grouped = isGrouped(seed);
   const flatLines = [...(structured?.requirements || []), ...(structured?.nice_to_have || [])];
   const writeGroups = grouped || flatLines.length === 0;
   const writeBlock = !grouped || !structured;
@@ -106,17 +118,17 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
   // provenance on a field they never touched.
   const seededMust = grouped ? linesFor(groups, 'must') : structured?.requirements || [];
   const seededNice = grouped ? linesFor(groups, 'nice') : structured?.nice_to_have || [];
-  const [title, setTitle] = useState(job.title || '');
-  const [url, setUrl] = useState(job.url || '');
-  const [location, setLocation] = useState(job.location || '');
-  const [remoteOk, setRemoteOk] = useState(Boolean(job.remote_ok));
-  const [summary, setSummary] = useState(job.summary || '');
+  const [title, setTitle] = useState(seed.title || '');
+  const [url, setUrl] = useState(seed.url || '');
+  const [location, setLocation] = useState(seed.location || '');
+  const [remoteOk, setRemoteOk] = useState(Boolean(seed.remote_ok));
+  const [summary, setSummary] = useState(seed.summary || '');
   const [requirements, setRequirements] = useState(seededMust.join('\n'));
   const [niceToHave, setNiceToHave] = useState(seededNice.join('\n'));
   const [languages, setLanguages] = useState(storedLanguages);
   const [newLanguage, setNewLanguage] = useState('');
-  const [responsibilities, setResponsibilities] = useState((job.responsibilities || []).join('\n'));
-  const [skills, setSkills] = useState(job.skills || []);
+  const [responsibilities, setResponsibilities] = useState((seed.responsibilities || []).join('\n'));
+  const [skills, setSkills] = useState(seed.skills || []);
   const [newSkill, setNewSkill] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -154,17 +166,28 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
     setError(null);
     try {
       const payload = {};
-      addChanged(payload, 'title', title.trim(), job.title || '');
-      addChanged(payload, 'url', url.trim(), job.url || '');
-      addChanged(payload, 'location', location, job.location || '');
+      // The three text fields compare trimmed against trimmed, because
+      // that is what they send: comparing a trimmed field with a stored
+      // value that has whitespace around it would read as a change on
+      // every save and never stop reading as one, and a posting link
+      // that goes out for whitespace alone is a url change to the
+      // server, which drops the record's ATS identity and files it as a
+      // failed read of a posting nobody repointed.
+      addChanged(payload, 'title', title.trim(), (seed.title || '').trim());
+      addChanged(payload, 'url', url.trim(), (seed.url || '').trim());
+      addChanged(payload, 'location', location.trim(), (seed.location || '').trim());
       // A job no reading has answered this for stores null, which the
       // checkbox can only show as unchecked; sending the false back would
-      // turn "nobody has said" into the owner saying no.
-      addChanged(payload, 'remote_ok', remoteOk, Boolean(job.remote_ok));
-      addChanged(payload, 'summary', summary, job.summary || '');
+      // turn "nobody has said" into the owner saying no. The cost is
+      // that an owner cannot record "not remote" on such a job at all:
+      // the box starts unchecked and the only edit it offers is checking
+      // it. A tri-state box would be the fix, and an unanswered field
+      // reading as nobody's answer is the one worth keeping.
+      addChanged(payload, 'remote_ok', remoteOk, Boolean(seed.remote_ok));
+      addChanged(payload, 'summary', summary, seed.summary || '');
       addChanged(payload, 'responsibilities', linesToList(responsibilities),
-                 job.responsibilities || [], lineKey);
-      addChanged(payload, 'skills', skills, job.skills || [], lineKey);
+                 seed.responsibilities || [], lineKey);
+      addChanged(payload, 'skills', skills, seed.skills || [], lineKey);
       const newRequirements = linesToList(requirements);
       const newNiceToHave = linesToList(niceToHave);
       if (writeGroups) {
@@ -180,6 +203,15 @@ export default function EditJobPopup({ job, onSave, onDismiss }) {
           summary: structured?.summary || '', method: 'user',
           requirements: newRequirements, nice_to_have: newNiceToHave,
         }, { requirements: seededMust, nice_to_have: seededNice }, blockKey);
+      }
+      // Nothing differs from the seed, so there is nothing to tell the
+      // server: a PUT with no keys marks nothing and records nothing,
+      // and the owner would wait on the round-trip for it. Save closes
+      // the window either way, because an owner who pressed it is done
+      // with it whether or not they changed their mind on the way.
+      if (Object.keys(payload).length === 0) {
+        onDismiss();
+        return;
       }
       await onSave(payload);
     } catch (err) {
