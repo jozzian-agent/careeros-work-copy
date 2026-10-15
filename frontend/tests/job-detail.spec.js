@@ -11,6 +11,7 @@ import {
   mockJobTaxonomy,
   mockNoteWrites,
   mockPasteDescription,
+  mockReExtract,
   mockResolveReview,
   mockRetry,
   mockUpdate,
@@ -57,6 +58,28 @@ const extractFailed = {
   },
   summary_effective: '',
   needs_input: { kind: 'read_failed', error_reason: 'empty_content' },
+};
+
+// A job extracted since the requirement groups exist. The fixture itself
+// has none, which is what every job written before package 2 looks like,
+// so the two shapes are both covered: this one renders the groups and the
+// fixture renders the flat lists through the interim adapter.
+const grouped = {
+  ...fixture,
+  job: {
+    ...fixture.job,
+    requirement_groups: [
+      { group: 'education', level: 'must', text: 'BSc in computer science' },
+      { group: 'experience', level: 'must', text: 'Five years on a platform team' },
+      { group: 'experience', level: 'nice', text: 'Time in a regulated industry' },
+      { group: 'skills', level: 'must', text: 'Kubernetes' },
+      { group: 'languages', level: 'must', text: 'English' },
+      { group: 'languages', level: 'nice', text: 'German' },
+      { group: 'certifications', level: 'must', text: 'CKA' },
+    ],
+    field_status: { ...fixture.job.field_status, requirement_groups: 'done' },
+    field_provenance: { ...fixture.job.field_provenance, requirement_groups: 'llm' },
+  },
 };
 
 test.beforeEach(async ({ page }) => {
@@ -312,6 +335,8 @@ test('an owner-corrected section loses its AI label', async ({ page }) => {
   await expect(page.getByText('AI-extracted')).toHaveCount(1); // responsibilities only
 });
 
+// The fixture job has no requirement_groups, which is every job written
+// before package 2: it must keep rendering through the interim adapter.
 test('requirements render as must-have and nice-to-have, skills as tags', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
   const requirements = page.getByTestId('section-requirements');
@@ -321,6 +346,207 @@ test('requirements render as must-have and nice-to-have, skills as tags', async 
   await expect(requirements.getByText('Rust experience')).toBeVisible();
   await expect(requirements.getByText('Skills', { exact: true })).toBeVisible();
   await expect(requirements.getByText('Python', { exact: true })).toBeVisible();
+});
+
+test('a job with no requirement groups shows no group headings but the lines', async ({ page }) => {
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
+  for (const heading of ['Education', 'Experience', 'Languages', 'Certifications']) {
+    await expect(requirements.getByText(heading, { exact: true })).toHaveCount(0);
+  }
+  await expect(requirements.getByText('5+ years of platform experience')).toBeVisible();
+});
+
+// --- Grouped requirements (package 2) ---
+
+test('grouped requirements render under their group headings, in order', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
+  await expect(requirements.getByText('BSc in computer science')).toBeVisible();
+  const headings = await requirements
+    .getByText(/^(Education|Experience|Skills|Languages|Certifications)$/)
+    .allTextContents();
+  expect(headings).toEqual(['Education', 'Experience', 'Skills', 'Languages', 'Certifications']);
+});
+
+test('a grouped requirement carries its level', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
+  // A prose group reads as rows under the level it belongs to, so the
+  // level labels sit inside each group and not once above the section:
+  // Education and Experience have must-haves, Experience alone has a
+  // nice-to-have.
+  await expect(requirements.getByText('Five years on a platform team')).toBeVisible();
+  await expect(requirements.getByText('Must have', { exact: true })).toHaveCount(2);
+  await expect(requirements.getByText('Nice to have', { exact: true })).toHaveCount(1);
+  await expect(requirements.getByText('Time in a regulated industry')).toBeVisible();
+  // A language is a word, so it is a tag, and the level is on the tag.
+  await expect(requirements.getByText('Must-have: German')).toHaveCount(0);
+  await expect(requirements.getByText('Nice to have: German')).toBeVisible();
+  await expect(requirements.getByText('Must-have: English')).toBeVisible();
+});
+
+test('grouped requirements replace the flat lists rather than joining them', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
+  await expect(requirements.getByText('Strong Kubernetes skills')).toHaveCount(0);
+  await expect(requirements.getByText('Rust experience')).toHaveCount(0);
+});
+
+// The owner emptying the grouped list is a decision, not an absence: the
+// job is still a grouped job, so the flat lists that edit replaced must
+// not come back.
+const emptiedByOwner = {
+  ...grouped,
+  job: {
+    ...grouped.job,
+    requirement_groups: [],
+    field_provenance: { ...grouped.job.field_provenance, requirement_groups: 'user' },
+  },
+};
+
+test('a requirement list the owner emptied does not bring the flat lists back', async ({ page }) => {
+  await mockJobPage(page, emptiedByOwner);
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: 'Responsibilities' })).toBeVisible();
+  await expect(page.getByText('5+ years of platform experience')).toHaveCount(0);
+  await expect(page.getByText('Rust experience')).toHaveCount(0);
+  // The skills list is its own field with its own editor, and this edit
+  // did not touch it, so its tags are still the posting's own asks.
+  await expect(page.getByTestId('section-requirements').getByText('Must-have: Python')).toBeVisible();
+});
+
+test('Edit job opens an emptied requirement list empty', async ({ page }) => {
+  await mockJobPage(page, emptiedByOwner);
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await expect(modal.getByRole('textbox', { name: 'Requirements, must have' })).toHaveValue('');
+  await expect(modal.getByRole('textbox', { name: 'Requirements, nice to have' })).toHaveValue('');
+});
+
+// The section shows the stored skills list only where it holds a skill no
+// group carries (Python, here), and the AI label answers for what the
+// section shows: a correction to a list it is showing takes the label,
+// and a correction to one it is not leaves it.
+test('a corrected skills list the grouped section shows takes its AI label off', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      field_provenance: { ...grouped.job.field_provenance, skills: 'user' },
+    },
+  });
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByText('Must-have: Python')).toBeVisible();
+  await expect(page.getByText('AI-extracted')).toHaveCount(1); // responsibilities only
+});
+
+test('a corrected skills list every group already carries leaves the AI label on', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      skills: ['Kubernetes'],
+      field_provenance: { ...grouped.job.field_provenance, skills: 'user' },
+    },
+  });
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: 'Requirements' })).toBeVisible();
+  // Every line of the section comes from the groups, and a model grouped
+  // them, so the label still answers for what the owner is looking at.
+  await expect(page.getByText('AI-extracted')).toHaveCount(2); // requirements and responsibilities
+});
+
+test('a stored skill the groups do not carry still shows', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
+  // The job stores Python and Kubernetes as skills; only Kubernetes is in
+  // the Skills group, so Python would otherwise be stored and invisible.
+  await expect(requirements.getByText('Must-have: Python')).toBeVisible();
+  await expect(requirements.getByText('Must-have: Kubernetes')).toHaveCount(1);
+});
+
+test('a skill the model grouped somewhere else is not shown twice', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      // Kubernetes is a certification here, not a skills-group line, and
+      // it is still on the page: reading the Skills group alone to decide
+      // what the list adds rendered the same word under two headings.
+      requirement_groups: grouped.job.requirement_groups.map((entry) => (
+        entry.text === 'Kubernetes' ? { ...entry, group: 'certifications' } : entry
+      )),
+    },
+  });
+  await page.goto('/jobs/JOB-001');
+  const requirements = page.getByTestId('section-requirements');
+  await expect(requirements.getByText('Must-have: Kubernetes')).toHaveCount(1);
+});
+
+test('requirements the rules grouped carry no AI label', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: {
+      ...grouped.job,
+      field_provenance: { ...grouped.job.field_provenance, requirement_groups: 'scrape' },
+    },
+  });
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: 'Requirements' })).toBeVisible();
+  await expect(page.getByText('AI-extracted')).toHaveCount(1); // responsibilities only
+});
+
+test('the extraction popup reports on the requirement groups', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const modal = page.getByRole('dialog', { name: 'How this was extracted' });
+  await expect(modal.getByText('Requirements', { exact: true })).toBeVisible();
+  await expect(modal.getByText('Found · AI')).toHaveCount(3);
+});
+
+test('a posting with no grouped requirements says so in the row and links to the setter', async ({ page }) => {
+  await mockJobPage(page, {
+    ...grouped,
+    job: { ...grouped.job, field_status: { ...grouped.job.field_status, requirement_groups: 'not_evidenced' } },
+  });
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByText(/Not found: Requirements\./)).toBeVisible();
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const modal = page.getByRole('dialog', { name: 'How this was extracted' });
+  await modal.getByRole('button', { name: 'Set it in Edit job' }).click();
+  await expect(page.getByRole('dialog', { name: 'Edit job' })).toBeVisible();
+});
+
+// --- Re-extract: reading the stored posting text again ---
+
+test('Re-extract reads the stored posting text again', async ({ page }) => {
+  const requests = await mockReExtract(page);
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Re-extract', exact: true }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).toContain('/api/jobs/JOB-001/re-extract');
+});
+
+test('Re-extract is disabled while there is no posting text to read', async ({ page }) => {
+  await mockJobPage(page, readFailed);
+  await page.goto('/jobs/JOB-001');
+  const button = page.getByRole('button', { name: /Re-extract/ });
+  await expect(button).toBeVisible();
+  await expect(button).toBeDisabled();
+});
+
+test('Re-extract failure shows a visible error', async ({ page }) => {
+  await mockReExtract(page, { status: 409, body: { error: 'This job has no posting text to read.' } });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Re-extract', exact: true }).click();
+  await expect(page.getByText('This job has no posting text to read.')).toBeVisible();
 });
 
 // --- The extraction row and its popup ---
@@ -333,6 +559,44 @@ test('the extraction row says when the posting was read and what was not found',
   await page.goto('/jobs/JOB-001');
   await expect(page.getByText(/Read from the posting on 14 Oct 2026/)).toBeVisible();
   await expect(page.getByText(/Not found: Seniority\./)).toBeVisible();
+});
+
+test('the popup says a re-read found nothing, and still shows the reading that worked', async ({ page }) => {
+  await mockJobPage(page, {
+    ...fixture,
+    history: [
+      ...fixture.history,
+      {
+        ts: '2026-10-15T09:00:00+00:00',
+        label: 'Reading the posting again found nothing new',
+        detail: 'Reading the stored text again found nothing new.',
+      },
+    ],
+  });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const modal = page.getByRole('dialog', { name: 'How this was extracted' });
+  await expect(modal.getByText(/Nothing new came of reading the stored text again on 15 Oct 2026/)).toBeVisible();
+  // The job keeps the reading it had, so the row above still names it.
+  await expect(modal.getByText(/Read from the posting on 14 Oct 2026/)).toBeVisible();
+});
+
+test('a re-read that failed before a reading that worked says nothing', async ({ page }) => {
+  await mockJobPage(page, {
+    ...fixture,
+    history: [
+      {
+        ts: '2026-10-13T09:00:00+00:00',
+        label: 'Reading the posting again found nothing new',
+        detail: 'Reading the stored text again found nothing new.',
+      },
+      ...fixture.history,
+    ],
+  });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const modal = page.getByRole('dialog', { name: 'How this was extracted' });
+  await expect(modal.getByText(/Nothing new came of reading/)).toHaveCount(0);
 });
 
 test('the extraction popup lists each field with its result and source', async ({ page }) => {
@@ -673,6 +937,200 @@ test('Edit job popup sends only the fields that actually changed', async ({ page
   for (const key of ['description_structured', 'summary', 'responsibilities', 'skills', 'notes']) {
     expect(requests[0]).not.toHaveProperty(key);
   }
+});
+
+// The posting yielded no requirements at all, which is the case the
+// extraction popup's "Set it in Edit job" exists for: both rows report
+// not_evidenced, and both have to lead to a control that writes them.
+const noRequirements = {
+  ...fixture,
+  job: {
+    ...fixture.job,
+    description_structured: null,
+    requirement_groups: [],
+    field_status: {
+      ...fixture.job.field_status,
+      description_structured: 'not_evidenced',
+      requirement_groups: 'not_evidenced',
+    },
+  },
+};
+
+test('Edit job writes both requirement fields for a job that stores neither', async ({ page }) => {
+  await mockJobPage(page, noRequirements);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: noRequirements.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'How this was extracted' }).click();
+  const popup = page.getByRole('dialog', { name: 'How this was extracted' });
+  await popup.getByRole('button', { name: 'Set it in Edit job' }).first().click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' }).fill('Five years of Python');
+  await modal.getByRole('textbox', { name: 'Requirements, nice to have' }).fill('Rust');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  // The Requirements row reports the groups, so the groups are written,
+  // with a line the owner wrote landing in the fallback group.
+  expect(requests[0].requirement_groups).toEqual([
+    { group: 'skills', level: 'must', text: 'Five years of Python' },
+    { group: 'skills', level: 'nice', text: 'Rust' },
+  ]);
+  // The Description row reports the flat block, so that is written too.
+  expect(requests[0].description_structured).toEqual({
+    summary: '', method: 'user', requirements: ['Five years of Python'], nice_to_have: ['Rust'],
+  });
+});
+
+// A grouped job the posting yielded no flat block for, which is the one
+// shape where Edit job writes both requirement fields out of the same two
+// textareas: the groups because the page renders them, the block because
+// the Description row says it was not found.
+const groupedWithoutBlock = {
+  ...grouped,
+  job: {
+    ...grouped.job,
+    description_structured: null,
+    field_status: { ...grouped.job.field_status, description_structured: 'not_evidenced' },
+  },
+};
+
+test('Edit job can still correct the flat block of a grouped job that has none', async ({ page }) => {
+  await mockJobPage(page, groupedWithoutBlock);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: groupedWithoutBlock.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' })
+    .fill('BSc in computer science\nFive years on a platform team\nKubernetes\nCKA\nOn-call experience');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].description_structured.requirements).toContain('On-call experience');
+  expect(requests[0].requirement_groups).toContainEqual(
+    { group: 'skills', level: 'must', text: 'On-call experience' },
+  );
+});
+
+test('Edit job leaves the groups alone on a job still rendering its flat lists', async ({ page }) => {
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: fixture.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' })
+    .fill('5+ years of platform experience\nOn-call experience');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  // Regrouping a job is what Re-extract is for: an edit must not bury
+  // this job's prose lines under the fallback group behind the owner.
+  expect(requests[0]).not.toHaveProperty('requirement_groups');
+  expect(requests[0].description_structured.requirements).toEqual([
+    '5+ years of platform experience', 'On-call experience',
+  ]);
+});
+
+test('Edit job carries no languages editor for a job with no groups', async ({ page }) => {
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await expect(modal.getByText('Languages', { exact: true })).toHaveCount(0);
+  await expect(modal.getByRole('textbox', { name: 'Add a language' })).toHaveCount(0);
+});
+
+test('Edit job edits the languages group, keeping the other groups', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await expect(modal.getByText('Languages', { exact: true })).toBeVisible();
+  await modal.getByRole('button', { name: 'Remove German from languages' }).click();
+  await modal.getByRole('textbox', { name: 'Add a language' }).fill('French');
+  await modal.getByRole('button', { name: 'Add a language' }).click();
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].requirement_groups).toEqual([
+    { group: 'education', level: 'must', text: 'BSc in computer science' },
+    { group: 'experience', level: 'must', text: 'Five years on a platform team' },
+    { group: 'skills', level: 'must', text: 'Kubernetes' },
+    { group: 'certifications', level: 'must', text: 'CKA' },
+    { group: 'experience', level: 'nice', text: 'Time in a regulated industry' },
+    { group: 'languages', level: 'must', text: 'English' },
+    { group: 'languages', level: 'must', text: 'French' },
+  ]);
+  // The flat block is not touched: a grouped job renders the groups.
+  expect(requests[0]).not.toHaveProperty('description_structured');
+});
+
+test('Edit job keeps each requirement line in its own group', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  const must = modal.getByRole('textbox', { name: 'Requirements, must have' });
+  await expect(must).toHaveValue(
+    'BSc in computer science\nFive years on a platform team\nKubernetes\nCKA',
+  );
+  await must.fill('BSc in computer science\nOn-call experience');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].requirement_groups).toEqual([
+    { group: 'education', level: 'must', text: 'BSc in computer science' },
+    // A line the owner has just written has no group of its own, so it
+    // lands in the same fallback group the extractor uses.
+    { group: 'skills', level: 'must', text: 'On-call experience' },
+    { group: 'experience', level: 'nice', text: 'Time in a regulated industry' },
+    { group: 'languages', level: 'must', text: 'English' },
+    { group: 'languages', level: 'nice', text: 'German' },
+  ]);
+});
+
+test('Edit job can clear a grouped requirement list', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Requirements, must have' }).fill('');
+  await modal.getByRole('textbox', { name: 'Requirements, nice to have' }).fill('');
+  await modal.getByRole('button', { name: 'Remove English from languages' }).click();
+  await modal.getByRole('button', { name: 'Remove German from languages' }).click();
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  // Emptying the list is a decision, so it is sent as one. The PUT stamps
+  // owner provenance on it, which is what keeps the page from reading the
+  // empty list as "not grouped yet" and showing the flat lists again.
+  expect(requests[0].requirement_groups).toEqual([]);
+  expect(requests[0]).not.toHaveProperty('description_structured');
+});
+
+test('Edit job sends neither requirement field when an unrelated one changed', async ({ page }) => {
+  // The same shape, saved without touching the requirements. Both fields
+  // are seeded from the groups here, so comparing the textareas with the
+  // block's own (empty) lines reported a change on every save and stamped
+  // owner provenance on a block the owner never typed in -- which also
+  // takes the AI label off requirements a model read.
+  await mockJobPage(page, groupedWithoutBlock);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: groupedWithoutBlock.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Location' }).fill('Berlin');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].location).toBe('Berlin');
+  expect(requests[0]).not.toHaveProperty('description_structured');
+  expect(requests[0]).not.toHaveProperty('requirement_groups');
+});
+
+test('Edit job sends no requirement groups when nothing in them changed', async ({ page }) => {
+  await mockJobPage(page, grouped);
+  const requests = await mockUpdate(page, '**/api/jobs/JOB-001', { body: grouped.job });
+  await page.goto('/jobs/JOB-001');
+  await page.getByRole('button', { name: 'Edit job' }).click();
+  const modal = page.getByRole('dialog', { name: 'Edit job' });
+  await modal.getByRole('textbox', { name: 'Title' }).fill('Updated Title');
+  await modal.getByRole('button', { name: 'Save job' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0]).not.toHaveProperty('requirement_groups');
 });
 
 test('Status dropdown failure shows a visible error', async ({ page }) => {

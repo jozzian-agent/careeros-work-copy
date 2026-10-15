@@ -35,6 +35,15 @@ are spelled out key by key below, because the canvas brief named keys
 notes HTML is `markdown` and the posting text and detail fields are read
 from the raw record.
 
+2026-10-14 (package 2, requirement groups): the job record gained
+`requirement_groups`, a list of `{group, level, text}` over a fixed
+five-group vocabulary ([schemas](../schemas.md)), and one write endpoint,
+`POST /api/jobs/<id>/re-extract`, which reads the stored posting text
+again. The Job detail contract is unchanged in shape: the groups are a
+record field, so they arrive on `job` the way the flat
+`description_structured` block always has, and everything downstream of
+the page context reads them from there.
+
 2026-10-14 (owner round, notes): notes stop being one free-text field per
 record and become a list of titled notes. The two detail contracts gained
 `notes`, the Job detail contract lost `markdown` (nothing renders notes as
@@ -66,6 +75,7 @@ record endpoints cannot supply their choices and derived labels alone.
 | GET | `/api/experiences/<id>/edit` | Edit experience | New |
 | GET | `/api/taxonomy` | Taxonomy | New |
 | GET | `/api/notes` | Notes | New |
+| POST | `/api/jobs/<id>/re-extract` | Job detail | New |
 | POST | `/api/jobs/<id>/notes`, `/api/companies/<id>/notes` | Job and Company detail | New |
 | PATCH, DELETE | `/api/jobs/<id>/notes/<note_id>`, `/api/companies/<id>/notes/<note_id>` | Job and Company detail | New |
 
@@ -177,6 +187,25 @@ converts template tuples to arrays and rendered Markdown to strings.
     a non-empty `note_list`, a write to the legacy string is no longer
     surfaced anywhere, which is why the field is scheduled for removal
     rather than kept.
+- Requirement groups. `requirement_groups` on a job is a list of
+  `{group, level, text}` over the fixed vocabulary in
+  [schemas](../schemas.md). An empty list means the job has no grouped
+  requirements yet, which is where every job written before package 2
+  starts; the page then renders its flat `description_structured` lists
+  instead, so both shapes read correctly off one contract.
+  - `POST /api/jobs/<id>/re-extract` reads the stored posting text again
+    and answers 202 with the job plus `llm_pending`. It fetches nothing:
+    the live posting may be gone, and the text to group is the stored
+    one. It writes the rule-based groups (the flat lists under the Skills
+    group) in the same breath, so the action lands a result with no model
+    reachable, and queues the extraction that replaces them. A missing
+    job is 404. A job with no stored posting text is 409, and so is a job
+    whose reading is already running, each with its own `error`: there is
+    one reservation per job, and a request that did not get it started no
+    reading, so answering 202 would credit it with another run's result.
+  - `PUT /api/jobs/<id>` takes the whole list, like any other field, and
+    stamps owner provenance on it, after which no extraction overwrites
+    it. That is the Languages editor's write path.
 - Job taxonomy: `job`, `company`, `function_options`, `function_labels`,
   `isic_labels`, `tags`, `tag_labels`, `tag_registry`.
 - Experiences: `entries`, `companies`, `labels`, `tag_labels`, `empty`.

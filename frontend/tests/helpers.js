@@ -196,6 +196,18 @@ export async function mockPasteDescription(page, { status = 200, body = { ok: tr
   return requests;
 }
 
+// Mocks POST /api/jobs/<id>/re-extract (reading the stored posting text
+// again, which is how a job gets its requirement groups), recording each
+// request's URL so a spec can prove it reached the right job's endpoint.
+export async function mockReExtract(page, { status = 200, body = { ok: true } } = {}) {
+  const requests = [];
+  await page.route('**/api/jobs/*/re-extract', (route) => {
+    requests.push(route.request().url());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
 // Mocks POST /api/jobs/<id>/resolve-review (the owner settling which
 // company a needs_review job belongs to), recording each request's parsed
 // body so specs can assert the candidate id and the review token sent.

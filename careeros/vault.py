@@ -25,7 +25,20 @@ FIELD_STATUS_VALUES = ('pending', 'done', 'failed', 'not_evidenced')
 # type, so careeros.history.REGISTRY must name every member of this tuple.
 INGEST_STATES = ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed')
 POSTING_QUALITY_VALUES = ('thin', 'ok', 'rich')
-DESCRIPTION_STRUCTURED_METHODS = ('llm', 'heuristic', 'raw')
+# How a stored description_structured block was produced. 'user' is the
+# owner having written it in Edit job, which is a producer the block gained
+# in package 2's fix round: the Description row of the extraction popup
+# sends the owner to Edit job when the posting yielded no block, so Edit
+# job creates one, and the other three values all claim a machine made it.
+DESCRIPTION_STRUCTURED_METHODS = ('llm', 'heuristic', 'raw', 'user')
+# Package 2: the groups a stored requirement can belong to, and how much
+# the posting insists on it. The vocabulary is fixed by owner decision, so
+# a requirement the extractor cannot place lands in 'skills' rather than
+# inventing a sixth group (see careeros.ingest.requirement_groups). The
+# owner-facing labels are the front end's (Education, Experience, Skills,
+# Languages, Certifications); what a record stores is the id.
+REQUIREMENT_GROUPS = ('education', 'experience', 'skills', 'languages', 'certifications')
+REQUIREMENT_LEVELS = ('must', 'nice')
 TAG_FACETS = ('skill/capability', 'skill/domain', 'function', 'experience-type', 'tool')
 TAG_TOKEN_RE = re.compile(r'([a-z0-9/_-]+):([a-z0-9-]+)')
 
@@ -537,6 +550,36 @@ def validate_note_list(notes):
     return notes
 
 
+def validate_requirement_groups(groups):
+    """Check a grouped requirement list against the one stored shape, and
+    return it normalized (package 2).
+
+    The invariant is the record's, not one writer's: text stripped, one
+    entry per group and text ignoring case, and a must-have winning over a
+    nice-to-have for the same line, because the stronger claim is the one
+    the posting makes. Entry order is the order the entries arrived in,
+    which is the posting's own. Every writer goes through `_save_record`,
+    so an owner edit, the extraction callback and the offline rules all
+    land the same list; `careeros.ingest.requirement_groups` applies this
+    same function to a model answer before it ever gets here.
+    """
+    if not isinstance(groups, list) or any(
+            not isinstance(entry, dict) or set(entry) != {'group', 'level', 'text'}
+            or entry['group'] not in REQUIREMENT_GROUPS
+            or entry['level'] not in REQUIREMENT_LEVELS
+            or not isinstance(entry['text'], str) or not entry['text'].strip()
+            for entry in groups):
+        raise ValueError('requirement_groups must be a list of {group, level, text}, where group is one of '
+                         + ', '.join(REQUIREMENT_GROUPS) + ' and level is must or nice.')
+    seen = {}
+    for entry in groups:
+        normalized = {'group': entry['group'], 'level': entry['level'], 'text': entry['text'].strip()}
+        key = (normalized['group'], normalized['text'].casefold())
+        if key not in seen or (normalized['level'] == 'must' and seen[key]['level'] == 'nice'):
+            seen[key] = normalized
+    return list(seen.values())
+
+
 def _record_defaults(kind):
     """Every field a record of this kind stores, with its empty value.
 
@@ -561,6 +604,7 @@ def _record_defaults(kind):
                  company_link_state='pending', company_link_reason=None,
                  employer_named_in_posting=None, company_review=None,
                  field_status={}, posting_quality=None, description_structured=None,
+                 requirement_groups=[],
                  occupation_code=None, skill_codes=None) if job else
             dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                  contact_email='', notes='', note_list=[], custom={}, enrichment={},
@@ -695,6 +739,12 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                     or any(not isinstance(x, str) for x in structured['nice_to_have'])
                     or structured['method'] not in DESCRIPTION_STRUCTURED_METHODS):
                 raise ValueError('description_structured must have summary, requirements, nice_to_have, method.')
+        # Package 2: grouped requirements. The flat lists above stay as
+        # they are for every job written before the groups existed, which
+        # is what keeps a pre-package-2 record readable without a rewrite
+        # (owner decision: migration is the per-job Re-extract action, and
+        # nothing else).
+        result['requirement_groups'] = validate_requirement_groups(result['requirement_groups'])
         if result['occupation_code'] is not None and not isinstance(result['occupation_code'], str):
             raise ValueError('occupation_code must be text or null.')
         if result['skill_codes'] is not None and (
@@ -930,9 +980,13 @@ def _migrate_one_job(data):
     # structured description block are additive, like every field above;
     # occupation_code/skill_codes are reserved (Section 5) and stay null
     # for a pre-JOZ-267 record exactly as for a brand new one.
+    # requirement_groups (package 2) backfills to an empty list for the
+    # same reason: an existing job keeps its flat must/nice lists until
+    # the owner re-extracts it, and an empty list is how a reader tells
+    # "not grouped yet" from "grouped, and the posting asked for nothing".
     for key, default in (('field_status', {}), ('posting_quality', None),
-                         ('description_structured', None), ('occupation_code', None),
-                         ('skill_codes', None)):
+                         ('description_structured', None), ('requirement_groups', []),
+                         ('occupation_code', None), ('skill_codes', None)):
         if key not in data:
             data[key] = default
             changed = True

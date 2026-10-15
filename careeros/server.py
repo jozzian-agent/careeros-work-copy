@@ -150,6 +150,22 @@ REFRESH_EVENTS = {
     'skipped': ('description_refresh_skipped', 'No posting URL; enriching stored text.'),
 }
 
+# What a re-read that produced nothing tells the owner, and the two of
+# those are not the same fact: a reading that ran and had nothing new to
+# say, and a reading that never started at all. One sentence for both
+# said the model had read the text in the case where no reader ever ran.
+REREAD_FAILED_HISTORY = ('re_extract_failed', 'Reading the stored text again found nothing new.')
+REREAD_NOT_STARTED_HISTORY = ('re_extract_not_started', 'Could not start the re-read.')
+
+# Who the lines a re-read regroups belong to, by the `method` of the
+# stored block they come from. The rules did the grouping either way, but
+# the lines are whoever read or wrote them: a model's requirements called
+# page data would lose the AI label off a section the model wrote, and
+# the owner's own lines credited to the page would claim a reader for
+# text the owner typed. Anything else (the offline section split, a raw
+# block) is page data.
+REREAD_PROVENANCE = {'llm': 'llm', 'user': 'user'}
+
 
 def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
     """Per-field extraction status (JOZ-267 Section 3). A covered field
@@ -169,6 +185,29 @@ def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
             status[field] = 'done'
         elif status.get(field) != 'done':
             status[field] = unfilled
+    return status
+
+
+def reread_field_status(job, filled_fields):
+    """Per-field status for a re-read of text that was already read once
+    (package 2's Re-extract).
+
+    A field an earlier reading settled keeps what it settled on. A field
+    marked not_evidenced was read and genuinely was not in the posting,
+    and a re-read that fails does not turn that into a failure: it is the
+    same text, and the answer about that field has not changed. Only a
+    field this attempt just filled, and a field nothing has settled yet,
+    move. `apply_field_status` is the first reading's rule, where every
+    covered field is still open."""
+    provenance = job.get('field_provenance', {})
+    status = dict(job.get('field_status', {}))
+    for field in ingest.STATUS_FIELDS:
+        if provenance.get(field) == 'user':
+            continue
+        if filled_fields.get(field):
+            status[field] = 'done'
+        elif status.get(field) not in ('done', 'not_evidenced'):
+            status[field] = 'pending'
     return status
 
 
@@ -510,7 +549,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         fillable = ('title', 'company', 'location', 'employment_type', 'seniority',
                     'remote_ok', 'keywords', 'contact_email',
                     'background', 'skills', 'certifications', 'responsibilities', 'function',
-                    'description_structured')
+                    'description_structured', 'requirement_groups')
         if llm_pending.get(baseline['id']) is not token:
             return
         job = storage.load_job(root, baseline['id'])
@@ -528,6 +567,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
             fields['description_structured'] = {
                 'summary': fields.get('summary') or '', 'requirements': fields.get('requirements') or [],
                 'nice_to_have': fields.get('nice_to_have') or [], 'method': 'llm'}
+        # Package 2: the grouped requirements this extraction supports. A
+        # model that answered the groups wins; a model that only filled
+        # the flat lists still yields groups, through the same one home
+        # the offline rules use.
+        if fields.get('requirement_groups') or fields.get('requirements') or fields.get('nice_to_have'):
+            fields['requirement_groups'] = ingest.requirement_groups(
+                fields.get('requirement_groups'), fields.get('requirements'),
+                fields.get('nice_to_have'))
         updates = {key: fields[key] for key in fillable
                    if fields.get(key) not in (None, '', [])
                    and job.get(key) == baseline.get(key)
@@ -640,6 +687,40 @@ def create_app(vault: str | Path | None = None) -> Flask:
             llm_pending[job_id] = token
             return token
 
+    def settle_failed_reread(root, job_id, *, history_event, locked=False):
+        """Record a failed re-read of text that was already read, and
+        return the saved job, or None when this job has no earlier reading
+        to keep.
+
+        The owner pressed Re-extract on a job whose details were read
+        once. That reading still stands: downgrading the record to
+        extract_failed would raise the card that asks for a posting text
+        the job already stores, and would call a complete job unread. So
+        the attempt gets its own event instead of the state change, and
+        the fields this attempt moved back to pending settle, since
+        nothing further will reach them. A job that never had a reading
+        keeps the ordinary failure path, card and all.
+
+        `history_event` is what this particular failure says happened: the
+        caller is the one that knows whether a reading ran, so the
+        sentence comes from there rather than being one sentence for every
+        way an attempt can end with nothing."""
+        with nullcontext() if locked else write_lock:
+            current = storage.load_job(root, job_id)
+            if current is None or current.get('ingest_state') != 'complete':
+                return None
+            return storage.save_job(
+                root, {'field_status': fail_pending_field_status(current)}, job_id,
+                history_event=history_event)
+
+    def release_enrichment(job_id, token):
+        """Give back a reservation whose run never started, if it is still
+        this caller's. The token identity check is what keeps a caller
+        from releasing a newer run's slot."""
+        with pending_lock:
+            if llm_pending.get(job_id) is token:
+                llm_pending.pop(job_id, None)
+
     def settle_and_release(root, job_id, token, current):
         """Settle any still-pending covered field and release the caller's
         extraction ownership token as one step (JOZ-267 fix round 3,
@@ -659,12 +740,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if llm_pending.get(job_id) is token:
                 llm_pending.pop(job_id, None)
 
-    def start_llm_enrichment(root, baseline, description, token, on_started=None):
+    def start_llm_enrichment(root, baseline, description, token, on_started=None, reread=False):
         """Start the background worker for a reserved token.
 
         Returns True if a worker thread actually started. The callback only
         clears llm_pending if it still owns the slot (token identity check),
         so a slow/stale run can never clobber a newer run's pending state.
+
+        reread says this run is reading text the job was already read
+        from, which changes only what a failure means: see
+        settle_failed_reread.
         """
         job_id = baseline['id']
 
@@ -697,6 +782,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     if fields:
                         new_company_id = apply_llm_update(root, baseline, fields, token)
                         mark_ingest_state(root, job_id, 'complete', history=('extracted', 'Extraction completed.'), locked=True)
+                    elif reread and settle_failed_reread(
+                            root, job_id, history_event=REREAD_FAILED_HISTORY, locked=True) is not None:
+                        # A re-read of a job that already has its reading
+                        # keeps that reading, and says what happened in its
+                        # own words (package 2 fix round, F6).
+                        pass
                     else:
                         # JOZ-267 fix round 1 finding 4: settle any still-
                         # pending field every time, even when a more
@@ -796,9 +887,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             thread = ingest.extract_async(description, receive,
                                           function_options=storage.function_facet_options(root))
         except Exception as error:
-            with pending_lock:
-                if llm_pending.get(job_id) is token:
-                    llm_pending.pop(job_id, None)
+            release_enrichment(job_id, token)
             ingest.warn(error)
             return False
         app.config['LLM_THREADS'][job_id] = thread
@@ -976,6 +1065,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     if (structured_fallback['summary'] or structured_fallback['requirements']
                             or structured_fallback['nice_to_have']):
                         candidate['description_structured'] = structured_fallback
+                        # The rule-based groups, so a job has grouped
+                        # requirements from this first offline pass on;
+                        # the queued model pass replaces them with real
+                        # groups when it lands. Only when the pass found
+                        # lines to group: an empty list written here would
+                        # stamp provenance on a field nobody wrote, and a
+                        # stamp is what the page reads as "written".
+                        groups = ingest.requirement_groups(
+                            None, structured_fallback['requirements'],
+                            structured_fallback['nice_to_have'])
+                        if groups:
+                            candidate['requirement_groups'] = groups
                     # M2: a concurrent owner edit made to the stub while the
                     # fetch was in flight must survive. Re-read the current
                     # record and only let an automated field land if it still
@@ -1134,13 +1235,19 @@ def create_app(vault: str | Path | None = None) -> Flask:
                            'employment_type', 'valid_through', 'description', 'company',
                            'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
                            'background', 'skills', 'certifications', 'responsibilities',
-                           'employee_count', 'function', 'description_structured')
+                           'employee_count', 'function', 'description_structured',
+                           'requirement_groups')
             if not job.get('enriched'):
                 fill_fields += ('salary_info', 'salary_note')
+            # This fills empty fields only, so a value that is itself empty
+            # fills nothing: an empty list used to pass the guard and land
+            # in updates, where it stamps provenance on a field nothing was
+            # found for, and a field_provenance entry is what the page
+            # reads as "this was written, and here is by whom".
             updates = {key: extracted[key] for key in fill_fields
                        if (job.get(key) in (None, '', []) or
                            (key == 'salary_info' and job.get(key) is False))
-                       and extracted.get(key) not in (None, '')
+                       and extracted.get(key) not in (None, '', [], {})
                        and job.get('field_provenance', {}).get(key) != 'user'}
             updates['posting_quality'] = ingest.classify_posting_quality(extracted.get('description') or '')
             if 'summary' in updates:
@@ -1166,6 +1273,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates['employer_named_in_posting'] = employer_evidence
                 updates['field_provenance'] = {**provenance,
                                                'employer_named_in_posting': evidence_source}
+            # Package 2: the grouped requirements this call just filled have
+            # to say who read the lines they hold, because the Requirements
+            # section's AI label has nothing else to read for them (the flat
+            # block carries its own `method`, the groups do not). Same rule
+            # the Re-extract write applies: the lines are the model's when a
+            # model answered this posting, the page's otherwise.
+            if 'requirement_groups' in updates:
+                updates['field_provenance'] = {
+                    **updates.get('field_provenance', provenance),
+                    'requirement_groups': 'llm' if extracted.get('ingest_source') == 'llm' else 'scrape'}
             # M3: route through the SAME shared ladder every other
             # resolution entry point uses -- same owner-link-group
             # protection (M1), same fuzzy/ambiguity/shared-tenant
@@ -1352,6 +1469,116 @@ def create_app(vault: str | Path | None = None) -> Flask:
                                     history=('extract_failed', 'Could not start refresh.')) or job
             return jsonify(job | {'llm_pending': False, 'error': 'Could not start refresh.'}), 503
         return jsonify(job | {'llm_pending': True, 'accepted': True}), 202
+
+    @app.post('/api/jobs/<identifier>/re-extract')
+    def re_extract_job(identifier):
+        """Read the stored posting text again (package 2).
+
+        This is the owner's per-job migration to grouped requirements, and
+        the only thing the interface offers for a job written before them:
+        every write path fills requirement_groups for a job added since,
+        but no read migrates a record and nothing re-runs in bulk (owner
+        decision). It is not /extract, which fetches the live
+        posting first: the posting a legacy job was read from may be gone,
+        and the text to group is the one already stored.
+
+        The rule-based groups (the flat must/nice lists under Skills) are
+        written here, synchronously, so the action lands a result even
+        when no model is reachable; the queued extraction replaces them
+        with real groups when it finishes.
+
+        A list the owner emptied on purpose is filled again, because the
+        owner lock keeps automation out of a field the owner has set and
+        pressing Re-extract is the owner themselves asking for it to be
+        read again. That takes two things, since the stored block may have
+        no lines left to regroup: the lines, when there are any, and the
+        lock itself, which comes off the field so the reading this request
+        queues can answer into it. A list the owner has written lines into
+        is left exactly as it is, lock and all: a re-read fills an empty
+        field and never replaces text the owner can see.
+
+        Everything else is the same machinery /extract uses: one
+        reservation per job, the covered fields that are still open back
+        to pending while the attempt runs, and the attempt's own history
+        event. A job whose reading is already running is a 409: there is
+        one reservation per job, and this request did not get it.
+
+        What a failure means here is its own thing, because the text was
+        already read once: see settle_failed_reread.
+        """
+        root = app.config['VAULT_PATH']
+        with write_lock:
+            job = storage.load_job(root, identifier)
+            if job is None:
+                return jsonify(error='Job not found.'), 404
+            if not (job.get('description') or '').strip():
+                return jsonify(error='This job has no posting text to read.'), 409
+            token = reserve_enrichment(identifier)
+            if token is None:
+                # A reading of this job is already running. Answering 202
+                # would claim this request started one, so the owner would
+                # read whatever that other run writes as this click's
+                # result, and a click that did nothing would look like a
+                # click that worked.
+                return jsonify(job | {'llm_pending': True,
+                                      'error': 'This posting is already being read.'}), 409
+            try:
+                provenance = job.get('field_provenance', {})
+                structured = job.get('description_structured') or {}
+                updates = {}
+                # The owner emptied the list and then asked for the stored
+                # text to be read again, which is the owner asking for it
+                # to be filled: the lock their clear put on the field has
+                # to come off, or the reading this request queues answers
+                # into a field the owner-provenance rule then drops it
+                # from, and the action is a dead end for exactly the job
+                # it exists for.
+                emptied_by_owner = (not job.get('requirement_groups')
+                                    and provenance.get('requirement_groups') == 'user')
+                if not job.get('requirement_groups'):
+                    groups = ingest.requirement_groups(None, structured.get('requirements'),
+                                                       structured.get('nice_to_have'))
+                    stamp = REREAD_PROVENANCE.get(structured.get('method'), 'scrape')
+                    new_provenance = {key: value for key, value in provenance.items()
+                                      if not (emptied_by_owner and key == 'requirement_groups')}
+                    if groups:
+                        updates['requirement_groups'] = groups
+                        # The owner's own lines, regrouped on an emptied
+                        # list, are stamped for nobody: stamping them
+                        # 'user' again would re-lock the field this very
+                        # request is unlocking, and crediting a reader
+                        # with text the owner typed is the lie this stamp
+                        # exists to avoid.
+                        if not (emptied_by_owner and stamp == 'user'):
+                            new_provenance['requirement_groups'] = stamp
+                    if new_provenance != provenance:
+                        updates['field_provenance'] = new_provenance
+                updates['field_status'] = reread_field_status(job, updates)
+                if emptied_by_owner:
+                    # The field is open again, so its status follows this
+                    # reading rather than the clear that set it: filled by
+                    # the regrouped lines, or still being read.
+                    updates['field_status']['requirement_groups'] = (
+                        'done' if updates.get('requirement_groups') else 'pending')
+                job = storage.save_job(root, updates, identifier,
+                                       history_event=('re_extracted', 'Stored posting text read again.'))
+            except Exception:
+                # The reservation is this request's to give back: a write
+                # that failed started no reading, and a token left behind
+                # would block every later attempt on this job for the life
+                # of the process. The failure itself still reaches the
+                # owner, through the app's own error handler.
+                release_enrichment(identifier, token)
+                raise
+        if not start_llm_enrichment(root, job, job.get('description') or '', token, reread=True):
+            job = (settle_failed_reread(root, identifier,
+                                        history_event=REREAD_NOT_STARTED_HISTORY)
+                   or mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
+                                        reason='worker_start_failed', settle_fields=True,
+                                        history=('extract_failed', 'Could not start extraction.'))
+                   or job)
+            return jsonify(job | {'llm_pending': False, 'error': 'Could not start extraction.'}), 503
+        return jsonify(job | {'llm_pending': True}), 202
 
     @app.post('/api/jobs/<identifier>/paste-description')
     def paste_description(identifier):

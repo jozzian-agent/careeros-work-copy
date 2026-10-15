@@ -7,6 +7,7 @@ import {
   fetchJobPage,
   fetchJobTaxonomy,
   pasteDescription,
+  reExtractJob,
   resolveReview,
   retryIngest,
   updateJob,
@@ -16,9 +17,9 @@ import SectionCard, { DETAIL_MAX_WIDTH, DividerList, KeyValueGrid } from '../com
 import FitChip from '../components/FitChip.jsx';
 import StatusSelect from '../components/StatusSelect.jsx';
 import NeedsInputCard, { NeedsInputChip } from '../components/NeedsInputCard.jsx';
-import Requirements, { requirementEntries } from '../components/Requirements.jsx';
+import Requirements from '../components/Requirements.jsx';
 import ExtractionPopup, {
-  extractionRows, notFoundLabels, readSentence, readTimestamp,
+  extractionRows, notFoundLabels, readSentence, readTimestamp, reReadFailedTimestamp,
 } from '../components/ExtractionPopup.jsx';
 import EditJobPopup from '../components/EditJobPopup.jsx';
 import NotesSection from '../components/NotesSection.jsx';
@@ -27,6 +28,7 @@ import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
 import { prettifyTag } from '../tags.js';
 import { localDate } from '../dates.js';
+import { isGrouped, requirementEntries, unplacedSkills } from '../requirements.js';
 
 // JOZ-267 fix round 1 finding 4: a terminal ingest_state means nothing is
 // ever going to advance a still-pending field again on its own (the owner
@@ -84,6 +86,7 @@ export default function JobDetail() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [extractionOpen, setExtractionOpen] = useState(false);
   const [resolveBusy, setResolveBusy] = useState(false);
+  const [reExtractBusy, setReExtractBusy] = useState(false);
 
   const load = useCallback(() => {
     fetchJobPage(id)
@@ -188,6 +191,24 @@ export default function JobDetail() {
     }
   }
 
+  // Reading the stored posting text again. The reload hands over to the
+  // page's own polling, since any field still open goes back to pending
+  // while the reading runs, so the busy state only covers the request
+  // itself. A field the first reading settled keeps what it settled on,
+  // so a job whose reading found everything polls nothing.
+  async function handleReExtract() {
+    setReExtractBusy(true);
+    setActionError(null);
+    try {
+      await reExtractJob(id);
+      await load();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setReExtractBusy(false);
+    }
+  }
+
   async function handlePasteDescription(description) {
     await pasteDescription(id, description);
     setPasteOpen(false);
@@ -245,9 +266,30 @@ export default function JobDetail() {
 
   const structured = job.description_structured || {};
   const requirements = requirementEntries(job);
+  // Which shape the Requirements section is rendering, which decides
+  // whose provenance its AI label answers to: the grouped field once the
+  // job has been extracted since package 2, and the flat block plus the
+  // skills list for a job that has not been.
+  const grouped = isGrouped(job);
+  // The skills list is in the section too, but only when it holds a skill
+  // no group carries: those lines are the owner's once they correct the
+  // list, so the label goes. A section whose every line comes from the
+  // groups answers to the groups alone -- counting skills there let a
+  // correction to a list the section is not showing unlabel requirements
+  // a model wrote.
+  const requirementKeys = grouped
+    ? ['requirement_groups', ...(unplacedSkills(job).length ? ['skills'] : [])]
+    : ['description_structured', 'skills'];
+  // The rules can group requirements with no model involved (the
+  // Re-extract fallback), and that is not AI-extracted, so the label
+  // follows the recorded source rather than the presence of groups.
+  const requirementsByAi = grouped
+    ? (job.field_provenance || {}).requirement_groups === 'llm'
+    : structured.method === 'llm';
   const rows = extractionRows(job);
   const notFound = notFoundLabels(rows);
   const readAt = readTimestamp(history);
+  const reReadFailedAt = reReadFailedTimestamp(history);
   const sector = classification?.sector || {};
   const functions = (classification?.function || []).map(
     (key) => functionLabels?.[key]?.label || prettifyTag(key),
@@ -338,7 +380,7 @@ export default function JobDetail() {
         {requirements.length || reading ? (
           <SectionCard
             title="Requirements"
-            aiLabel={aiLabel(job, ['description_structured', 'skills'], structured.method === 'llm', 'extracted')}
+            aiLabel={aiLabel(job, requirementKeys, requirementsByAi, 'extracted')}
           >
             {requirements.length ? <Requirements entries={requirements} /> : <Text color="subtle">{PENDING_TEXT}</Text>}
           </SectionCard>
@@ -368,6 +410,20 @@ export default function JobDetail() {
             size="sm"
             color="transparent"
             onClick={() => setExtractionOpen(true)}
+          />
+          {/* Reading the stored text again, which is how a job written
+              before the requirement groups gets them. There is nothing
+              to read again without stored posting text, so the button
+              says so instead of failing on the owner. */}
+          <Button
+            text={reExtractBusy ? 'Re-extracting…' : 'Re-extract'}
+            size="sm"
+            color="gray"
+            disabled={!hasDescription || reExtractBusy}
+            accessibilityLabel={hasDescription
+              ? undefined
+              : 'Re-extract needs posting text, and none has arrived yet'}
+            onClick={handleReExtract}
           />
         </Flex>
         {/* Collapsed by default, each its own accordion: one accordion
@@ -485,6 +541,7 @@ export default function JobDetail() {
         <ExtractionPopup
           job={job}
           readAt={readAt}
+          reReadFailedAt={reReadFailedAt}
           onDismiss={() => setExtractionOpen(false)}
           onOpenSetter={openSetter}
         />

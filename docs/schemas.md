@@ -2,7 +2,7 @@
 type: Surface
 title: "Vault schemas — Chunk 3"
 description: "Describe vault records and their JSON API representation."
-timestamp: 2026-10-11
+timestamp: 2026-10-14
 ---
 
 # Vault schemas — Chunk 3
@@ -96,6 +96,39 @@ the sample workflow. Back up the destination vault before a future import.
 | valid_through | String from JSON-LD validThrough (date or timestamp), otherwise empty |
 | custom | Mapping with string keys |
 | status_changed | ISO date, set/overwritten when an existing job changes status |
+
+Requirements are stored twice over, on purpose. `description_structured`
+holds the flat shape every job written before package 2 has
+(`{summary, requirements, nice_to_have, method}`, where `method` is
+`llm`, `heuristic`, `raw` or `user`, the last one being a block the owner
+wrote in Edit job), and `requirement_groups` holds the grouped shape:
+
+| Field | Type / meaning |
+| --- | --- |
+| requirement_groups | List of `{group, level, text}`, one entry per qualification the posting asks for |
+| requirement_groups[].group | One of `education`, `experience`, `skills`, `languages`, `certifications`. Fixed list; a requirement the extractor cannot place lands in `skills` |
+| requirement_groups[].level | `must` when the posting requires it, `nice` when it only prefers it |
+| requirement_groups[].text | The qualification in the posting's own words, nonempty |
+
+The groups carry one entry per group and text, with a must-have winning
+over a nice-to-have for the same line, and text with no padding on it:
+`vault.validate_requirement_groups` holds that invariant for every
+writer. An empty list with no `requirement_groups` entry in
+`field_provenance` means the job has no grouped requirements yet, which
+is where every job written before package 2 starts. An empty list that
+is stamped `user` means the owner emptied it on purpose, and the two are
+read differently: the first still shows the flat lists and is filled by
+any write path, the second renders as a grouped job with nothing in it
+and is filled by nothing but the owner, or by the reading the owner asks
+for with Re-extract, which takes that stamp off the field so the answer
+can land. Every write path fills the groups for a job added since the
+package (the offline intake pass, the queued model pass, the
+fill-the-empty-fields enrich, and the owner's own edit), so for a job
+written before them the owner's per-job Re-extract action
+(`POST /api/jobs/<id>/re-extract`) is the only thing the interface
+offers, and no read ever migrates a record. Languages have no field of
+their own; a language the posting asks for is an entry in the `languages`
+group.
 
 GET `/api/jobs` lists jobs newest-added first. GET/PUT/DELETE
 `/api/jobs/<id>` reads, partially updates editable schema fields, or deletes a
