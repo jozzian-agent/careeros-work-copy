@@ -18,7 +18,9 @@ Consequences of C:
 - A JS build toolchain (npm, bundler) enters the repo for the first time.
 - JOZ-274 (cards) and JOZ-275 (buttons/messages) fold into the rewrite as
   Gestalt components (Card, Button, Toast) instead of CSS-only passes.
-- verify.py and the Playwright/JS-harness tests need porting page by page.
+- The Playwright/JS-harness tests need porting page by page. (The UI smoke
+  script this line also named, `scripts/verify.py`, was retired 2026-10-16
+  rather than ported: see PROJECT.md.)
 - Batches A–D remain the source of truth for behavior; the rewrite must
   preserve every owner-approved interaction.
 
@@ -84,7 +86,7 @@ toasts) using actual Gestalt components.
 
 Rewrite all 11 templates as a React SPA against a JSON API.
 
-- Cost: largest by far; every page, every test, every verify.py step
+- Cost: largest by far; every page, every test, every UI smoke-script step
   rewritten. Weeks, not a batch.
 - Risk: throws away working, tested, owner-approved surfaces (batches A–D).
 - Fit: none at current scale. Park unless the product direction changes.

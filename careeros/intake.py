@@ -475,9 +475,15 @@ def _extract(url, parser, schema):
     employees = org.get('numberOfEmployees')
     if isinstance(employees, dict):
         employees = employees.get('value')
-    from org_intake.classify import resolve_employee_count, size_range_bucket
+    # The raw count and nothing derived from it. A posting's headcount used
+    # to be bucketed here into a `size` string as well, which the company
+    # write then stored in the legacy `size` field beside the class derived
+    # from the same count -- the two coexisting scales the owner retired
+    # (decision 2026-10-15), rebuilt from one signal under the old field's
+    # name (CAREER-33). The class is derived from the count where every
+    # other size signal is, in `fill_company_metadata`.
+    from org_intake.classify import resolve_employee_count
     employee_count = resolve_employee_count(employees)
-    size = size_range_bucket(employee_count) if employee_count else None
     sector = org.get('industry')
     sector = sector if isinstance(sector, str) else None
     visible = next((parser.regions[tag] for tag in ('main', 'article', 'body')
@@ -485,7 +491,7 @@ def _extract(url, parser, schema):
     schema_lines = _collapse_lines(schema_description.text)
     body_lines = schema_lines if schema_lines else _strip_chrome_edges(_collapse_lines(visible))
     return dict(description='\n'.join(body_lines).strip(),
-                sector=sector, size=size, employee_count=employee_count, locations=list(dict.fromkeys(locations)),
+                sector=sector, employee_count=employee_count, locations=list(dict.fromkeys(locations)),
                 title=title or fallback, company=company, website=website, source=source,
                 original_url=url if platform else None, salary_info=bool(salary), salary_note=salary,
                 location=', '.join(dict.fromkeys(locations)), remote_ok=remote, posted_date=posted,

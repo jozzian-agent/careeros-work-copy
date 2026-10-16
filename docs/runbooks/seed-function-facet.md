@@ -17,22 +17,44 @@ runs on startup, so a vault stays empty until someone runs the sequence
 below.
 
 This is the owner's action. The commands were proven against a fixture
-copy of `sample/vault` on 2026-10-15 and the output quoted here is that
-run, not an illustration.
+copy of `sample/vault` on 2026-10-15, and again on 2026-10-16 against a
+throwaway copy of the live vault's own `tags.yaml` (a copy, so the live
+vault was only read); the output quoted below is those runs, not an
+illustration.
 
 ## What it writes
 
 - One file: `tags.yaml` at the root of the vault. No job, company or
   experience record is touched.
-- 28 values in the `function` facet, which is every entry the import
-  source carries today. One is ESCO-backed (`ict-product-manager`, the
-  only entry whose `esco_uri` is filled in); the other 27 are seeded as
-  local extensions with `isco` cleared, because an entry with no verified
-  ESCO concept must not imply a roll-up it has not earned (decision 25).
-  Confirming an entry means filling in its `esco_uri` in the import
-  source and running the seed again.
-- Nothing twice: the run is idempotent and never overwrites a value the
-  owner has edited. A second run reports `[]`.
+- 40 values in the `function` facet, which is every entry the import
+  source carries today. 10 are ESCO-backed: their `esco_uri` was fetched
+  from the live ESCO API on 2026-10-16 and the concept's own label and
+  `code` matched what the entry records, so those 10 keep their `isco`.
+  The other 30 are seeded as local extensions with `isco` cleared,
+  because an entry with no verified ESCO concept must not imply a roll-up
+  it has not earned (decision 25). 5 of those 30 are marked `local: true`
+  in the import source — owner labels whose golden-set URIs 404, so there
+  is nothing to verify and they stay unmapped for good. The remaining 25
+  are simply not verified yet; confirming one means filling in its
+  `esco_uri` in the import source and running the seed again.
+- **Re-running is not a no-op** (since 2026-10-16). It used to skip every
+  id the facet already held, which made the sentence above false: a URI
+  filled into the import source reached no vault, and nor did a new
+  keyword, even though the extraction prompt is built from the vault's
+  facet and not from the import source. A re-run now also:
+  - confirms or updates `esco_uri`, `isco` and the local-extension
+    marker on an entry already present, since those three are one
+    statement about which ESCO concept the entry is, and the import
+    source is where that statement is made;
+  - merges in keywords, adding what the source has gained and removing
+    nothing, so an anchor the owner added by hand survives. The flip
+    side, stated plainly: a keyword **removed** from the import source
+    stays in a vault that already stored it, and taking one out is a
+    hand edit of `tags.yaml`.
+  - It still never touches `label` or `label_de`, which are the owner's
+    wording, and it never duplicates an id.
+- Nothing twice: a run that finds nothing to add and nothing to update
+  reports `added 0 / updated 0` and writes no file at all.
 
 ## Before running
 
@@ -74,8 +96,9 @@ import os
 from careeros import vault
 root = os.environ['VAULT']
 with vault.WriteLock(root):
-    added = vault.seed_function_facet(root)
-print('added', len(added), 'ids')
+    result = vault.seed_function_facet(root)
+print('added', len(result.added), 'ids:', result.added)
+print('updated', len(result.updated), 'ids:', result.updated)
 PY
 
 # 4. Verify: every seeded id is a known id, and each one says whether it
@@ -91,20 +114,36 @@ print('function ids after:', len(vault.known_function_ids(root)))
 PY
 ```
 
-Step 3 on an empty facet prints:
+Step 3 on an empty facet adds all 40 and updates nothing. On the live
+vault, which was seeded with the 28 entries of 2026-10-15, it prints the
+following — the output of a run against a copy of the live `tags.yaml`
+on 2026-10-16, not an illustration:
 
 ```
-added 28 ids
+added 12 ids: ['embedded-systems-security-engineer', 'ict-business-analysis-manager',
+ 'ict-consultant', 'product-manager', 'chief-product-officer', 'digital-marketing-manager',
+ 'banking-products-manager', 'business-consultant', 'business-development-manager',
+ 'innovation-manager', 'innovation-officer', 'digital-transformation-manager']
+updated 7 ids: ['ict-product-manager', 'software-developer', 'ict-security-manager',
+ 'ict-project-manager', 'marketing-manager', 'sales-manager', 'compliance-officer']
 ```
+
+The 7 updates are what the old skip-everything behaviour would have
+dropped on the floor: 5 entries gaining the ESCO URI and code verified on
+2026-10-16 (`software-developer`, `ict-project-manager`,
+`marketing-manager`, `sales-manager`, and `ict-product-manager`, whose
+code is confirmed rather than new), and the keyword additions on
+`ict-security-manager` and `compliance-officer` that the extraction
+prompt could not otherwise see.
 
 Step 4 ends with:
 
 ```
-function ids after: 28
+function ids after: 40
 ```
 
-Running step 3 again prints `added 0 ids`, which is how the run proves it
-is idempotent rather than a second write.
+Running step 3 again prints `added 0` and `updated 0`, which is how the
+run proves it is idempotent rather than a second write.
 
 ## What the seed does not do
 
@@ -115,8 +154,11 @@ is idempotent rather than a second write.
   how many then carry a function, is the audit step (M0-5), not this
   runbook.
 - It changes no prompt text. The option list the prompt carries is built
-  from the facet at call time (`ingest._function_options_text`), so it
-  fills in on its own once the facet has values.
+  from **the vault's own facet** at call time
+  (`vault.function_facet_options`, rendered by
+  `ingest._function_options_text`), so it fills in on its own once the
+  facet has values — and, equally, an entry or keyword that reaches no
+  vault reaches no reading. That is why the re-run above matters.
 
 ## If it goes wrong
 
@@ -136,11 +178,16 @@ rm "$VAULT/tags.yaml"
 
 ## Open questions
 
-- The `esco_uri` of every entry added in the 2026-10-15 round is unknown,
-  so 27 of the 28 seeded values are local extensions. Whether the owner
-  wants them verified against the live ESCO portal before the first
-  classification measurement, or is content to run with the markers, is
-  not decided.
-- The ISCO codes in the import source are that file's best reading, not
-  citations. They reach no vault while `esco_uri` is empty, so the
-  question only matters when an entry is confirmed.
+- 25 of the 40 entries are still unverified: no `esco_uri`, and an
+  `isco` that is the import source's best reading rather than a
+  citation. The 2026-10-16 round verified the 10 concepts the golden set
+  needed, which is every function label the owner's own 42 labelled
+  postings use, and left the rest for the day a posting needs one.
+  Whether the owner wants all 25 verified against the live ESCO API
+  before the first classification measurement, or is content to run with
+  the local-extension markers, is not decided. They reach no vault with
+  a code while `esco_uri` is empty, so nothing claims a roll-up it has
+  not earned in the meantime.
+- The 5 entries marked `local: true` are a different case and not an
+  open question: their URIs were checked and 404, so there is nothing to
+  verify and decision 25 keeps them as owner labels with a marker.

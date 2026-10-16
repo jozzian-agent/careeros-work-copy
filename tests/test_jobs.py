@@ -667,12 +667,18 @@ def rich_schema(employees=125):
                                 'addressCountry':{'name':'CH'}}}])
 
 
-@pytest.mark.parametrize('employees,bucket', [(1,'1-10'), (10,'1-10'), (11,'11-50'),
-    (50,'11-50'), (51,'51-200'), (200,'51-200'), (201,'201-1000'),
-    (1000,'201-1000'), (1001,'1000+'), ({'@type':'QuantitativeValue','value':125},'51-200'),
+@pytest.mark.parametrize('employees,count', [(1,1), (10,10), (11,11),
+    (50,50), (51,51), (200,200), (201,201),
+    (1000,1000), (1001,1001), ({'@type':'QuantitativeValue','value':125},125),
     (None,None), ('unknown',None)])
-def test_company_size_extraction(employees, bucket):
-    assert intake.extract('https://rich.example/job', rich_schema(employees))['size'] == bucket
+def test_company_size_extraction(employees, count):
+    """The posting's headcount, read in every shape it arrives in and
+    kept raw. CAREER-33: this used to assert the bucket derived from it,
+    which is the retired scale; the class is derived from the count at the
+    company write, and `careeros/data` holds no second ladder."""
+    result = intake.extract('https://rich.example/job', rich_schema(employees))
+    assert result['employee_count'] == count
+    assert 'size' not in result
 
 
 def test_rich_company_intake(client, monkeypatch):
@@ -704,7 +710,10 @@ def test_company_metadata_fill_only(client, monkeypatch, action, owner_values):
     response = client.post('/api/jobs/intake', json={'url':'https://rich.example/other'}) if action == 'intake' else client.post('/api/jobs/'+created['job']['id']+'/enrich')
     assert response.status_code in (200,201)
     company = client.get('/api/companies/'+cid).json
-    expected = values if owner_values else {'sector':'Software','size':'51-200','locations':['Basel','BS','CH']}
+    # CAREER-33: the posting's headcount fills the EU class and no longer
+    # also fills the legacy `size` string from a bucket derived from that
+    # same count, so an owner who cleared `size` gets it back as None.
+    expected = values if owner_values else {'sector':'Software','size':None,'locations':['Basel','BS','CH']}
     assert {key:company[key] for key in expected} == expected
     assert company['name_source'] == 'owner'
 

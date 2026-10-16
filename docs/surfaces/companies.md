@@ -114,10 +114,8 @@ by validation is reported on stderr and the run exits non-zero.
 ```
 
 Settled 2026-10-15 (M0-7), replacing the follow-up this section used to
-record: the org-intake capability still derives `size_range` and
-`size_class` together (`org_intake.classify.derive_size` is a pinned
-capability with its own contract, unchanged here), but no product write
-persists the range any more. `vault._drop_retired_size_range` takes it
+record: no product write persists the range any more.
+`vault._drop_retired_size_range` takes it
 off every payload at `save_company`, the one gate every company write
 passes through, so a new signal cannot reintroduce the second scale
 through a path nobody remembered. An explicit null still gets through,
@@ -126,17 +124,49 @@ and the re-kind path in `careeros/enrich.py` do. A newly enriched company
 therefore stays on the class scale, and the migration no longer has to be
 re-runnable to keep it there.
 
+Finished 2026-10-16 (CAREER-33) at the other end of the same path: the
+capability's own derivation stopped offering the range, so there is
+nothing left for the write gate to drop on an enrichment result.
+`org_intake.classify.derive_size` answers with `size_class` alone, and
+`fill_size_updates`/`size_cascade` propose only the class; both still
+READ a stored range, since a record written before the decision carries
+one and evidence that contradicts it is a conflict to flag. The gate
+stays as the guard for a legacy payload that names the range itself.
+This moved the pinned submodule, see the capability contract's rule 8.
+
 Two consequences at the product's own size write sites, both so the
 remaining scale stays coherent rather than coming back under another
-name. The posting's own bucket string now defers to a stored
-`size_class` rather than to a stored `size_range` when
-`fill_company_metadata` decides whether to fill the legacy `size` field,
-and the enrichment cascade's "this field is filled" accounting reads
-`size_class` alone. The legacy free-text `size` field is still written
-when a posting states a size and the company has no class at all; that
-field is outside the retirement this task covered, and
+name. **The posting's own bucket string is gone**: `intake._extract` no
+longer derives one, and `fill_company_metadata` no longer fills the
+legacy `size` field from it, so a posting's headcount fills the class and
+nothing else. That field is now read-only as far as the product is
+concerned — an owner PUT can still set one, an older record still shows
+what it carries (`careeros/web/pages/companies.py`), and
 `scripts/migrate_company_size_scale.py` reports it rather than touching
-it.
+it. And the enrichment cascade's "this field is filled" accounting reads
+`size_class` alone, since a company with a class and no range has a known
+size.
+
+The headcount itself is kept rather than dropped (owner decision
+2026-10-16). It stays on the job record as the raw `employee_count` it
+was extracted into, and `careeros.enrich.enrich_company` aggregates it
+onto the company as `enrichment.employee_count`, beside an
+`employee_count_evidence` record naming the posting that stated it and
+its date. That is the zero-network tier of the size cascade
+(`org_intake.enrich.promote_aggregated_size`, rule 9/R4), so a company
+whose only size signal is one of its own postings can have a class
+derived from it on any later size run instead of the number being read
+once at intake and then forgotten. It is evidence toward `size_class`
+and only that: the existing rules apply unchanged, so it never overwrites
+a stored class, a count that contradicts one raises
+`FLAG_SIZE_INCONSISTENT` instead, and neither retired scale is written.
+Where several postings state different counts, the most recently posted
+one wins, and failing any dated posting the first that states a count —
+the rule [enrichment evidence](../decisions/enrichment-evidence.md)
+already settled for dated Wikidata statements. Section 1's field-group
+matrix still applies: a non-employer gets no size, so the re-kind path
+deletes this evidence the same way it deletes the nested
+`enrichment.sectors` rollup.
 
 ## States
 

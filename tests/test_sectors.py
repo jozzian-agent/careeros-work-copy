@@ -99,19 +99,19 @@ def test_match_sectors_known_codes_are_isic_sections():
     assert len(sectors.known_section_codes()) == 21
 
 
-# --- Atomic size_class + size_range derivation -----------------------------
+# --- Size derivation: the EU class, and only the EU class -----------------
 
-@pytest.mark.parametrize('count,size_range,size_class', [
-    (9, '1-10', 'micro'), (10, '1-10', 'micro'),
-    (249, '201-1000', 'medium'), (250, '201-1000', 'medium'),
-    (1, '1-10', 'micro'), (1001, '1000+', 'large'),
+@pytest.mark.parametrize('count,size_class', [
+    (9, 'micro'), (10, 'micro'),
+    (249, 'medium'), (250, 'medium'),
+    (1, 'micro'), (1001, 'large'),
 ])
-def test_derive_size_boundary_values(count, size_range, size_class):
+def test_derive_size_boundary_values(count, size_class):
     # Contract rule 8 (EU 2003/361/EC): thresholds are INCLUSIVE upper
     # bounds (micro <=10, small <=50, medium <=250), so 10 is micro and
     # 250 is medium. The old product thresholds were exclusive and are
     # superseded by the contract.
-    assert sectors.derive_size(count) == {'size_range': size_range, 'size_class': size_class}
+    assert sectors.derive_size(count) == {'size_class': size_class}
 
 
 def test_derive_size_rejects_nonpositive_and_non_numeric():
@@ -131,12 +131,17 @@ def test_resolve_employee_count_range_resolves_to_upper_bound():
 def test_fill_size_updates_never_overwrites_populated_field():
     assert sectors.fill_size_updates(1500, '1-10', None) == {}  # contradicts size_range: refuse
     assert sectors.fill_size_updates(1500, None, 'micro') == {}  # contradicts size_class: refuse
-    assert sectors.fill_size_updates(1500, None, None) == {'size_range': '1000+', 'size_class': 'large'}
+    assert sectors.fill_size_updates(1500, None, None) == {'size_class': 'large'}
     assert sectors.fill_size_updates(1500, '1000+', None) == {'size_class': 'large'}
     assert sectors.fill_size_updates(1500, '1000+', 'large') == {}
-    # JOZ-262: the mirror image of the '1000+' case above -- size_class
-    # already populated and consistent fills size_range alone.
-    assert sectors.fill_size_updates(1500, None, 'large') == {'size_range': '1000+'}
+    # CAREER-33: a stored class settles size, so a consistent count has
+    # nothing left to fill. It used to complete the pair by filling the
+    # numeric range beside it; that scale is retired, and the derivation
+    # no longer offers it.
+    assert sectors.fill_size_updates(1500, None, 'large') == {}
+    # ...and agreeing with the stored class is not a conflict either.
+    assert sectors.count_conflicts_with_stored_size(1500, None, 'large') is False
+    assert sectors.count_conflicts_with_stored_size(1500, None, 'micro') is True
 
 
 # --- Review fix round finding 1 (rewritten for contract rule 8): an LLM
@@ -164,14 +169,19 @@ def test_size_class_hint_consistent_with_range(size_hint, size_range, expected):
     assert sectors.size_class_hint_consistent_with_range(size_hint, size_range) == expected
 
 
-# --- Section 3 engineering item 2: raw employee_count retained in _extract -
+# --- Section 3 engineering item 2: the raw employee_count, and only it ----
 
-def test_extract_retains_both_size_bucket_and_raw_employee_count():
+def test_extract_retains_the_raw_employee_count_and_derives_no_bucket():
+    """CAREER-33: the posting's headcount is kept raw and nothing is
+    derived from it here. A `size` bucket used to be derived beside it and
+    stored in the company's legacy `size` field, beside the class derived
+    from the same count -- one signal writing the two scales the owner
+    retired. The class is derived where every other size signal is."""
     html = ('<script type="application/ld+json">{"@type":"JobPosting","title":"Role",'
             '"hiringOrganization":{"name":"Rich Labs","numberOfEmployees":42}}</script>')
     result = intake.extract('https://rich.example/job', html)
-    assert result['size'] == '11-50'
     assert result['employee_count'] == 42
+    assert 'size' not in result
 
 
 def test_extract_resolves_employee_range_string_to_upper_bound():
@@ -179,7 +189,6 @@ def test_extract_resolves_employee_range_string_to_upper_bound():
             '"hiringOrganization":{"name":"Rich Labs","numberOfEmployees":"50-100"}}</script>')
     result = intake.extract('https://rich.example/job', html)
     assert result['employee_count'] == 100
-    assert result['size'] == '51-200'
 
 
 # --- Company schema: sectors list replaces single sector -------------------
@@ -246,11 +255,16 @@ def test_a_company_write_never_persists_a_size_range(tmp_path):
     assert vault.save_company(tmp_path, {'size_range': None}, company['id'])['size_range'] is None
 
 
-def test_an_enrichment_result_carrying_a_size_range_saves_without_it(tmp_path):
-    """The capability still derives the pair (`derive_size` is vendored and
-    read-only here), so the product's own write is where the range stops."""
+def test_the_enrichment_derivation_no_longer_offers_a_size_range_at_all(tmp_path):
+    """CAREER-33: the range used to come back from every enrichment
+    derivation and be dropped at the write, which left the retired scale
+    one forgotten call site away from being stored again. The derivation
+    itself now answers with the class alone, so there is nothing to drop;
+    the write gate stays as the guard for a legacy payload that names the
+    range itself (see the test above)."""
     derived = sectors.derive_size(1500)
-    assert derived == {'size_range': '1000+', 'size_class': 'large'}  # unchanged capability output
+    assert derived == {'size_class': 'large'}
+    assert 'size_range' not in derived
     company = vault.save_company(tmp_path, {'name': 'Enriched Co'} | derived)
     assert company['size_class'] == 'large' and company['size_range'] is None
 
@@ -858,7 +872,7 @@ def test_size_cascade_industry_status_failure_preserves_employee_count(tmp_path)
         return {'industry': None, 'employee_count': 100, 'industry_status': 'error'}
 
     updates, flag = company_lookup.classify_size(company, signals=(signal,), **product_enrich.classification_options())
-    assert updates == {'size_range': '51-200', 'size_class': 'medium'}
+    assert updates == {'size_class': 'medium'}
     assert flag is None
 
 
@@ -883,7 +897,7 @@ def test_plan_backfill_accounting_partial_wikidata_failure_preserves_valid_field
     plan, _ = product_enrich.plan_backfill(tmp_path, sector_signals=(signal,), size_signals=(signal,),
                                             collector=collector)
     changes = next(ch for co, ch in plan if co['id'] == company['id'])
-    assert changes['size_range'] == '51-200' and changes['size_class'] == 'medium'
+    assert changes['size_class'] == 'medium' and 'size_range' not in changes
     assert collector.summary()['fetch-error'] == 1  # sectors: industry_status
     assert collector.summary()['matched'] == 1  # size: employee_count present despite industry_status
 
@@ -961,7 +975,7 @@ def test_size_cascade_break_on_first_match_records_not_attempted_for_remaining_s
 
     collector = company_lookup.BackfillAccounting()
     updates, flag = company_lookup.classify_size(company, signals=(first, second), collector=collector, **product_enrich.classification_options())
-    assert updates == {'size_range': '11-50', 'size_class': 'small'}
+    assert updates == {'size_class': 'small'}
     assert collector.summary()['matched'] == 1
     assert any(e['outcome'] == 'not-attempted' for e in collector.events)
     events = {(e['signal'], e['outcome']) for e in collector.events}
@@ -1400,7 +1414,7 @@ def test_size_cascade_llm_not_called_after_structured_success(tmp_path, monkeypa
 
     company = vault.save_company(tmp_path, {'name': 'Already Sized Co'})
     updates, flag = company_lookup.classify_size(company, signals=(structured_signal, company_lookup._llm_signal), **product_enrich.classification_options())
-    assert updates == {'size_range': '11-50', 'size_class': 'small'}
+    assert updates == {'size_class': 'small'}
     assert calls['n'] == 0
 
 
@@ -1971,6 +1985,90 @@ def test_fetch_company_jsonld_uses_redirect_following_fetcher_by_default(client,
     assert 'https://power.example' in calls
     assert response.json['sectors'] == ['D']
     assert response.json['size_class'] == 'small'
+
+
+def test_retry_company_leaves_an_owner_approved_size_class_untouched(client, root, monkeypatch):
+    """CAREER-33, the whole path through the product: an enrichment run on
+    a company whose EU size class is already stored must leave that class
+    exactly as it is and must not write the retired numeric scale beside
+    it, whatever the signal says. A count that agrees is not a conflict
+    either, so the run adds no review flag."""
+    from org_intake import fetch as org_fetch
+    monkeypatch.setattr(org_fetch, 'default_fetch', lambda url:
+                        '<script type="application/ld+json">{"numberOfEmployees":1500}</script>')
+    company = vault.save_company(root, {'name': 'Settled Size Co', 'website': 'https://settled.example',
+                                        'size_class': 'large'})
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    saved = vault.load_company(root, company['id'])
+    assert saved['size_class'] == 'large'
+    assert saved['size_range'] is None
+    assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
+    # Nothing was filled, and the accounting says so: while the cascade
+    # still proposed the retired range, this run reported filling
+    # 'size_range' -- a fill of a value no write persists.
+    assert saved['enrichment']['field_states']['size']['applied_fields'] == []
+    assert response.json['retry_applied'] == []
+
+
+def test_a_posting_headcount_is_evidence_a_size_run_can_derive_a_class_from(
+        client, root, monkeypatch):
+    """Owner decision 2026-10-16, the whole path through the product: a
+    company whose only size signal is a headcount stated in one of its own
+    postings used to show nothing at all. The count reached the job
+    record, was read once at intake, and was then invisible to every size
+    signal -- the capability's zero-network promotion tier reads
+    `enrichment['employee_count']` (rule 9/R4) and nothing ever put one
+    there. Now the aggregation does, so a size run derives the class from
+    it without a single network call, and the two retired scales stay
+    unwritten."""
+    from org_intake import fetch as org_fetch
+    monkeypatch.setattr(org_fetch, 'default_fetch', lambda url: '')
+    company = vault.save_company(root, {'name': 'Headcount Co', 'website': 'https://headcount.example'})
+    job = vault.save_job(root, {'title': 'Role', 'url': 'https://headcount.example/job',
+                                'company_id': company['id'], 'employee_count': 120,
+                                'posted_date': '2026-10-01'})
+    stored = vault.load_company(root, company['id'])
+    assert stored['size_class'] is None  # nothing has derived anything yet
+    assert stored['enrichment']['employee_count'] == 120
+    assert stored['enrichment']['employee_count_evidence'] == {
+        'count': 120, 'job_id': job['id'], 'posted_date': '2026-10-01'}
+
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert response.json['retry_applied'] == ['size']
+
+    saved = vault.load_company(root, company['id'])
+    assert saved['size_class'] == 'medium'  # 120 employees, EU thresholds
+    assert saved['size_range'] is None and saved['size'] is None
+    assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
+    # The promotion tier answered, so no external signal was even tried:
+    # the accounting is where that is visible.
+    outcomes = {event['signal']: event['outcome']
+                for event in saved['enrichment']['field_states']['size']['events']}
+    assert outcomes['promotion'] == 'matched'
+    assert set(outcomes.values()) - {'matched'} == {'not-attempted'}
+
+
+def test_a_posting_headcount_contradicting_a_stored_class_flags_rather_than_writes(
+        client, root, monkeypatch):
+    """The other half of rule 11 over the same new route: evidence that
+    disagrees with what the record already says is a conflict to flag, not
+    a value to write. Without this, feeding postings into the size
+    pipeline would be a way to overwrite an owner's own class."""
+    from org_intake import fetch as org_fetch
+    monkeypatch.setattr(org_fetch, 'default_fetch', lambda url: '')
+    company = vault.save_company(root, {'name': 'Disagreeing Co', 'size_class': 'micro'})
+    vault.save_job(root, {'title': 'Role', 'url': 'https://disagreeing.example/job',
+                          'company_id': company['id'], 'employee_count': 4000})
+
+    response = client.post('/api/companies/' + company['id'] + '/retry')
+    assert response.status_code == 200
+    assert response.json['retry_applied'] == []
+
+    saved = vault.load_company(root, company['id'])
+    assert saved['size_class'] == 'micro'
+    assert company_lookup.FLAG_SIZE_INCONSISTENT in saved['review_flags']
 
 
 def test_safe_redirect_handler_rechecks_target_safety(monkeypatch):

@@ -83,12 +83,16 @@ silently.
    applies should say so, not pick one. File: `vendor/capa-repo/org_intake/classify.py`
    `all_matched_sections`, `match_sectors`; `vendor/capa-repo/org_intake/data/isic_sections.yaml`.
 
-8. Size is classified on one scale: EU Recommendation 2003/361/EC
-   employee-count thresholds (micro ≤10, small ≤50, medium ≤250,
-   large >250), with a parallel numeric range bucket derived from the
-   same raw count so the two fields can never desync. *Reason:* two
-   independently-derived size fields could silently disagree; deriving
-   both from one count at once rules that out by construction. File:
+8. Size is classified on one scale, and only that one is derived: EU
+   Recommendation 2003/361/EC employee-count thresholds (micro ≤10,
+   small ≤50, medium ≤250, large >250). *Reason:* the rule used to
+   derive a parallel numeric `size_range` bucket from the same count,
+   atomically, so the pair could not desync — but a second scale
+   nobody writes only erodes the first one, and the owner settled on
+   the class alone (decision 2026-10-15, PROJECT.md Fixed lists), so
+   the derivation stopped handing the range back (2026-10-16). The
+   bucket labels stay as a read helper (`size_range_bucket`) for a
+   record written before that decision. File:
    `vendor/capa-repo/org_intake/classify.py` `SIZE_CLASS_THRESHOLDS`, `derive_size`.
 
 9. Sector/size enrichment runs a cascade from cheap/structured to
@@ -111,10 +115,12 @@ silently.
     `promote_aggregated_sectors`.
 
 11. Size never overwrites an already-populated field, and a freshly
-    fetched value that contradicts one already on file fills nothing
-    and raises a review flag instead of guessing which is right.
-    *Reason:* a half-filled, internally inconsistent pair must never
-    be written silently. File: `vendor/capa-repo/org_intake/classify.py`
+    fetched value that contradicts one already on file — the class, or
+    a numeric range a record still carries from before rule 8 retired
+    that scale — fills nothing and raises a review flag instead of
+    guessing which is right. *Reason:* evidence that disagrees with
+    what a record already says is a conflict to surface, not a value
+    to write. File: `vendor/capa-repo/org_intake/classify.py`
     `fill_size_updates`; `vendor/capa-repo/org_intake/enrich.py` `size_cascade`.
 
 12. Every external signal reports its own outcome - matched, ambiguous,
@@ -235,7 +241,7 @@ classify_size(record, *, fetch=None, warn=None, deadline=None,
 
 classify_size({"name": "Helvetia Robotics GmbH",
                "size_range": None, "size_class": None})
-=> ({"size_range": "11-50", "size_class": "small"}, None)
+=> ({"size_class": "small"}, None)
 ```
 
 ```
@@ -300,7 +306,10 @@ A field's state only moves forward through an explicit cascade run; a
 ## Consumers
 
 - CareerOS (careeros-dashboard) - pinned at: `capa-repo` main
-  `9606d6d2a097c4c29b7b5844ba906a7defef0efc` (2026-10-12).
+  `9606d6d2a097c4c29b7b5844ba906a7defef0efc` (2026-10-12). The rule-8
+  change of 2026-10-16 (the size derivation stops returning the
+  retired numeric range) is edited in the submodule working tree and
+  is NOT in that commit; the pin moves with it.
 
 ## Open questions
 

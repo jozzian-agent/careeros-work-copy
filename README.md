@@ -66,9 +66,18 @@ builders could run Flask test-client tests but could not perform live browser
 checks; that is not a claim that this host has the same restriction.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
+.venv/bin/python -m pytest tests/ -q                       # product suite
+(cd vendor/capa-repo && ../../.venv/bin/python -m pytest tests -q)  # capability suite
+(cd frontend && npx playwright test)                       # browser suite
 ```
 
-Tests use temporary fixture vaults. The existing `scripts/verify.py` provides
-additional live checks, but contains a stale enrichment-button step; it is not a
-complete current acceptance checklist. Live checks are recorded with each surface.
+Run the two pytest suites separately, each from its own root: `tests/test_enrich.py`
+exists in both trees, and pytest refuses to collect two test modules of the same
+name in one run. The browser suite reads `frontend/playwright.config.js`, which
+starts the Vite dev server itself, so it has to run from `frontend`.
+
+Tests use temporary fixture vaults. There is no single live-check script: the
+browser suite covers the front end against mocked API responses, the pytest
+suites cover the backend against sample-vault fixtures, and the live checks a
+surface needs are recorded with that surface. Acceptance is the owner clicking
+through a running instance, per AGENTS.md.

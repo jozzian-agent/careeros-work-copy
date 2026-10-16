@@ -158,7 +158,7 @@ No original company URL is invented from an ATS URL.
 | name | Nonempty string |
 | name_source | `auto` for intake/enrichment-created companies; `owner` after every human PUT. Missing provenance is treated as `owner`. |
 | website | HTTP(S) employer website from JSON-LD sameAs/url, or null |
-| size | String or null, e.g. 50-200 |
+| size | String or null, e.g. 50-200. Legacy and read-only: nothing writes one since 2026-10-16 (CAREER-33); `size_class` is the one size scale (PROJECT.md Fixed lists). Still read, and still writable by an owner PUT. |
 | locations | List of strings |
 | sector | String or null |
 | notes | String, the pre-note_list free-text notes field. Legacy: see note_list |
@@ -235,11 +235,26 @@ string and the company locations list, deduplicated in source order.
 Existing text-location heuristics remain the fallback. hiringOrganization.url
 (or sameAs) supplies website; industry supplies sector when it is text.
 numberOfEmployees, either a number/numeric string or QuantitativeValue.value,
-maps to size: 1–10, 11–50, 51–200, 201–1000, and above 1000 map to
-`1-10`, `11-50`, `51-200`, `201-1000`, and `1000+`, respectively.
-Absent or invalid hints remain empty.
+is kept as the raw `employee_count` and nothing else; a range string resolves
+to its upper bound. Absent or invalid hints remain empty. That count is what
+the company's `size_class` is derived from. It used to be bucketed into a
+numeric range as well, which the company's legacy `size` field then stored
+beside the class — one signal writing two scales, retired by owner decision
+2026-10-15 and removed from this path 2026-10-16 (CAREER-33).
 
-Intake and enrichment fill sector, size, and locations only when the selected
-company's field is empty/missing, regardless of name_source. Nonempty owner
-values always win. Company selection and name/website provenance rules remain
+The count is stored, not dropped (owner decision 2026-10-16). It stays on the
+job as `employee_count`, and the company aggregation
+(`careeros.enrich.enrich_company`) carries it into
+`enrichment.employee_count` with an `enrichment.employee_count_evidence`
+record of `{count, job_id, posted_date}`, which is the zero-network tier of
+the size cascade (`org_intake.enrich.promote_aggregated_size`). So a company
+whose only size signal is one of its own postings gains evidence a later size
+run derives the class from, under the unchanged rules: fill-empty-only, a
+contradiction flags instead of writing, neither retired scale is written, and
+a non-employer keeps none of it. Of several stated counts the most recently
+posted wins, otherwise the first stated.
+
+Intake and enrichment fill sector, size_class and locations only when the
+selected company's field is empty/missing, regardless of name_source.
+Nonempty owner values always win. Company selection and name/website provenance rules remain
 unchanged; hiringOrganization.address does not replace the job's location.

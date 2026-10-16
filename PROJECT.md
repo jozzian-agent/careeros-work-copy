@@ -129,6 +129,100 @@ existing notes endpoint. `frontend/tests/fixtures/board.json` was stale
 carries the D7 payload, so the Playwright suite exercises the real
 contract.
 
+2026-10-16: a stability batch with no new surface (CAREER-29 to
+CAREER-33), recorded here because four of the five change what the
+product records rather than what it shows.
+
+- **The job-function vocabulary is wider and pinned** (CAREER-29). The
+  seed in `careeros/data/esco_occupations.yaml` grows from 28 to 31
+  entries, and five existing entries gain keywords, each gap found by
+  reading the owner's own stored postings: an IT/technology
+  consultant, a business development or strategy manager and an
+  innovation manager had no id to land in. Every `isco` is a four-digit
+  ISCO-08 unit group, settled here as the level to record because a
+  coarser roll-up is a prefix of it. `tests/test_function_facet.py`
+  pins the full id list the way `tests/test_board_d7.py` pins the
+  stopped reasons, plus one line per posting shape. The live vault's
+  facet was already seeded with the 28 (2026-10-15), so the owner's
+  action is one more run of the [seed runbook](docs/runbooks/seed-function-facet.md).
+  Carried further the same day by the follow-up round below, which is
+  what settles the ESCO identities.
+- **No drop on the way into a record is silent** (CAREER-30). The
+  function-id drop already said so; redaction emptying a field, a
+  payload key the record does not store, and an unusable extracted
+  contact address now do too — a log line in every case (naming the
+  field or key, never the value), plus a `field_status_reason` on the
+  record wherever `field_status` reports the field. See the drop sites
+  in the [add-a-job flow](docs/flows/add-job-by-link.md).
+- **The empty descriptions in the live vault are audited, not fixed**
+  (CAREER-31): 8 of 44 records, what each one's own history says about
+  why, and the command per record. The commissioning premise does not
+  hold — none of the 8 can be pinned on the redaction defect, and two
+  have a different recorded cause — and the audit says so
+  ([audit](docs/audits/redaction-residue.md)). The re-read is the
+  owner's action.
+- **`scripts/verify.py` is retired** (CAREER-32). The UI smoke script
+  drove the Jinja app, failed on main, and the two guards in it that
+  still meant something (no uncaught script error, no request to any
+  other origin) are now `frontend/tests/page-health.spec.js`, over
+  nine routes instead of one run. What went with it is in the open
+  questions below.
+- **Nothing derives the retired numeric size scale any more**
+  (CAREER-33). `vault.save_company` already dropped a `size_range`
+  from every payload; now the capability's own derivation stops
+  offering one, so the second scale is gone at both ends. This edits
+  the pinned submodule, so the pin moves. One more write went with
+  it: a posting's headcount was bucketed in `intake._extract` and
+  stored in the company's legacy `size` field beside the class
+  derived from that same count, so one signal wrote both scales under
+  two field names. The count now fills the class only. A stored
+  legacy `size` is still read, and an owner PUT can still set one.
+
+2026-10-16, same day: a reviewer accepted the batch above with notes,
+and the follow-up round that answers them also carries two owner
+decisions. Two of the three change what the product records.
+
+- **The function vocabulary is the golden set's, and its ESCO
+  identities are citations** (CAREER-29 follow-up). The seed grows from
+  31 to 40 entries. Ten of them now carry an `esco_uri` fetched from the
+  live ESCO API on 2026-10-16, with the preferred label and the concept
+  `code` matching what the entry records, so `isco` is the first four
+  digits of a real concept's code rather than a reading of the standard.
+  Four of those ten are new entries for ESCO concepts the seed had no
+  home for (product manager 1223, banking products manager 1221,
+  business consultant 2421, ICT business analysis manager 2511). Five
+  more new entries are the owner labels whose golden-set URIs **404**:
+  chief product officer, digital transformation manager, innovation
+  officer, embedded systems security engineer, digital marketing
+  manager. Those are choice-25 local extensions, marked `local: true`
+  in the seed and `source: local-extension` in a vault, carrying no ISCO
+  code at all, because choice 22 scopes the roll-up guarantee to
+  ESCO-backed entries and a hand-picked code is the thing it forbids.
+  Two keyword absorptions went with them: a "Security Expert" posting
+  landed on ICT security manager (1330) where the golden ISCO is 2529,
+  and a blanket `head of product` keyword made ICT product manager
+  (1330) the only home for the top product role (1223). Re-running the
+  seed is no longer a no-op either: it confirms or updates `esco_uri`,
+  `isco` and the local marker on an entry a vault already holds, and
+  merges in new keywords, which is what makes the extraction prompt
+  (built from the vault's own facet, never from the seed file) see them.
+- **A posting's headcount is kept as company size evidence** (owner
+  decision). It stays on the job as the raw `employee_count`, and the
+  company aggregation carries it into `enrichment.employee_count` with
+  an `employee_count_evidence` record of which posting stated it and
+  when. That is the zero-network tier of the capability's size cascade,
+  so a company whose only size signal is one of its own postings now
+  gains evidence a later size run derives `size_class` from, instead of
+  the number being read once at intake and then invisible. Evidence
+  toward the class and nothing else: it never overwrites a stored class,
+  a count that contradicts one raises the inconsistency flag, a
+  non-employer keeps none of it, and neither retired scale (`size_range`,
+  the legacy `size` string) is written.
+- **`careeros/web/screenshot.py` is deleted** (owner decision).
+  `scripts/verify.py` was its only importer and went with CAREER-32;
+  the specimen screenshots AGENTS.md's component gate asks for are an
+  agent's own business, not a module this repo keeps unreferenced.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -260,12 +354,26 @@ Friends never delete jobs or companies. Only the owner edits shared records.
   `org_intake.classify` thresholds), stored as `size_class` over
   `vault.SIZE_CLASSES`. Settled by owner decision 2026-10-15: the class
   is the ONLY size scale, so the numeric `size_range` the intake cascade
-  also derives is retired by `scripts/migrate_company_size_scale.py` (dry
+  used to derive as well is retired by `scripts/migrate_company_size_scale.py` (dry
   run by default, `--apply` owner-gated) and every surface shows the
   class. Where a record still carries both, the class wins. No product
   write persists a range any more either: `vault.save_company` drops one
   from every payload (M0-7), so only a record written before that still
-  carries one, and only an explicit clear is let through.
+  carries one, and only an explicit clear is let through. Nothing
+  derives one for writing any more either (CAREER-33, 2026-10-16):
+  `org_intake.classify.derive_size` and the size cascade answer with the
+  class alone, and only read a stored range to check evidence against
+  it. That edit is in the capability working tree and moves the pin. The
+  legacy `size` string is read-only from the same date: a posting's
+  headcount fills the class and no longer also fills `size` from a
+  bucket derived from that same count. An owner PUT can still set one.
+  The headcount itself is kept rather than dropped (owner decision
+  2026-10-16): it stays on the job as `employee_count` and is
+  aggregated onto the company as `enrichment.employee_count`, with
+  `enrichment.employee_count_evidence` naming the posting it came
+  from, which is evidence the size cascade's zero-network tier can
+  derive the class from. Evidence only: the fill-empty-only and
+  conflict-flag rules are unchanged and no retired scale is written.
 - Job statuses that end a job. Won, rejected, stopped
   (`vault.ENDED_STATUSES`, owner decision D7 2026-10-15). A job in any
   other status is open, which is what `vault.OPEN_STATUSES` is derived
@@ -437,10 +545,21 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
   (normalized_url, in_pipeline, origin, source_id, ingest_state, ingest_error,
   ats_provider, tenant, posting_id). Owner ruled 2026-10-11: update deferred
   to the Part 2 intake-capability rewrite, which owns the record shape.
-- verify.py: the UI smoke script still clicks the removed Enrich pending and
-  Enrich buttons and fails on main. Owner ruled 2026-10-11: fix folded into
-  the Part 4 test audit (repair or supersede with real-backend smoke tests),
-  not a side quest.
+- No browser check runs against the real backend, and none runs against
+  the built front end either. `scripts/verify.py` was the only one and is
+  gone (CAREER-32, 2026-10-16, see the entry above). The Playwright suite
+  drives the **Vite dev server** (`playwright.config.js` starts
+  `npm run dev`) with every API response mocked, and the pytest suites
+  drive the real handlers with no browser. So the gap is wider than
+  "no real backend": the bundle Flask actually serves (`frontend/dist`,
+  built by `npm run build`) is never loaded by any automated check, so a
+  break that only appears in a production build — a dependency missing
+  from the bundle, a path that resolves only through the dev server — is
+  invisible too. The owner click-test is what covers both. Whether that
+  is worth a second Playwright project serving `frontend/dist` from Flask
+  over a sample vault is open; the 2026-10-11 ruling folded it into
+  "repair or supersede with real-backend smoke tests" and the repair half
+  is now settled.
 
 ### Unconfirmed taxonomy choices
 
@@ -448,6 +567,19 @@ The concept draft explicitly called these proposals, not approvals. Confirm or
 close them in the later audit; implementation alone is not approval. The company
 kind ruling is in [Company classification](docs/decisions/company-classification.md).
 The undated-count proposal was superseded in [Enrichment evidence](docs/decisions/enrichment-evidence.md).
+
+**2026-10-16: choices 22, 23, 24 and 25 are confirmed by the owner** through the
+golden-set labelling of the live vault (42 jobs, LLM-assisted with per-row
+confidence, runner-up and note). The standing labelling approach: LLM-assisted
+rows carrying confidence, runner-up and note, and **every ESCO URI validated
+against the live ESCO API before it enters the vocabulary** — validation of the
+labelled file found 5 of 15 distinct URIs fabricated by the labelling model
+(digital transformation manager, chief product officer, innovation officer,
+embedded systems security engineer, digital marketing manager); those labels are
+recorded as choice-25 local extensions with a visible marker, never as
+ESCO-backed entries. The 10 verified URIs seed the `function` facet. Golden set:
+`/root/careeros-golden-set/golden-set-2026-10-16.csv`; rows at or below ~35%
+confidence are scored separately by the M1 harness.
 
 - Draft taxonomy choice 2: Institution/removed aggregate kind behavior: adopt the field-group matrix (enrichment eligibility, directory visibility, filter participation, job-derived aggregation) in Section 1, replacing a single on/off enrichment guard; the sector/size exclusion for institutions and removed aggregate kinds covers both the top-level fields and the nested `enrichment.sectors` rollup, requiring `regenerate_company` to explicitly remove both, not merely gate them out of new aggregation, including when a company's `kind` changes after sectors were already stored. Default: yes, matrix, including the nested-rollup removal.
 - Draft taxonomy choice 4: Deletion protection: block company deletion when linked experiences exist, extending the existing job-linked guard. Default: yes, block.

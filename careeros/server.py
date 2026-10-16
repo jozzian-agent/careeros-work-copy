@@ -222,30 +222,58 @@ def function_drop_reason(dropped):
             f'does not contain: {", ".join(dropped)}.')
 
 
-def function_drop_status(job, kept, dropped, status=None):
-    """The record changes that make a dropped function id visible, or {}.
+def redaction_drop_reason():
+    """The owner-facing sentence for a field redaction emptied. It names
+    neither the value nor the pattern that caught it: the content is the
+    private-network detail redaction exists to keep out of the vault, so
+    the reason says what happened and where, and the posting itself is
+    where the owner reads the rest."""
+    return ('The reading answered for this field, and the answer was removed because it held '
+            'private network details, so nothing could be stored.')
 
-    Dropping every id a reading returned used to leave no trace at all:
+
+def drop_status(job, reasons, status=None, kept=None):
+    """The record changes that make a dropped field value visible, or {}.
+
+    Dropping a value a reading produced used to leave no trace at all:
     the field read as not_evidenced, which says the posting did not
-    support a function, while what actually happened is that the reader
-    answered and the answer could not be stored. So the status stays the
-    same word (nothing was evidenced that this vault can hold) and it
-    gains the reason that tells the two apart, per the product rule that
-    failures and unknowns are visible states with a reason.
+    support it, while what actually happened is that the reader answered
+    and the answer could not be stored. So the status stays the same word
+    (nothing was evidenced that this vault can hold) and it gains the
+    reason that tells the two apart, per the product rule that failures
+    and unknowns are visible states with a reason.
 
-    Nothing is recorded when some id survived (the field has a value), the
-    field is already settled as done, or the owner wrote it themselves
-    (global rule 1). `status` is this write's field_status when the caller
-    computed one, the stored one otherwise."""
+    `reasons` maps a field to that sentence. A field is skipped when this
+    write kept a value for it (`kept`), when the record already has one,
+    when the field is already settled as done, or when the owner wrote it
+    themselves (global rule 1). Only fields `ingest.STATUS_FIELDS`
+    reports are recorded: the vault drops a reason as soon as its field
+    moves off not_evidenced, and a field no status rule ever moves would
+    keep its reason for good. `status` is this write's field_status when
+    the caller computed one, the stored one otherwise."""
     status = dict(job.get('field_status', {}) if status is None else status)
-    if (not dropped or kept or job.get('function')
-            or status.get('function') == 'done'
-            or job.get('field_provenance', {}).get('function') == 'user'):
+    provenance = job.get('field_provenance', {})
+    recorded = {}
+    for field, reason in reasons.items():
+        if (field not in ingest.STATUS_FIELDS or (kept or {}).get(field) or job.get(field)
+                or status.get(field) == 'done' or provenance.get(field) == 'user'):
+            continue
+        status[field] = 'not_evidenced'
+        recorded[field] = reason
+    if not recorded:
         return {}
-    status['function'] = 'not_evidenced'
     return {'field_status': status,
-            'field_status_reason': {**job.get('field_status_reason', {}),
-                                    'function': function_drop_reason(dropped)}}
+            'field_status_reason': {**job.get('field_status_reason', {}), **recorded}}
+
+
+def function_drop_status(job, kept, dropped, status=None):
+    """`drop_status` for the one drop site that has its own vocabulary:
+    function ids a reading produced that the vault registry does not
+    carry (decision 23)."""
+    if not dropped:
+        return {}
+    return drop_status(job, {'function': function_drop_reason(dropped)}, status,
+                       kept={'function': kept})
 
 
 def fail_pending_field_status(job):
@@ -403,13 +431,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if size_changes and 'identifiers' in size_changes:
             identifiers.extend(size_changes['identifiers'])
             size_changes = {k: v for k, v in size_changes.items() if k != 'identifiers'}
-        # The capability derives the class and the numeric range together;
-        # the product keeps the class alone (owner decision 2026-10-15),
-        # so the range comes off here rather than at the write. The
-        # accounting below reports what it filled, and naming a value no
-        # write persists would report a fill that did not happen.
-        if size_changes:
-            size_changes = {k: v for k, v in size_changes.items() if k != 'size_range'}
+        # The cascade proposes the class alone: the numeric range is the
+        # scale the class retired (owner decision 2026-10-15), and since
+        # 2026-10-16 the capability no longer derives it for writing, so
+        # there is nothing to strip off here. The accounting below reports
+        # what it filled, and a value no write persists would have
+        # reported a fill that did not happen.
         with write_lock:
             current = storage.load_company(root, company_id)
             if current is None or current.get('kind', 'employer') != 'employer':
@@ -485,14 +512,21 @@ def create_app(vault: str | Path | None = None) -> Flask:
         removed by owner decision on 2026-10-07: it never applied to a
         real record.)
 
-        Fill eligibility consults the NEW-shape fields (sectors, size_range,
+        Fill eligibility consults the NEW-shape fields (sectors,
         size_class), never the legacy sector/size strings alone, so an
-        owner-set sectors list or size pair is not clobbered by a posting
+        owner-set sectors list or size value is not clobbered by a posting
         signal just because the legacy field happens to be empty.
         employee_count is deliberately not in the generic passthrough: the
         company schema has no raw employee_count field, only the derived
-        size_range/size_class, so it gets its own branch through the atomic,
-        consistency-checked derivation function instead."""
+        size_class, so it gets its own branch through the
+        consistency-checked derivation function instead.
+
+        A posting's headcount fills the class and nothing else (CAREER-33).
+        It used to fill the legacy `size` string as well, from a bucket
+        `intake._extract` derived from the very same count -- so one signal
+        wrote two scales, which is what the 2026-10-15 decision retired.
+        A legacy `size` an older record carries is still read (see
+        `careeros/web/pages/companies.py`); nothing writes one."""
         kind = company.get('kind', 'employer')
         changes = {}
         if extracted.get('locations') and not company.get('locations'):
@@ -500,15 +534,6 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if kind == 'employer':
             if extracted.get('sector') and not company.get('sector') and not company.get('sectors'):
                 changes['sector'] = extracted['sector']
-            # The derived class is what settles a company's size now (owner
-            # decision 2026-10-15), so it is the class a stored posting
-            # bucket defers to. This read the derived range until that
-            # decision retired it; leaving it there would have let the
-            # posting's own bucket string fill a company whose size is
-            # already known, which is the second scale coming back under
-            # the legacy field's name.
-            if extracted.get('size') and not company.get('size') and not company.get('size_class'):
-                changes['size'] = extracted['size']
             changes.update(sectors.fill_size_updates(
                 extracted.get('employee_count'), company.get('size_range'), company.get('size_class')))
         return storage.save_company(root, changes, company['id']) if changes else company
@@ -632,9 +657,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
             return
         provenance = job.get('field_provenance', {})
         explicit_empty_summary = 'summary' in fields and not (fields['summary'] or '').strip()
-        fields = ingest.redact(fields)
-        if not ingest.is_valid_contact_email(fields.get('contact_email')):
+        redacted = []
+        fields = ingest.redact(fields, redacted)
+        if 'contact_email' in fields and not ingest.is_valid_contact_email(fields.get('contact_email')):
+            # The reader answered with something that is not a usable
+            # address (a placeholder domain, a tracking subdomain, an
+            # image filename shaped like an email). Dropping it is right;
+            # dropping it in silence is what this logs instead. The
+            # address itself stays out of the log, since the field is
+            # personal data either way.
             fields.pop('contact_email', None)
+            app.logger.warning('Dropped the extracted contact_email for job %s: not a usable address.',
+                               baseline['id'])
         dropped_functions = []
         if 'function' in fields:
             fields['function'], dropped_functions = accept_function_ids(root, fields['function'])
@@ -706,6 +740,24 @@ def create_app(vault: str | Path | None = None) -> Flask:
         updates['field_status'] = apply_field_status(job, updates)
         updates.update(function_drop_status(job, fields.get('function'), dropped_functions,
                                             updates['field_status']))
+        # Redaction is the other way a reading's answer reaches the write
+        # and is stored as nothing. `redact` logs every field it empties;
+        # this is the half that shows up on the record itself. A field it
+        # emptied carries no value, so the reason explains the same
+        # not_evidenced the status rule above already settled on. The
+        # dotted path of a nested value names its top-level field, which
+        # is the one field_status reports.
+        if redacted:
+            # Two drop sites can fire on one write. `drop_status` rebases its
+            # reason map on the stored record, so handing it `job` again here
+            # would clobber the function reason the call above just recorded.
+            # Carry the merged map forward instead.
+            base = {**job, 'field_status_reason':
+                    updates.get('field_status_reason',
+                                job.get('field_status_reason', {}))}
+            updates.update(drop_status(
+                base, {path.split('.')[0]: redaction_drop_reason() for path in redacted},
+                updates['field_status'], kept=updates))
         updates['enriched'] = True
         detail = None
         if changed_company:
@@ -1058,7 +1110,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             data = intake.heuristic_posting(url, html)
             name = data['company']
             website = _company_website(data.pop('website'))
-            metadata = {key: data.pop(key) for key in ('sector', 'size', 'locations', 'employee_count')}
+            metadata = {key: data.pop(key) for key in ('sector', 'locations', 'employee_count')}
             posting_origin = _company_website(f'{urlsplit(url).scheme}://{_netloc(url)}')
             # O2 (fix round 2): a fetch that succeeds structurally but yields
             # no extractable body text (a metadata-only page) must not settle
@@ -1123,10 +1175,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         new_company_id = resolution['company_id']
                     company = storage.load_company(root, resolution['company_id']) if resolution['company_id'] else None
                     if company is not None:
-                        # employee_count has no company-schema home of its own (the
-                        # company only ever stores the derived size_class; the range
-                        # the capability derives beside it is dropped on the way in,
-                        # see vault._drop_retired_size_range).
+                        # employee_count has no company-schema home of its own: the
+                        # company only ever stores the derived size_class, which is
+                        # the one scale the capability derives (and the one write
+                        # vault._drop_retired_size_range still guards, for a legacy
+                        # payload that names the retired range itself).
                         # A freshly created company (no website/metadata yet) gets the
                         # same size derivation JOZ-265 always applied at creation time;
                         # an already-existing company only gets its metadata filled in

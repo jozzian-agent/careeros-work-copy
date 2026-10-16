@@ -2,7 +2,9 @@
 
 LIBRARY_SHAPE = {'companies': {'CO-001': {'contact_email': 'str',
                           'custom': {},
-                          'enrichment': {'hiring_activity': {'count': 'int',
+                          'enrichment': {'employee_count': 'NoneType',
+                                         'employee_count_evidence': 'NoneType',
+                                         'hiring_activity': {'count': 'int',
                                                              'most_recent_posted_date': 'NoneType'},
                                          'locations_seen': ['str'],
                                          'remote_friendly': 'bool',
@@ -58,7 +60,9 @@ def test_library_contract(api_client, assert_json_shape):
 
 DETAIL_SHAPE = {'companies': {'CO-001': {'contact_email': 'str',
                           'custom': {},
-                          'enrichment': {'hiring_activity': {'count': 'int',
+                          'enrichment': {'employee_count': 'NoneType',
+                                         'employee_count_evidence': 'NoneType',
+                                         'hiring_activity': {'count': 'int',
                                                              'most_recent_posted_date': 'NoneType'},
                                          'locations_seen': ['str'],
                                          'remote_friendly': 'bool',
@@ -114,7 +118,9 @@ def test_detail_contract(api_client, assert_json_shape):
 
 NEW_SHAPE = {'companies': [{'contact_email': 'str',
                 'custom': {},
-                'enrichment': {'hiring_activity': {'count': 'int',
+                'enrichment': {'employee_count': 'NoneType',
+                               'employee_count_evidence': 'NoneType',
+                               'hiring_activity': {'count': 'int',
                                                    'most_recent_posted_date': 'NoneType'},
                                'locations_seen': ['str'],
                                'remote_friendly': 'bool',
@@ -157,7 +163,9 @@ def test_new_contract(api_client, assert_json_shape):
 
 EDIT_SHAPE = {'companies': [{'contact_email': 'str',
                 'custom': {},
-                'enrichment': {'hiring_activity': {'count': 'int',
+                'enrichment': {'employee_count': 'NoneType',
+                               'employee_count_evidence': 'NoneType',
+                               'hiring_activity': {'count': 'int',
                                                    'most_recent_posted_date': 'NoneType'},
                                'locations_seen': ['str'],
                                'remote_friendly': 'bool',

@@ -1,46 +1,114 @@
 # Curated bulk-export subset of ESCO occupation concepts (Section 4). This is
 # an import source used to seed or validate new tags.yaml function-facet
-# entries; it is not consulted directly at runtime. Re-confirm esco_uri values
-# against the live ESCO portal before relying on them; they are best-citation
-# placeholders, not verified facts.
+# entries; it is not consulted directly at runtime.
 #
-# NEEDS OWNER CHECK (proposed 2026-10-15, task M0-1). The four entries that
-# existed before this round are ict-product-manager, software-developer,
-# ict-service-manager and financial-investment-adviser. Every other entry
-# below is a proposal for the owner's own market, which is white-collar work
-# in the Zurich region: software, data, product, design, marketing, finance,
-# operations, HR, sales engineering and consulting. For each proposed entry
-# two things are unverified, and both need the owner or a check against the
-# live ESCO portal:
+# THREE KINDS OF ENTRY, told apart by two fields and nothing else:
 #
-#   * the esco_uri, which no entry added in this round carries, so none of
-#     them claims an ESCO concept it has not been matched to
-#   * the isco code, which is this file's best reading of ISCO-08 and is not
-#     a citation
+#   * ESCO-BACKED. `esco_uri` filled in, `isco` the first four digits of
+#     that concept's own ESCO `code`. Every one of these was fetched from
+#     https://ec.europa.eu/esco/api/resource/occupation?uri=<uri>&language=en
+#     on the date named beside it, and both its preferred label and its code
+#     came back matching what is written here. These are citations.
+#   * PROPOSED. `esco_uri: null` and an `isco` that is this file's best
+#     reading of ISCO-08, not a citation. Unverified on both counts, and
+#     still needing the owner or a portal check. `vault.seed_function_facet`
+#     refuses to treat one as ESCO-backed: it seeds the entry as a local
+#     extension with a visible marker and with isco cleared (decision 25),
+#     so no unverified code reaches a vault and no roll-up claims a parent
+#     it has not earned.
+#   * LOCAL EXTENSION, `local: true`. An owner label with no ESCO concept at
+#     all, so `esco_uri` and `isco` are both null and stay null. Decision 25
+#     allows these as owner-governed values with a visible marker, and
+#     decision 22 limits the ISCO roll-up guarantee to ESCO-backed entries,
+#     which is why these carry no code to roll up: a hand-picked one would
+#     be exactly the thing decision 22 forbids. They sit in the "unmapped"
+#     bucket of any roll-up report rather than being left out of it. The
+#     owner's own ISCO reading for each lives in the golden set, with its
+#     confidence, and deliberately not here.
 #
-# `vault.seed_function_facet` already refuses to treat an entry with no
-# esco_uri as ESCO-backed: it seeds such an entry as a local extension with
-# a visible marker and with isco cleared (decision 25), so no unverified
-# code reaches a vault and no roll-up claims a parent it has not earned.
-# Confirming an entry means filling in its esco_uri here and re-running the
-# seed, which adds nothing twice and overwrites nothing.
+# WHY THE LOCAL EXTENSIONS EXIST (2026-10-16, CAREER-29 follow-up). The
+# golden-set labelling of the live vault (kept outside the repo at
+# ~/careeros-golden-set/golden-set-2026-10-16.csv) produced 15 distinct
+# function labels. Validating every URI against the live ESCO API found 10
+# real concepts and 5 the labelling model had invented: chief product
+# officer, digital transformation manager, innovation officer, embedded
+# systems security engineer, digital marketing manager (all five 404). The
+# owner's confirmation of draft choices 22-25 that day keeps those five as
+# labels, so each has an entry here marked `local: true`. The rule they
+# exist to enforce: a label with no ESCO concept must stay expressible on
+# its own, and must never be absorbed into an ESCO entry whose ISCO says
+# something else. Two such absorptions were in the seed and are gone:
+# "Product & Solution Security Expert" landed on ict-security-manager
+# (1330) where the golden ISCO is 2529, and a blanket `head of product`
+# keyword made ICT product manager (1330) the only home for the two golden
+# rows whose label is chief product officer (1223).
+#
+# WHICH ISCO LEVEL (settled 2026-10-16, CAREER-29). Every `isco` below is a
+# four-digit ISCO-08 unit group, which is the finest level the standard has.
+# That is the level to record, because draft choice 22 derives ISCO from the
+# validated ESCO concept rather than storing a hand-picked code: a coarser
+# roll-up (minor group, sub-major, major) is the first three, two or one
+# digits of the same code, so the unit group keeps every roll-up available
+# while a level-3 code would have thrown the finest one away for good. An
+# ESCO code is finer still (`1330.7`, `1221.3.2.1`) and is ESCO's own
+# hierarchy rather than ISCO's, so the four digits before the first dot are
+# what an entry records.
+#
+# KEYWORDS ARE PROMPT CONTEXT, NOT A MATCHER (decision 11 defers the
+# deterministic matcher). The whole file is handed to the extraction prompt
+# (`ingest._function_options_text`), so an id with no lexical anchor for a
+# posting the owner actually stores is an id the model will not reach for.
+# Two entries may therefore legitimately share a phrase: `head of product`
+# anchors both ict-product-manager and chief-product-officer, because the
+# golden set splits four Head-of-Product rows two and two, and the posting's
+# own text is what tells them apart. Giving one id sole ownership of an
+# ambiguous phrase would decide those rows by seed order instead.
 #
 # A label or an id below that the owner does not search in is better removed
 # than left to bias the extraction prompt, which is given every entry.
+#
+# The entries added on 2026-10-16 are the gaps the owner's own stored
+# postings showed: an IT/technology consultant (two postings), a business
+# development or strategy manager (three), an innovation manager (two), and
+# then the golden set's own labels (the four ESCO concepts the seed had no
+# entry for -- product manager, banking products manager, business
+# consultant, ICT business analysis manager -- plus the five local
+# extensions above). Five existing entries gained keywords for the same
+# reason, each one a posting the owner actually stores: 'product owner' and
+# 'head of product' (ICT product manager), 'entwickler' (software
+# developer), 'channel manager' (sales manager), 'security specialist'
+# (security manager) and 'trade control' (compliance officer).
+# tests/test_function_facet.py pins the id list and one line per posting
+# shape, so a keyword that stops answering for a real posting fails there.
+#
+# Confirming an entry means filling in its esco_uri here and re-running the
+# seed. Since 2026-10-16 that second run is not a no-op: it confirms or
+# updates esco_uri, isco and the local-extension marker on an entry the
+# vault already holds, and merges in any new keyword, while never touching a
+# label the owner edited. Before that fix the seed skipped every id it
+# already knew, so a URI filled in here reached no vault at all.
 occupations:
   # --- Software, IT and data ---------------------------------------------
+  # ESCO-backed, code 1330.6, verified against the live API 2026-10-16.
+  # `head of product` stays here and is also on chief-product-officer: two
+  # of the golden set's four Head-of-Product rows are this entry (a product
+  # line at Proton, a product area at LinkedIn) and two are the top product
+  # role. See the keyword note in the header.
   - id: ict-product-manager
     label: "ICT product manager"
     label_de: "ICT-Produktmanager"
     isco: "1330"
     esco_uri: "http://data.europa.eu/esco/occupation/a79170ad-0b7b-4697-864f-1748359aa10a"
-    keywords: ["product manager", "ict product manager", "software product manager", "produktmanager"]
+    keywords: ["product manager", "ict product manager", "software product manager", "produktmanager",
+               "product owner", "head of product", "produktmanagement"]
+  # ESCO-backed, code 2512.3, verified against the live API 2026-10-16.
   - id: software-developer
     label: "Software developer"
     label_de: "Softwareentwickler"
     isco: "2512"
-    esco_uri: null
-    keywords: ["software developer", "software engineer", "softwareentwickler"]
+    esco_uri: "http://data.europa.eu/esco/occupation/f2b15a0e-e65a-438a-affb-29b9d50b77d1"
+    keywords: ["software developer", "software engineer", "softwareentwickler", "entwickler",
+               "java developer", "backend engineer", "frontend engineer"]
   - id: ict-service-manager
     label: "ICT service manager"
     label_de: "IT-Servicemanager"
@@ -60,18 +128,38 @@ occupations:
     esco_uri: null
     keywords: ["system administrator", "sysadmin", "systemadministrator", "platform engineer",
                "devops engineer", "site reliability engineer"]
+  # `security expert` moved off this entry on 2026-10-16: the one posting it
+  # was added for ("Product & Solution Security Expert", Siemens) is product
+  # and device security, which the golden set labels embedded systems
+  # security engineer (ISCO 2529) -- not ICT security management (1330).
+  # It anchors that local extension below instead.
   - id: ict-security-manager
     label: "ICT security manager"
     label_de: "IT-Sicherheitsmanager"
     isco: "1330"
     esco_uri: null
     keywords: ["security manager", "information security", "ciso", "it-sicherheit",
-               "informationssicherheit"]
+               "informationssicherheit", "security specialist",
+               "security engineer", "sicherheitsexperte"]
+  # LOCAL EXTENSION. The golden set's own URI for this label 404s against
+  # the live ESCO API, so there is no concept to cite and no code to roll
+  # up. Kept as a label because the alternative is the 1330 absorption
+  # above.
+  - id: embedded-systems-security-engineer
+    label: "Embedded systems security engineer"
+    label_de: "Sicherheitsingenieur für eingebettete Systeme"
+    isco: null
+    esco_uri: null
+    local: true
+    keywords: ["product security", "solution security", "product & solution security",
+               "security expert", "embedded security", "embedded systems security",
+               "produktsicherheit", "ot security", "iot security"]
+  # ESCO-backed, code 1330.7, verified against the live API 2026-10-16.
   - id: ict-project-manager
     label: "ICT project manager"
     label_de: "IT-Projektleiter"
     isco: "1330"
-    esco_uri: null
+    esco_uri: "http://data.europa.eu/esco/occupation/8b6388a4-4904-471b-9331-d3b1211f5525"
     keywords: ["project manager", "it project manager", "projektleiter", "programme manager",
                "scrum master", "agile coach"]
   - id: ict-business-analyst
@@ -81,6 +169,26 @@ occupations:
     esco_uri: null
     keywords: ["business analyst", "requirements engineer", "business analyst it",
                "anforderungsanalyst"]
+  # ESCO-backed, code 2511.7, verified against the live API 2026-10-16. A
+  # separate ESCO concept from ict-business-analyst above (same unit group,
+  # the lead rather than the analyst), and the golden set's label for
+  # "Lead Business & Technology Engineering".
+  - id: ict-business-analysis-manager
+    label: "ICT business analysis manager"
+    label_de: "Leiter IT-Business-Analyse"
+    isco: "2511"
+    esco_uri: "http://data.europa.eu/esco/occupation/4b3201cb-ffc5-4f61-9fc3-5c0f0038fa5f"
+    keywords: ["business analysis manager", "head of business analysis", "lead business analysis",
+               "business & technology engineering", "business and technology engineering",
+               "leiter business analyse"]
+  # ESCO-backed, code 2511.9, verified against the live API 2026-10-16.
+  - id: ict-consultant
+    label: "ICT consultant"
+    label_de: "IT-Berater"
+    isco: "2511"
+    esco_uri: "http://data.europa.eu/esco/occupation/b1c80369-067e-4041-84c8-dbe65640a5d8"
+    keywords: ["it consultant", "ict consultant", "technology consultant", "tech consultant",
+               "digital workplace consultant", "it-berater", "cloud consultant"]
   - id: data-scientist
     label: "Data scientist"
     label_de: "Data Scientist"
@@ -103,6 +211,32 @@ occupations:
     keywords: ["data analyst", "business intelligence analyst", "bi analyst",
                "datenanalyst", "reporting analyst"]
   # --- Product and design -------------------------------------------------
+  # ESCO-backed, code 1223.1, verified against the live API 2026-10-16. The
+  # non-ICT product manager the golden set needed four times over (a
+  # defence portfolio, an industrial product range, a grid operator's
+  # market design, a product-and-marketing hybrid), none of which is
+  # software product management.
+  - id: product-manager
+    label: "Product manager"
+    label_de: "Produktmanager"
+    isco: "1223"
+    esco_uri: "http://data.europa.eu/esco/occupation/9f508305-80ce-4111-8722-f2c9b4a44890"
+    keywords: ["product manager", "produktmanager", "product portfolio", "produktportfolio",
+               "produktportfolioentwicklung", "product development manager", "category manager",
+               "product & marketing manager", "product design"]
+  # LOCAL EXTENSION. The golden set's own URI for this label 404s against
+  # the live ESCO API. It exists because a blanket `head of product`
+  # keyword used to make ict-product-manager (1330) the only home for the
+  # top product role, which the golden set reads as 1223 -- wrong for the
+  # two rows whose label is this one.
+  - id: chief-product-officer
+    label: "Chief product officer"
+    label_de: "Chief Product Officer"
+    isco: null
+    esco_uri: null
+    local: true
+    keywords: ["chief product officer", "cpo", "head of product", "vp product",
+               "leiter produktmanagement", "produktchef"]
   - id: user-experience-analyst
     label: "User experience analyst"
     label_de: "User-Experience-Analyst"
@@ -118,19 +252,35 @@ occupations:
     keywords: ["ui designer", "user interface designer", "visual designer", "ui-designer",
                "interaction designer"]
   # --- Marketing, sales and communication ---------------------------------
+  # ESCO-backed, code 1221.3.2, verified against the live API 2026-10-16.
   - id: marketing-manager
     label: "Marketing manager"
     label_de: "Marketingleiter"
     isco: "1221"
-    esco_uri: null
+    esco_uri: "http://data.europa.eu/esco/occupation/6fcf4638-e7c7-4978-9302-9a7b63a3d57c"
     keywords: ["marketing manager", "digital marketing", "growth marketing", "brand manager",
                "marketingleiter", "online marketing"]
+  # LOCAL EXTENSION. The golden set's own URI for this label 404s against
+  # the live ESCO API. The owner's ISCO reading for it is the same 1221 as
+  # marketing-manager above, so nothing is absorbed wrongly either way;
+  # the label exists because the golden set uses it and decision 25 keeps
+  # an owner label expressible.
+  - id: digital-marketing-manager
+    label: "Digital marketing manager"
+    label_de: "Digital-Marketing-Manager"
+    isco: null
+    esco_uri: null
+    local: true
+    keywords: ["digital marketing", "growth marketing", "online marketing",
+               "performance marketing", "digital marketing manager"]
+  # ESCO-backed, code 1221.3.2.1, verified against the live API 2026-10-16.
   - id: sales-manager
     label: "Sales manager"
     label_de: "Vertriebsleiter"
     isco: "1221"
-    esco_uri: null
-    keywords: ["sales manager", "head of sales", "vertriebsleiter", "verkaufsleiter"]
+    esco_uri: "http://data.europa.eu/esco/occupation/a7594892-ff23-4e2a-aedf-2f967ebca15c"
+    keywords: ["sales manager", "head of sales", "vertriebsleiter", "verkaufsleiter",
+               "channel manager", "account manager", "key account"]
   - id: technical-sales-representative
     label: "Technical sales representative"
     label_de: "Technischer Vertriebsmitarbeiter"
@@ -145,6 +295,17 @@ occupations:
     isco: "2412"
     esco_uri: null
     keywords: ["investment adviser", "financial adviser"]
+  # ESCO-backed, code 1221.2, verified against the live API 2026-10-16.
+  # Product management inside financial services, which is where the golden
+  # set puts "Head Product Management Funds" -- neither software product
+  # management nor the generic 1223 product manager.
+  - id: banking-products-manager
+    label: "Banking products manager"
+    label_de: "Leiter Bankprodukte"
+    isco: "1221"
+    esco_uri: "http://data.europa.eu/esco/occupation/c530b0ee-46f8-40fb-818c-d9b44b891cb9"
+    keywords: ["banking products manager", "product management funds", "fund product manager",
+               "financial product manager", "produktmanagement fonds", "bankprodukte"]
   - id: financial-analyst
     label: "Financial analyst"
     label_de: "Finanzanalyst"
@@ -179,7 +340,7 @@ occupations:
     isco: "2619"
     esco_uri: null
     keywords: ["compliance officer", "compliance manager", "regulatory compliance",
-               "compliance-beauftragter", "aml"]
+               "compliance-beauftragter", "aml", "trade control", "export control", "sanctions"]
   # --- People, operations and consulting ----------------------------------
   - id: human-resources-manager
     label: "Human resources manager"
@@ -200,8 +361,63 @@ occupations:
     label_de: "Unternehmensberater"
     isco: "2421"
     esco_uri: null
-    keywords: ["management consultant", "strategy consultant", "business consultant",
+    keywords: ["management consultant", "strategy consultant",
                "unternehmensberater", "strategieberater"]
+  # ESCO-backed, code 2421.2, verified against the live API 2026-10-16. Its
+  # own ESCO concept, in the same unit group as management-consultant
+  # above; `business consultant` moved off that entry's keywords and onto
+  # this one, where the concept actually is.
+  - id: business-consultant
+    label: "Business consultant"
+    label_de: "Businessberater"
+    isco: "2421"
+    esco_uri: "http://data.europa.eu/esco/occupation/6a29d804-f775-446c-bec7-35fc4e28ac97"
+    keywords: ["business consultant", "business consulting", "business advisory",
+               "businessberater"]
+  - id: business-development-manager
+    label: "Business development manager"
+    label_de: "Leiter Geschäftsentwicklung"
+    isco: "1221"
+    esco_uri: null
+    keywords: ["business development", "business development manager", "strategy manager",
+               "ecosystem manager", "partnerships manager", "geschäftsentwicklung",
+               "strategie manager", "ökosystem"]
+  - id: innovation-manager
+    label: "Innovation manager"
+    label_de: "Innovationsmanager"
+    isco: "1223"
+    esco_uri: null
+    keywords: ["innovation manager", "innovation management", "research and development manager",
+               "r&d manager", "innovationsmanager", "innovationsmanagement"]
+  # LOCAL EXTENSION. The golden set's own URI for this label 404s against
+  # the live ESCO API. The owner's ISCO reading is the same 1223 as
+  # innovation-manager above, so the two golden rows labelled this way were
+  # never absorbed into a wrong unit group; the label exists because the
+  # golden set uses it.
+  - id: innovation-officer
+    label: "Innovation officer"
+    label_de: "Innovationsbeauftragter"
+    isco: null
+    esco_uri: null
+    local: true
+    keywords: ["innovation officer", "chief innovation officer",
+               "innovation management professional", "innovationsbeauftragter"]
+  # LOCAL EXTENSION. The golden set's own URI for this label 404s against
+  # the live ESCO API. Three golden rows carry this label (a utility's
+  # digitalisation and innovation project lead, a digital-ecosystem
+  # project lead, and trade compliance with a digital-enablement half);
+  # each one also has a lexical anchor on an ESCO entry whose unit group
+  # matches or is defensible, so this entry adds a home rather than
+  # correcting an absorption.
+  - id: digital-transformation-manager
+    label: "Digital transformation manager"
+    label_de: "Leiter digitale Transformation"
+    isco: null
+    esco_uri: null
+    local: true
+    keywords: ["digital transformation", "digitale transformation", "digitalisierung",
+               "digitalisierungs", "digital enablement", "digitales ökosystem",
+               "digital ecosystem", "head of digital"]
   - id: supply-chain-manager
     label: "Supply chain manager"
     label_de: "Supply-Chain-Manager"

@@ -14,6 +14,58 @@ def _texts(value):
     return [v.strip() for v in values if isinstance(v, str) and v.strip()] if isinstance(values, list) else []
 
 
+#: The size evidence a company's own postings carry, and the record of
+#: which posting carried it. Named here because the Section 1 field-group
+#: matrix keeps size away from non-employer kinds, so `regenerate_company`
+#: has to remove this pair for them exactly like it removes `sectors`.
+SIZE_EVIDENCE_KEYS = ('employee_count', 'employee_count_evidence')
+
+
+def _posting_headcount(jobs):
+    """The employee count the company's own postings state, as evidence
+    for `size_class` (owner decision 2026-10-16), plus the record of which
+    posting stated it and when.
+
+    A posting's headcount used to be read once, at intake, and then
+    nothing: the job kept the raw `employee_count` it was extracted into,
+    and no company ever saw it again. The capability's zero-network
+    promotion tier (`org_intake.enrich.promote_aggregated_size`) reads
+    exactly `enrichment['employee_count']`, so aggregating it here is what
+    turns one posting's number into standing evidence that any later
+    cascade run can derive a class from -- the same route the aggregated
+    sectors already take. Only the class is ever derived from it; the
+    retired numeric scales (`size_range`, the legacy `size` string) stay
+    unwritten, which is what the 2026-10-15 decision settled.
+
+    Which count, when several postings state different ones: the one on
+    the most recently posted job, and failing any dated job, the first
+    posting that states a count at all. That is the rule
+    [enrichment evidence](../docs/decisions/enrichment-evidence.md)
+    already settled for Wikidata statements ("prefer the latest usable
+    date on a non-deprecated statement; otherwise use the first"), and a
+    posting's date is the same kind of signal: the newer number is the one
+    more likely to still be true. A count the record cannot read as a
+    plausible positive headcount is absent evidence, not a zero.
+    """
+    stated = []
+    for job in jobs:
+        count = job.get('employee_count')
+        if type(count) is not int or count < 1:
+            continue
+        try:
+            posted = date.fromisoformat(str(job.get('posted_date'))).isoformat()
+        except ValueError:
+            posted = None
+        stated.append({'count': count, 'job_id': job.get('id'), 'posted_date': posted})
+    if not stated:
+        return {'employee_count': None, 'employee_count_evidence': None}
+    dated = [entry for entry in stated if entry['posted_date']]
+    # max() keeps the first of equal dates, so two postings sharing the
+    # newest date resolve by vault order rather than arbitrarily.
+    best = max(dated, key=lambda entry: entry['posted_date']) if dated else stated[0]
+    return {'employee_count': best['count'], 'employee_count_evidence': dict(best)}
+
+
 def enrich_company(jobs):
     """Aggregate postings without mutating inputs or performing any IO.
 
@@ -45,6 +97,7 @@ def enrich_company(jobs):
                          'max': SENIORITY[max(ranks)] if ranks else None},
         hiring_activity={'count': len(jobs), 'most_recent_posted_date': max(dates, default=None)},
         top_keywords=sorted(keywords, key=lambda word: (-keywords[word], word))[:10],
+        **_posting_headcount(jobs),
     )
 
 
@@ -60,6 +113,12 @@ def regenerate_company(root, identifier):
     showing that stale data forever unless the gate actively deletes both
     the top-level sectors field and the nested enrichment.sectors key,
     rather than merely omitting sectors from what gets newly derived.
+
+    The posting headcount this aggregation now carries
+    (SIZE_EVIDENCE_KEYS, owner decision 2026-10-16) is size evidence, so
+    it is gated and actively deleted the same way: the matrix gives a
+    non-employer no size at all, and leaving evidence toward a class
+    behind would be the nested-rollup leak above under a second name.
     """
     from careeros import vault
     company = vault.load_company(root, identifier)
@@ -77,12 +136,14 @@ def regenerate_company(root, identifier):
             block[key] = value
     else:
         for key, value in derived.items():
-            if key == 'sectors':
+            if key == 'sectors' or key in SIZE_EVIDENCE_KEYS:
                 continue
             if isinstance(value, dict) and isinstance(block.get(key), dict):
                 value = block[key] | value
             block[key] = value
         block.pop('sectors', None)
+        for key in SIZE_EVIDENCE_KEYS:
+            block.pop(key, None)
         # Section 1's matrix gives institutions and aggregates no sector and
         # no size, so a company re-kinded away from employer must lose both,
         # not just sectors: clear the top-level sectors list and every size

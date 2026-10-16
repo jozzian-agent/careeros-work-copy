@@ -1,6 +1,8 @@
 """YAML storage for a selected vault; no implicit access to the host vault."""
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
+import logging
 import re
 import sys
 import tempfile
@@ -11,6 +13,8 @@ import uuid
 from org_intake.classify import known_section_codes, match_sectors
 from org_intake.url import normalize_url
 from careeros.intake import posting_ats
+
+_logger = logging.getLogger(__name__)
 
 LISTS = ('roles', 'must_haves', 'nice_to_haves', 'avoid')
 KINDS = ('employer', 'institution')
@@ -199,46 +203,112 @@ def function_label_map(root):
 
 _ESCO_SEED_PATH = Path(__file__).resolve().parent / 'data' / 'esco_occupations.yaml'
 
+
+class FunctionSeedResult(NamedTuple):
+    """What one seed run did: ids newly added, and ids already present
+    whose ESCO identity or keywords it brought up to date."""
+    added: list
+    updated: list
+
+
+def _seed_is_esco_backed(entry):
+    """Whether a curated seed entry cites a real ESCO concept. An entry
+    marked `local: true` never counts, even if someone fills in an
+    esco_uri beside the marker: decision 25 makes a local extension an
+    owner label with no ESCO parent, so the marker wins over the field
+    and the contradiction cannot quietly become a roll-up claim."""
+    return bool(entry.get('esco_uri')) and not entry.get('local')
+
+
 def seed_function_facet(root):
-    """One-time seed (Section 4 engineering items 1 and 3): populate
-    tags.yaml's function facet from the curated esco_occupations.yaml
-    bulk-export. esco_occupations.yaml is read here only as an import
-    source and is never consulted again at runtime (decision 24); after
-    this call, tags.yaml alone is authoritative.
+    """Seed and re-seed tags.yaml's function facet from the curated
+    esco_occupations.yaml bulk-export (Section 4 engineering items 1 and
+    3). esco_occupations.yaml is read here only as an import source and is
+    never consulted again at runtime (decision 24); after this call,
+    tags.yaml alone is authoritative -- including for the extraction
+    prompt, which is built from the facet (`function_facet_options`) and
+    not from the seed file, so a change that reaches no vault reaches no
+    reading either.
 
-    Only an entry whose esco_uri is actually present is added as an
-    ESCO-backed value; the review that produced this seed file could not
-    confirm a live esco_uri for every entry, so an entry without one is not
-    yet a verified ESCO concept and is added as a local extension instead
-    (decision 25), with isco cleared rather than left to imply a roll-up
-    guarantee the entry has not earned.
+    Only an entry whose esco_uri is present, and which is not marked as a
+    local extension, is stored as an ESCO-backed value. An entry without
+    one is not a verified ESCO concept and is stored as a local extension
+    instead (decision 25), with isco cleared rather than left to imply a
+    roll-up guarantee the entry has not earned.
 
-    Explicit and idempotent, like migrate_skills_to_tags and
-    backfill_company_kind: never runs automatically, and never overwrites
-    or duplicates a function id already present in tags.yaml."""
+    Re-running is not a no-op (2026-10-16). Until then every id already in
+    the facet was skipped, which made the documented way to confirm an
+    entry -- fill in its esco_uri and run the seed again -- do nothing at
+    all. A re-run now confirms or updates, per id already present:
+
+      * `esco_uri` and `isco`, and the local-extension marker with them,
+        because those three are one statement about which ESCO concept an
+        entry is, and the import source is where that statement is made.
+        An entry the source marks local has all three cleared the same
+        way, so a label that loses its concept cannot keep the code.
+      * `keywords`, merged: every keyword the source adds is appended and
+        none is removed, so an anchor the owner added by hand survives and
+        a new one still reaches the prompt.
+
+    Labels are never touched -- `label` and `label_de` are the owner's
+    wording, and an entry the source has nothing new to say about is left
+    byte-for-byte alone, so a second run in a row reports nothing. An
+    entry whose source row is still unverified (no esco_uri and no local
+    marker) but which carries a stored esco_uri is left alone too: that
+    value can only have come from someone confirming the concept in the
+    vault itself, and the import source does not know better.
+
+    Explicit, like migrate_skills_to_tags and backfill_company_kind: it
+    never runs automatically, and never duplicates an id."""
     source = yaml.safe_load(_ESCO_SEED_PATH.read_text())
     tags = load_tags(root)
     values = tags['facets']['function']['values']
-    existing_ids = {value['id'] for value in values}
-    added = []
+    stored = {value['id']: value for value in values}
+    added, updated = [], []
     for entry in source.get('occupations', []):
-        if entry['id'] in existing_ids:
-            continue
-        verified = bool(entry.get('esco_uri'))
-        seeded = {'id': entry['id'], 'label': entry['label'],
-                  'isco': entry.get('isco') if verified else None,
-                  'esco_uri': entry.get('esco_uri') if verified else None}
-        if entry.get('label_de'):
-            seeded['label_de'] = entry['label_de']
-        if entry.get('keywords'):
-            seeded['keywords'] = list(entry['keywords'])
-        if not verified:
-            seeded['source'] = 'local-extension'
-        values.append(seeded)
-        added.append(entry['id'])
-    if added:
+        verified = _seed_is_esco_backed(entry)
+        current = stored.get(entry['id'])
+        if current is None:
+            seeded = {'id': entry['id'], 'label': entry['label'],
+                      'isco': entry.get('isco') if verified else None,
+                      'esco_uri': entry.get('esco_uri') if verified else None}
+            if entry.get('label_de'):
+                seeded['label_de'] = entry['label_de']
+            if entry.get('keywords'):
+                seeded['keywords'] = list(entry['keywords'])
+            if not verified:
+                seeded['source'] = 'local-extension'
+            values.append(seeded)
+            stored[entry['id']] = seeded
+            added.append(entry['id'])
+        elif _update_seeded_function_value(current, entry, verified):
+            updated.append(entry['id'])
+    if added or updated:
         save_tags(root, tags)
-    return added
+    return FunctionSeedResult(added, updated)
+
+
+def _update_seeded_function_value(current, entry, verified):
+    """Bring one already-stored facet value up to date with its curated
+    source row. Returns whether anything changed, so an unchanged run
+    writes no file. See seed_function_facet for the rules."""
+    before = dict(current)
+    # The identity statement: an ESCO-backed row asserts the concept and
+    # its code; an explicitly local row asserts there is none. A row that
+    # is merely still unverified asserts nothing, so it changes nothing.
+    if verified:
+        current['esco_uri'] = entry['esco_uri']
+        current['isco'] = entry.get('isco')
+        current.pop('source', None)
+    elif entry.get('local') or not current.get('esco_uri'):
+        current['esco_uri'] = None
+        current['isco'] = None
+        current['source'] = 'local-extension'
+    keywords = list(current.get('keywords') or [])
+    keywords += [word for word in (entry.get('keywords') or []) if word not in keywords]
+    if keywords:
+        current['keywords'] = keywords
+    return current != before
 
 TOOL_KEYWORDS = ('python', 'sql', 'aws', 'javascript', 'django', 'postgresql',
                   'excel', 'figma', 'docker', 'kubernetes', 'typescript', 'java')
@@ -299,6 +369,13 @@ def validate_experience(data, existing=None):
                      highlights=[], skills=[], tags=[], people_led=None, custom={}, company_id=None)
     result = defaults | (existing or {})
     result.update({k: v for k, v in data.items() if k in defaults})
+    # Same rule as _save_record's own allowlist, and the same reason for
+    # saying so out loud (CAREER-30): a payload key an experience does
+    # not store changes nothing, and used to say so nowhere.
+    unknown = sorted(key for key in data if key not in defaults and key != 'id')
+    if unknown:
+        _logger.warning('experiences write %s: dropped %d payload key(s) this record does not store: %s',
+                        (existing or {}).get('id') or data.get('id') or 'new', len(unknown), ', '.join(unknown))
     for key in ('company', 'title', 'start', 'end', 'location', 'summary', 'detail'):
         if not isinstance(result[key], str):
             raise ValueError(f'{key} must be text.')
@@ -689,6 +766,17 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
     defaults = _record_defaults(kind)
     result = defaults | (existing[1] if existing else {})
     result.update({k:v for k,v in data.items() if k in defaults})
+    # The allowlist above is the one true list of fields a write can
+    # persist, so a payload key missing from it changes nothing on the
+    # record. That is the right outcome and used to be an invisible one:
+    # a renamed field, a client typo or a retired field (`fit`) left no
+    # sign anywhere that a caller had asked for a value and been ignored
+    # (CAREER-30). Keys only, never values, because a payload can carry
+    # anything.
+    unknown = sorted(key for key in data if key not in defaults and key != 'id')
+    if unknown:
+        _logger.warning('%s write %s: dropped %d payload key(s) this record does not store: %s',
+                        kind, identifier or 'new', len(unknown), ', '.join(unknown))
     if not isinstance(result['field_provenance'], dict) or any(
             not isinstance(k, str) or not isinstance(v, str) for k, v in result['field_provenance'].items()):
         raise ValueError('field_provenance must be an object mapping field names to text.')
@@ -1006,12 +1094,15 @@ def _drop_retired_size_range(data):
     """Never persist a numeric size_range value again (owner decision
     2026-10-15: size_class is the only size scale).
 
-    The intake cascade still derives the pair, because
-    `org_intake.classify.derive_size` is a shared capability with its own
-    contract and a second consumer may want the range. The product drops
-    it here, at the one gate every company write passes through, rather
-    than at each call site that could supply one, so a new signal cannot
-    reintroduce the second scale through a path nobody remembered.
+    Nothing derives a range to be dropped any more: since 2026-10-16
+    (CAREER-33) `org_intake.classify.derive_size` and the size cascade
+    answer with the class alone, and only read a stored range to check
+    evidence against it. This gate stays because it guards the payload
+    rather than any one producer -- a legacy write that names the retired
+    field itself (the `sector`/`size` form translation, an owner PUT, a
+    future signal nobody has written yet) passes through here, and
+    stopping it at the one gate every company write crosses is what keeps
+    the second scale from coming back through a path nobody remembered.
 
     Clearing a range an older record still carries (an explicit null) is
     let through: that is what scripts/migrate_company_size_scale.py and
@@ -1310,6 +1401,17 @@ def validate_enrichment(block):
         value = block.get('seniority_range', {}).get(key)
         if value is not None and not isinstance(value, str):
             raise ValueError(f'enrichment.seniority_range.{key} must be text or null.')
+    # Size evidence a company's own postings carry (owner decision
+    # 2026-10-16): the count the capability's zero-network promotion tier
+    # reads, and the record of which posting stated it. Evidence toward
+    # size_class and nothing else -- neither key is a size scale, and the
+    # two retired ones stay unwritten.
+    count = block.get('employee_count')
+    if count is not None and (type(count) is not int or count < 1):
+        raise ValueError('enrichment.employee_count must be a positive integer or null.')
+    evidence = block.get('employee_count_evidence')
+    if evidence is not None and not isinstance(evidence, dict):
+        raise ValueError('enrichment.employee_count_evidence must be an object or null.')
     activity = block.get('hiring_activity', {})
     if 'count' in activity and (type(activity['count']) is not int or activity['count'] < 0):
         raise ValueError('enrichment.hiring_activity.count must be a nonnegative integer.')

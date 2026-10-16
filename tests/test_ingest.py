@@ -1,5 +1,6 @@
 """Offline structured ingestion contracts."""
 import json
+import logging
 from time import monotonic, sleep
 from threading import Event, Lock, Thread
 from types import SimpleNamespace
@@ -869,6 +870,54 @@ def test_async_redaction_and_invalid_email_never_persist(tmp_path, monkeypatch):
     assert job['contact_email'] == ''
     assert vault.load_company(tmp_path, job['company_id'])['contact_email'] == ''
     assert unsafe not in ''.join(p.read_text() for p in tmp_path.rglob('*.yaml'))
+
+
+# --- CAREER-30: a dropped value is a visible state with a reason ----------
+# Redaction emptying a field is a drop like any other: the reader answered
+# and the vault keeps nothing. It used to happen in silence, which is how
+# the live residue in docs/audits/redaction-residue.md went unnoticed.
+
+def test_a_redacted_field_leaves_a_reason_on_the_record_and_a_log_line(tmp_path, monkeypatch, caplog):
+    app, api, baseline, callback = capture_intake(tmp_path, monkeypatch)
+    unsafe = 'Lead engineer, 192.168' + '.5.9'
+    assert not baseline['seniority']  # nothing else fills this field
+    with caplog.at_level(logging.WARNING):
+        callback({'seniority': unsafe, 'summary': 'A real summary.'})
+    job = api.get('/api/jobs/' + baseline['id']).json
+    assert job['seniority'] == ''
+    assert job['field_status']['seniority'] == 'not_evidenced'
+    assert 'private network details' in job['field_status_reason']['seniority']
+    messages = [record.getMessage() for record in caplog.records]
+    assert any('Redacted seniority' in message for message in messages)
+    # Neither the log nor the record repeats what redaction removed: that
+    # content is the reason the field was emptied in the first place.
+    assert all(unsafe not in message for message in messages)
+    assert unsafe not in job['field_status_reason']['seniority']
+
+
+def test_a_redacted_field_the_record_already_has_a_value_for_records_no_reason(tmp_path, monkeypatch):
+    """A reason explains an empty field. The title the reading tried to
+    overwrite is still on the record, so there is nothing to explain."""
+    app, api, baseline, callback = capture_intake(tmp_path, monkeypatch)
+    assert baseline['title']
+    callback({'title': '192.168' + '.5.9', 'summary': 'A real summary.'})
+    job = api.get('/api/jobs/' + baseline['id']).json
+    assert job['title'] == baseline['title']
+    assert 'title' not in job['field_status_reason']
+
+
+def test_an_unusable_extracted_contact_email_is_logged_when_dropped(tmp_path, monkeypatch, caplog):
+    """The address is dropped on purpose (a placeholder domain is not a
+    contact), and the log is what stops that being invisible. The address
+    itself is left out of it: the field is personal data either way."""
+    app, api, baseline, callback = capture_intake(tmp_path, monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        callback({'contact_email': 'jobs@example.com', 'summary': 'A real summary.'})
+    job = api.get('/api/jobs/' + baseline['id']).json
+    assert job['contact_email'] == ''
+    messages = [record.getMessage() for record in caplog.records]
+    assert any('contact_email' in message and baseline['id'] in message for message in messages)
+    assert all('jobs@example.com' not in message for message in messages)
 
 
 def test_redaction_retains_normal_content():

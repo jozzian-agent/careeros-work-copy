@@ -2,7 +2,9 @@
 
 JOB_SHAPE = {'company': {'contact_email': 'str',
              'custom': {},
-             'enrichment': {'hiring_activity': {'count': 'int',
+             'enrichment': {'employee_count': 'NoneType',
+                            'employee_count_evidence': 'NoneType',
+                            'hiring_activity': {'count': 'int',
                                                 'most_recent_posted_date': 'NoneType'},
                             'locations_seen': ['str'],
                             'remote_friendly': 'bool',

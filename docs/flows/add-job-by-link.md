@@ -81,6 +81,11 @@ While unresolved, the job shows "Company: pending" or "Company: needs your input
 - Extraction applies per field, respecting global rule 1.
 - LLM failure → `ingest_state: extract_failed`, visible, with **Retry**.
 - A function id the reading returns that the vault's `function` facet does not carry cannot be stored, so it is dropped (decision 23). The drop is never silent: the count and the ids are logged, and when no id survives, `field_status.function` stays `not_evidenced` with a `field_status_reason` naming the ids, which is what tells an unseeded registry apart from a posting that said nothing about the role. Seeding the facet is [its own runbook](../runbooks/seed-function-facet.md).
+- No drop on the way into a record is silent, which is the general form of the rule above (CAREER-30, 2026-10-16). Three sites drop a value, and each one is reported:
+  - **An unknown function id**, as described above.
+  - **A value redaction empties** because it holds private-network details. `careeros.ingest.redact` logs every field it empties, naming the field and never its content, since that content is what redaction exists to keep out of this vault and out of a log with it. When the emptied field is one `field_status` reports and the write leaves it with no value, it also gets a `field_status_reason` saying the reading answered and the answer could not be stored. A redaction defect (fixed in `a8ed2ae`) blanked real posting text on live records with no trace at all; the [residue audit](../audits/redaction-residue.md) is what that cost.
+  - **A payload key the record does not store.** The vault's own field allowlist is what decides; `vault._save_record` (jobs and companies) and `vault.validate_experience` log the kind, the record and the dropped keys (keys only, never values). A renamed field, a client typo or a retired field such as `fit` changed nothing on the record and said so nowhere.
+  - An extracted `contact_email` that is not a usable address is dropped at the same write and logged, without the address.
 
 **Step 7 — Soft duplicate check (after company + title known).** Compare company + title + location (normalized). Possible match → non-blocking warning on the job: "Possible duplicate of JOB-0xx" with the compared fields and a confidence reason; actions **Open other** / **Not a duplicate** / **Mark as duplicate (close this one)**. Never auto-merge.
 
@@ -137,7 +142,7 @@ States: `never_tried` → `filled` | `flagged` | `exhausted`.
 - `ingest_state`: stub | fetched | complete | fetch_failed | extract_failed
 - `ingest_error`: {stage, reason, at}
 - `field_status`: map of extracted field → pending | done | failed | not_evidenced
-- `field_status_reason`: map of extracted field → text, saying why that field reads as it does when the status word alone would mislead. Only a field whose status is `not_evidenced` can carry one, and the vault drops the entry as soon as the field moves on, so a reason can never outlive the state it explains. Its first writer is the function-id drop below.
+- `field_status_reason`: map of extracted field → text, saying why that field reads as it does when the status word alone would mislead. Only a field whose status is `not_evidenced` can carry one, and the vault drops the entry as soon as the field moves on, so a reason can never outlive the state it explains. Its writers are the drop sites in step 6: the function-id drop and the redaction drop.
 - `field_provenance`: map of field → user | llm | scrape | ...
 - `posting_quality`: thin | ok | rich
 - `company_link_state`: linked | pending | needs_review; `company_link_reason`

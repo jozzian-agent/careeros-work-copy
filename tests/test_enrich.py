@@ -34,7 +34,12 @@ def test_aggregation():
         sectors=['Finance', 'Health', 'Research', 'Software'], locations_seen=['Berlin', 'Paris'],
         remote_friendly=True, seniority_range={'min': 'junior', 'max': 'principal'},
         hiring_activity={'count': 3, 'most_recent_posted_date': '2025-02-01'},
-        top_keywords=['python', 'sql', 'cloud'])
+        top_keywords=['python', 'sql', 'cloud'],
+        # No posting here states a headcount, so there is no size evidence
+        # to carry (owner decision 2026-10-16); the keys are still present,
+        # because an absent key and a null one would read the same to the
+        # promotion tier while only one of them clears a stale value.
+        employee_count=None, employee_count_evidence=None)
     assert jobs == original
 
 
@@ -42,10 +47,88 @@ def test_empty_and_legacy_values():
     empty = enrich_company([])
     assert empty == dict(sectors=[], locations_seen=[], remote_friendly=False,
                          seniority_range={'min': None, 'max': None},
-                         hiring_activity={'count': 0, 'most_recent_posted_date': None}, top_keywords=[])
+                         hiring_activity={'count': 0, 'most_recent_posted_date': None}, top_keywords=[],
+                         employee_count=None, employee_count_evidence=None)
     result = enrich_company([dict(sectors=42, location=None, keywords=[None, ' '],
-                                  remote_ok='true', seniority='unknown', posted_date='invalid')])
+                                  remote_ok='true', seniority='unknown', posted_date='invalid',
+                                  employee_count='many')])
     assert result == empty | {'hiring_activity': {'count': 1, 'most_recent_posted_date': None}}
+
+
+# --- Posting headcount as company size evidence (owner decision 2026-10-16)
+
+def test_a_posting_headcount_becomes_company_size_evidence():
+    """The count a posting states used to be read once, at intake, and
+    then be nothing to the company: the job kept it and no size signal
+    ever saw it again. It is evidence toward `size_class`, so it is
+    aggregated onto the company where the capability's zero-network
+    promotion tier reads it (`enrichment['employee_count']`), with the
+    posting that stated it recorded beside it."""
+    result = enrich_company([
+        dict(id='JOB-001', employee_count=40, posted_date='2025-01-01'),
+        dict(id='JOB-002', employee_count=120, posted_date='2025-02-01'),
+    ])
+    assert result['employee_count'] == 120  # the most recently posted one
+    assert result['employee_count_evidence'] == {
+        'count': 120, 'job_id': 'JOB-002', 'posted_date': '2025-02-01'}
+
+
+def test_an_undated_posting_headcount_is_evidence_when_no_dated_one_is():
+    """The rule the enrichment-evidence decision already settled for
+    Wikidata statements: prefer the latest usable date, otherwise take the
+    first statement. Refusing an undated count outright was the draft
+    proposal that decision superseded."""
+    assert enrich_company([dict(id='JOB-009', employee_count=7)])['employee_count'] == 7
+    both = enrich_company([dict(id='JOB-009', employee_count=7),
+                           dict(id='JOB-010', employee_count=900, posted_date='2025-03-01')])
+    assert both['employee_count'] == 900
+
+
+@pytest.mark.parametrize('count', [None, 0, -5, True, 'many', 12.5])
+def test_an_unreadable_posting_headcount_is_absent_evidence(count):
+    """Absent evidence, never a zero: a count nothing can read must not
+    become a number a size class gets derived from, and must not displace
+    a count another posting does state."""
+    assert enrich_company([dict(id='JOB-001', employee_count=count)])['employee_count'] is None
+    with_real = enrich_company([dict(id='JOB-001', employee_count=count),
+                                dict(id='JOB-002', employee_count=120)])
+    assert with_real['employee_count'] == 120
+
+
+def test_a_posting_headcount_leaves_the_retired_size_scales_alone(tmp_path):
+    """The evidence feeds the class and only the class. The numeric
+    `size_range` and the legacy `size` string are the two scales the
+    2026-10-15 decision retired, and a headcount arriving by a new route
+    must not be how either comes back."""
+    company = vault.save_company(tmp_path, {'name': 'Headcount Co'})
+    vault.save_job(tmp_path, {'title': 'Role', 'url': 'https://headcount.example/one',
+                              'company_id': company['id'], 'employee_count': 120})
+    saved = vault.load_company(tmp_path, company['id'])
+    assert saved['enrichment']['employee_count'] == 120
+    assert saved['size_range'] is None and saved['size'] is None
+    # And the class itself is not written behind the cascade's back: this
+    # is evidence a size run can use, not a value this aggregation sets.
+    assert saved['size_class'] is None
+
+
+def test_a_non_employer_keeps_no_posting_headcount_evidence(tmp_path):
+    """Section 1's field-group matrix gives an institution no size at all,
+    and the re-kind path has to actively delete what an earlier
+    regeneration stored rather than merely stop deriving it -- the same
+    rule the nested `enrichment.sectors` rollup already follows."""
+    company = vault.save_company(tmp_path, {'name': 'Example University'})
+    vault.save_job(tmp_path, {'title': 'Role', 'url': 'https://example.edu/one',
+                              'company_id': company['id'], 'employee_count': 4000,
+                              'sector': 'Software'})
+    assert vault.load_company(tmp_path, company['id'])['enrichment']['employee_count'] == 4000
+
+    vault.save_company(tmp_path, {'kind': 'institution'}, company['id'])
+    regenerate_company(tmp_path, company['id'])
+
+    enrichment = vault.load_company(tmp_path, company['id'])['enrichment']
+    assert 'employee_count' not in enrichment
+    assert 'employee_count_evidence' not in enrichment
+    assert 'sectors' not in enrichment
 
 
 def test_keyword_cap_and_ties():
@@ -92,7 +175,13 @@ def test_regeneration_lifecycle_preserves_owner_fields(tmp_path):
     {'seniority_range': {'min': 1}}, {'seniority_range': {'max': []}},
     {'hiring_activity': []}, {'hiring_activity': {'count': True}},
     {'hiring_activity': {'count': -1}}, {'hiring_activity': {'most_recent_posted_date': 'bad'}},
-    {'hiring_activity': {'most_recent_posted_date': 123}}])
+    {'hiring_activity': {'most_recent_posted_date': 123}},
+    # Size evidence from the company's own postings: a count a class could
+    # be derived from has to be a real headcount, and the record of which
+    # posting stated it has to be an object.
+    {'employee_count': 0}, {'employee_count': -2}, {'employee_count': True},
+    {'employee_count': '120'}, {'employee_count_evidence': 'JOB-001'},
+    {'employee_count_evidence': []}])
 def test_enrichment_validation(tmp_path, block):
     with pytest.raises(ValueError):
         vault.save_company(tmp_path, {'name': 'Example', 'enrichment': block})

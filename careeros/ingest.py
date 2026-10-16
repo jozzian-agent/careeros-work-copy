@@ -1,4 +1,5 @@
 """Extract structured job fields with an offline fallback."""
+import logging
 import math
 import json
 import os
@@ -13,6 +14,8 @@ from careeros.llm_client import TIMEOUT, get_llm_client, get_llm_model
 from careeros.vault import REQUIREMENT_GROUPS, REQUIREMENT_LEVELS, validate_requirement_groups
 
 MAX_DESCRIPTION_CHARS = 32_000
+
+_logger = logging.getLogger(__name__)
 
 TEXT_FIELDS = ('title', 'company', 'location', 'employment_type', 'seniority',
                'summary', 'contact_email', 'background')
@@ -53,14 +56,42 @@ REDACTION_PATTERNS = (
 )
 
 
-def redact(value):
-    """Reject unsafe extracted values, including nested metadata."""
+def redact(value, dropped=None, path=''):
+    """Reject unsafe extracted values, including nested metadata.
+
+    A rejected value is emptied, which is a drop: the posting said
+    something and the vault keeps nothing. That used to happen in
+    silence, and a redaction defect (fixed in `a8ed2ae`) emptied real
+    posting text on live records with no trace of having done it, which
+    is how the residue in `docs/audits/redaction-residue.md` got there
+    unnoticed. So every drop is now reported twice over, per the product
+    rule that failures and unknowns are visible states with a reason
+    (CAREER-30):
+
+    * a log line, always, naming the field and NEVER its content -- the
+      content is the private-network detail redaction exists to keep out
+      of this vault, and a log is a place it must not leak into either;
+    * the name of each emptied field appended to `dropped`, when a
+      caller passes a list, so the write can put a reason on the record
+      itself (see `server.apply_llm_update`).
+
+    `path` names the field being redacted, dotted for a nested one
+    ('description_structured.summary'); a list item is named by its own
+    field, since which index was dropped is not something a reader of
+    the record could act on."""
     if isinstance(value, str):
-        return '' if any(re.search(pattern, value, re.I) for pattern in REDACTION_PATTERNS) else value
+        if not any(re.search(pattern, value, re.I) for pattern in REDACTION_PATTERNS):
+            return value
+        _logger.warning('Redacted %s: the extracted value held private network details '
+                        'and is stored empty.', path or 'an extracted value')
+        if dropped is not None:
+            dropped.append(path)
+        return ''
     if isinstance(value, list):
-        return [clean for item in value if (clean := redact(item)) not in ('', None)]
+        return [clean for item in value if (clean := redact(item, dropped, path)) not in ('', None)]
     if isinstance(value, dict):
-        return {key: redact(item) for key, item in value.items()}
+        return {key: redact(item, dropped, f'{path}.{key}' if path else str(key))
+                for key, item in value.items()}
     return value
 
 

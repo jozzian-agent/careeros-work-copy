@@ -12,6 +12,8 @@ payload around: a key the payload leaves out is a field the owner did not
 edit, so its provenance and its status come out of the PUT exactly as
 they went in.
 """
+import logging
+
 from careeros import server, vault
 
 
@@ -32,6 +34,34 @@ def test_put_job_ignores_keys_the_vault_drops(tmp_path):
     assert response.get_json()['field_provenance'] == before
     assert vault.load_job(root, job['id'])['field_provenance'] == before
     assert 'fit' not in response.get_json()
+
+
+def test_a_dropped_payload_key_is_logged_rather_than_dropped_in_silence(tmp_path, caplog):
+    """CAREER-30: dropping the key is right, and doing it invisibly is
+    what changed. A renamed field, a client typo or a retired field
+    (`fit`, the live example above) asked for a value and was ignored,
+    and nothing anywhere said so. Keys are named, values never are: a
+    payload can carry anything."""
+    client, root = _client(tmp_path)
+    job = vault.save_job(root, {'title': 'Builder', 'url': 'https://example.com/jobs/1'})
+
+    with caplog.at_level(logging.WARNING):
+        client.put(f'/api/jobs/{job["id"]}', json={'fit': 'excellent', 'bogus_key': 1})
+
+    message = next(record.getMessage() for record in caplog.records
+                   if 'dropped' in record.getMessage() and job['id'] in record.getMessage())
+    assert 'bogus_key' in message and 'fit' in message
+    assert 'excellent' not in message
+
+
+def test_a_write_of_only_stored_keys_logs_nothing(tmp_path, caplog):
+    client, root = _client(tmp_path)
+    job = vault.save_job(root, {'title': 'Builder', 'url': 'https://example.com/jobs/1'})
+
+    with caplog.at_level(logging.WARNING):
+        client.put(f'/api/jobs/{job["id"]}', json={'notes': 'x'})
+
+    assert not [r for r in caplog.records if 'dropped' in r.getMessage()]
 
 
 def test_put_job_marks_keys_the_vault_keeps(tmp_path):
