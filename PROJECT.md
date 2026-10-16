@@ -273,9 +273,10 @@ Friends never delete jobs or companies. Only the owner edits shared records.
   and filter on.
 - Reason a job ended. Optional, picked never typed, and stored verbatim as
   `end_reason`. Stopped: Not interested anymore, Salary or conditions,
-  Location or commute, Took another offer, Posting closed, No response.
-  Rejected: No reason given, After interview, Experience did not match,
-  Position filled (`vault.STOPPED_REASONS`, `vault.REJECTED_REASONS`).
+  Location or commute, Took another offer, Withdrew application, Posting
+  closed, No response. Rejected: No reason given, After interview,
+  Experience did not match, Position filled (`vault.STOPPED_REASONS`,
+  `vault.REJECTED_REASONS`).
   Won has none. Free text the owner adds beside a reason is a dated note
   on the job, under `vault.END_NOTE_TITLE`, not a second field.
 

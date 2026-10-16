@@ -421,7 +421,7 @@ OPEN_STATUSES = tuple(status for status in STATUSES if status not in ENDED_STATU
 # stored field. Won has no suggestions: there is nothing to explain about
 # getting the job.
 STOPPED_REASONS = ('Not interested anymore', 'Salary or conditions', 'Location or commute',
-                   'Took another offer', 'Posting closed', 'No response')
+                   'Took another offer', 'Withdrew application', 'Posting closed', 'No response')
 REJECTED_REASONS = ('No reason given', 'After interview', 'Experience did not match',
                     'Position filled')
 END_REASONS = {'stopped': STOPPED_REASONS, 'rejected': REJECTED_REASONS}

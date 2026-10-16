@@ -1304,3 +1304,14 @@ Specs: `ended-lane.spec.js`, `ending-flow.spec.js`,
 `filter-bar.spec.js` were updated to the open-column board (the Fit facet
 cases are gone, the per-card loop runs over the open jobs, and the ended
 cards are covered by `ended-lane.spec.js` instead).
+
+### Withdrawn lives on as a Stopped reason (owner click-test, 2026-10-16)
+
+The click-test asked where Withdrawn went: D7 renamed the status to
+Stopped, and both "never pursued" and "pulled out of a live
+application" landed there with nothing to tell them apart. Owner chose
+a reason rather than a new status, so `vault.STOPPED_REASONS` gained
+"Withdrew application" between "Took another offer" and "Posting
+closed". Vocabulary-only change: the popup renders the payload's list,
+the board fixture and `test_board_d7.py`'s pinned tuple were updated
+with it, and `end_reason` keeps storing the picked string verbatim.

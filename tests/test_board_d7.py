@@ -82,7 +82,7 @@ def test_the_job_page_shows_the_same_list_as_the_board():
 def test_the_ending_suggestions_are_the_owner_words():
     assert vault.STOPPED_REASONS == ('Not interested anymore', 'Salary or conditions',
                                      'Location or commute', 'Took another offer',
-                                     'Posting closed', 'No response')
+                                     'Withdrew application', 'Posting closed', 'No response')
     assert vault.REJECTED_REASONS == ('No reason given', 'After interview',
                                       'Experience did not match', 'Position filled')
     assert set(vault.END_REASONS) == {'stopped', 'rejected'}
