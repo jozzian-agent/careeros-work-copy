@@ -18,3 +18,8 @@ frontend/dist/
 # secrets, and neither belongs in the fictional sample data.
 sample/vault/secret_key
 sample/vault/users/
+
+# CAREER-52 staging output (regenerable, 1.5MB+)
+data/seeds/
+tmp-plan-vision-to-mvp.md
+tmp-vision-and-mvp.md
