@@ -24,6 +24,7 @@ import FilterChip from '../components/FilterChip.jsx';
 import { EndingChooser, ReasonPopup, WonConfirm } from '../components/EndJobFlow.jsx';
 import { ClosedPostingsBanner, ClosedPostingsReview } from '../components/ClosedPostings.jsx';
 import { usePhoneLayout } from '../layout.js';
+import { anyReading } from '../aiStatus.js';
 import { countBy, presentOptions, sortedOptions } from '../filters.js';
 
 const VIEW_KEY = 'careerJobsView';
@@ -34,6 +35,10 @@ const NEEDS_ATTENTION_KEY = 'careerNeedsAttention';
 const CLOSED_DISMISSED_KEY = 'careerClosedReviewDismissed';
 const LIST_COLUMNS = ['Title', 'Company', 'Source', 'Status', 'Location', 'Posted', 'Added'];
 const AUTO_REFRESH_AFTER_MS = 30000;
+// CAREER-37: while any job on the board still has a reading owed, the
+// board asks again at this interval. It stops on its own the moment none
+// is left, so a settled board polls nothing.
+const AI_POLL_MS = 5000;
 // Success toasts auto-hide; error messages stay until the user dismisses
 // them (owner decision, Message README).
 const TOAST_LIFETIME_MS = 4000;
@@ -289,6 +294,8 @@ function DuplicateDialog({ duplicate, onCancel, onOpenExisting, onPromote, onAdd
 export default function JobsBoard() {
   const [board, setBoard] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  // Counts polls attempted, not boards received: see the polling effect.
+  const [pollTick, setPollTick] = useState(0);
   const [view, setView] = useState(readStoredView);
   const [needsAttention, setNeedsAttention] = useState(readStoredNeedsAttention);
   // Deliberately not remembered: the brief has "Hide closed postings" off
@@ -366,6 +373,26 @@ export default function JobsBoard() {
   useEffect(() => {
     load();
   }, []);
+
+  // CAREER-37: the AI work runs off the request path, so the only way the
+  // board learns a reading finished is to ask. It asks every five seconds
+  // while at least one job is queued or running, and the effect simply
+  // does not re-arm once none is, which is how the polling ends itself.
+  //
+  // The tick is what re-arms it, and the board on its own could not: a
+  // poll whose fetch failed leaves the board exactly as it was, so the
+  // effect never re-ran and the polling stopped for good on one bad
+  // response, with the chip left saying running forever (fix round C4).
+  // Counting the attempt rather than the result means a transient
+  // failure costs one interval and nothing more, and no failure can
+  // schedule a second timer: the effect holds one at a time.
+  useEffect(() => {
+    if (!board || !anyReading(board.entries)) return undefined;
+    const timer = window.setTimeout(() => {
+      load().finally(() => setPollTick((previous) => previous + 1));
+    }, AI_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [board, pollTick]);
 
   useEffect(() => {
     let hiddenAt = document.hidden ? Date.now() : null;

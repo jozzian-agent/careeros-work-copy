@@ -12,7 +12,7 @@ from careeros import enrich as product_enrich, intake, vault
 from org_intake import enrich as company_lookup, classify as sectors
 from org_intake.fetch import default_fetch
 from careeros.server import create_app
-from tests.conftest import write_legacy_size_range
+from tests.conftest import post_ai, write_legacy_size_range
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -301,9 +301,9 @@ def test_enrich_job_fills_employee_count_on_company(client, monkeypatch):
     from tests.test_jobs import schema_html
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(
         hiringOrganization={'name': 'Enrich Target Labs', 'numberOfEmployees': 5}))
-    result = client.post('/api/jobs/JOB-001/enrich')
-    assert result.status_code == 200
-    company = client.get('/api/companies/' + result.json['company_id']).json
+    assert post_ai(client, '/api/jobs/JOB-001/enrich').status_code == 202
+    enriched = client.get('/api/jobs/JOB-001').json
+    company = client.get('/api/companies/' + enriched['company_id']).json
     assert company['size_class'] == 'micro' and company['size_range'] is None
 
 

@@ -60,6 +60,14 @@ needs runtime `LLM_BASE_URL` and `LLM_MODEL` configuration; without it, usable
 posting text can reach a visible extraction failure. JavaScript-only and protected
 postings may not yield readable content through the plain HTTP fetcher.
 
+AI work runs off the request path (CAREER-36). The enrich, extract and re-extract
+endpoints answer `202 {"status": "queued"}` and the reading runs on a queue inside
+the same process, one unit at a time; where it stands is read back off the record
+(`ai_status`, `ai_error`, `ai_started`, `ai_finished`). Because the queue lives in
+the process, stopping the server abandons whatever it held, so a record left
+queued or running is marked failed with the reason `interrupted by server restart`
+the next time the server starts.
+
 Browser verification needs Node, an installed Chromium executable, and an
 environment that permits local sockets and browser launch. Earlier restricted
 builders could run Flask test-client tests but could not perform live browser

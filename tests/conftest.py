@@ -21,6 +21,21 @@ def offline(monkeypatch):
 
 
 
+def post_ai(client, path, *, timeout=30.0):
+    """POST to one of the async AI endpoints and wait for its queued work.
+
+    CAREER-36: /enrich, /extract, /re-extract and the company /enrich all
+    answer 202 with the queued status and do the work on the AI queue, so
+    a test that wants to see the outcome reads it off the record after
+    this returns, never out of the response body. Returns the response so
+    a caller can still assert on the status code it got.
+    """
+    response = client.post(path)
+    assert client.application.config['AI_QUEUE'].drain(timeout), (
+        'the AI queue did not finish inside the timeout')
+    return response
+
+
 def write_legacy_size_range(root, company_id, size_range):
     """Put a numeric `size_range` on a stored company, the way a vault
     written before the size scale was settled still holds one.

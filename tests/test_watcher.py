@@ -2,6 +2,7 @@ from urllib.error import HTTPError
 import pytest
 from careeros import vault, intake, watcher
 from careeros.server import create_app
+from tests.conftest import post_ai
 
 @pytest.fixture
 def job(tmp_path):
@@ -145,7 +146,7 @@ def test_first_enrichment_only(tmp_path,job,monkeypatch):
     monkeypatch.setattr(intake,'fetch_url',lambda _: '<title>Builder</title>')
     client=create_app(tmp_path).test_client()
     for _ in range(2):
-        assert client.post('/api/jobs/'+job['id']+'/enrich').status_code == 200
+        assert post_ai(client, '/api/jobs/'+job['id']+'/enrich').status_code == 202
     assert [e['event'] for e in read(tmp_path,job)['history']].count('enriched') == 1
 
 def test_single_job(tmp_path,job,monkeypatch):

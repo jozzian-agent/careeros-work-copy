@@ -14,6 +14,7 @@ import pytest
 from careeros import ingest, intake, vault
 from careeros.server import create_app
 from careeros.web.ui import JS as UI_JS
+from tests.conftest import post_ai
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -112,10 +113,14 @@ def test_intake(client,monkeypatch,html,expected_final_state,expected_reason,set
         # further ingest_state/data change, but it does settle any field
         # still pending to failed once it runs (JOZ-267 fix round 1
         # finding 4) -- field_status is excluded from the snapshot
-        # comparison below for exactly that reason.
+        # comparison below for exactly that reason. CAREER-36 adds the AI
+        # lifecycle fields to that exclusion for the same reason: the
+        # worker that runs after this response reports its own outcome
+        # there, which is the point of them.
+        skipped = {'field_status', 'ai_status', 'ai_error', 'ai_started', 'ai_finished'}
         assert data['job']['ingest_state'] == expected_final_state
-        assert {k: v for k, v in after.items() if k != 'field_status'} == \
-               {k: v for k, v in (data['job'] | {'llm_pending': False}).items() if k != 'field_status'}
+        assert {k: v for k, v in after.items() if k not in skipped} == \
+               {k: v for k, v in (data['job'] | {'llm_pending': False}).items() if k not in skipped}
         assert 'pending' not in after['field_status'].values()
         if expected_reason:
             assert data['job']['ingest_error']['reason'] == expected_reason
@@ -130,7 +135,12 @@ def test_intake(client,monkeypatch,html,expected_final_state,expected_reason,set
         after_events = [event['event'] for event in after['history']]
         assert after_events[:len(before_events)] == before_events
         assert after_events[len(before_events):] == ['extract_failed']
-        ignore = {'ingest_state', 'ingest_error', 'history', 'llm_pending', 'field_status'}
+        # CAREER-36: the AI lifecycle fields are the worker's own report on
+        # this same failure, so they move here exactly as the ingest ones
+        # above do and are checked on their own rather than by snapshot.
+        assert after['ai_status'] == 'failed' and after['ai_error']
+        ignore = {'ingest_state', 'ingest_error', 'history', 'llm_pending', 'field_status',
+                  'ai_status', 'ai_error', 'ai_started', 'ai_finished'}
         assert {k: v for k, v in after.items() if k not in ignore} == \
                {k: v for k, v in data['job'].items() if k not in ignore}
         # JOZ-267: a total extraction failure turns every covered field
@@ -380,9 +390,13 @@ def test_enrich_merge(client,monkeypatch):
     vault.save_job(client.application.config['VAULT_PATH'], {'source':'','location':'','posted_date':None,'salary_info':False,'salary_note':''}, 'JOB-001')
     client.put('/api/jobs/JOB-001',json={'title':'Owner title','notes':'Owner notes','custom':{'keep':1},'status':'applied'})
     monkeypatch.setattr(intake,'fetch_url',lambda url:schema_html(description="CHF 95'000 - 110'000"))
-    response=client.post('/api/jobs/JOB-001/enrich')
-    assert response.status_code == 200
-    job=response.json
+    # CAREER-36: the reading runs off the request path, so the outcome is
+    # read off the record once the queue has finished, never out of the 202.
+    response=post_ai(client,'/api/jobs/JOB-001/enrich')
+    assert (response.status_code, response.json) == (202, {'status': 'queued'})
+    job=client.get('/api/jobs/JOB-001').json
+    assert job['ai_status'] == 'done' and job['ai_error'] is None
+    assert job['ai_started'] and job['ai_finished']
     assert (job['title'],job['notes'],job['status'],job['custom']) == ('Owner title','Owner notes','applied',{'keep':1})
     assert job['location'] == 'Basel, CH' and job['posted_date'] == '2026-09-20'
     assert job['salary_info'] and job['enriched']
@@ -401,9 +415,26 @@ def test_enrich_failure_unchanged(client,monkeypatch):
     def fail(url):
         raise TimeoutError()
     monkeypatch.setattr(intake,'fetch_url',fail)
-    assert client.post('/api/jobs/JOB-001/enrich').status_code == 422
-    assert client.get('/api/jobs/JOB-001').json == before
-    assert client.get('/api/companies').json == companies
+    # CAREER-36: the fetch happens on the queue now, so a posting that
+    # cannot be read is a failed reading on the record rather than a 422
+    # on a request that waited for it. Nothing else about the job moves.
+    assert post_ai(client,'/api/jobs/JOB-001/enrich').status_code == 202
+    after=client.get('/api/jobs/JOB-001').json
+    assert after['ai_status'] == 'failed'
+    assert after['ai_error'] == 'Unable to fetch and parse posting.'
+    # Every value the job already carried is still what it was. Keys are
+    # not compared: recording the failure is this record's first write
+    # through save_job, which fills in every field the schema has gained
+    # since it was stored, the same way any other save of a legacy record
+    # does.
+    assert all(after[key] == value for key, value in before.items()
+               if not key.startswith('ai_'))
+    # Same rule for the companies the job's save re-derives: no stored
+    # value moves, and the only new keys are schema completion.
+    current = {company['id']: company for company in client.get('/api/companies').json}
+    assert sorted(current) == sorted(company['id'] for company in companies)
+    assert all(current[company['id']][key] == value
+               for company in companies for key, value in company.items())
     assert client.post('/api/jobs/missing/enrich').status_code == 404
 
 
@@ -449,12 +480,14 @@ def test_enrich_company_dedupe_and_exclusive_rename(client,monkeypatch):
     company_id=created['company']['id']
     assert created['company']['name_source'] == 'auto'
     monkeypatch.setattr(intake,'fetch_url',lambda url:schema_html(hiringOrganization={'name':'Renamed Labs','url':'https://renamed.example'}))
-    first=client.post('/api/jobs/'+identifier+'/enrich').json
+    post_ai(client,'/api/jobs/'+identifier+'/enrich')
+    first=client.get('/api/jobs/'+identifier).json
     assert first['company_id'] == company_id
     assert first['company_link_state'] == 'needs_review'
     assert client.get('/api/companies/'+company_id).json['name'] == 'Exclusive Test Labs'
     monkeypatch.setattr(intake,'fetch_url',lambda url:schema_html(hiringOrganization={'name':'pEbBlEoRbIt StUdIo'}))
-    second=client.post('/api/jobs/'+identifier+'/enrich').json
+    post_ai(client,'/api/jobs/'+identifier+'/enrich')
+    second=client.get('/api/jobs/'+identifier).json
     assert second['company_id'] == company_id
     assert second['company_link_state'] == 'needs_review'
     candidates = second['company_review']['candidates']
@@ -473,13 +506,13 @@ def test_enrich_preserves_shared_company(client, monkeypatch):
     # text no longer matches exactly -- the ladder flags review and keeps
     # the existing link instead (no duplicate company without identifiers).
     before_count = len(client.get('/api/companies').json)
-    assert client.post('/api/companies/CO-001/enrich').status_code == 200
+    assert post_ai(client,'/api/companies/CO-001/enrich').status_code == 202
     before = client.get('/api/companies/CO-001').json
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name':'Different Test Labs'}))
-    result = client.post('/api/jobs/JOB-001/enrich')
-    assert result.status_code == 200
-    assert result.json['company_id'] == 'CO-001'
-    assert result.json['company_link_state'] == 'needs_review'
+    assert post_ai(client,'/api/jobs/JOB-001/enrich').status_code == 202
+    result = client.get('/api/jobs/JOB-001').json
+    assert result['company_id'] == 'CO-001'
+    assert result['company_link_state'] == 'needs_review'
     assert len(client.get('/api/companies').json) == before_count
     assert client.get('/api/companies/CO-001').json == before
 
@@ -502,7 +535,7 @@ def test_enrich_owner_company(client, monkeypatch, matching, website):
     cid, jid = created['company']['id'], created['job']['id']
     name = 'Exclusive Auto Labs' if matching else 'Owner Verified Labs'
     edited = client.put('/api/companies/'+cid, json={'name':name, 'website':website}).json
-    assert client.post('/api/jobs/'+jid+'/enrich').status_code == 200
+    assert post_ai(client,'/api/jobs/'+jid+'/enrich').status_code == 202
     company = client.get('/api/companies/'+cid).json
     assert company['name'] == name
     assert company['website'] == (website or 'https://lanternpeak.example')
@@ -512,10 +545,12 @@ def test_enrich_owner_company(client, monkeypatch, matching, website):
 def test_enrich_salary_only_first_time(client, monkeypatch):
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(description='Salary CHF 120000'))
     vault.save_job(client.application.config['VAULT_PATH'], {'salary_info':False, 'salary_note':''}, 'JOB-001')
-    first = client.post('/api/jobs/JOB-001/enrich').json
+    post_ai(client,'/api/jobs/JOB-001/enrich')
+    first = client.get('/api/jobs/JOB-001').json
     assert first['salary_info'] and first['salary_note']
     client.put('/api/jobs/JOB-001', json={'salary_info':False, 'salary_note':'', 'location':''})
-    second = client.post('/api/jobs/JOB-001/enrich').json
+    post_ai(client,'/api/jobs/JOB-001/enrich')
+    second = client.get('/api/jobs/JOB-001').json
     assert second['salary_info'] is False and second['salary_note'] == ''
     assert second['location'] == ''
     assert second['field_provenance']['location'] == 'user'
@@ -543,8 +578,15 @@ def test_enrich_fetch_outside_save_inside_lock(tmp_path, monkeypatch):
         return save(*args, **kwargs)
     monkeypatch.setattr(intake, 'fetch_url', fetch)
     monkeypatch.setattr(vault, 'save_job', save_spy)
-    assert client.post('/api/jobs/JOB-001/enrich').status_code == 200
-    assert phases == [('fetch', False), ('save', True)]
+    assert post_ai(client, '/api/jobs/JOB-001/enrich').status_code == 202
+    # The phase list is no longer exactly one fetch and one save: CAREER-36
+    # writes the AI lifecycle on either side of the reading. What this test
+    # protects is unchanged, so it is asserted as the rule itself -- the
+    # fetch never runs while the write lock is held, every save does, and
+    # the result lands after the fetch.
+    assert ('fetch', False) in phases and ('fetch', True) not in phases
+    assert all(held for phase, held in phases if phase == 'save')
+    assert phases.index(('fetch', False)) < len(phases) - 1
 
 
 @pytest.mark.parametrize('salary', ['95,000-110,000 CHF', '120k-150k USD', 'CHF 95,000-110,000', '3 years experience'])
@@ -580,7 +622,8 @@ def test_unknown_company_provenance(client, monkeypatch):
     data.pop('name_source')
     path.write_text(yaml.safe_dump(data))
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html())
-    assert client.post('/api/jobs/'+job['id']+'/enrich').json['company_id'] == company['id']
+    post_ai(client, '/api/jobs/'+job['id']+'/enrich')
+    assert client.get('/api/jobs/'+job['id']).json['company_id'] == company['id']
     assert vault.load_company(root, company['id'])['name'] == 'Legacy owner'
     assert vault.load_company(root, company['id'])['website'] == 'https://owner.example'
 
@@ -594,7 +637,8 @@ def test_matching_auto_company_offers_exact_match_as_review_candidate(client, mo
     root = client.application.config['VAULT_PATH']
     company = vault.save_company(root, {'name':'Matching Auto Labs', 'name_source':'auto', 'website':website})
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name':'Matching Auto Labs', 'url':'https://lanternpeak.example'}))
-    result = client.post('/api/jobs/JOB-001/enrich').json
+    post_ai(client, '/api/jobs/JOB-001/enrich')
+    result = client.get('/api/jobs/JOB-001').json
     assert result['company_id'] == 'CO-001'
     assert result['company_link_state'] == 'needs_review'
     candidates = result['company_review']['candidates']
@@ -618,15 +662,23 @@ def test_enrich_reloads_after_fetch(client, monkeypatch, mutation):
             assert client.put('/api/jobs/JOB-001', json=payload).status_code == 200
         return schema_html(description='Salary CHF 120000')
     monkeypatch.setattr(intake, 'fetch_url', fetch)
-    response = client.post('/api/jobs/JOB-001/enrich')
-    assert response.status_code == {'edit':200, 'delete':404, 'url':409}[mutation]
+    # CAREER-36: the record the owner changed under the reading is where
+    # the outcome shows up now, since the request answered 202 before the
+    # fetch even ran. A deleted job has nothing left to report into, and
+    # the other two each carry the reading's own verdict.
+    assert post_ai(client, '/api/jobs/JOB-001/enrich').status_code == 202
     if mutation == 'edit':
-        assert response.json['location'] == 'Owner location'
-        assert response.json['salary_info'] is False
+        final = client.get('/api/jobs/JOB-001').json
+        assert final['location'] == 'Owner location'
+        assert final['salary_info'] is False
+        assert final['ai_status'] == 'done'
     elif mutation == 'delete':
         assert client.get('/api/jobs/JOB-001').status_code == 404
     else:
-        assert client.get('/api/jobs/JOB-001').json['enriched'] is False
+        final = client.get('/api/jobs/JOB-001').json
+        assert final['enriched'] is False
+        assert final['ai_status'] == 'failed'
+        assert final['ai_error'] == 'Posting URL changed during enrichment. Try again.'
 
 
 def test_delete_company_storage(tmp_path):
@@ -707,8 +759,9 @@ def test_company_metadata_fill_only(client, monkeypatch, action, owner_values):
     values = {'sector':'Owner sector', 'size':'Owner size', 'locations':['Owner location']} if owner_values else {'sector':None,'size':None,'locations':[]}
     client.put('/api/companies/'+cid, json=values)
     monkeypatch.setattr(intake, 'fetch_url', lambda url: rich_schema())
-    response = client.post('/api/jobs/intake', json={'url':'https://rich.example/other'}) if action == 'intake' else client.post('/api/jobs/'+created['job']['id']+'/enrich')
-    assert response.status_code in (200,201)
+    response = (client.post('/api/jobs/intake', json={'url':'https://rich.example/other'}) if action == 'intake'
+                else post_ai(client, '/api/jobs/'+created['job']['id']+'/enrich'))
+    assert response.status_code in (201, 202)
     company = client.get('/api/companies/'+cid).json
     # CAREER-33: the posting's headcount fills the EU class and no longer
     # also fills the legacy `size` string from a bucket derived from that
@@ -1935,7 +1988,7 @@ def test_retry_error_retained_until_successful_handoff(client, monkeypatch):
         return Mock(is_alive=lambda: True)
     monkeypatch.setattr(ingest, 'extract_async', start)
     response = client.post('/api/jobs/' + job['id'] + '/extract')
-    assert response.status_code == 202 and response.json['accepted'] is True
+    assert (response.status_code, response.json) == (202, {'status': 'queued'})
     client.application.config['REFRESH_THREADS'][job['id']].join(2)
     final = vault.load_job(root, job['id'])
     assert final['ingest_state'] == 'fetched' and final['ingest_error'] is None
@@ -1977,7 +2030,7 @@ def test_refresh_worker_exception_persists_failure(client, monkeypatch):
         return save(root, data, *args, **kwargs)
     monkeypatch.setattr(vault, 'save_job', fail_refresh)
     response = client.post('/api/jobs/JOB-001/extract')
-    assert response.status_code == 202 and response.json['accepted'] is True
+    assert (response.status_code, response.json) == (202, {'status': 'queued'})
     client.application.config['REFRESH_THREADS']['JOB-001'].join(2)
     final = vault.load_job(root, 'JOB-001')
     assert final['ingest_state'] == 'extract_failed'

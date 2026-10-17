@@ -137,18 +137,30 @@ def get_timeout():
 
 # JOZ-267 fix round 3, R3-A2: get_timeout only ever bounds the queue-wait
 # phase of a single call (see _within_deadline); once a call starts
-# executing, nothing bounds how long it may genuinely run. extract_async
-# runs _within_deadline on its own background thread, so that is harmless
-# there -- but extract() runs it directly on the caller's thread, which for
-# /enrich is the Flask request thread itself. SYNC_TOTAL_DEADLINE bounds
-# that synchronous caller's TOTAL wait (queued and executing both) so a
-# slow or stuck model can never hang a request handler indefinitely.
-SYNC_TOTAL_DEADLINE = 180
+# executing, nothing bounds how long it may genuinely run.
+#
+# CAREER-36 fix round, C1: that wait used to be worth bounding because
+# extract() ran on the Flask request thread, which it no longer does --
+# every AI call now runs on a queue worker and the request has already
+# answered 202. What still needs the bound is the queue itself: the AI
+# queue runs one unit of work at a time, so a model call that hangs holds
+# up every reading behind it for as long as it hangs.
+#
+# So this bounds the EXECUTING phase of one model call and nothing else.
+# It deliberately does not cover the wait for a turn on extraction_queue,
+# which the old total deadline did: a call that has not started yet has
+# nothing to time out, and counting another job's call against this one's
+# budget cut readings that were still waiting their turn. The queued
+# phase has its own, separate bound in _within_deadline.
+MODEL_CALL_DEADLINE = 180
 
 
-def get_total_deadline():
-    """LLM_TOTAL_DEADLINE overrides the synchronous caller's outer bound,
-    independent of LLM_TIMEOUT, which keeps governing the per-call budget."""
+def get_model_call_deadline():
+    """LLM_TOTAL_DEADLINE overrides how long one model call may spend
+    executing, independent of LLM_TIMEOUT, which keeps governing the
+    per-call request timeout and the wait for a turn on the queue. The
+    variable keeps its name: it is the knob already in use, and it is
+    still the outer bound on one call, just no longer on a queue wait."""
     value = os.environ.get('LLM_TOTAL_DEADLINE', '').strip()
     if value:
         try:
@@ -158,7 +170,7 @@ def get_total_deadline():
         except ValueError:
             pass
         warn(ValueError())
-    return SYNC_TOTAL_DEADLINE
+    return MODEL_CALL_DEADLINE
 
 
 def _function_options_text(function_options):
@@ -515,7 +527,8 @@ def _call_llm(description, client, model, timeout=None, function_options=None):
     return (parsed, None) if parsed else (None, 'unusable_output')
 
 
-def _within_deadline(description, client, model, function_options=None):
+def _within_deadline(description, client, model, function_options=None,
+                     execution_deadline=None):
     """The actual network/LLM call is queued through extraction_queue (a
     single dedicated worker thread, FIFO across every job) rather than
     called directly: this is the per-job extraction queue (JOZ-267
@@ -553,7 +566,16 @@ def _within_deadline(description, client, model, function_options=None):
     returning early here (as the old single combined deadline used to)
     let a caller release its reservation while the model call kept
     running in the background, opening the door to a second, concurrent
-    extraction for the same job (JOZ-267 fix round 2, R2-A)."""
+    extraction for the same job (JOZ-267 fix round 2, R2-A).
+
+    `execution_deadline`, when supplied, bounds that execution phase and
+    only that phase (CAREER-36 fix round, C1): it starts counting once
+    the worker has the task, never while the task is still waiting for a
+    turn, so a call queued behind a slow one keeps its own full budget.
+    Its caller is extract(), which runs on the AI queue's single worker
+    thread, where a model call that hangs forever would hold up every
+    reading queued behind it. extract_async has no need of it: it waits
+    on a thread of its own that nothing else is behind."""
     result = Queue(maxsize=1)
     timeout = get_timeout()
     cancelled = Event()
@@ -591,37 +613,16 @@ def _within_deadline(description, client, model, function_options=None):
         # under the same lock, just as this gave up on the queued phase.
         # Fall through to the execution-phase wait below instead of
         # abandoning ownership of a task that is, in fact, now running.
-    return result.get()
-
-
-def _with_total_deadline(description, client, model, function_options):
-    """Bound the TOTAL wait (queued and executing both) for extract()'s
-    synchronous caller only (JOZ-267 fix round 3, R3-A2).
-
-    extract_async calls _within_deadline on its own background thread, so
-    an execution phase with no deadline of its own is harmless there; this
-    wraps the same call for extract(), whose caller (/enrich) runs it
-    directly on the Flask request thread, where that same unbounded wait
-    would otherwise hang the request indefinitely.
-
-    If the outer deadline fires, this gives up and returns a transport
-    failure; the abandoned call, if it already started, keeps running to
-    completion on its own background thread regardless -- there is no
-    ownership token on this synchronous path for it to hold, so letting it
-    finish unread is harmless, and nothing here calls it a second time."""
-    result = Queue(maxsize=1)
-
-    def runner():
-        try:
-            result.put(_within_deadline(description, client, model, function_options))
-        except BaseException as error:
-            warn(error)
-            result.put((None, 'transport_error'))
-
-    Thread(target=runner, daemon=True).start()
+    if execution_deadline is None:
+        return result.get()
     try:
-        return result.get(timeout=get_total_deadline())
+        return result.get(timeout=execution_deadline)
     except Empty:
+        # The call is abandoned, not stopped: it keeps running to
+        # completion on the worker thread and its result goes unread.
+        # Nothing on this path holds an ownership token for it, so
+        # letting it finish is harmless, and nothing here calls it a
+        # second time.
         warn(TimeoutError())
         return None, 'transport_error'
 
@@ -655,11 +656,19 @@ def extract_async(description, on_result, client=None, model=None, function_opti
     return thread
 
 
-def _fallback_result(fallback, structured_fallback):
+def _fallback_result(fallback, structured_fallback, reason=None):
     """What extraction returns with no model answer to work from: the
     offline rules, and the grouped requirements the rules can produce,
-    which is the flat must/nice lists under the Skills group."""
+    which is the flat must/nice lists under the Skills group.
+
+    `extract_reason` carries why there was no model answer, because the
+    fields alone cannot say: an offline reading of a posting the model
+    failed on looks exactly like an offline reading in an environment
+    with no model configured, and a caller that reports a reading's
+    outcome has to tell those apart (CAREER-36 fix round, B1). It is not
+    a record field; no write path stores it."""
     return fallback | {'ingest_source': 'heuristic', 'summary_source': '',
+                       'extract_reason': reason,
                        'description_structured': structured_fallback,
                        'requirement_groups': requirement_groups(
                            None, structured_fallback['requirements'],
@@ -670,10 +679,12 @@ def extract(description, client=None, model=None, function_options=None):
     fallback = heuristic_extract(description)
     structured_fallback = heuristic_structured_description(description)
     if not description.strip():
+        # No text to read is not a failed call: nothing was attempted.
         return _fallback_result(fallback, structured_fallback)
-    parsed, _reason = _with_total_deadline(description, client, model, function_options)
+    parsed, reason = _within_deadline(description, client, model, function_options,
+                                      execution_deadline=get_model_call_deadline())
     if parsed is None:
-        return _fallback_result(fallback, structured_fallback)
+        return _fallback_result(fallback, structured_fallback, reason)
     # The merge below can retain the heuristic summary even when other LLM
     # fields land (e.g. a response with only skills); provenance must track
     # whether the summary itself came from the model, not just ingest_source.
@@ -683,6 +694,7 @@ def extract(description, client=None, model=None, function_options=None):
                   if k not in ('requirements', 'nice_to_have', 'requirement_groups')
                   and v not in ('', None, [])}
     return (fallback | flat_fields | {'ingest_source': 'llm', 'summary_source': summary_source,
+                                      'extract_reason': None,
                                       'description_structured': structured,
                                       # A model that filled the flat lists but skipped the
                                       # groups still yields groups, from those same lists.

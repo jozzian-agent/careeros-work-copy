@@ -1315,3 +1315,79 @@ a reason rather than a new status, so `vault.STOPPED_REASONS` gained
 closed". Vocabulary-only change: the popup renders the payload's list,
 the board fixture and `test_board_d7.py`'s pinned tuple were updated
 with it, and `end_reason` keeps storing the picked string verbatim.
+
+## AI status chip and polling (CAREER-37, 2026-10-17)
+
+The backend half (CAREER-36) moved every AI call off the request path:
+`POST /api/jobs/<id>/enrich`, `/extract`, `/re-extract` and
+`POST /api/companies/<id>/enrich` answer `202 {"status": "queued"}` and
+the work runs on a queue inside the Flask process, one unit at a time.
+Where that work stands is written on the record itself, as `ai_status`
+(queued, running, done, failed), `ai_error` when it failed, and
+`ai_started` / `ai_finished`. A record with no `ai_status` never tried,
+which is every record written before the field existed.
+
+### No new visible element
+
+The component gate landed on reuse. `QuietChip` is already the board's
+one machine-state notice (design-system.md "Badge usage", owner decision
+2026-10-13: subtle text, secondary-base ground, a container border at
+most, never an alarm), and the gray `Retry` beside a failure is the
+button `IngestIndicator` already offered. So `AiStatusChip.jsx` composes
+those two plus Gestalt's own `Spinner` and adds no visual element of its
+own. The three words are the ones the board already used for the same
+three facts: "Enrichment pending" for a reading that has not started,
+"Details filling in…" for one under way, "Extraction failed, <reason>"
+for one that did not land. A finished reading gets no chip: success is
+already carried by what the reading wrote.
+
+Two things the brief asked for are not as it drew them, both because the
+design system record governs that call:
+
+- The failed chip is a quiet chip, not an error tone. The owner's badge
+  decision reserves colour for an owner-action signal and a provenance
+  marker, and names a failed extraction as the case that must never
+  alarm. The one recorded exception is the warning closed chip, which the
+  canvas asked for by name.
+- The reason is on the surface beside the chip rather than behind a
+  hover. A tooltip is out of reach on a touch screen and for a keyboard,
+  and the card already shows an ingest failure's reason this way.
+
+### Where it shows
+
+`IngestIndicator` (inside `JobCard`) checks the record's own AI status
+first and falls through to what it always inferred from `ingest_state`
+when there is none, so an old vault reads exactly as it did. The Job
+detail page puts the same chip in the extraction row, which is already
+the row about the reading, and its Retry is the same extraction retry as
+the button beside it.
+
+### Polling
+
+`aiStatus.js` holds the vocabulary and `anyReading(jobs)`, so the chip
+and the polling cannot disagree about what counts as in flight. The board
+reloads `/api/jobs?view=board` every five seconds while at least one job
+is queued or running; the effect simply does not re-arm once none is,
+which is how it stops itself. The Job detail page already polled on
+`llm_pending` and pending fields, so the AI status joined that condition
+rather than adding a second timer.
+
+What re-arms the board's own effect is a `pollTick` counter it bumps
+after every attempt, not the board payload (fix round C4). The first
+version depended on `[board]` alone, and a poll whose fetch failed leaves
+the board exactly as it was: the effect never re-ran, so one bad response
+ended the polling for the life of the page and left the chip saying
+"Details filling in…" forever. Counting the attempt rather than the
+result costs a transient failure one interval and no more, and cannot
+storm the server either way, since the effect holds one timer at a time
+and clears it on every re-run. A failed poll still shows the board's
+ordinary load error with its Retry, per the product rule that a failure
+is a visible state with a reason; the difference is that it now also
+recovers on its own.
+
+Specs: `tests/ai-status.spec.js` is new (the three chip states, the
+no-chip-on-done case, Retry hitting `/extract`, polling starting and
+stopping, polling surviving one failed request, and the chip on the job
+page). No fixture changed: each case builds its board payload from
+`fixtures/board.json` with the field under test set on one entry, so a
+chip can only come from that field.

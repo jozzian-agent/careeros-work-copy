@@ -697,8 +697,10 @@ def test_timed_out_then_executing_task_blocks_concurrent_retry(tmp_path, monkeyp
         # must still see the job reserved, not get a second worker slot.
         time.sleep(0.3)
         retry = api.post('/api/jobs/' + job_id + '/extract')
-        assert retry.status_code == 202
-        assert retry.json.get('llm_pending') is True
+        # CAREER-36: every AI endpoint answers with the queued status, so
+        # the reservation itself is what this asserts on.
+        assert (retry.status_code, retry.json) == (202, {'status': 'queued'})
+        assert job_id in app.config['LLM_PENDING']
     finally:
         release.set()
     app.config['LLM_THREADS'][job_id].join(timeout=2)
@@ -1080,8 +1082,7 @@ def test_retry_fetch_blocked_while_intake_completes_settles_pending_fields(tmp_p
     job_id = next(j['id'] for j in vault.list_jobs(tmp_path) if j['url'] == 'https://posting.example/role')
 
     retry_response = api.post('/api/jobs/' + job_id + '/extract')
-    assert retry_response.status_code == 202
-    assert retry_response.json.get('llm_pending') is True
+    assert (retry_response.status_code, retry_response.json) == (202, {'status': 'queued'})
     assert retry_entered.wait(2)
 
     release_intake.set()

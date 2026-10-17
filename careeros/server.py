@@ -19,6 +19,7 @@ from org_intake import identity, ats
 from org_intake.url import normalize_url
 from careeros.intake import posting_ats
 from careeros import dedupe
+from careeros.extraction_worker import ai_queue
 import difflib
 
 from careeros.web.pages import companies, experiences, jobs, notes, search, taxonomy
@@ -36,6 +37,30 @@ _ATS_FEED_URL = {
     'refline': 'https://m.refline.ch/{tenant}',
     'join': 'https://{tenant}.join.com/jobs',
 }
+
+
+class AiFailed(Exception):
+    """A failed unit of AI work whose own message is the owner-facing
+    reason (CAREER-36).
+
+    Raised by the queued work itself for the failures it can describe in
+    plain words, so the reason stored on the record is a sentence rather
+    than an exception type. Anything else that goes wrong is reported by
+    type instead, see ai_reason.
+    """
+
+
+def ai_reason(error):
+    """The sentence a failed reading stores in ai_error.
+
+    An exception the queued work did not raise on purpose is reported by
+    its type and never by its text: a transport failure's own message can
+    name the host it was talking to, and a record is a file that gets
+    copied around.
+    """
+    if isinstance(error, AiFailed):
+        return str(error)
+    return f'Enrichment failed ({type(error).__name__}).'
 
 
 def _ats_feed_url(ats_match, fallback_url):
@@ -165,6 +190,23 @@ REREAD_NOT_STARTED_HISTORY = ('re_extract_not_started', 'Could not start the re-
 # text the owner typed. Anything else (the offline section split, a raw
 # block) is page data.
 REREAD_PROVENANCE = {'llm': 'llm', 'user': 'user'}
+
+# CAREER-36: what each outcome careeros.ingest reports for a reading that
+# produced nothing says to the owner. A table rather than the raw reason
+# string, because ai_error is shown on a card and 'unusable_output' is an
+# internal word: AGENTS.md's approval checks say every visible word is one
+# the user would use.
+AI_FAILURE_FALLBACK = 'The reading found nothing to fill in.'
+AI_FAILURE_REASONS = {
+    'transport_error': 'Could not reach the reader. Try again.',
+    'unusable_output': 'The reader answered with nothing usable.',
+    'no_usable_fields': AI_FAILURE_FALLBACK,
+}
+
+
+def ai_failure_reason(reason):
+    """The sentence a reading that produced nothing stores in ai_error."""
+    return AI_FAILURE_REASONS.get(reason, AI_FAILURE_FALLBACK)
 
 
 def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
@@ -365,8 +407,19 @@ def create_app(vault: str | Path | None = None) -> Flask:
         with write_lock:
             storage.migrate_job_fields(app.config['VAULT_PATH'])
             storage.migrate_company_fields(app.config['VAULT_PATH'])
+            # CAREER-36: the AI queue lives in this process, so a process
+            # that stopped took its queue with it. Any record still
+            # reading queued or running is a record nothing can finish,
+            # and it is settled here with a reason rather than left as a
+            # state that never resolves.
+            storage.recover_interrupted_ai(app.config['VAULT_PATH'])
     except OSError:
         pass
+
+    # Exposed so the verification and the tests can wait for queued AI
+    # work to finish. Nothing in a request path reads it: a request that
+    # waits for the queue is the synchronous call the queue retires.
+    app.config['AI_QUEUE'] = ai_queue
 
     # Worker-local pending assumes a single-process deployment.
     llm_pending = {}
@@ -802,6 +855,106 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates['field_status'] = fail_pending_field_status(current)
             return storage.save_job(root, updates, job_id, history_event=history)
 
+    def set_ai_status(identifier, update, *, locked=False):
+        """Write one AI lifecycle transition onto a job.
+
+        Returns the saved job, or None when it is gone (a job deleted
+        while its reading ran has nothing left to report into, and that
+        is not a failure worth logging). `locked` says the caller already
+        holds the write lock, following mark_ingest_state's own
+        convention, so a transition can ride inside a lock scope the
+        caller opened for other reasons.
+        """
+        root = app.config['VAULT_PATH']
+        try:
+            with nullcontext() if locked else write_lock:
+                if storage.load_job(root, identifier) is None:
+                    return None
+                return storage.save_job(root, update, identifier)
+        except Exception as error:
+            # Storage itself refused the write. The run's own outcome is
+            # already lost at this point; swallowing it here keeps that
+            # from also killing the worker thread every later unit of
+            # work depends on.
+            ingest.warn(error)
+            return None
+
+    def settle_ai_status(identifier, reason, *, locked=False):
+        """Fail a reading that stopped without saying so, and leave a
+        settled one alone.
+
+        The backstop for every path that abandons a run after the job was
+        already marked queued or running: it writes a failure only while
+        the stored status still says work is owed, so it can never
+        overwrite the done or failed a run already recorded for itself.
+        """
+        root = app.config['VAULT_PATH']
+        with nullcontext() if locked else write_lock:
+            record = storage.load_job(root, identifier)
+            if record is None or storage.ai_status(record) not in storage.AI_UNSETTLED:
+                return None
+            return set_ai_status(identifier, storage.ai_failed(reason), locked=True)
+
+    def queue_ai_work(work):
+        """Hand one unit of AI work to the queue and return at once
+        (CAREER-36).
+
+        Nothing waits for it and nothing reads its result, so a unit that
+        fails has only this log line to leave behind. The job endpoints
+        use enqueue_ai below instead, which records the outcome on the
+        job; the company endpoint has no status field to record into and
+        is queued for the shape alone.
+        """
+        def unit():
+            try:
+                work()
+            except Exception as error:
+                ingest.warn(error)
+
+        ai_queue.submit(unit)
+
+    def enqueue_ai(identifier, work, *, release=None):
+        """Queue one unit of AI work for a job and return at once, with
+        the job's own status carrying what happened to it (CAREER-36).
+
+        This is the whole of what /enrich does on the request thread: the
+        job is marked queued before this returns, so the 202 the caller
+        gets is already true of the record it will poll, and `work` runs
+        later on the queue's single worker thread, one unit at a time.
+        `work` takes no arguments and returns nothing; it raises AiFailed
+        to name an owner-facing reason, and any other exception is
+        reported as its type.
+
+        `release`, when supplied, is called once the unit has written its
+        own end state, never before: it is how /enrich gives back the
+        reservation it holds (see reserve_enrichment), and a reservation
+        given back while the status still said running would let the next
+        request queue a second reading over the first one's result.
+
+        The entry points that already write the queued transition inside
+        a lock scope of their own (/extract, /re-extract) do not come
+        through here at all: they hand the reading to the extraction
+        worker instead.
+        """
+        set_ai_status(identifier, storage.ai_queued())
+
+        def unit():
+            set_ai_status(identifier, storage.ai_running())
+            try:
+                try:
+                    work()
+                except Exception as error:
+                    if not isinstance(error, AiFailed):
+                        ingest.warn(error)
+                    set_ai_status(identifier, storage.ai_failed(ai_reason(error)))
+                else:
+                    set_ai_status(identifier, storage.ai_done())
+            finally:
+                if release is not None:
+                    release()
+
+        queue_ai_work(unit)
+
     def reserve_enrichment(job_id):
         """Atomically claim the right to start a worker for this job.
 
@@ -863,8 +1016,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
         itself be the last thing done before returning from that
         write_lock scope -- not deferred to an outer finally -- so no
         reader can acquire write_lock in between the settle and the
-        release."""
+        release.
+
+        CAREER-36: the AI status settles here too, for the same reason the
+        fields do. This run is the one that marked the record queued, so
+        abandoning it without a word would leave the record saying a
+        reading is still owed when nothing is left to deliver one."""
         storage.save_job(root, {'field_status': fail_pending_field_status(current)}, job_id)
+        settle_ai_status(job_id, 'The posting link changed while it was being read.', locked=True)
         with pending_lock:
             if llm_pending.get(job_id) is token:
                 llm_pending.pop(job_id, None)
@@ -908,15 +1067,22 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         settle_and_release(root, job_id, token, current)
                         return
 
+                    # CAREER-36: this callback is the one place every
+                    # reading lands, whichever entry point queued it, so
+                    # it is where the AI status reaches its end state.
                     if fields:
                         new_company_id = apply_llm_update(root, baseline, fields, token)
                         mark_ingest_state(root, job_id, 'complete', history=('extracted', 'Extraction completed.'), locked=True)
+                        set_ai_status(job_id, storage.ai_done(), locked=True)
                     elif reread and settle_failed_reread(
                             root, job_id, history_event=REREAD_FAILED_HISTORY, locked=True) is not None:
                         # A re-read of a job that already has its reading
                         # keeps that reading, and says what happened in its
-                        # own words (package 2 fix round, F6).
-                        pass
+                        # own words (package 2 fix round, F6). The reading
+                        # the record keeps is the earlier one, so this
+                        # attempt still failed and says so.
+                        set_ai_status(job_id, storage.ai_failed(
+                            ai_failure_reason(reason)), locked=True)
                     else:
                         # JOZ-267 fix round 1 finding 4: settle any still-
                         # pending field every time, even when a more
@@ -932,6 +1098,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                             mark_ingest_state(root, job_id, 'extract_failed', stage='extract',
                                               reason=reason or 'no_usable_fields',
                                               history=('extract_failed', 'Extraction failed.'), locked=True)
+                        set_ai_status(job_id, storage.ai_failed(
+                            ai_failure_reason(reason)), locked=True)
                 if new_company_id is not None:
                     schedule_company_cascade(root, new_company_id)
             except Exception as error:
@@ -943,6 +1111,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     mark_ingest_state(root, job_id, 'extract_failed', stage='extract',
                                       reason=type(error).__name__,
                                       history=('extract_failed', 'Extraction failed.'), settle_fields=True)
+                    set_ai_status(job_id, storage.ai_failed(ai_reason(error)))
                 except Exception:
                     # Storage itself is unavailable; the root cause is
                     # already logged above, so this is not a second,
@@ -1018,9 +1187,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
         except Exception as error:
             release_enrichment(job_id, token)
             ingest.warn(error)
+            # CAREER-36: the reservation is gone and no worker exists, so
+            # this is the end of the line for whatever marked the record
+            # queued; say so rather than leaving the status owed.
+            settle_ai_status(job_id, 'Could not start the reading.')
             return False
         app.config['LLM_THREADS'][job_id] = thread
         with callback_lock:
+            # CAREER-36: the worker exists, so the reading has left the
+            # queue. Written before `ready` is flipped, so a reading that
+            # finished before this line still reports its own done or
+            # failed afterwards and never back to running.
+            set_ai_status(job_id, storage.ai_running())
             if on_started:
                 on_started()
             ready = True
@@ -1342,142 +1520,218 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.post('/api/jobs/<identifier>/enrich')
     def enrich_job(identifier):
+        """Read the live posting again and fill whatever is still empty.
+
+        CAREER-36: the reading itself runs off the request path. What the
+        request thread still does is validate -- the job has to exist, and
+        its posting link has to be one this product will fetch, which is
+        the structural check plus the private-address guard and no read of
+        the posting at all. Everything after that (the fetch, the model
+        pass, the company resolution and the write) is one unit of work on
+        the AI queue, because the model host is CPU-only and takes minutes
+        per call while a proxy in front of this app gives up in seconds.
+
+        So a caller never reads the enriched job out of this response. It
+        gets 202 and the queued status, and reads the outcome off the
+        record, which is where the queue writes it.
+
+        One reading per job, like every other entry point: this takes the
+        same reservation /extract, /re-extract and the pasted-text path
+        take, and gives it back only once the queued unit has written its
+        own end state. Without it, N clicks queued N readings of the same
+        posting, each writing done over the next one's queued, so the
+        board stopped polling while a reading was still owed.
+        """
         root = app.config['VAULT_PATH']
         job = storage.load_job(root, identifier)
         if job is None:
             return jsonify(error='Job not found.'), 404
         try:
             url = intake.check_url(job.get('url'))
-            html = intake.fetch_url(url)
-            if not isinstance(html, str) or not html.strip():
-                raise ValueError('Posting returned no content.')
-            extracted = intake.ingest_posting(url, html, function_options=storage.function_facet_options(root))
         except Exception:
             return jsonify(error='Unable to fetch and parse posting.'), 422
-        with write_lock:
-            job = storage.load_job(root, identifier)
-            if job is None:
-                return jsonify(error='Job not found.'), 404
-            if job.get('url') != url:
-                return jsonify(error='Posting URL changed during enrichment. Try again.'), 409
-            dropped_functions = []
-            if 'function' in extracted:
-                extracted['function'], dropped_functions = accept_function_ids(root, extracted['function'])
-            fill_fields = ('title', 'location', 'source', 'posted_date',
-                           'employment_type', 'valid_through', 'description', 'company',
-                           'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
-                           'background', 'skills', 'certifications', 'responsibilities',
-                           'employee_count', 'function', 'description_structured',
-                           'requirement_groups')
-            if not job.get('enriched'):
-                fill_fields += ('salary_info', 'salary_note')
-            # This fills empty fields only, so a value that is itself empty
-            # fills nothing: an empty list used to pass the guard and land
-            # in updates, where it stamps provenance on a field nothing was
-            # found for, and a field_provenance entry is what the page
-            # reads as "this was written, and here is by whom".
-            updates = {key: extracted[key] for key in fill_fields
-                       if (job.get(key) in (None, '', []) or
-                           (key == 'salary_info' and job.get(key) is False))
-                       and extracted.get(key) not in (None, '', [], {})
-                       and job.get('field_provenance', {}).get(key) != 'user'}
-            updates['posting_quality'] = ingest.classify_posting_quality(extracted.get('description') or '')
-            if 'summary' in updates:
-                # extracted['summary'] can be the heuristic fallback even when
-                # other fields came from the model; trust the field-specific
-                # marker ingest.extract() computed, not the overall ingest_source.
-                updates['summary_source'] = extracted.get('summary_source', '')
-            # A nonempty title is always treated as owner-set; no heuristic replacement.
-            name, website = extracted['company'], _company_website(extracted['website'])
-            provenance = job.get('field_provenance', {})
-            employer_evidence = extracted.get('employer_named_in_posting')
-            # The source THIS call's extraction credits its employer evidence
-            # to: 'llm' after a model pass, 'scrape' after the offline rules.
-            # Stamped on employer_named_in_posting when that text moves, and
-            # on the link group below whenever this resolution moves it --
-            # which is not the same condition: an employer name identical to
-            # the stored one still resolves against a vault that has changed
-            # underneath it, and can land on a different company.
-            evidence_source = extracted.get('field_provenance', {}).get(
-                'employer_named_in_posting', 'scrape')
-            if employer_evidence and employer_evidence != job.get('employer_named_in_posting') \
-                    and provenance.get('employer_named_in_posting') != 'user':
-                updates['employer_named_in_posting'] = employer_evidence
-                updates['field_provenance'] = {**provenance,
-                                               'employer_named_in_posting': evidence_source}
-            # Package 2: the grouped requirements this call just filled have
-            # to say who read the lines they hold, because the Requirements
-            # section's AI label has nothing else to read for them (the flat
-            # block carries its own `method`, the groups do not). Same rule
-            # the Re-extract write applies: the lines are the model's when a
-            # model answered this posting, the page's otherwise.
-            if 'requirement_groups' in updates:
-                updates['field_provenance'] = {
-                    **updates.get('field_provenance', provenance),
-                    'requirement_groups': 'llm' if extracted.get('ingest_source') == 'llm' else 'scrape'}
-            # M3: route through the SAME shared ladder every other
-            # resolution entry point uses -- same owner-link-group
-            # protection (M1), same fuzzy/ambiguity/shared-tenant
-            # treatment, never a duplicate company without identifiers.
-            # existing= anchors on the job's current link (however it was
-            # established) so a confirmed link is never silently abandoned
-            # just because this URL's own identifiers don't happen to
-            # match it; this is the entry point for a never-yet-linked job
-            # too (existing[0] falsy there), which still gets full rungs
-            # 1-5 treatment via resolve_and_link.
-            new_company_id = None
-            owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
-            if not owner_locked:
-                resolution = resolve_company(
-                    root, url=url, employer_name=employer_evidence, fallback_name=name,
-                    legacy_hint=legacy_hint(root, name, url),
-                    existing=(job.get('company_id'), job.get('company_link_reason')))
-                updates.update(resolution)
-                # B3, second path: the link group is written in one breath
-                # here too, so its provenance has to move in one breath --
-                # otherwise a link this resolution just replaced keeps reading
-                # as whatever set it last. The trigger is the link moving, not
-                # the employer text moving. Only the keys this call actually
-                # changed are restamped: a resolution that re-confirms the
-                # stored link leaves the provenance of whoever established
-                # it alone.
-                relinked = {key: evidence_source for key in COMPANY_LINK_GROUP
-                            if resolution.get(key) != job.get(key)}
-                if relinked:
+
+        def read_posting():
+            try:
+                html = intake.fetch_url(url)
+                if not isinstance(html, str) or not html.strip():
+                    raise ValueError('Posting returned no content.')
+                extracted = intake.ingest_posting(url, html, function_options=storage.function_facet_options(root))
+            except Exception as error:
+                raise AiFailed('Unable to fetch and parse posting.') from error
+            apply_enrichment(extracted)
+            # The offline rules answer for a posting the model could not
+            # be read for, so the fields above fill either way and that
+            # write stands. What must not happen is this reading reporting
+            # itself done when the model call behind it failed: the fields
+            # alone cannot tell the two apart, so the reason the
+            # extraction itself recorded is what settles it (fix round
+            # B1). 'not_configured' is not among them on purpose, since
+            # an environment with no reader configured attempted no call
+            # and the offline reading is the whole of what was ever
+            # coming.
+            reason = extracted.get('extract_reason')
+            if reason in ('transport_error', 'unusable_output'):
+                raise AiFailed(ai_failure_reason(reason))
+
+        def apply_enrichment(extracted):
+            with write_lock:
+                job = storage.load_job(root, identifier)
+                if job is None:
+                    raise AiFailed('This job was removed while the posting was being read.')
+                if job.get('url') != url:
+                    raise AiFailed('Posting URL changed during enrichment. Try again.')
+                dropped_functions = []
+                if 'function' in extracted:
+                    extracted['function'], dropped_functions = accept_function_ids(root, extracted['function'])
+                fill_fields = ('title', 'location', 'source', 'posted_date',
+                               'employment_type', 'valid_through', 'description', 'company',
+                               'seniority', 'summary', 'keywords', 'ingest_source', 'remote_ok', 'sector',
+                               'background', 'skills', 'certifications', 'responsibilities',
+                               'employee_count', 'function', 'description_structured',
+                               'requirement_groups')
+                if not job.get('enriched'):
+                    fill_fields += ('salary_info', 'salary_note')
+                # This fills empty fields only, so a value that is itself empty
+                # fills nothing: an empty list used to pass the guard and land
+                # in updates, where it stamps provenance on a field nothing was
+                # found for, and a field_provenance entry is what the page
+                # reads as "this was written, and here is by whom".
+                updates = {key: extracted[key] for key in fill_fields
+                           if (job.get(key) in (None, '', []) or
+                               (key == 'salary_info' and job.get(key) is False))
+                           and extracted.get(key) not in (None, '', [], {})
+                           and job.get('field_provenance', {}).get(key) != 'user'}
+                updates['posting_quality'] = ingest.classify_posting_quality(extracted.get('description') or '')
+                if 'summary' in updates:
+                    # extracted['summary'] can be the heuristic fallback even when
+                    # other fields came from the model; trust the field-specific
+                    # marker ingest.extract() computed, not the overall ingest_source.
+                    updates['summary_source'] = extracted.get('summary_source', '')
+                # A nonempty title is always treated as owner-set; no heuristic replacement.
+                name, website = extracted['company'], _company_website(extracted['website'])
+                provenance = job.get('field_provenance', {})
+                employer_evidence = extracted.get('employer_named_in_posting')
+                # The source THIS call's extraction credits its employer evidence
+                # to: 'llm' after a model pass, 'scrape' after the offline rules.
+                # Stamped on employer_named_in_posting when that text moves, and
+                # on the link group below whenever this resolution moves it --
+                # which is not the same condition: an employer name identical to
+                # the stored one still resolves against a vault that has changed
+                # underneath it, and can land on a different company.
+                evidence_source = extracted.get('field_provenance', {}).get(
+                    'employer_named_in_posting', 'scrape')
+                if employer_evidence and employer_evidence != job.get('employer_named_in_posting') \
+                        and provenance.get('employer_named_in_posting') != 'user':
+                    updates['employer_named_in_posting'] = employer_evidence
+                    updates['field_provenance'] = {**provenance,
+                                                   'employer_named_in_posting': evidence_source}
+                # Package 2: the grouped requirements this call just filled have
+                # to say who read the lines they hold, because the Requirements
+                # section's AI label has nothing else to read for them (the flat
+                # block carries its own `method`, the groups do not). Same rule
+                # the Re-extract write applies: the lines are the model's when a
+                # model answered this posting, the page's otherwise.
+                if 'requirement_groups' in updates:
                     updates['field_provenance'] = {
-                        **updates.get('field_provenance', provenance), **relinked}
-                if resolution.get('company_link_reason') == 'new_company':
-                    new_company_id = resolution['company_id']
-            target_id = updates.get('company_id', job.get('company_id'))
-            target = storage.load_company(root, target_id) if target_id else None
-            if target:
-                fill_company_metadata(root, target, extracted)
-                if website and not target.get('website'):
-                    storage.save_company(root, {'website': website}, target['id'])
-            if provenance.get('company_id') == 'user':
-                updates.pop('company_id', None)
-            # This path writes no per-field status of its own (it fills
-            # empty fields and says so through provenance), so the drop is
-            # the one thing it does have to say about a field: the reader
-            # answered for function and nothing storable came of it.
-            updates.update(function_drop_status(job, extracted.get('function'), dropped_functions))
-            updates['enriched'] = True
-            result = storage.save_job(root, updates, identifier)
-            if new_company_id is not None:
-                schedule_company_cascade(root, new_company_id)
-            return jsonify(result)
+                        **updates.get('field_provenance', provenance),
+                        'requirement_groups': 'llm' if extracted.get('ingest_source') == 'llm' else 'scrape'}
+                # M3: route through the SAME shared ladder every other
+                # resolution entry point uses -- same owner-link-group
+                # protection (M1), same fuzzy/ambiguity/shared-tenant
+                # treatment, never a duplicate company without identifiers.
+                # existing= anchors on the job's current link (however it was
+                # established) so a confirmed link is never silently abandoned
+                # just because this URL's own identifiers don't happen to
+                # match it; this is the entry point for a never-yet-linked job
+                # too (existing[0] falsy there), which still gets full rungs
+                # 1-5 treatment via resolve_and_link.
+                new_company_id = None
+                owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
+                if not owner_locked:
+                    resolution = resolve_company(
+                        root, url=url, employer_name=employer_evidence, fallback_name=name,
+                        legacy_hint=legacy_hint(root, name, url),
+                        existing=(job.get('company_id'), job.get('company_link_reason')))
+                    updates.update(resolution)
+                    # B3, second path: the link group is written in one breath
+                    # here too, so its provenance has to move in one breath --
+                    # otherwise a link this resolution just replaced keeps reading
+                    # as whatever set it last. The trigger is the link moving, not
+                    # the employer text moving. Only the keys this call actually
+                    # changed are restamped: a resolution that re-confirms the
+                    # stored link leaves the provenance of whoever established
+                    # it alone.
+                    relinked = {key: evidence_source for key in COMPANY_LINK_GROUP
+                                if resolution.get(key) != job.get(key)}
+                    if relinked:
+                        updates['field_provenance'] = {
+                            **updates.get('field_provenance', provenance), **relinked}
+                    if resolution.get('company_link_reason') == 'new_company':
+                        new_company_id = resolution['company_id']
+                target_id = updates.get('company_id', job.get('company_id'))
+                target = storage.load_company(root, target_id) if target_id else None
+                if target:
+                    fill_company_metadata(root, target, extracted)
+                    if website and not target.get('website'):
+                        storage.save_company(root, {'website': website}, target['id'])
+                if provenance.get('company_id') == 'user':
+                    updates.pop('company_id', None)
+                # This path writes no per-field status of its own (it fills
+                # empty fields and says so through provenance), so the drop is
+                # the one thing it does have to say about a field: the reader
+                # answered for function and nothing storable came of it.
+                updates.update(function_drop_status(job, extracted.get('function'), dropped_functions))
+                updates['enriched'] = True
+                storage.save_job(root, updates, identifier)
+                if new_company_id is not None:
+                    schedule_company_cascade(root, new_company_id)
+
+        token = reserve_enrichment(identifier)
+        if token is None:
+            # A reading of this job is already under way, and it is the
+            # one that owns the status, exactly as on /extract. Saying
+            # queued is still true of the record the caller will poll,
+            # and no second reading of the same posting is started.
+            return jsonify(status='queued'), 202
+        try:
+            enqueue_ai(identifier, read_posting,
+                       release=lambda: release_enrichment(identifier, token))
+        except Exception:
+            # Nothing was queued, so the reservation is this request's to
+            # give back; a token left behind would block every later
+            # reading of this job for the life of the process.
+            release_enrichment(identifier, token)
+            settle_ai_status(identifier, 'Could not start the reading.')
+            raise
+        return jsonify(status='queued'), 202
 
     @app.post('/api/jobs/<identifier>/extract')
     def extract_job(identifier):
-        """Reserve before starting background refresh and enrichment."""
+        """Reserve before starting background refresh and enrichment.
+
+        This route already answered 202 and did its work on a background
+        thread before CAREER-36. What that ticket adds is the stored
+        status: the queued transition rides inside the same lock scope
+        that wins the reservation, so a caller that gets 202 can read
+        queued off the record straight away, and start_llm_enrichment and
+        its callback carry it on to running, then done or failed. The body
+        is the same small answer the other three AI endpoints give, since
+        the job in it was always a snapshot from before the work ran.
+        """
         root = app.config['VAULT_PATH']
         with write_lock:
             job = storage.load_job(root, identifier)
             if job is None:
                 return jsonify(error='Job not found.'), 404
             token = reserve_enrichment(identifier)
+            if token is not None:
+                job = storage.save_job(root, storage.ai_queued(), identifier)
         if token is None:
-            return jsonify(job | {'llm_pending': True}), 202
+            # A reading of this job is already under way, and it is the
+            # one that owns the status. Saying queued is still true of the
+            # record the caller will poll.
+            return jsonify(status='queued'), 202
         target = job.get('original_url') or job.get('url')
 
         def refresh_and_enrich():
@@ -1589,8 +1843,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
             finally:
                 if not handed_off:
                     with pending_lock:
-                        if llm_pending.get(identifier) is token:
+                        owns_slot = llm_pending.get(identifier) is token
+                        if owns_slot:
                             llm_pending.pop(identifier, None)
+                    # CAREER-36: this run ended without ever handing the
+                    # reading to a worker, so nothing downstream will
+                    # report an outcome for it. Settle the status rather
+                    # than leaving the record saying work is still owed,
+                    # and only while this run is still the owner, so a
+                    # replacement reading's own queued state survives.
+                    if owns_slot:
+                        settle_ai_status(identifier, 'The reading did not start.')
 
         thread = Thread(target=refresh_and_enrich, daemon=True)
         app.config['REFRESH_THREADS'][identifier] = thread
@@ -1604,8 +1867,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
             job = mark_ingest_state(root, identifier, 'extract_failed', stage='extract',
                                     reason='refresh_worker_start_failed', settle_fields=True,
                                     history=('extract_failed', 'Could not start refresh.')) or job
+            settle_ai_status(identifier, 'Could not start refresh.')
             return jsonify(job | {'llm_pending': False, 'error': 'Could not start refresh.'}), 503
-        return jsonify(job | {'llm_pending': True, 'accepted': True}), 202
+        return jsonify(status='queued'), 202
 
     @app.post('/api/jobs/<identifier>/re-extract')
     def re_extract_job(identifier):
@@ -1697,6 +1961,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     # the regrouped lines, or still being read.
                     updates['field_status']['requirement_groups'] = (
                         'done' if updates.get('requirement_groups') else 'pending')
+                # CAREER-36: the queued transition rides in this same
+                # write, so the record says queued the instant the 202
+                # goes out and no second save exists just to say it.
+                updates.update(storage.ai_queued())
                 job = storage.save_job(root, updates, identifier,
                                        history_event=('re_extracted', 'Stored posting text read again.'))
             except Exception:
@@ -1714,8 +1982,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
                                         reason='worker_start_failed', settle_fields=True,
                                         history=('extract_failed', 'Could not start extraction.'))
                    or job)
+            # start_llm_enrichment already settled the AI status for a
+            # worker that never started, so nothing is written here.
             return jsonify(job | {'llm_pending': False, 'error': 'Could not start extraction.'}), 503
-        return jsonify(job | {'llm_pending': True}), 202
+        return jsonify(status='queued'), 202
 
     @app.post('/api/jobs/<identifier>/paste-description')
     def paste_description(identifier):
@@ -1759,12 +2029,34 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.post('/api/companies/<identifier>/enrich')
     def enrich_company(identifier):
+        """Re-derive a company's aggregated facts from its own jobs.
+
+        CAREER-36 moves this onto the AI queue with the three job
+        endpoints, so every enrichment entry point answers the same way
+        and a caller has one thing to read rather than one rule per
+        endpoint. The aggregation itself reads only the vault and is fast;
+        it is queued for the shape, and because it shares the write lock
+        with the readings that are not fast, where it would otherwise sit
+        waiting for one of them to let go of the lock inside the request.
+
+        No status is recorded for it. The four ai_ fields are the job
+        record's, which is what the chip and its polling read; a company
+        had them too for one round and nothing ever read them, so they
+        are gone rather than kept as four fields per company that no
+        surface can show.
+        """
         from careeros.enrich import regenerate_company
-        with write_lock:
-            company = regenerate_company(app.config['VAULT_PATH'], identifier)
-            if company is None:
-                return jsonify(error='Company not found.'), 404
-            return jsonify(company)
+        root = app.config['VAULT_PATH']
+        if storage.load_company(root, identifier) is None:
+            return jsonify(error='Company not found.'), 404
+
+        def aggregate():
+            with write_lock:
+                if regenerate_company(root, identifier) is None:
+                    raise AiFailed('This company was removed while it was being enriched.')
+
+        queue_ai_work(aggregate)
+        return jsonify(status='queued'), 202
 
     @app.post('/api/watch/scan')
     def watch_scan():

@@ -9,6 +9,7 @@ import yaml
 from careeros import vault
 from careeros.enrich import enrich_company, regenerate_company
 from careeros.server import create_app
+from tests.conftest import post_ai
 
 
 @pytest.fixture(autouse=True)
@@ -191,10 +192,17 @@ def test_enrichment_validation(tmp_path, block):
 def test_refresh_route(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Example', 'enrichment': {'future': 1}})
     client = create_app(tmp_path).test_client()
-    response = client.post(f"/api/companies/{company['id']}/enrich")
-    assert response.status_code == 200
-    assert response.json['enrichment'] == enrich_company([]) | {'future': 1}
-    assert response.json == vault.load_company(tmp_path, company['id'])
+    # CAREER-36: the aggregation runs on the AI queue, so the answer is
+    # the queued status and the result is read off the record.
+    response = post_ai(client, f"/api/companies/{company['id']}/enrich")
+    assert (response.status_code, response.json) == (202, {'status': 'queued'})
+    stored = vault.load_company(tmp_path, company['id'])
+    assert stored['enrichment'] == enrich_company([]) | {'future': 1}
+    # Fix round C5: the aggregation records no status of its own. The four
+    # ai_ fields are the job record's, which is the only place a chip
+    # reads them from, so a company carries none at all and the result of
+    # this call is the aggregation it wrote.
+    assert not any(key.startswith('ai_') for key in stored)
     assert client.post('/api/companies/missing/enrich').status_code == 404
 
 
@@ -222,11 +230,11 @@ def test_refresh_legacy_postings(tmp_path):
         id='JOB-001', company_id=company['id'], sector='Research',
         location='Paris', seniority='senior', keywords=['Python'])))
     client = create_app(tmp_path).test_client()
-    result = client.post(f"/api/companies/{company['id']}/enrich")
-    assert result.status_code == 200
-    assert result.json['enrichment']['sectors'] == ['Research']
-    assert result.json['enrichment']['top_keywords'] == ['python']
-    assert result.json['enrichment']['hiring_activity']['count'] == 1
+    assert post_ai(client, f"/api/companies/{company['id']}/enrich").status_code == 202
+    result = vault.load_company(tmp_path, company['id'])
+    assert result['enrichment']['sectors'] == ['Research']
+    assert result['enrichment']['top_keywords'] == ['python']
+    assert result['enrichment']['hiring_activity']['count'] == 1
 
 
 def test_delete_succeeds_when_regeneration_fails(tmp_path, monkeypatch):

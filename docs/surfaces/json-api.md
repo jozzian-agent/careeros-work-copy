@@ -52,6 +52,13 @@ record field, so they arrive on `job` the way the flat
 `description_structured` block always has, and everything downstream of
 the page context reads them from there.
 
+2026-10-17 (CAREER-36, async AI): the four AI entry points stopped
+answering with a record and now answer `202 {"status": "queued"}`, and the
+job record gained the four `ai_` fields the front end polls instead. The
+page contracts below are unchanged in shape: the fields are record
+fields, so they arrive on `job` and on each board entry the way every
+other record field does. See AI readings under Minimal contents.
+
 2026-10-14 (owner round, notes): notes stop being one free-text field per
 record and become a list of titled notes. The two detail contracts gained
 `notes`, the Job detail contract lost `markdown` (nothing renders notes as
@@ -227,18 +234,50 @@ converts template tuples to arrays and rendered Markdown to strings.
   starts; the page then renders its flat `description_structured` lists
   instead, so both shapes read correctly off one contract.
   - `POST /api/jobs/<id>/re-extract` reads the stored posting text again
-    and answers 202 with the job plus `llm_pending`. It fetches nothing:
-    the live posting may be gone, and the text to group is the stored
-    one. It writes the rule-based groups (the flat lists under the Skills
-    group) in the same breath, so the action lands a result with no model
-    reachable, and queues the extraction that replaces them. A missing
-    job is 404. A job with no stored posting text is 409, and so is a job
-    whose reading is already running, each with its own `error`: there is
-    one reservation per job, and a request that did not get it started no
-    reading, so answering 202 would credit it with another run's result.
+    and answers like every other AI reading, see AI readings below. It
+    fetches nothing: the live posting may be gone, and the text to group
+    is the stored one. It writes the rule-based groups (the flat lists
+    under the Skills group) in the same breath, so the action lands a
+    result with no model reachable, and queues the extraction that
+    replaces them.
   - `PUT /api/jobs/<id>` takes the whole list, like any other field, and
     stamps owner provenance on it, after which no extraction overwrites
     it. That is the Languages editor's write path.
+- AI readings. `POST /api/jobs/<id>/enrich`, `POST /api/jobs/<id>/extract`,
+  `POST /api/jobs/<id>/re-extract` and `POST /api/companies/<id>/enrich`
+  all answer `202 {"status": "queued"}` and nothing else (CAREER-36). The
+  model host is CPU-only and takes minutes per call, so the work leaves
+  the request thread: the request validates, enqueues and returns, and a
+  proxy that gives up after 100 seconds has nothing left to cut short. So
+  a caller never reads the read job out of one of these responses. It
+  reads the outcome off the job record, which is where the queue writes
+  it.
+  - Validation is what still answers before the queue, and only
+    validation. A missing job or company is 404. A job whose posting link
+    this product will not fetch is 422 on `/enrich`. A job with no stored
+    posting text is 409 on `/re-extract`, and so is a job whose reading
+    is already running, each with its own `error`: that action reports
+    what it did to the stored text, so answering 202 would credit it with
+    another run's result. `/enrich` and `/extract` answer 202 in that
+    same case, because there is one reading per job either way and the
+    one already running is the one that owns the status the caller polls.
+  - Where a reading stands is four fields on the job record,
+    `ai_status`, `ai_error`, `ai_started` and `ai_finished`
+    ([schemas](../schemas.md)), carried by every payload the front end
+    polls: the jobs collection, the board, the job detail and the job
+    taxonomy. `ai_status` reads queued, then running, then done or
+    failed, and a job with no `ai_status` at all never tried. A failed
+    reading always carries `ai_error`, one sentence in words the owner
+    can read, which is what the chip shows and offers Retry beside. A
+    model call that failed is a failed reading even where the offline
+    rules filled fields in its place.
+  - The company enrichment records no status. It is queued for the same
+    shape and answers the same 202; the aggregation it writes is its own
+    result, and nothing polls a company for a reading.
+  - The queue lives in the server process, so a process that stops
+    abandons whatever it held: a job left queued or running is marked
+    failed with `ai_error` "interrupted by server restart" the next time
+    the server starts. Nothing stays in flight forever.
 - Job taxonomy: `job`, `company`, `function_options`, `function_labels`,
   `isic_labels`, `tags`, `tag_labels`, `tag_registry`.
 - Experiences: `entries`, `companies`, `labels`, `tag_labels`, `empty`.

@@ -14,6 +14,7 @@ import yaml
 from careeros import ingest, vault
 from org_intake import classify as sectors
 from careeros.server import create_app
+from tests.conftest import post_ai
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -494,9 +495,8 @@ def test_enrich_job_drops_unknown_function_ids(client, root, monkeypatch):
 
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html())
     monkeypatch.setattr(ingest, 'extract', fake_extract)
-    result = client.post('/api/jobs/JOB-001/enrich')
-    assert result.status_code == 200
-    assert result.json['function'] == ['ict-product-manager']
+    assert post_ai(client, '/api/jobs/JOB-001/enrich').status_code == 202
+    assert client.get('/api/jobs/JOB-001').json['function'] == ['ict-product-manager']
 
 
 # --- M0-2: a dropped id is a visible state with a reason, never silent ----

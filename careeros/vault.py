@@ -29,6 +29,22 @@ FIELD_STATUS_VALUES = ('pending', 'done', 'failed', 'not_evidenced')
 # type, so careeros.history.REGISTRY must name every member of this tuple.
 INGEST_STATES = ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed')
 POSTING_QUALITY_VALUES = ('thin', 'ok', 'rich')
+# CAREER-36: where a job's own AI reading stands right now. The AI call
+# runs off the request path, so the job record is the only place a caller
+# can read the outcome from, and these are the words it reads.
+#
+# 'absent' is deliberately not in this tuple: a record that never tried
+# stores no ai_status at all, which is every record written before this
+# field existed. ai_status() below is what turns that absence into the
+# word, so no migration has to stamp a value on a vault full of records
+# that never queued anything.
+AI_STATUSES = ('queued', 'running', 'done', 'failed')
+AI_ABSENT = 'absent'
+# The two statuses that say work is still owed. A process that stops holds
+# the only copy of its queue, so a record left in one of these is a record
+# nothing will ever finish; recover_interrupted_ai settles them at startup.
+AI_UNSETTLED = ('queued', 'running')
+AI_RESTART_ERROR = 'interrupted by server restart'
 # How a stored description_structured block was produced. 'user' is the
 # owner having written it in Edit job, which is a producer the block gained
 # in package 2's fix round: the Description row of the extraction popup
@@ -515,6 +531,83 @@ def is_open_job(job):
     no status at all counts as open: the default status is `new`."""
     return job.get('status') not in ENDED_STATUSES
 
+def ai_status(record):
+    """The AI reading state of one record, as a word (CAREER-36).
+
+    A record with no stored ai_status, or one carrying a value this
+    vocabulary does not know, reads as AI_ABSENT: never tried. That is
+    what keeps every record written before this field from looking like a
+    reading that is somehow in flight.
+    """
+    value = (record or {}).get('ai_status')
+    return value if value in AI_STATUSES else AI_ABSENT
+
+def ai_queued():
+    """The transition a record takes when its reading is enqueued.
+
+    Each of these four builders returns the keys it is responsible for and
+    no others, so a caller hands one straight to save_job/save_company and
+    the merge keeps whatever the record already holds. Only the two that
+    begin a run clear ai_error and the timestamps: a new attempt must not
+    show the previous attempt's reason or the moment it ended.
+    """
+    return {'ai_status': 'queued', 'ai_error': None, 'ai_started': None, 'ai_finished': None}
+
+def ai_running():
+    return {'ai_status': 'running', 'ai_error': None, 'ai_started': timestamp(), 'ai_finished': None}
+
+def ai_done():
+    """Deliberately leaves ai_started alone, so a finished run still says
+    when it began."""
+    return {'ai_status': 'done', 'ai_error': None, 'ai_finished': timestamp()}
+
+def ai_failed(reason):
+    """A failed run always carries a reason: a failure with nothing to
+    show for it is the silent unknown the product rules forbid."""
+    text = str(reason or '').strip()
+    return {'ai_status': 'failed', 'ai_error': text or 'Enrichment failed.',
+            'ai_finished': timestamp()}
+
+def recover_interrupted_ai(root):
+    """Settle every job a stopped process left mid-reading (CAREER-36).
+
+    The queue lives in the process, so a restart takes it with it: a job
+    still reading queued or running has nothing left that could finish
+    it. Each one becomes failed with AI_RESTART_ERROR, which is a visible
+    state with a reason and a Retry rather than a spinner that never
+    resolves. Returns the job ids it changed, in the order it changed
+    them.
+
+    Jobs only: the reading status is a field of the job record, and the
+    company enrichment endpoint records none, so there is no company
+    state here that could be left unsettled.
+
+    Runs at startup beside the additive field migrations, and is
+    idempotent for the same reason they are: a second pass finds nothing
+    unsettled left to settle.
+
+    Each record is isolated the same way the startup field migrations
+    isolate theirs (see migrate_job_fields): this runs while the app is
+    being built, so one record whose save is refused -- a legacy status
+    this vocabulary retired, any other shape written before a validation
+    rule existed -- must be reported to stderr and skipped, never allowed
+    to take the whole sweep, and with it the server's own startup, down.
+    """
+    changed = []
+    # Materialized before the first save: a save can rewrite the file the
+    # generator is walking.
+    for record in [data for _, data in _records(root, 'jobs')]:
+        if record.get('ai_status') not in AI_UNSETTLED or not record.get('id'):
+            continue
+        try:
+            save_job(root, ai_failed(AI_RESTART_ERROR), record['id'])
+        except Exception as error:
+            print(f'recover_interrupted_ai: skipped {record["id"]} '
+                  f'({type(error).__name__}: {error})', file=sys.stderr)
+            continue
+        changed.append(record['id'])
+    return changed
+
 def _records(root, kind):
     for path in sorted((Path(root) / kind).glob('*.yaml')):
         data = _read(path)
@@ -738,7 +831,11 @@ def _record_defaults(kind):
                  # postings review suggesting it again), and end_reason the
                  # optional suggestion behind an ended job.
                  closed=False, closed_at=None, closed_reviewed_at=None, end_reason=None,
-                 occupation_code=None, skill_codes=None) if job else
+                 occupation_code=None, skill_codes=None,
+                 # CAREER-36: where this record's AI reading stands. Null
+                 # means never tried, which is what every record written
+                 # before this field carries, so no migration is needed.
+                 ai_status=None, ai_error=None, ai_started=None, ai_finished=None) if job else
             dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                  contact_email='', notes='', note_list=[], custom={}, enrichment={},
                  kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
@@ -783,6 +880,28 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
     # Jobs and companies hold notes in the same shape, so this check is
     # outside the per-kind branches below.
     result['note_list'] = validate_note_list(result['note_list'])
+    # CAREER-36: the AI reading lifecycle. A job field only, because the
+    # reading a caller polls is a job's. A company's own enrichment is
+    # queued the same way and answers the same 202, but it records no
+    # status, so a company write carries none of these keys at all --
+    # except on a record that happens to hold one from before the fields
+    # were scoped to the job, which loads and is preserved untouched.
+    if job:
+        if result['ai_status'] is not None and result['ai_status'] not in AI_STATUSES:
+            raise ValueError('ai_status must be one of ' + ', '.join(AI_STATUSES) + ' or null.')
+        if result['ai_error'] is not None and (not isinstance(result['ai_error'], str)
+                                               or not result['ai_error'].strip()):
+            raise ValueError('ai_error must be non-empty text or null.')
+        for key in ('ai_started', 'ai_finished'):
+            if result[key] is not None and not isinstance(result[key], str):
+                raise ValueError(f'{key} must be text or null.')
+        # A reason only ever explains a failure, the same rule ingest_error
+        # and field_status_reason already follow: whatever moves the status
+        # on takes the reason with it, so no writer has to remember to
+        # clear it and a finished reading can never still show why the last
+        # one failed.
+        if result['ai_status'] != 'failed':
+            result['ai_error'] = None
     required = 'title' if job else 'name'
     for key, default in defaults.items():
         value = result[key]

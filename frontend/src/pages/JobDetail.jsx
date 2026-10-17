@@ -26,6 +26,8 @@ import NotesSection from '../components/NotesSection.jsx';
 import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import PasteDescriptionPopup from '../components/PasteDescriptionPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
+import AiStatusChip from '../components/AiStatusChip.jsx';
+import { anyReading } from '../aiStatus.js';
 import { prettifyTag } from '../tags.js';
 import { localDate } from '../dates.js';
 import { isGrouped, requirementEntries, unplacedSkills } from '../requirements.js';
@@ -108,7 +110,11 @@ export default function JobDetail() {
   useEffect(() => {
     if (!page) return undefined;
     const hasPendingField = Object.values(page.job.field_status || {}).includes('pending');
+    // CAREER-37: a reading the record itself says is queued or running is
+    // reason enough to look again, whichever endpoint queued it. It joins
+    // the two conditions already here rather than adding a second timer.
     const pending = page.llm_pending
+      || anyReading([page.job])
       || (hasPendingField && !TERMINAL_INGEST_STATES.includes(page.job.ingest_state));
     if (!pending) return undefined;
     const timer = setTimeout(load, 3000);
@@ -406,6 +412,12 @@ export default function JobDetail() {
             {readSentence(readAt)}
             {notFound.length ? ` Not found: ${notFound.join(', ')}.` : ''}
           </Text>
+          {/* CAREER-37: the reading's own state, in the row that is
+              already about the reading. Nothing while it is absent or
+              done, so the row is unchanged for a settled job, and the
+              Retry a failure offers is the same extraction retry the
+              button beside it runs. */}
+          <AiStatusChip job={job} onRetry={handleRetry} />
           <Button
             text="How this was extracted"
             size="sm"

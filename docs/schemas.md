@@ -100,6 +100,10 @@ the sample workflow. Back up the destination vault before a future import.
 | closed_at | ISO date the posting was first found gone, or null |
 | closed_reviewed_at | ISO date the owner kept a job whose posting closed, or null. Takes it out of the board's closed-postings review |
 | end_reason | One of `vault.STOPPED_REASONS` / `vault.REJECTED_REASONS`, or null. Always optional; the free text the owner adds beside it is an ordinary note on the job, under `vault.END_NOTE_TITLE` |
+| ai_status | Where this job's AI reading stands: `queued`, `running`, `done` or `failed` (`vault.AI_STATUSES`), written by the queue that runs the reading. Null, and absent on every record written before the field, means never tried |
+| ai_error | The sentence a failed reading leaves behind, in words the owner can read. Null in every other status: whatever moves the status on takes the reason with it. Never an exception message, since a transport failure names the host it was talking to |
+| ai_started | Timestamp the reading began, or null. A finished reading keeps it, so a record still says when it started |
+| ai_finished | Timestamp the reading ended, done or failed, or null while one is owed |
 
 Requirements are stored twice over, on purpose. `description_structured`
 holds the flat shape every job written before package 2 has
@@ -196,15 +200,24 @@ jobs.ch is never an employer fallback. Unknown employers produce a null company
 link and a null company in the intake response rather than an empty profile.
 Company website hints undergo structural HTTP(S) validation and are not fetched.
 
-POST `/api/jobs/<id>/enrich` checks the URL, fetches and extracts before acquiring
-the write lock. Under the lock it reloads the current job, reconciles companies,
-and saves. Deletion during fetch returns 404; a changed posting URL returns 409.
+POST `/api/jobs/<id>/enrich` checks the URL on the request thread and queues
+everything after it, so what follows is what the queued reading writes to the
+record. What the caller gets back, and where it reads the outcome, is one home
+over in [JSON page contracts](surfaces/json-api.md).
+
+The reading fetches and extracts before acquiring the write lock. Under the lock
+it reloads the current job, reconciles companies, and saves. A job deleted while
+its posting was being read, and a posting URL changed under the reading, each end
+the reading with ai_status failed and the reason saying which, and write nothing.
 It fills empty metadata, preserving nonempty titles, status, notes and custom
 fields. Only the first enrichment may fill salary_info/salary_note; when enriched
 is already true, both salary fields remain untouched, including false/empty owner
-values. All nonempty titles are treated as owner-set. Empty responses or
-fetch/extraction failures return 422 without writes. Success sets enriched=true.
-Employer names dedupe case-insensitively. Only companies with name_source=auto
+values. All nonempty titles are treated as owner-set. A fetch that returns
+nothing, and an extraction that fails, fill nothing and leave ai_status failed
+with the reason. A posting the model could not be reached for still fills
+whatever the offline rules read off it, and is still a failed reading: enriched
+says the posting was read and the empty fields were filled, and ai_status says
+whether the reader itself answered. Employer names dedupe case-insensitively. Only companies with name_source=auto
 may be renamed when unshared or reconciled to an existing match. Owner or unknown
 provenance preserves the linked company and name; website hints only fill an
 empty website. Matching profiles also receive website hints only when empty.

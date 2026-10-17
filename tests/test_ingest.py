@@ -12,6 +12,7 @@ import yaml
 
 from careeros import ingest, intake, llm_client, vault
 from careeros.server import SHARED_ATS_HOSTS, create_app
+from tests.conftest import post_ai
 
 
 # Synthetic documentation endpoint (RFC 5737), never real infrastructure.
@@ -157,14 +158,12 @@ def test_total_deadline(monkeypatch):
     assert monotonic() - started >= 0.1
 
 
-def test_sync_extract_total_deadline_fails_cleanly(monkeypatch):
-    """R3-A2: extract() runs synchronously on the caller's own thread --
-    in production, the /enrich Flask request handler -- unlike
-    extract_async, which runs the same unbounded-execution-phase wait on
-    its own background thread where hanging is harmless. Without an
-    outer bound here, a stuck model call could hang that request
-    handler forever. SYNC_TOTAL_DEADLINE must give up and fall back to
-    the heuristic result instead, well before the test's own margin."""
+def test_model_call_deadline_fails_cleanly(monkeypatch):
+    """R3-A2, retargeted by CAREER-36 fix round C1: extract() runs on the
+    AI queue's single worker thread, where one model call that never
+    answers holds up every reading queued behind it. The deadline bounds
+    that call's execution (never its wait for a turn) and falls back to
+    the heuristic result, well before the test's own margin."""
     stuck = Event()
 
     def never_returns(**kwargs):
@@ -176,12 +175,37 @@ def test_sync_extract_total_deadline_fails_cleanly(monkeypatch):
 
     client = client_for()
     client.chat.completions.create.side_effect = never_returns
-    monkeypatch.setattr(ingest, 'SYNC_TOTAL_DEADLINE', .05)
+    monkeypatch.setattr(ingest, 'MODEL_CALL_DEADLINE', .05)
     started = monotonic()
     result = ingest.extract('Senior Engineer at Example Labs. ' * 5, client=client, model=object())
     assert monotonic() - started < 2, 'the synchronous caller must not hang past its outer deadline'
     assert result['ingest_source'] == 'heuristic'
+    assert result['extract_reason'] == 'transport_error'
     stuck.set()
+
+
+def test_the_model_call_deadline_never_counts_a_wait_for_a_turn(monkeypatch):
+    """CAREER-36 fix round, C1: the bound covers the model call, not the
+    queue. A reading sitting behind another job's call has not started
+    yet, so there is nothing of its own to time out: it must get its full
+    budget once its turn comes, rather than being cut by however long the
+    call in front of it took."""
+    from careeros.extraction_worker import extraction_queue
+    occupied = Event()
+    release = Event()
+    # Longer than the deadline below, so a deadline that counted this
+    # wait would abandon the reading before its own call ever started.
+    monkeypatch.setattr(ingest, 'MODEL_CALL_DEADLINE', .2)
+    Thread(target=lambda: extraction_queue.run(
+        lambda: (occupied.set(), release.wait(5))), daemon=True).start()
+    assert occupied.wait(5), 'the queue never picked up the call in front'
+    Thread(target=lambda: (sleep(0.5), release.set()), daemon=True).start()
+
+    result = ingest.extract('Senior Engineer at Example Labs.',
+                            client=client_for(json.dumps({'title': 'Queued Engineer'})),
+                            model=object())
+    assert result['ingest_source'] == 'llm'
+    assert result['title'] == 'Queued Engineer'
 
 
 @pytest.mark.parametrize('layout,expected', [
@@ -292,13 +316,13 @@ def test_enrichment_legacy_job(tmp_path, monkeypatch):
     monkeypatch.setattr(intake, 'fetch_url', lambda url:
                         '<h1>Senior Engineer at Example Labs</h1><p>Remote. Python.</p>')
     api = create_app(tmp_path).test_client()
-    response = api.post('/api/jobs/' + job['id'] + '/enrich')
-    assert response.status_code == 200
-    assert response.json['title'] == 'Owner title'
-    assert response.json['remote_ok'] is False
-    assert response.json['description']
-    assert response.json['keywords'] == ['Python']
-    assert response.json['ingest_source'] == 'heuristic'
+    assert post_ai(api, '/api/jobs/' + job['id'] + '/enrich').status_code == 202
+    enriched = api.get('/api/jobs/' + job['id']).json
+    assert enriched['title'] == 'Owner title'
+    assert enriched['remote_ok'] is False
+    assert enriched['description']
+    assert enriched['keywords'] == ['Python']
+    assert enriched['ingest_source'] == 'heuristic'
 
 
 @pytest.mark.parametrize('values', [{'keywords': 'Python'}, {'keywords': [1]},
@@ -961,11 +985,11 @@ def test_enrich_sync_heuristic_summary_has_no_ai_marker(tmp_path, monkeypatch):
     job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
     monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Engineer at Example Labs. Build Python services.</main>')
     api = create_app(tmp_path).test_client()
-    response = api.post('/api/jobs/' + job['id'] + '/enrich')
-    assert response.status_code == 200
-    assert response.json['ingest_source'] == 'heuristic'
-    assert response.json['summary']
-    assert response.json['summary_source'] == ''
+    assert post_ai(api, '/api/jobs/' + job['id'] + '/enrich').status_code == 202
+    enriched = api.get('/api/jobs/' + job['id']).json
+    assert enriched['ingest_source'] == 'heuristic'
+    assert enriched['summary']
+    assert enriched['summary_source'] == ''
 
 
 def test_enrich_sync_llm_summary_gets_ai_marker(tmp_path, monkeypatch):
@@ -975,13 +999,13 @@ def test_enrich_sync_llm_summary_gets_ai_marker(tmp_path, monkeypatch):
         'summary': 'LLM summary.', 'skills': ['Python'], 'background': '5+ years.'})))
     monkeypatch.setattr(ingest, 'get_llm_model', object)
     api = create_app(tmp_path).test_client()
-    response = api.post('/api/jobs/' + job['id'] + '/enrich')
-    assert response.status_code == 200
-    assert response.json['ingest_source'] == 'llm'
-    assert response.json['summary'] == 'LLM summary.'
-    assert response.json['summary_source'] == 'ai'
-    assert response.json['skills'] == ['Python']
-    assert response.json['background'] == '5+ years.'
+    assert post_ai(api, '/api/jobs/' + job['id'] + '/enrich').status_code == 202
+    enriched = api.get('/api/jobs/' + job['id']).json
+    assert enriched['ingest_source'] == 'llm'
+    assert enriched['summary'] == 'LLM summary.'
+    assert enriched['summary_source'] == 'ai'
+    assert enriched['skills'] == ['Python']
+    assert enriched['background'] == '5+ years.'
 
 
 def test_extract_endpoint_lifecycle(tmp_path, monkeypatch):
@@ -996,8 +1020,7 @@ def test_extract_endpoint_lifecycle(tmp_path, monkeypatch):
     first = api.post('/api/jobs/' + job['id'] + '/extract')
     for worker in list(api.application.config['REFRESH_THREADS'].values()):
         worker.join(timeout=2)
-    assert first.status_code == 202
-    assert first.json['llm_pending'] is True
+    assert (first.status_code, first.json) == (202, {'status': 'queued'})
     assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is True
     assert callbacks[0][0] == 'Stored description text.'
     # A second call while a run is pending must skip gracefully (no new worker).
@@ -1089,12 +1112,12 @@ def test_enrich_sync_partial_llm_result_keeps_heuristic_summary_unbadged(tmp_pat
     monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps({'skills': ['Python']})))
     monkeypatch.setattr(ingest, 'get_llm_model', object)
     api = create_app(tmp_path).test_client()
-    response = api.post('/api/jobs/' + job['id'] + '/enrich')
-    assert response.status_code == 200
-    assert response.json['ingest_source'] == 'llm'
-    assert response.json['skills'] == ['Python']
-    assert response.json['summary']
-    assert response.json['summary_source'] == ''
+    assert post_ai(api, '/api/jobs/' + job['id'] + '/enrich').status_code == 202
+    enriched = api.get('/api/jobs/' + job['id']).json
+    assert enriched['ingest_source'] == 'llm'
+    assert enriched['skills'] == ['Python']
+    assert enriched['summary']
+    assert enriched['summary_source'] == ''
 
 
 def test_owner_summary_replace_clears_ai_badge(tmp_path):
@@ -1174,7 +1197,10 @@ def test_concurrent_extract_calls_start_exactly_one_worker(tmp_path, monkeypatch
         thread.join(timeout=5)
     assert len(starts) == 1
     assert len(results) == 10
-    assert all(result['llm_pending'] is True for result in results)
+    # CAREER-36: every one of the ten gets the same queued answer, which
+    # is true of the record either way -- one of them started the reading
+    # and the other nine found it already under way.
+    assert all(result == {'status': 'queued'} for result in results)
 
 
 def test_stale_callback_cannot_clear_newer_runs_pending_state(tmp_path, monkeypatch):
@@ -1217,9 +1243,13 @@ def test_extract_endpoint_reports_start_failure_truthfully(tmp_path, monkeypatch
     response = api.post('/api/jobs/' + job['id'] + '/extract')
     for worker in list(api.application.config['REFRESH_THREADS'].values()):
         worker.join(timeout=2)
-    assert response.status_code == 202
-    assert response.json['llm_pending'] is True
-    assert api.get('/api/jobs/' + job['id']).json['llm_pending'] is False
+    assert (response.status_code, response.json) == (202, {'status': 'queued'})
+    final = api.get('/api/jobs/' + job['id']).json
+    assert final['llm_pending'] is False
+    # CAREER-36: the reading never started, so the queued status this
+    # request wrote does not stay owed. It says why instead.
+    assert final['ai_status'] == 'failed'
+    assert final['ai_error'] == 'Could not start the reading.'
     assert set(capsys.readouterr().err.splitlines()) == {'ingest: RuntimeError'}
 
 
@@ -1342,8 +1372,7 @@ def test_extract_endpoint_refetch_replaces_polluted_description_and_respects_own
     response = api.post('/api/jobs/' + job['id'] + '/extract')
     for worker in list(api.application.config['REFRESH_THREADS'].values()):
         worker.join(timeout=2)
-    assert response.status_code == 202
-    assert response.json['description'] == job['description']
+    assert (response.status_code, response.json) == (202, {'status': 'queued'})
     fresh_description = api.get('/api/jobs/' + job['id']).json['description']
     assert 'cookies' not in fresh_description.casefold()
     assert 'Build great products with Python.' in fresh_description
@@ -1375,6 +1404,6 @@ def test_extract_endpoint_refetch_failure_falls_back_to_stored_description(tmp_p
     response = api.post('/api/jobs/' + job['id'] + '/extract')
     for worker in list(api.application.config['REFRESH_THREADS'].values()):
         worker.join(timeout=2)
-    assert response.status_code == 202
-    assert response.json['description'] == 'Stored description text.'
+    assert (response.status_code, response.json) == (202, {'status': 'queued'})
+    assert api.get('/api/jobs/' + job['id']).json['description'] == 'Stored description text.'
     assert callbacks == ['Stored description text.']

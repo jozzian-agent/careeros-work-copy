@@ -306,6 +306,16 @@ and never statuses: a closed posting is the `closed` flag with its
 Rejected and Stopped sit together in one Ended lane that is collapsed on
 every load, built 2026-10-15.
 
+Reading state is a second, independent status on a job record, added
+2026-10-17 with async enrichment (CAREER-36/37). Fixed values: absent
+(never tried), `queued`, `running`, `done`, `failed` (`ai_status`, with
+`ai_error` as a visible reason and `ai_started` / `ai_finished`
+timestamps). It describes the machine reading of a posting, never the
+owner decision, so the two never overwrite each other. On startup a
+sweep settles any record left `queued` or `running` by a crashed process
+as `failed` with reason "interrupted by server restart", so no zombie
+state survives a restart.
+
 ### Surfaces
 
 | Surface | Flow step |

@@ -14,8 +14,11 @@ Unknown enrichment keys are retained, including keys inside the two nested objec
 Job creation, updates, deletion, company reassignment, and watcher persistence
 refresh affected companies synchronously. Reassignment refreshes both companies.
 `POST /api/companies/<identifier>/enrich` also refreshes a company from stored
-postings, including older postings. It returns the company or HTTP 404 if absent.
-The endpoint uses the existing write lock. No fetching or text extraction occurs.
+postings, including older postings. It queues that refresh and answers 202 with
+the queued status, like every other AI entry point
+([contract](surfaces/json-api.md)); a company that does not exist is 404 before
+anything is queued. The queued work uses the existing write lock. No fetching or
+text extraction occurs.
 
 `POST /api/companies/<identifier>/retry` is the owner-triggered sector and size
 retry for one employer company (it replaced the former sweep-all Backfill

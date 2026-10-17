@@ -1,6 +1,8 @@
 import { Badge, Box, Button, Flex, Heading, Icon, Link, Text } from 'gestalt';
 import QuietChip from './QuietChip.jsx';
+import AiStatusChip from './AiStatusChip.jsx';
 import StatusSelect from './StatusSelect.jsx';
+import { aiStatus } from '../aiStatus.js';
 import { countWord } from '../counts.js';
 
 // Label text only, per the owner's 2026-10-13 decision (design-system.md
@@ -57,6 +59,15 @@ export function CompanyDisplay({ job }) {
 // a colored badge (design-system.md "Badge usage"): a machine-state notice
 // like a failed extraction must never alarm.
 export function IngestIndicator({ job, onRetry }) {
+  // CAREER-37: when the record carries an AI status of its own, that is
+  // the reading's own report and it wins. A record with none (absent, so
+  // every job written before the field existed) falls through to what
+  // this indicator always inferred from ingest_state, which is what keeps
+  // an old vault reading exactly as it did.
+  const reading = aiStatus(job);
+  if (reading !== 'absent' && reading !== 'done') {
+    return <AiStatusChip job={job} onRetry={onRetry} />;
+  }
   if (job.ingest_state === 'fetch_failed' || job.ingest_state === 'extract_failed') {
     const label = job.ingest_state === 'fetch_failed' ? 'Fetch failed' : 'Extraction failed';
     const reason = job.ingest_error?.reason;

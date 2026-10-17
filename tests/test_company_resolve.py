@@ -15,6 +15,7 @@ from careeros import ingest, intake, server, vault
 from org_intake import enrich as company_lookup, identity
 from careeros.org_store import VaultOrganisationStore
 from careeros.server import COMPANY_LINK_GROUP, create_app
+from tests.conftest import post_ai
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -360,9 +361,9 @@ def test_enrich_uses_shared_ladder_no_duplicate_company(client, monkeypatch):
         certifications=[], responsibilities=[], employee_count=None, function=[], salary_info=False,
         salary_note='', contact_email='', employer_named_in_posting='Acme')
     monkeypatch.setattr(intake, 'ingest_posting', lambda url, html, function_options=None: dict(extracted))
-    result = client.post('/api/jobs/' + job['id'] + '/enrich')
-    assert result.status_code == 200
-    data = result.json
+    result = post_ai(client, '/api/jobs/' + job['id'] + '/enrich')
+    assert result.status_code == 202
+    data = client.get('/api/jobs/' + job['id']).json
     assert data['company_link_state'] == 'needs_review'
     assert data['company_link_reason'] == 'fuzzy_name'
     candidates = data['company_review']['candidates']
@@ -393,7 +394,13 @@ def test_enrich_relink_stamps_link_group_provenance(client, monkeypatch):
         field_provenance={'employer_named_in_posting': 'llm'})
     monkeypatch.setattr(intake, 'ingest_posting',
                         lambda url, html, function_options=None: dict(extracted))
-    data = client.post('/api/jobs/' + job['id'] + '/enrich').json
+    # Fix round C3: /enrich takes the one reservation per job, so the
+    # reading the intake above started has to be finished before this one
+    # can start -- a second reading of the same posting while one is in
+    # flight is what that reservation exists to refuse.
+    client.application.config['LLM_THREADS'][job['id']].join(timeout=5)
+    post_ai(client, '/api/jobs/' + job['id'] + '/enrich')
+    data = client.get('/api/jobs/' + job['id']).json
     assert data['company_link_state'] == 'needs_review'
     assert data['company_link_reason'] == 'fuzzy_name'
     assert data['company_review']['candidates'][0]['company_id'] == company['id']
@@ -407,7 +414,8 @@ def test_enrich_relink_stamps_link_group_provenance(client, monkeypatch):
 
     # A second pass with the same evidence resolves the same link again and
     # must leave provenance alone: no new evidence, nothing to re-attribute.
-    again = client.post('/api/jobs/' + job['id'] + '/enrich').json
+    post_ai(client, '/api/jobs/' + job['id'] + '/enrich')
+    again = client.get('/api/jobs/' + job['id']).json
     assert again['field_provenance'] == data['field_provenance']
 
 
@@ -441,7 +449,13 @@ def test_enrich_relink_stamps_provenance_with_employer_text_unchanged(client, mo
         field_provenance={'employer_named_in_posting': 'llm'})
     monkeypatch.setattr(intake, 'ingest_posting',
                         lambda url, html, function_options=None: dict(extracted))
-    data = client.post('/api/jobs/' + job['id'] + '/enrich').json
+    # Fix round C3: /enrich takes the one reservation per job, so the
+    # reading the intake above started has to be finished before this one
+    # can start -- a second reading of the same posting while one is in
+    # flight is what that reservation exists to refuse.
+    client.application.config['LLM_THREADS'][job['id']].join(timeout=5)
+    post_ai(client, '/api/jobs/' + job['id'] + '/enrich')
+    data = client.get('/api/jobs/' + job['id']).json
     assert data['employer_named_in_posting'] == job['employer_named_in_posting']
     assert data['company_id'] == exact['id'] != job['company_id']
     assert data['company_link_state'] == 'linked'
@@ -713,12 +727,12 @@ def test_r5_llm_only_enrich_fuzzy_no_duplicate(client, monkeypatch):
     before = len(vault.list_companies(root))
     monkeypatch.setattr(intake, 'fetch_url', lambda url: '<main>Build services for our customers.</main>')
     monkeypatch.setattr(ingest, 'extract', lambda *a, **k: {'company': 'Acme', 'ingest_source': 'llm'})
-    response = client.post('/api/jobs/' + job['id'] + '/enrich')
-    assert response.status_code == 200
-    assert response.json['company_link_state'] == 'needs_review'
-    assert response.json['employer_named_in_posting'] == 'Acme'
-    assert response.json['field_provenance']['employer_named_in_posting'] == 'llm'
-    assert any(c['company_id'] == company['id'] for c in response.json['company_review']['candidates'])
+    assert post_ai(client, '/api/jobs/' + job['id'] + '/enrich').status_code == 202
+    final = client.get('/api/jobs/' + job['id']).json
+    assert final['company_link_state'] == 'needs_review'
+    assert final['employer_named_in_posting'] == 'Acme'
+    assert final['field_provenance']['employer_named_in_posting'] == 'llm'
+    assert any(c['company_id'] == company['id'] for c in final['company_review']['candidates'])
     assert len(vault.list_companies(root)) == before
 
 

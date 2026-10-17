@@ -11,6 +11,7 @@ import pytest
 from careeros import history, ingest, intake, vault
 from careeros.server import apply_field_status, create_app
 from careeros.web.pages import jobs
+from tests.conftest import post_ai
 
 
 def client_for(content):
@@ -761,7 +762,7 @@ def test_enrich_fills_the_groups_and_credits_whoever_read_the_lines(tmp_path, mo
     job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role'})
     monkeypatch.setattr(intake, 'fetch_url', lambda url: posting_html(POSTING))
     api = create_app(tmp_path).test_client()
-    assert api.post(f'/api/jobs/{job["id"]}/enrich').status_code == 200
+    assert post_ai(api, f'/api/jobs/{job["id"]}/enrich').status_code == 202
     stored = vault.load_job(tmp_path, job['id'])
     assert stored['requirement_groups'] == [
         {'group': 'skills', 'level': 'must', 'text': 'Five years of Python'},
@@ -780,7 +781,7 @@ def test_enrich_leaves_an_unanswered_field_unwritten(tmp_path, monkeypatch):
     monkeypatch.setattr(intake, 'fetch_url',
                         lambda url: posting_html('We build tools for engineers.'))
     api = create_app(tmp_path).test_client()
-    assert api.post(f'/api/jobs/{job["id"]}/enrich').status_code == 200
+    assert post_ai(api, f'/api/jobs/{job["id"]}/enrich').status_code == 202
     stored = vault.load_job(tmp_path, job['id'])
     assert stored['requirement_groups'] == []
     assert 'requirement_groups' not in stored['field_provenance']
