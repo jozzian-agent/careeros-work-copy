@@ -1391,3 +1391,87 @@ stopping, polling surviving one failed request, and the chip on the job
 page). No fixture changed: each case builds its board payload from
 `fixtures/board.json` with the field under test set on one entry, so a
 chip can only come from that field.
+
+## Login page and the 401 rule (M1, 2026-10-17)
+
+Every page and every API call now needs a session. The backend half is
+one `before_request` in `careeros/server.py` plus `careeros/users.py`;
+this note is the front end's half.
+
+### Component gate: two new visible elements, both from adopted components
+
+The login page is `pages/Login.jsx`: a `Heading`, one `Text` line, two
+Gestalt `TextField`s (`type="email"` and `type="password"`) and one
+primary `Button`, laid out in the `Box`/`Flex` pattern every other page
+uses. The design system record asks for plain fields and one primary
+button with no new visual language, which is exactly that, so nothing
+here is custom
+and the gate needs no exception. The password field shows Gestalt's own
+"Show password" control, which comes with the component rather than
+being an element this page added.
+
+The logout affordance is one `Button size="sm" color="transparent"` in
+`Nav.jsx`, the chrome every page already renders. It is not a settings
+page and not a menu, because a menu holding one action is a container
+earning nothing.
+
+The login page is the one route outside `App.jsx`'s `Page` wrapper, so it
+carries no nav: every link the nav could show leads back to the login
+page until there is a session.
+
+### The no-build fallback is a second rendering, not a second page
+
+`GET /login` serves the built React page when the front end is built and
+the same form rendered from `careeros/web/theme.py`'s shell when it is
+not. `/jobs` has had exactly this fallback since the React migration
+started, and the one page a person must be able to reach before they have
+a session cannot be the one page that needs a build. Both post to the
+same endpoint, which content-negotiates on the request body: a JSON body
+gets JSON, a form post gets a redirect. The fallback page carries no CSS
+of its own. The shared control styles in `careeros/web/ui.py` already
+cover a label, an input and a primary button.
+
+### One home for the 401
+
+`src/api/client.js` is new and holds `apiFetch`, which every function in
+`src/api/` now calls instead of `fetch`. A 401 from any endpoint means
+the same thing, so the answer is given once: take the browser to
+`/login`, and latch a module flag that makes every later call reject
+without touching the network. The latch is what keeps a lost session from
+turning into a request storm, and it needs no reset, because the redirect
+is a page load and a fresh module starts clean.
+
+Two deliberate exceptions:
+
+- No redirect while the page is already `/login`. The login page's own
+  401 is the answer to a sign-in attempt, not a lost session, and
+  redirecting on it would loop past the message the person needs to read.
+- The board's polling effect also checks `sessionEnded()` before arming
+  its timer. The latch already stops the requests, so this is about the
+  loop itself: without it the effect would keep re-arming every five
+  seconds on a page that is navigating away. It is covered by the same
+  spec as the latch rather than by one of its own, because a timer that
+  issues no request has nothing a browser test can observe.
+
+### Known limits, accepted rather than solved
+
+Both are the brief's own calls, for a test of five people.
+
+- No CSRF token. What the app has is `SameSite=Lax` on the session
+  cookie plus same-origin JSON writes, which stops the ordinary
+  cross-site form post. A token is the real answer and is not here.
+- No rate limiting on `POST /login`. Five testers and one admin-created
+  account list make an online guessing attack cheap to notice and
+  pointless to run, but nothing in the app slows one down.
+
+### Specs
+
+`tests/login.spec.js` is new: a 401 sends the visitor to the login page,
+the right credentials land on the board, a refused sign-in shows one
+message and stays put (the no-loop case), Log out asks the server before
+navigating, and a 401 while the board is polling asks nothing more. That
+last one aborts the navigation to `/login` on purpose, so the board stays
+mounted and the polling has every chance to carry on; what it asserts is
+that exactly one request met the 401 and none followed.
+`tests/page-health.spec.js` gained `/login`, with its own landmark since
+it is the one route with no nav. No fixture changed.
