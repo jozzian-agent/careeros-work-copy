@@ -177,14 +177,20 @@ def test_flags_are_deduplicated_and_sorted_and_carry_their_guide_version():
 
 
 def test_a_code_outside_an_incomplete_list_is_kept_and_logged(caplog):
-    """A stub list must not reject a real value. Rejecting a Zurich
-    municipality because the register has not been loaded yet would be
-    worse than recording it, so the code is kept and the LIST is what the
-    log line says needs extending."""
+    """An incomplete list must not reject a real value. The municipality
+    register was loaded in CAREER-53 but stays incomplete, because it
+    changes several times a year through mergers: a number the register
+    gains after the load date has to be recorded rather than refused, and
+    the LIST is what the log line says needs extending.
+
+    `'261'` (Zürich) was the example here while the list was an empty
+    stub; it is in the list now, so the example is a number the register
+    does not issue."""
+    assert taxonomy.valid_code('municipality', '261'), 'the register load is what this rests on'
     with caplog.at_level(logging.WARNING, logger='careeros.taxonomy'):
-        record = taxonomy.make_value_record('municipality', '261', 'feed')
-    assert record['value'] == '261'
-    assert 'location.yaml' in caplog.text and '261' in caplog.text
+        record = taxonomy.make_value_record('municipality', '99999', 'feed')
+    assert record['value'] == '99999'
+    assert 'location.yaml' in caplog.text and '99999' in caplog.text
 
 
 def test_source_precedence_is_the_data_side_of_human_edits_win():

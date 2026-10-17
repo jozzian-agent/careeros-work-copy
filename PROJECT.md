@@ -274,6 +274,62 @@ seniority ordinal in `careeros.enrich` stays where it is for now: D6's
 crosswalk onto the s-scale is in the data file, so removing it is a small
 change once something else derives `seniority_range`.
 
+2026-10-17, same day: the first job feed the product reads is Personio's
+(CAREER-53, spec of 2026-10-17, owner ruling the same day that tenant
+discovery here is the PRIMARY way companies enter the universe and the
+Zefix bulk seed is parked). `careeros/feeds/` is the adapter, split so
+that the next one (Greenhouse) is a new mapper and not a new pipeline:
+`personio` holds everything Personio-specific (the feed URL, the XML
+parse, the field mapping), and `geocode`, `store`, `fetch`, `discovery`
+and `export` hold what any provider needs. Nothing in the package touches
+the network by itself — every function that needs a response takes a
+fetcher, which `scripts/run_personio_fetch.py` wires to
+`scripts/polite_http` — so the whole adapter is tested offline against
+recorded real feeds. Output stages under `data/personio/` and the vault
+is read-only, the same rule `scripts/seed_zefix_zurich.py` follows; the
+merge into the vault is a separate owner-gated step that does not exist
+yet. Three things reach beyond the ticket's own files.
+
+- **The BFS municipality register is loaded**
+  (`scripts/load_bfs_municipalities.py`). `location.yaml`'s municipality
+  dimension shipped as an honest stub in the entry above this one; the
+  Zurich filter could not work without it, so it now holds 2 110
+  municipalities with their canton and their postal codes, read from the
+  register's own Linked Data distribution in LINDAS. It stays
+  `complete: false` on purpose — the register changes several times a
+  year through mergers, so a code missing from it may be real — and
+  `--check` says whether the shipped list still matches the register
+  without writing. Coordinates are still null: the distribution
+  references a boundary polygon rather than a point, and none was
+  invented.
+- **`polite_http.request_text` returns the response headers.** Additive;
+  it exists so a feed's `ETag` can go back as `If-None-Match`, which is
+  the spec's "use conditional requests where the server supports them".
+  A 304 is a successful fetch that saw every posting it saw last time, so
+  it is replayed from the last raw snapshot rather than read as an empty
+  feed — otherwise closure detection would close a tenant's whole board.
+- **One existing test changed meaning.** `test_taxonomy.py` used Zürich's
+  own municipality number as its example of a code an incomplete list
+  does not carry. It carries it now, so the example is a number the
+  register does not issue.
+
+What the live trial measured, in full, is
+`data/personio/TRIAL_REPORT.md`. The short version: 2 467 tenants
+discovered (2 466 of them from two Common Crawl indexes; the vault's own
+companies yielded one, and not one of their careers pages links to a
+Personio career site), a third of those tenants no longer serve a feed at
+all, 100% parse success over 819 feeds, 100% of Zurich postings geocoded
+to a BFS municipality — and only **3% of fetchable tenants have a Zurich
+office**. So the spec's [150] tenants needs roughly 7 500 discovered
+tenants rather than 2 467, and its [1 500] Zurich postings is not
+supported by this evidence from Personio alone, which is the spec's own
+trigger for building the Greenhouse adapter before labelling starts
+rather than after. Seven things need an owner ruling and are listed in
+that report; the two that change stored data are the spec's
+`entry-level` → `s0` mapping (which contradicts D6's own labels, so the
+adapter follows D6) and the 4.7% of pool rows whose Zurich match rests on
+a bare municipality name that a foreign place shares.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -485,7 +541,7 @@ of 2026-10-17 and now live as versioned code lists; see the Taxonomy
 section below for where each one stands, including what is still a stub.
 
 - Sector. Stored as ISIC today, on purpose, so that Journey 3 can use standard codes. D2 replaces the standard with NOGA divisions (sections derived); the stored section letters carry over, and nothing is migrated yet. Show plain labels only if friends find the names confusing.
-- Location. One format: the BFS municipality number plus canton and coordinates (D-sheet CAREER-58). The prototype shows the same place written several ways. The municipality register itself is not loaded yet.
+- Location. One format: the BFS municipality number plus canton and coordinates (D-sheet CAREER-58). The prototype shows the same place written several ways. The municipality register is loaded as of 2026-10-17 (CAREER-53, `scripts/load_bfs_municipalities.py`): 2 110 municipalities with their canton and their postal codes, read from the register's own LINDAS distribution. Coordinates are still null everywhere, because the distribution references a boundary polygon rather than a point.
 - Function. The filter exists; its values are the 40 job families, each mapped to an ISCO-08 unit group (D1).
 
 ### Design system
@@ -561,7 +617,7 @@ capability imports nothing from the product.
 | `contract.yaml` | contract | owner decision | 8 codes, ids pending owner confirmation |
 | `work_model.yaml` | work_model | owner decision | complete |
 | `permit.yaml` | permit, permit_requirement | SEM categories | complete |
-| `location.yaml` | canton, municipality | BFS | cantons complete; municipality register a stub |
+| `location.yaml` | canton, municipality | BFS | cantons complete; municipality register loaded 2026-10-17 (2 110 municipalities with their canton and postal codes, from the register's LINDAS distribution), still `complete: false` because mergers move it |
 | `salary_rules.yaml` | — | CareerOS normalisation | rules shipped; the four pay-scale tables are placeholders |
 | `skills.yaml` | — | ESCO citations + local facets | no code list on purpose: the vocabulary is the vault's tag registry |
 | `value_record.yaml` | source, flag | owner decision D4 | complete |

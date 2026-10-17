@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workzag-jobs>
+
+<position>
+    <id>2798463</id>
+    <subcompany>isolutions AG</subcompany>
+    <office>Zürich</office>
+    <additionalOffices>
+        <office>Basel</office>
+        <office>Bern</office>
+    </additionalOffices>
+    <department>SU AI &amp; Data</department>
+    <recruitingCategory>CH - Standard+</recruitingCategory>
+    <name>AI First Data Engineer</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>databricks,fabric,python,powerbi,microsoft,azure</keywords>
+    <occupation>database_development_and_administration</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-09-15T16:49:00+00:00</createdAt>
+</position>
+
+<position>
+    <id>2817685</id>
+    <subcompany>isolutions AG</subcompany>
+    <office>Zürich</office>
+    <additionalOffices>
+        <office>Basel</office>
+        <office>Bern</office>
+    </additionalOffices>
+    <department>Team Development &amp; Operations</department>
+    <recruitingCategory>CH - Standard</recruitingCategory>
+    <name>Azure Engineer</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>Cloud,EntraID,Azure,Intune</keywords>
+    <occupation>software_and_system_architecture</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-09-28T16:04:52+00:00</createdAt>
+</position>
+
+<position>
+    <id>2817666</id>
+    <subcompany>isolutions AG</subcompany>
+    <office>Zürich</office>
+    <additionalOffices>
+        <office>Basel</office>
+        <office>Bern</office>
+    </additionalOffices>
+    <department>Team Development &amp; Operations</department>
+    <recruitingCategory>CH - Standard</recruitingCategory>
+    <name>Cloud Supporter 1st Level</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>Cloud Support,Service Desk,EntraID</keywords>
+    <occupation>software_and_system_architecture</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-09-28T16:01:45+00:00</createdAt>
+</position>
+
+</workzag-jobs>

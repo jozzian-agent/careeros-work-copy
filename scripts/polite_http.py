@@ -111,17 +111,24 @@ def request_text(url, *, data=None, headers=None, timeout=DEFAULT_TIMEOUT,
     Returns a dict that is always the same shape:
 
         {'ok': bool, 'status': int|None, 'text': str,
-         'final_url': str, 'error': str|None}
+         'final_url': str, 'error': str|None, 'headers': dict}
 
     `final_url` is where the response actually came from after redirects,
     which is itself ATS evidence: a company careers link that 302s to
     boards.greenhouse.io says more than the link did.
+
+    `headers` carries the response headers, lower-cased, and is `{}` when
+    the request never reached a server. It was added for CAREER-53's
+    conditional feed fetches: an ATS feed serves an `ETag`, and the only
+    way to send it back as `If-None-Match` and recognise the resulting
+    304 is to have read it. Every caller that predates it reads the dict
+    with `.get`, so a fake transport in a test need not supply it.
     """
     if limiter is not None:
         limiter.wait()
     sent = {'User-Agent': USER_AGENT}
     sent.update(headers or {})
-    blank = {'ok': False, 'status': None, 'text': '', 'final_url': url}
+    blank = {'ok': False, 'status': None, 'text': '', 'final_url': url, 'headers': {}}
     try:
         check_url(url)
         opener = request.build_opener(request.ProxyHandler({}), _SafeRedirect())
@@ -130,13 +137,26 @@ def request_text(url, *, data=None, headers=None, timeout=DEFAULT_TIMEOUT,
             charset = response.headers.get_content_charset() or 'utf-8'
             return {'ok': True, 'status': response.status,
                     'text': body.decode(charset, errors='replace'),
-                    'final_url': response.geturl(), 'error': None}
+                    'final_url': response.geturl(), 'error': None,
+                    'headers': _headers(response.headers)}
     except urlerror.HTTPError as error:
         # A 4xx/5xx is an answer, not a crash: keep the status so a
         # caller can tell "no careers page" from "host unreachable".
-        return {**blank, 'status': error.code, 'error': f'HTTP {error.code}'}
+        # So is a 304, which urllib raises here rather than returns, and
+        # which a conditional request asks for on purpose.
+        return {**blank, 'status': error.code, 'error': f'HTTP {error.code}',
+                'headers': _headers(getattr(error, 'headers', None))}
     except Exception as error:
         return {**blank, 'error': f'{type(error).__name__}: {error}'.strip()[:200]}
+
+
+def _headers(message):
+    """Response headers as a plain lower-cased dict. A repeated header
+    keeps its last value, which is what a single-valued header like ETag
+    or Last-Modified needs and the only ones a caller here reads."""
+    if not message:
+        return {}
+    return {str(name).casefold(): str(value) for name, value in message.items()}
 
 
 def robots_allows(url, *, cache=None, limiter=None, fetch=None):

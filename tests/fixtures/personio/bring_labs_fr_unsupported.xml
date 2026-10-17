@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workzag-jobs>
+
+<position>
+    <id>2726475</id>
+    <subcompany>Bring! Labs AG</subcompany>
+    <office>CH - Zürich</office>
+    <department>Product</department>
+    <recruitingCategory>Leadership Roles</recruitingCategory>
+    <name>Head of Product (m/w/x)</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>5-7</yearsOfExperience>
+    <occupation>product_management</occupation>
+    <occupationCategory>marketing_and_product</occupationCategory>
+    <createdAt>2026-07-23T17:52:24+00:00</createdAt>
+</position>
+
+<position>
+    <id>2695425</id>
+    <subcompany>Bring! Labs Deutschland GmbH</subcompany>
+    <office>DE - Berlin</office>
+    <department>Sales Germany</department>
+    <recruitingCategory>Bring! Labs Sales Process</recruitingCategory>
+    <name>Strategic Account Executive (m/w/x)</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>Neukunden,Neukundenakquise,Account Executive,Strategic Account Executive,Sales,Vertrieb,Akquise,Berlin</keywords>
+    <occupation>business_development_and_new_accounts</occupation>
+    <occupationCategory>sales_and_business_development</occupationCategory>
+    <createdAt>2026-07-02T09:40:30+00:00</createdAt>
+</position>
+
+<position>
+    <id>409227</id>
+    <office>CH - Zürich</office>
+    <additionalOffices>
+        <office>DE - Berlin</office>
+        <office>CH - Basel</office>
+    </additionalOffices>
+    <department>Sales</department>
+    <recruitingCategory>Bewerberpool</recruitingCategory>
+    <name>Talent Pool (m/w/x) – All Locations</name>
+    <jobDescriptions></jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>entry-level</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>lt-1</yearsOfExperience>
+    <keywords>Talent Pool,Bewerberpool</keywords>
+    <occupation>other</occupation>
+    <occupationCategory>other</occupationCategory>
+    <createdAt>2017-03-16T16:25:09+00:00</createdAt>
+</position>
+
+</workzag-jobs>

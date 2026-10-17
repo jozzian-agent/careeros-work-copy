@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workzag-jobs>
+
+<position>
+    <id>2798463</id>
+    <subcompany>isolutions AG</subcompany>
+    <office>Zürich</office>
+    <additionalOffices>
+        <office>Basel</office>
+        <office>Bern</office>
+    </additionalOffices>
+    <department>SU AI &amp; Data</department>
+    <recruitingCategory>CH - Standard+</recruitingCategory>
+    <name>AI First Data Engineer</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Was erwartet dich bei uns?</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;font-size:14px;font-family:Arial, Helvetica, sans-serif;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Weiterbildung ab Tag 1</strong>: Wir unterstützen dich zeitlich und finanziell bei deiner persönlichen und fachlichen Entwicklung.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Starke Unternehmenskultur</strong>: Offene Kommunikation, Hilfsbereitschaft, authentische Zusammenarbeit und ein echtes Learn-it-all-Mindset.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>New Work leben</strong>: Flexible Arbeitsorte, Workation in Europa und kultureller Austausch mit Kolleginnen und Kollegen aus Spanien.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Teamspirit</strong>: Arbeite mit Menschen, die motiviert sind, gemeinsam voranzukommen – und voneinander lernen wollen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Gestaltungsspielraum</strong>: Bei uns kannst du aktiv mitgestalten und echten Mehrwert für Kundschaft und Team schaffen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Top Arbeitsumgebung</strong>: Modern ausgestattete Büros, unter anderem im Circle am Flughafen Zürich, im PostParc in Bern und an bester Lage in Basel.</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Einführung</name>
+            <value>
+                <![CDATA[<h3 style="margin:0;color:rgb(0,56,84);text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:18px;font-weight:bold;">Liegt deine Leidenschaft darin, mit AI echten Mehrwert für unsere Kunden zu schaffen und moderne Data- &amp; AI-Lösungen nicht nur zu entwickeln, sondern gemeinsam mit deinem AI-Agententeam erfolgreich in die Produktion zu bringen?</h3><br><p style="margin:0;text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:15px;color:rgb(0,56,84);">Verbindest du technisches Know-how mit Eigenverantwortung, Kundenverständnis und einem echten AI-first Mindset? Denkst du gerne einen Schritt weiter, übernimmst die Führung und hast Freude daran, mit spezialisierten AI-Agenten neue Wege zu gehen?</p><br><p style="margin:0;text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:15px;color:rgb(0,56,84);">Dann gehörst du in unser Team! Bei uns arbeitest du nicht einfach mit AI – du gestaltest aktiv mit, wie wir als Unternehmen und für unsere Kunden arbeiten. Du gibst deinem AI-Agententeam die Richtung vor, verteilst Aufgaben, triffst Entscheidungen und verantwortest das Ergebnis. Dabei kombinierst du deine Expertise mit spezialisierten Agenten und entwickelst unsere Agenten und Workflows laufend weiter.</p>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Dafür stehst du am Morgen auf:</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du baust Datenpipelines und Datenmodelle mit Databricks oder Microsoft Fabric auf Azure auf und schaffst damit die Grundlage für moderne AI- und Analytics-Lösungen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du klärst Anforderungen direkt mit unseren Kunden, stellst die richtigen Fragen, entwickelst passende Lösungsarchitekturen und treibst die Umsetzung eigenständig voran.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du führst dein AI-Agententeam durch Entwicklung, Testing und Dokumentation, verteilst Aufgaben gezielt und stellst die Qualität der Ergebnisse sicher.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du kombinierst deine Engineering-Expertise mit spezialisierten AI-Agenten und entwickelst gemeinsam mit ihnen effiziente Workflows für unsere Projekte.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du machst Daten mit semantischen Modellen und Reports in Power BI für unsere Kunden nutzbar und schaffst damit eine belastbare Basis für Analytics und AI.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du bringst neue AI-Tools und Technologien in unsere tägliche Arbeit ein, experimentierst mit neuen Ansätzen und entwickelst bestehende Workflows kontinuierlich weiter.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du begleitest Kunden in der deutschsprachigen Schweiz und übernimmst Verantwortung dafür, dass aus technischen Lösungen echter Mehrwert entsteht.</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Wir wünschen uns von dir:</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Praktische Erfahrung im Data Engineering mit Databricks oder Microsoft Fabric sowie solide SQL- und Python-Kenntnisse.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Fundierte Power-BI-Kenntnisse, inklusive Datenmodellierung, DAX und Power Query.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Hohe Selbstständigkeit und ausgeprägte Ownership: Du stellst die richtigen Fragen, triffst Entscheidungen und bringst Themen eigenständig ins Ziel.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Erfahrung im direkten Kundenkontakt und die Fähigkeit, technische Zusammenhänge verständlich zu vermitteln und gemeinsam mit Kunden passende Lösungen zu entwickeln.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Ein ausgeprägtes AI-first Mindset: Du denkst in Agenten und Workflows, probierst neue Tools aus und hinterfragst die Ergebnisse kritisch.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Freude daran, Verantwortung für ein Team aus AI-Agenten zu übernehmen, Aufgaben sinnvoll zu orchestrieren und die Qualität des gesamten Ergebnisses sicherzustellen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Neugier und Bereitschaft, dich laufend mit neuen AI-, Azure- und Microsoft-Technologien auseinanderzusetzen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Bereitschaft, Kunden in der deutschsprachigen Schweiz auch vor Ort zu begleiten.</li></ul>]]>
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>databricks,fabric,python,powerbi,microsoft,azure</keywords>
+    <occupation>database_development_and_administration</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-09-15T16:49:00+00:00</createdAt>
+</position>
+
+<position>
+    <id>2817685</id>
+    <subcompany>isolutions AG</subcompany>
+    <office>Zürich</office>
+    <additionalOffices>
+        <office>Basel</office>
+        <office>Bern</office>
+    </additionalOffices>
+    <department>Team Development &amp; Operations</department>
+    <recruitingCategory>CH - Standard</recruitingCategory>
+    <name>Azure Engineer</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Was erwartet dich bei uns?</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;font-size:14px;font-family:Arial, Helvetica, sans-serif;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Weiterbildung ab Tag 1</strong>: Wir unterstützen dich zeitlich und finanziell bei deiner persönlichen und fachlichen Entwicklung.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Starke Unternehmenskultur</strong>: Offene Kommunikation, Hilfsbereitschaft, authentische Zusammenarbeit und ein echtes Learn-it-all-Mindset.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>New Work leben</strong>: Flexible Arbeitsorte, Workation in Europa und kultureller Austausch mit Kolleginnen und Kollegen aus Spanien.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Teamspirit</strong>: Arbeite mit Menschen, die motiviert sind, gemeinsam voranzukommen – und voneinander lernen wollen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Gestaltungsspielraum</strong>: Bei uns kannst du aktiv mitgestalten und echten Mehrwert für Kundschaft und Team schaffen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Top Arbeitsumgebung</strong>: Modern ausgestattete Büros, unter anderem im Circle am Flughafen Zürich, im PostParc in Bern und an bester Lage in Basel.</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Einführung</name>
+            <value>
+                <![CDATA[<h3 style="margin:0;color:rgb(0,56,84);text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:18px;font-weight:bold;">Bist du ein erfahrener Azure Engineer und hast du eine Leidenschaft für moderne Cloud-Infrastrukturen im Microsoft Umfeld?</h3><br><p style="margin:0;text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:15px;color:rgb(0,56,84);">Hast du Lust mit uns die Cloud-Plattformen der Zukunft zu konzipieren und zu betreiben? Übernimmst du Verantwortung für die Anbindung von Kundenumgebungen an die Microsoft Cloud Services? Bist du ein Macher und ein Vollblut-Engineer?</p><br><p style="margin:0;text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:15px;color:rgb(0,56,84);">Dann suchen wir dich! Lass dich von der isolutions Experience anstecken und erlebe bei uns ein Team, das sich offen und direkt austauscht, sich gegenseitig unterstützt und herausfordert.</p>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Dafür stehst du am Morgen auf:</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du leistest 1st-Level-Support für unsere Kundinnen und Kunden – per Telefon, E-Mail und Fernwartung – und erreichst eine hohe Erstlösungsquote.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du analysierst, löst und dokumentierst Anwenderprobleme strukturiert und nachvollziehbar.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du unterstützt im Microsoft-365-Basissupport: Exchange Online, Teams, SharePoint und OneDrive.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du übernimmst Identity-Themen für einzelne Anwendende – Microsoft Entra ID, MFA, SSPR sowie Passwort- und Account-Anliegen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du kümmerst dich um Endpoint-Grundlagen (Intune, Enrollment-Status), verwaltest Zugriffsrechte und weist Lizenzen zu.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du arbeitest nach ITIL-Prozessen in ServiceNow, eskalierst strukturiert ins 2nd Level und bleibst am Ticket, bis es gelöst ist.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du erstellst Dokumentationen und Checklisten und pflegst aktiv unsere Wissensdatenbank.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du arbeitest mit Drittanbietern zusammen und hältst interne Prozesse aktuell.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du übernimmst administrative Aufgaben, erstellst Auswertungen und pflegst unser Dynamics 365.</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Wir wünschen uns von dir:</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du verfügst über eine abgeschlossene Ausbildung als Informatiker/in EFZ oder eine vergleichbare Ausbildung; eine Weiterbildung auf Stufe HF/FH ist von Vorteil oder bereits geplant.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du bringst mehrere Jahre Berufserfahrung als Cloud oder Azure Engineer sowie fundierte Kenntnisse im Microsoft-Azure-Umfeld mit.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du verfügst über fundierte Kenntnisse in Azure Compute und Storage, Azure Networking, Microsoft Entra ID und RBAC sowie praktische Erfahrung im Backup- und Restore-Betrieb und in Azure Monitor.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du hast Erfahrung mit Infrastructure as Code (Terraform) und Git-Workflows und hast bereits anspruchsvolle Azure- und Cloud-Migrationsprojekte in komplexen Umgebungen erfolgreich umgesetzt.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du bist sicher im Umgang mit PowerShell und Azure CLI und setzt Automatisierung und Standardisierung gezielt zur Optimierung von Prozessen und Services ein.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Kenntnisse in Azure Policy und Governance, Azure Site Recovery, Cost Management, Microsoft Defender for Cloud sowie Erfahrungen mit Azure Virtual Desktop (AVD), Azure DevOps Pipelines oder Hybrid-Szenarien sind von Vorteil. Microsoft-Zertifizierungen wie AZ-104, AZ-305, AZ-500 oder AZ-400 sind ein Plus.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du bist bereit, im Turnus an der Pikett-Bereitschaft teilzunehmen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du arbeitest selbstständig, strukturiert und lösungsorientiert, überzeugst durch deine Kunden- und Serviceorientierung und kommunizierst souverän. Du verfügst über stilsicheres Deutsch und gute Englischkenntnisse; schFranzösisch ist ein zusätzliches Plus.</li></ul>]]>
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>Cloud,EntraID,Azure,Intune</keywords>
+    <occupation>software_and_system_architecture</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-09-28T16:04:52+00:00</createdAt>
+</position>
+
+<position>
+    <id>2817666</id>
+    <subcompany>isolutions AG</subcompany>
+    <office>Zürich</office>
+    <additionalOffices>
+        <office>Basel</office>
+        <office>Bern</office>
+    </additionalOffices>
+    <department>Team Development &amp; Operations</department>
+    <recruitingCategory>CH - Standard</recruitingCategory>
+    <name>Cloud Supporter 1st Level</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Was erwartet dich bei uns?</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;font-size:14px;font-family:Arial, Helvetica, sans-serif;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Weiterbildung ab Tag 1</strong>: Wir unterstützen dich zeitlich und finanziell bei deiner persönlichen und fachlichen Entwicklung.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Starke Unternehmenskultur</strong>: Offene Kommunikation, Hilfsbereitschaft, authentische Zusammenarbeit und ein echtes Learn-it-all-Mindset.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>New Work leben</strong>: Flexible Arbeitsorte, Workation in Europa und kultureller Austausch mit Kolleginnen und Kollegen aus Spanien.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Teamspirit</strong>: Arbeite mit Menschen, die motiviert sind, gemeinsam voranzukommen – und voneinander lernen wollen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Gestaltungsspielraum</strong>: Bei uns kannst du aktiv mitgestalten und echten Mehrwert für Kundschaft und Team schaffen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;"><strong>Top Arbeitsumgebung</strong>: Modern ausgestattete Büros, unter anderem im Circle am Flughafen Zürich, im PostParc in Bern und an bester Lage in Basel.</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Einführung</name>
+            <value>
+                <![CDATA[<h3 style="margin:0;color:rgb(0,56,84);text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:18px;font-weight:bold;">Bist du eine Service-Desk-Persönlichkeit mit Leidenschaft für Kundensupport?</h3><br><p style="margin:0;text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:15px;color:rgb(0,56,84);">Begeistern dich neue Microsoft-Technologien? Übernimmst du Verantwortung für ein hervorragendes Kundenerlebnis? Und gelingt es dir, technische Sachverhalte so zu erklären, dass unsere Kundinnen und Kunden sie wirklich verstehen? Dann bist du unser neues Crew-Mitglied!</p><br><p style="margin:0;text-align:justify;font-family:Arial, Helvetica, sans-serif;font-size:15px;color:rgb(0,56,84);">Bei isolutions brennen wir für die digitale Transformation und gestalten digitale Arbeitsumgebungen, die Kreativität fördern, agile und intelligente Zusammenarbeit ermöglichen und positive Kunden- und Mitarbeitererlebnisse schaffen. Unsere Vision ist nicht nur, Unternehmen bei der digitalen Transformation zu unterstützen – sondern auch, unseren Mitarbeitenden einen modernen Arbeitsplatz und eine starke Unternehmenskultur zu bieten.<br><br>Wir suchen eine positive, motivierte Persönlichkeit für den technischen Support unserer Kundinnen und Kunden. Bei uns erlebst du ein Umfeld, in dem offen und direkt ausgetauscht wird, in dem man sich gegenseitig unterstützt und positiv herausfordert, um gemeinsam zu wachsen. Lass dich von der isolutions Experience anstecken und werde Teil der Symbiose aus Neugier, Glaubwürdigkeit und Ehrlichkeit.</p>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Dafür stehst du am Morgen auf:</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du leistest 1st-Level-Support für unsere Kundinnen und Kunden – per Telefon, E-Mail und Fernwartung – und erreichst eine hohe Erstlösungsquote.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du analysierst, löst und dokumentierst Anwenderprobleme strukturiert und nachvollziehbar.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du unterstützt im Microsoft-365-Basissupport: Exchange Online, Teams, SharePoint und OneDrive.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du übernimmst Identity-Themen für einzelne Anwendende – Microsoft Entra ID, MFA, SSPR sowie Passwort- und Account-Anliegen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du kümmerst dich um Endpoint-Grundlagen (Intune, Enrollment-Status), verwaltest Zugriffsrechte und weist Lizenzen zu.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du arbeitest nach ITIL-Prozessen in ServiceNow, eskalierst strukturiert ins 2nd Level und bleibst am Ticket, bis es gelöst ist.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du erstellst Dokumentationen und Checklisten und pflegst aktiv unsere Wissensdatenbank.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du arbeitest mit Drittanbietern zusammen und hältst interne Prozesse aktuell.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du übernimmst administrative Aufgaben, erstellst Auswertungen und pflegst unser Dynamics 365.</li></ul>]]>
+            </value>
+        </jobDescription>
+        <jobDescription>
+            <name>Wir wünschen uns von dir:</name>
+            <value>
+                <![CDATA[<ul style="color:#003854;"><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du bringst Erfahrung im 1st-Level-Support oder im Kundendienst mit – oder die Motivation, als Quereinsteiger/in bei uns einzusteigen.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Eine Ausbildung als ICT-Fachperson ist von Vorteil; gleichwertige Erfahrung zählt ebenso.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du verfügst über gute Kenntnisse in Windows 10/11 und Microsoft 365; Apple-Kenntnisse sind ein Plus.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du hast Erfahrung im Anwendersupport im Windows-Umfeld.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du bringst eine neugierige Haltung und echte Begeisterung für Technologie mit.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du arbeitest selbstständig, denkst kundenorientiert und hast einen hohen Qualitätsanspruch.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du kommunizierst klar und freundlich – auch wenn es einmal hektisch wird – und übernimmst Ownership für dein Ticket.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Zertifizierungen wie AB-900 und ITIL 4 Foundation bringst du mit oder erwirbst sie bei uns.</li><li style="font-family:Arial, Helvetica, sans-serif;font-size:15px;text-align:justify;">Du verfügst über Deutsch auf Muttersprachniveau bzw. verhandlungssicher (mindestens B2) und gute Englischkenntnisse. Französisch ist ein Vorteil.</li></ul>]]>
+            </value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>experienced</seniority>
+    <schedule>full-time</schedule>
+    <yearsOfExperience>2-5</yearsOfExperience>
+    <keywords>Cloud Support,Service Desk,EntraID</keywords>
+    <occupation>software_and_system_architecture</occupation>
+    <occupationCategory>it_software</occupationCategory>
+    <createdAt>2026-09-28T16:01:45+00:00</createdAt>
+</position>
+
+</workzag-jobs>

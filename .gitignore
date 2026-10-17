@@ -21,5 +21,14 @@ sample/vault/users/
 
 # CAREER-52 staging output (regenerable, 1.5MB+)
 data/seeds/
+
+# CAREER-53 staging output. The raw feed snapshots are the bulk of it --
+# one gzipped XML body per tenant per language per run -- and a full
+# crawl's worth is hundreds of megabytes. The tenants file, the run
+# manifest and the exports are small but derived, and TRIAL_REPORT.md is
+# the one part of it that is meant to be read, so it is tracked
+# explicitly below.
+data/personio/*
+!data/personio/TRIAL_REPORT.md
 tmp-plan-vision-to-mvp.md
 tmp-vision-and-mvp.md
