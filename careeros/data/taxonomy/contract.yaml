@@ -9,16 +9,14 @@
 # the value record's flags (see value_record.yaml), so it travels with any
 # of the eight codes.
 #
-# HONESTY NOTE ON THE EIGHT. D3..D7 and the employer-type and work-model
+# HONESTY NOTE ON THE CODES. D3..D7 and the employer-type and work-model
 # lists are quoted in the ticket brief value by value. The contract
-# dimension is quoted as "8 fixed codes + via_agency flag" without the
-# eight being named, so the ids below are this file's reading of what a
-# Swiss posting offers, not a transcription of the decision sheet. They
-# need the owner's confirmation before anything classifies against them
-# (see open_questions).
-taxonomy_version: "1.0.0"
+# dimension was quoted as "8 fixed codes + via_agency flag" without the
+# eight being named; the builder proposed eight, and the owner confirmed
+# them on 2026-10-17, expanded with working_student and seasonal to ten.
+taxonomy_version: "1.1.0"
 standard: "CareerOS contract codes"
-standard_version: "CAREER-58, 2026-10-17 (code ids pending owner confirmation)"
+standard_version: "CAREER-58, confirmed by owner 2026-10-17"
 changed_at: "2026-10-17"
 code_lists:
   - dimension: contract
@@ -53,10 +51,14 @@ code_lists:
       - code: on_call
         label: "On call"
         label_de: "Arbeit auf Abruf"
-open_questions:
-  - "The eight ids are proposed, not transcribed from the decision sheet.
-     `working_student` (Werkstudent/Studentenjob) and `seasonal`
-     (Saisonstelle) are the two candidates left out; if the owner's list
-     has either, it replaces `trainee_programme` or `on_call`."
-  - "Nothing classifies against this list yet (no pipeline in this
-     ticket), so a renamed id today costs nothing but a version bump."
+      - code: working_student
+        label: "Working student"
+        label_de: "Werkstudent, Studentenjob"
+        description: "Study-parallel employment. Separate from internship because it is ongoing work, not a study placement."
+      - code: seasonal
+        label: "Seasonal"
+        label_de: "Saisonstelle"
+        description: "Tied to a season (tourism, agriculture, events). Usually fixed-term; the season is the distinguishing fact."
+open_questions: []
+# Owner confirmation 2026-10-17: the proposed eight codes match, expanded
+# with working_student and seasonal to ten. via_agency stays a flag.
