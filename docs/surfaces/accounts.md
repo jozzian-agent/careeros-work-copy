@@ -13,9 +13,9 @@ times. The request and response shapes live in
 [JSON page contracts](json-api.md) and the user record lives in
 [schemas](../schemas.md); this doc does not copy either.
 
-Status: built 2026-10-17. Not owner click-tested. Per AGENTS.md a
-user-facing outcome is accepted when a person clicks through a running
-instance, and that has not happened for any of the four.
+Status: built 2026-10-17. Owner click-tested on the live LAN instance
+2026-10-17 (redirect, wrong password, login, navigation with logout,
+logout, re-login): all worked. Accepted.
 
 ## Purpose
 
@@ -81,10 +81,9 @@ signs everybody out at once.
 
 ## Open questions
 
-- Owner click-test of all four surfaces.
-- Whether the two role words should be one. The inventory says Owner and
-  Friend, a record stores `admin` and `tester`
-  ([PROJECT.md](../../PROJECT.md) open questions).
+- Whether the two role words should be one. Decided 2026-10-17: they
+  stay two. A record stores `admin` and `tester`, and the vocabulary
+  table in [PROJECT.md](../../PROJECT.md) maps them to Owner and Friend.
 - Two limits accepted rather than solved, for a test of five people: no
   CSRF token beyond what `SameSite=Lax` plus same-origin JSON gives, and
   no rate limiting on the login endpoint. The timing of a failed sign-in

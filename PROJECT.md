@@ -244,10 +244,10 @@ first admin cannot sign in to create themselves; a web UI for user
 management is not in this milestone. Two limits are accepted rather than
 solved, for a test of five people: no CSRF token beyond what
 `SameSite=Lax` plus same-origin JSON gives, and no rate limiting on the
-login endpoint. Recorded conflict: the Roles table below calls the two
-roles Owner and Friend, while the stored fixed list is `admin` and
-`tester`; the mapping is in that table and whether the words should be
-unified is a new open question.
+login endpoint. Vocabulary: the Roles table below calls the two roles
+Owner and Friend, while the stored fixed list is `admin` and `tester`;
+the mapping is in that table, and the owner decided 2026-10-17 to keep
+both: the stored names stay as they are.
 
 ## Product rules that shape the flows
 
@@ -593,11 +593,6 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
 - Which parts of M4 are done by hand, and how friends are told, if at all.
 - Whether fit and CV reading join the first test, see M5.
 - Merging Needs attention and Needs your input.
-- One word per role. The Roles table says Owner and Friend; a user record
-  stores `admin` and `tester` (M1, 2026-10-17). Two words for one concept
-  is the drift the inventory exists to prevent, and picking one means
-  renaming either the stored list or most of this file, so the mapping is
-  recorded and the rename is the owner's call.
 - Rename the Search tab to Preferences.
 - Options per round, two or three.
 - Format of the fit score.
