@@ -83,9 +83,15 @@ silently.
    applies should say so, not pick one. File: `vendor/capa-repo/org_intake/classify.py`
    `all_matched_sections`, `match_sectors`; `vendor/capa-repo/org_intake/data/isic_sections.yaml`.
 
-8. Size is classified on one scale, and only that one is derived: EU
-   Recommendation 2003/361/EC employee-count thresholds (micro ≤10,
-   small ≤50, medium ≤250, large >250). *Reason:* the rule used to
+8. Size is classified on one scale, and only that one is derived: the
+   BFS employee-count classes (micro 1–9, small 10–49, medium 50–249,
+   large 250–999, xl 1000+), each threshold being the top of its class.
+   They were inclusive at every boundary until 2026-10-17 (micro ≤10,
+   small ≤50, medium ≤250), which was off by one against EU
+   Recommendation 2003/361/EC Article 2 — "fewer than 10 persons" makes
+   a 10-person company small — and the consumer settled the BFS reading
+   plus an `xl` class for 1000+ (CareerOS owner decision D3; CareerOS
+   PROJECT.md "Taxonomy"). *Reason:* the rule used to
    derive a parallel numeric `size_range` bucket from the same count,
    atomically, so the pair could not desync — but a second scale
    nobody writes only erodes the first one, and the owner settled on

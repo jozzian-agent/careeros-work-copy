@@ -1,0 +1,191 @@
+# Qualifications (owner decision D7, decision sheet CAREER-58,
+# 2026-10-17): the Swiss qualification types, an NQR level that is
+# NULLABLE, an ISCED-F field of study, and requirements stored as rules
+# rather than as a single "education" string.
+#
+# WHY THE LEVEL IS NULLABLE. The Swiss NQR runs 1 to 8, and several real
+# qualifications sit outside it: the Berufsmaturität and the gymnasiale
+# Maturität are access qualifications rather than NQR-levelled ones, and
+# CAS/DAS/MAS are continuing education, which the NQR for vocational
+# education does not cover. A level of 0, or a guessed one, would make
+# those comparable to a Bachelor by accident. So the level is null and the
+# comparison falls back to the type.
+#
+# WHY THE LEVEL IS ALSO NOT A FACT ABOUT THE TYPE. In the Swiss NQR the
+# level is assigned per occupation, not per qualification type: two EFZ
+# professions can sit at different levels. The number below is therefore
+# the usual level for the type, marked `nqr_level_per_occupation: true`
+# wherever it varies, so nothing reads it as the level of a specific
+# diploma. A classified qualification may carry its own level and override
+# it.
+#
+# REQUIREMENTS ARE RULES, with "or equivalent" semantics -- see the
+# `rules` block at the bottom. A posting almost never asks for one exact
+# diploma; it asks for a level, or a type "oder gleichwertige
+# Qualifikation", and storing the literal string loses the comparison.
+taxonomy_version: "1.0.0"
+standard: "Swiss qualification types with NQR levels; ISCED-F 2013 fields of education"
+standard_version: "NQR levels 1-8; ISCED-F 2013 broad fields"
+changed_at: "2026-10-17"
+source_url: "https://www.sbfi.admin.ch/sbfi/en/home/education/swiss-qualifications-framework-for-vet-qualifications.html"
+source_url_confirmed: false
+code_lists:
+  - dimension: qualification_type
+    complete: false
+    todo: >-
+      The types D7 enumerates (eba, efz, bm, gym, bp, hf, hfp, bsc_fh,
+      msc_fh, cas, das, mas, cert) plus the three university degrees a
+      Zurich posting routinely asks for, which D7's list ends with "..."
+      rather than naming (bsc_uni, msc_uni, doctorate). Marked incomplete
+      because that "..." is the owner's to close, and because foreign
+      qualifications are recorded as the Swiss type they are recognised as
+      plus the or_equivalent rule, which is a convention the owner has not
+      confirmed.
+    codes:
+      - code: eba
+        label: "Federal VET certificate (EBA)"
+        label_de: "Eidgenössisches Berufsattest (EBA)"
+        nqr_level: 2
+        nqr_level_per_occupation: true
+      - code: efz
+        label: "Federal VET diploma (EFZ)"
+        label_de: "Eidgenössisches Fähigkeitszeugnis (EFZ)"
+        nqr_level: 4
+        nqr_level_per_occupation: true
+      - code: bm
+        label: "Federal vocational baccalaureate"
+        label_de: "Berufsmaturität"
+        nqr_level: null
+        note: "An access qualification. No NQR level, per D7."
+      - code: gym
+        label: "Academic baccalaureate"
+        label_de: "Gymnasiale Maturität"
+        nqr_level: null
+        note: "An access qualification. No NQR level, per D7."
+      - code: bp
+        label: "Federal diploma of higher education (Berufsprüfung)"
+        label_de: "Berufsprüfung, eidg. Fachausweis"
+        nqr_level: 6
+        nqr_level_per_occupation: true
+      - code: hf
+        label: "College of higher education diploma (HF)"
+        label_de: "Diplom einer höheren Fachschule (HF)"
+        nqr_level: 6
+        nqr_level_per_occupation: true
+      - code: hfp
+        label: "Advanced federal diploma (höhere Fachprüfung)"
+        label_de: "Höhere Fachprüfung, eidg. Diplom"
+        nqr_level: 7
+        nqr_level_per_occupation: true
+      - code: bsc_fh
+        label: "Bachelor, university of applied sciences"
+        label_de: "Bachelor FH"
+        nqr_level: 6
+      - code: msc_fh
+        label: "Master, university of applied sciences"
+        label_de: "Master FH"
+        nqr_level: 7
+      - code: bsc_uni
+        label: "Bachelor, university or federal institute of technology"
+        label_de: "Bachelor Universität oder ETH"
+        nqr_level: 6
+        beyond_d7_list: true
+      - code: msc_uni
+        label: "Master, university or federal institute of technology"
+        label_de: "Master Universität oder ETH"
+        nqr_level: 7
+        beyond_d7_list: true
+      - code: doctorate
+        label: "Doctorate"
+        label_de: "Doktorat"
+        nqr_level: 8
+        beyond_d7_list: true
+      - code: cas
+        label: "Certificate of Advanced Studies (CAS)"
+        label_de: "Certificate of Advanced Studies (CAS)"
+        nqr_level: null
+        note: "Continuing education. No NQR level, per D7."
+      - code: das
+        label: "Diploma of Advanced Studies (DAS)"
+        label_de: "Diploma of Advanced Studies (DAS)"
+        nqr_level: null
+        note: "Continuing education. No NQR level, per D7."
+      - code: mas
+        label: "Master of Advanced Studies (MAS)"
+        label_de: "Master of Advanced Studies (MAS)"
+        nqr_level: null
+        note: "Continuing education. No NQR level, per D7."
+      - code: cert
+        label: "Certificate or course certificate"
+        label_de: "Zertifikat oder Kursbestätigung"
+        nqr_level: null
+        description: "Vendor and professional certificates (a cloud certification, a project-management certificate). No NQR level, per D7."
+  # ISCED-F 2013 BROAD fields, the one-digit-pair level of the standard.
+  # Broad fields only: the narrow (three-digit) and detailed (four-digit)
+  # levels are not shipped, because a posting states a field of study at
+  # roughly this resolution ("ein technisches Studium") and a finer code
+  # would be invented rather than read.
+  - dimension: isced_f
+    complete: true
+    codes:
+      - code: "00"
+        label: "Generic programmes and qualifications"
+      - code: "01"
+        label: "Education"
+      - code: "02"
+        label: "Arts and humanities"
+      - code: "03"
+        label: "Social sciences, journalism and information"
+      - code: "04"
+        label: "Business, administration and law"
+      - code: "05"
+        label: "Natural sciences, mathematics and statistics"
+      - code: "06"
+        label: "Information and communication technologies"
+      - code: "07"
+        label: "Engineering, manufacturing and construction"
+      - code: "08"
+        label: "Agriculture, forestry, fisheries and veterinary"
+      - code: "09"
+        label: "Health and welfare"
+      - code: "10"
+        label: "Services"
+  - dimension: qualification_rule
+    complete: true
+    codes:
+      - code: minimum
+        label: "Required"
+        description: "The posting asks for it. A requirement with no stated level is a minimum, the same reading `requirement_groups` already uses for must-haves."
+      - code: preferred
+        label: "Preferred"
+        description: "\"Von Vorteil\", \"wünschenswert\". Not a filter."
+# The shape of one stored qualification requirement, and what satisfies
+# it. Shape and semantics only: nothing evaluates these yet.
+rules:
+  record: "{rule, type, nqr_level, isced_f, or_equivalent, text}"
+  fields:
+    rule: "minimum or preferred (dimension qualification_rule)"
+    type: "a qualification_type code, or null when the posting names only a level or a field"
+    nqr_level: "1-8 or null. Null is the common case and is not a missing value: see the header."
+    isced_f: "an isced_f broad-field code, or null when the posting names no field"
+    or_equivalent: "boolean, default true"
+    text: "the posting's own wording, kept verbatim"
+  or_equivalent_semantics: >-
+    True means any qualification at or above the rule's NQR level
+    satisfies it, in any field the rule does not restrict. That is the
+    Swiss posting convention ("oder gleichwertige Ausbildung") and it is
+    the default because a posting that names one diploma almost always
+    accepts its equivalents. When a rule has no NQR level -- because its
+    type has none -- "equivalent" can only be read as the same type, so a
+    levelless minimum compares by type alone. False means the posting
+    insisted on that one type, which is rare and worth the explicit field.
+open_questions:
+  - "The SBFI/SERI pages were not fetched in this ticket (no network
+     access). The NQR levels recorded here are the usual levels for each
+     type and are marked per-occupation where they vary; TODO: confirm
+     them against the NQR register at source_url and record a dated
+     standard_version."
+  - "Foreign qualifications have no Swiss type until they are recognised.
+     Recording them as the Swiss type they are recognised as, plus
+     or_equivalent, is this file's proposal and needs the owner's
+     decision."

@@ -5,8 +5,6 @@ surface only."""
 from careeros import vault
 from org_intake import classify as sectors
 
-SIZE_CLASS_ORDER = ('micro', 'small', 'medium', 'large')
-
 def taxonomy_context(root):
     return aggregate_context(vault.list_experiences(root), vault.list_companies(root),
                              sectors.load_isic_sections(), vault.tag_label_map(root))
@@ -62,10 +60,15 @@ def industry_counts(companies, isic_sections):
                                       key=lambda item: (-item[1], isic_labels.get(item[0], item[0]).casefold()))]
 
 def size_counts(companies):
-    """Company size_class breakdown in the canonical micro/small/medium/
-    large order, plus a trailing `unknown` entry for companies with no
-    size_class, so the breakdown always accounts for every company."""
-    counts = {size: 0 for size in SIZE_CLASS_ORDER}
+    """Company size_class breakdown in the vocabulary's own order
+    (`vault.SIZE_CLASSES`, smallest first), plus a trailing `unknown`
+    entry for companies with no size_class, so the breakdown always
+    accounts for every company.
+
+    The order used to be a second copy of the vocabulary in this module.
+    It is the taxonomy's list itself since CAREER-55, so a class added
+    there (`xl`, 2026-10-17) appears here without an edit."""
+    counts = {size: 0 for size in vault.SIZE_CLASSES}
     unknown = 0
     for company in companies:
         size_class = company.get('size_class')
@@ -73,5 +76,5 @@ def size_counts(companies):
             counts[size_class] += 1
         else:
             unknown += 1
-    return [{'size_class': size, 'count': counts[size]} for size in SIZE_CLASS_ORDER] + \
+    return [{'size_class': size, 'count': counts[size]} for size in vault.SIZE_CLASSES] + \
         [{'size_class': 'unknown', 'count': unknown}]

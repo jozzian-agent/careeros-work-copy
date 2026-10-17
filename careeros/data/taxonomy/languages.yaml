@@ -1,0 +1,134 @@
+# Languages and language levels (owner decision, decision sheet
+# CAREER-58, 2026-10-17): ISO 639-1 two-letter codes for the language,
+# CEFR A1 to C2 for the level, and Swiss German as a FLAG rather than a
+# language.
+#
+# WHY SWISS GERMAN IS A FLAG. A Zurich posting routinely asks for
+# "Deutsch (Muttersprache) und Schweizerdeutsch" or for understanding
+# dialect without speaking it. ISO 639-1 has no two-letter code for it at
+# all (it is `gsw` in ISO 639-3, a three-letter code from a different part
+# of the standard), so inventing one would be exactly the fabrication this
+# taxonomy forbids. It is carried as the `gsw_understand` / `gsw_speak`
+# flags on a German language value instead (see value_record.yaml), which
+# also keeps the two asks apart -- understanding and speaking are
+# different requirements and a single language code cannot say which one
+# the posting meant.
+#
+# THE LIST IS A SUBSET, ON PURPOSE. ISO 639-1 has ~184 codes. This file
+# carries the four national languages, English, and the languages the
+# owner's own Zurich postings ask for, and is marked incomplete so no
+# caller mistakes it for the standard. Adding a code is a one-line change
+# plus a version bump; the loader's `complete` flag is what tells a caller
+# that a code missing from this list is not necessarily an invalid code.
+taxonomy_version: "1.0.0"
+standard: "ISO 639-1 (language), CEFR (level)"
+standard_version: "ISO 639-1; CEFR 2001 with the 2020 companion volume"
+changed_at: "2026-10-17"
+source_url: "https://www.loc.gov/standards/iso639-2/php/code_list.php"
+code_lists:
+  - dimension: language
+    complete: false
+    todo: >-
+      Curated subset of ISO 639-1, not the standard's full list. Add a code
+      when a posting asks for a language this list does not have, taking
+      the two-letter code from the ISO 639-1 column of the registration
+      authority's list (source_url above). Never coin one.
+    codes:
+      # The four national languages first, then English, then the rest
+      # alphabetically by code.
+      - code: de
+        label: "German"
+        label_de: "Deutsch"
+        national: true
+      - code: fr
+        label: "French"
+        label_de: "Französisch"
+        national: true
+      - code: it
+        label: "Italian"
+        label_de: "Italienisch"
+        national: true
+      - code: rm
+        label: "Romansh"
+        label_de: "Rätoromanisch"
+        national: true
+      - code: en
+        label: "English"
+        label_de: "Englisch"
+      - code: ar
+        label: "Arabic"
+        label_de: "Arabisch"
+      - code: cs
+        label: "Czech"
+        label_de: "Tschechisch"
+      - code: el
+        label: "Greek"
+        label_de: "Griechisch"
+      - code: es
+        label: "Spanish"
+        label_de: "Spanisch"
+      - code: hr
+        label: "Croatian"
+        label_de: "Kroatisch"
+      - code: hu
+        label: "Hungarian"
+        label_de: "Ungarisch"
+      - code: ja
+        label: "Japanese"
+        label_de: "Japanisch"
+      - code: ko
+        label: "Korean"
+        label_de: "Koreanisch"
+      - code: nl
+        label: "Dutch"
+        label_de: "Niederländisch"
+      - code: pl
+        label: "Polish"
+        label_de: "Polnisch"
+      - code: pt
+        label: "Portuguese"
+        label_de: "Portugiesisch"
+      - code: ro
+        label: "Romanian"
+        label_de: "Rumänisch"
+      - code: ru
+        label: "Russian"
+        label_de: "Russisch"
+      - code: sq
+        label: "Albanian"
+        label_de: "Albanisch"
+      - code: sr
+        label: "Serbian"
+        label_de: "Serbisch"
+      - code: sv
+        label: "Swedish"
+        label_de: "Schwedisch"
+      - code: tr
+        label: "Turkish"
+        label_de: "Türkisch"
+      - code: uk
+        label: "Ukrainian"
+        label_de: "Ukrainisch"
+      - code: zh
+        label: "Chinese"
+        label_de: "Chinesisch"
+  - dimension: cefr
+    complete: true
+    codes:
+      - code: A1
+        label: "A1 Beginner"
+      - code: A2
+        label: "A2 Elementary"
+      - code: B1
+        label: "B1 Intermediate"
+      - code: B2
+        label: "B2 Upper intermediate"
+      - code: C1
+        label: "C1 Advanced"
+      - code: C2
+        label: "C2 Proficient"
+open_questions:
+  - "A posting often asks for a mother tongue (\"Muttersprache\"), which
+     CEFR has no level for -- C2 is the highest and is not the same claim.
+     Whether that becomes a flag beside the level, like Swiss German, or a
+     separate field, is the owner's decision and is not settled here."

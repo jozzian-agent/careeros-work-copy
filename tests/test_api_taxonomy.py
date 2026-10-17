@@ -155,7 +155,7 @@ def test_taxonomy_values(api_client):
     # (kinds/size_classes there, review_flags on the record).
     company = api_client.get('/api/companies/CO-001?view=page').get_json()
     assert company['kinds'] == ['employer', 'institution']
-    assert company['size_classes'] == ['micro', 'small', 'medium', 'large']
+    assert company['size_classes'] == ['micro', 'small', 'medium', 'large', 'xl']
     assert company['company']['review_flags'] == ['sector-ambiguous']
 
 

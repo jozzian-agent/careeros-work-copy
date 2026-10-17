@@ -1,0 +1,103 @@
+# The shape every classified value is stored in (owner decision D4,
+# decision sheet CAREER-58, 2026-10-17), and the three closed vocabularies
+# that shape carries: where a value came from, which source wins when two
+# disagree, and which labelling-guide flags a value may carry.
+#
+# This file is not a taxonomy dimension. It is here, beside the dimensions,
+# because `source`, the precedence order and the flag list are code lists
+# like any other: they are read by `careeros.taxonomy.make_value_record`,
+# they change over time, and the versioning rule (any change bumps
+# taxonomy_version and changed_at) has to apply to them too. Keeping them
+# as Python tuples instead would have put three of the ticket's code lists
+# somewhere other than "where the code lists live".
+#
+# D4's field list is {value, source, confidence, evidence, taxonomy_version,
+# standard_version, classified_at, flags[]}. Two readings of it had to be
+# settled to build the factory, and both are recorded under open_questions
+# below rather than left implicit in the code.
+taxonomy_version: "1.0.0"
+standard: "CareerOS value-record model (owner decision D4)"
+standard_version: "CAREER-58 D4, 2026-10-17"
+changed_at: "2026-10-17"
+code_lists:
+  # Who or what put the value there. `unknown` is NOT a source: a value
+  # nobody could settle is stored as the value `unknown` (see
+  # `unknown_value` below), with the source that failed to settle it.
+  - dimension: source
+    complete: true
+    codes:
+      - code: admin
+        label: "Owner"
+        description: "The owner set it by hand. Human edits always win (PROJECT.md product rule 1)."
+      - code: user
+        label: "User"
+        description: "A logged-in user set it, through the fill-an-empty-field route."
+      - code: feed
+        label: "Structured feed"
+        description: "A structured source that states the value outright: an ATS feed, a register, Wikidata."
+      - code: rule
+        label: "Deterministic rule"
+        description: "A keyword table, a formula or a crosswalk in this repository."
+      - code: llm
+        label: "Model"
+        description: "A language model read it out of free text. The weakest source, and always labelled as made by AI."
+  # The labelling guide's own flags, as listed in decision sheet CAREER-58.
+  # A flag is a note about HOW the value was read, never a second value:
+  # `gsw_speak` on a language record says the posting asked for spoken
+  # Swiss German, it does not make Swiss German a language code (see
+  # languages.yaml).
+  - dimension: flag
+    complete: true
+    codes:
+      - code: implicit
+        label: "Implicit"
+        description: "The posting does not state the value; it follows from what the posting does say."
+      - code: new_skill
+        label: "New skill"
+        description: "The value names a skill the local vocabulary does not have yet, so it needs owner review."
+      - code: multi_role
+        label: "Several roles"
+        description: "One posting covers more than one role, so a single-valued dimension had to pick one."
+      - code: gsw_understand
+        label: "Swiss German, understanding"
+        description: "The posting asks for passive Swiss German. Carried on a language value, never as a language code."
+      - code: gsw_speak
+        label: "Swiss German, speaking"
+        description: "The posting asks for spoken Swiss German. Carried on a language value, never as a language code."
+      - code: assumed_13
+        label: "13th salary assumed"
+        description: "A salary was normalised with the x13 default because the posting did not say (see salary_rules.yaml)."
+      - code: via_agency
+        label: "Via an agency"
+        description: "The posting is published by a staffing agency rather than the employer (see contract.yaml)."
+      - code: sure
+        label: "Sure"
+        description: "The labeller was sure. A labelling-guide flag, not a replacement for `confidence`."
+      - code: unsure
+        label: "Unsure"
+        description: "The labeller was not sure. Reviewing is owed; the value is still a value."
+# Highest precedence first. A stored value is only replaced by a value
+# whose source is strictly earlier in this list, which is the data-side
+# half of "human edits always win": nothing a machine reads can displace
+# an `admin` or `user` value.
+source_precedence: [admin, user, feed, rule, llm]
+# `unknown` is a real value, not a missing one (D4). It is accepted for
+# every dimension, it is never part of a dimension's own code list, and a
+# record carrying it is a record that was classified and came up empty --
+# which is what tells the difference between "not tried" (no record at
+# all) and "tried, found nothing".
+unknown_value: unknown
+open_questions:
+  - "`confidence` has no stated type in D4. The factory takes a number in
+     0..1 (the golden set's own per-row confidence is a percentage) or
+     null, and null means the source does not express one -- an owner edit
+     does not score itself. The capability's size cascade separately uses
+     the words high/low for its own hint confidence
+     (`org_intake.enrich`); nothing converts between the two, and nothing
+     needs to until a pipeline writes these records."
+  - "D4 says the flags carry a `guide_version`, without saying where it
+     sits. The factory stores it as its own key beside `flags`, required
+     whenever `flags` is non-empty, so a flag can always be read back
+     against the guide revision it was chosen under."
+  - "The labelling guide itself is not in this repository, so no current
+     guide version string is recorded here. The caller passes one."

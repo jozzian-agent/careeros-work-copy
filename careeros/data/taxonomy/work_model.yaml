@@ -1,0 +1,42 @@
+# Where the work happens (owner decision, decision sheet CAREER-58,
+# 2026-10-17): three codes, plus a detail block for what the posting
+# actually said.
+#
+# The three codes are what a filter needs. The detail is what a person
+# needs, and a posting states it in a dozen shapes ("2 Tage Homeoffice",
+# "up to 60% remote", "hybrid, Zurich office"). So the code is closed and
+# the detail is open: `onsite_days_per_week` and `remote_share_percent`
+# when the posting gives a number, and `note` for the posting's own words
+# when it does not. A detail never contradicts the code -- a value whose
+# detail disagrees with its code is a review flag, not a third state.
+taxonomy_version: "1.0.0"
+standard: "CareerOS work-model codes"
+standard_version: "CAREER-58, 2026-10-17"
+changed_at: "2026-10-17"
+code_lists:
+  - dimension: work_model
+    complete: true
+    codes:
+      - code: onsite
+        label: "On site"
+        label_de: "Vor Ort"
+      - code: hybrid
+        label: "Hybrid"
+        label_de: "Hybrid"
+      - code: remote
+        label: "Remote"
+        label_de: "Remote"
+        description: "Fully remote. A posting that only allows remote within Switzerland is still remote; the restriction belongs in the detail."
+# The optional keys a work_model value's `detail` may carry. Shape only:
+# nothing is required, and a detail with no key at all is an ordinary
+# value.
+detail_keys:
+  - key: onsite_days_per_week
+    type: number
+    description: "Days per week expected in an office, 0 to 5. Stated by the posting, never inferred from the code."
+  - key: remote_share_percent
+    type: number
+    description: "Share of the workload that may be remote, 0 to 100, in the posting's own terms."
+  - key: note
+    type: string
+    description: "The posting's own wording when it gives no number."

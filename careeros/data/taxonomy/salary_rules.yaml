@@ -1,0 +1,124 @@
+# Salary normalisation rules (owner decision, decision sheet CAREER-58,
+# 2026-10-17). Not a code list: a set of rules that turn whatever a
+# posting says about pay into one comparable figure, plus four public
+# pay-scale tables that stage 4 fills.
+#
+# THE COMPARABLE FIGURE is an annual gross at 100% Pensum, in CHF. Every
+# rule below exists to get from a posting's wording to that, and each
+# rule says what it ASSUMES, because an assumption is the thing that must
+# be visible on the record afterwards: a normalised figure that came from
+# the x13 default carries the `assumed_13` flag (see value_record.yaml),
+# so nothing presents a derived number as a stated one.
+#
+# A RANGE STAYS A RANGE. A posting saying "CHF 110 000 - 130 000" stores
+# both bounds; nothing picks a midpoint. A single figure is min == max.
+# (This is the opposite of the employee-count rule, which resolves a range
+# to its upper bound -- a headcount is one number the posting is vague
+# about, while a salary range is two numbers the employer means.)
+taxonomy_version: "1.0.0"
+standard: "CareerOS salary normalisation"
+standard_version: "CAREER-58, 2026-10-17"
+changed_at: "2026-10-17"
+target:
+  figure: "annual gross, CHF, at 100% Pensum"
+  fields: "{min, max, currency, period_stated, months_assumed, pensum_stated}"
+rules:
+  - id: x13_default
+    label: "Thirteen monthly payments unless the posting says otherwise"
+    formula: "annual = monthly * months"
+    default: "months = 13"
+    flag: assumed_13
+    note: >-
+      A Swiss salary is usually quoted per month and paid in thirteen
+      instalments, so a monthly figure times twelve understates it. The
+      default is 13 and the derived value carries the `assumed_13` flag.
+      A posting that states the number of payments ("12 x", "13.
+      Monatslohn") sets `months` from the posting and raises no flag.
+  - id: hourly_to_annual
+    label: "Hourly rate to an annual figure"
+    formula: "hourly * 40 * 52 / x"
+    as_written: >-
+      The decision sheet's own formula. Read as: hourly * 40 * 52 is the
+      annual gross at a 40-hour week (x = 1). Dividing by x = 12 or 13
+      gives the monthly equivalent over that many payments, which is the
+      shape a posting usually compares against. The annual figure is what
+      is stored.
+    assumptions:
+      - "A 40-hour week as the normalisation convention. It is NOT a claim about any employer's full-time week (41-42 hours is common in Switzerland); see workload.yaml."
+      - "52 weeks, so no holiday deduction. An hourly rate in Switzerland usually includes a holiday supplement already, which this formula neither adds nor removes."
+    note: >-
+      An hourly rate carries no 13th-salary question: the supplement, if
+      any, is inside the rate. So x13_default does not apply on top of
+      this rule.
+  - id: pensum_scaling
+    label: "Scaling between a stated Pensum and 100%"
+    formula: "full_time_equivalent = stated_figure / (pensum / 100)"
+    inverse: "figure_at_pensum = full_time_equivalent * pensum / 100"
+    note: >-
+      A posting states pay for the position it offers. When the Pensum is
+      a range (80-100%, see workload.yaml), the figure is scaled with the
+      bound it was stated for; when the posting does not say which bound,
+      the Pensum maximum is used and the record keeps the stated Pensum
+      so the choice stays visible.
+  - id: no_figure
+    label: "The posting states no salary"
+    note: >-
+      The common case, and not a zero: no salary value is written at all.
+      A public-sector posting that names a wage class instead is resolved
+      through the pay-scale tables below, once those exist; until then it
+      is also no figure, never an estimate.
+# PLACEHOLDERS. Public employers in Switzerland do not print a salary;
+# they print a wage class ("Lohnklasse 21"), and the class is public. Four
+# tables turn a class into a figure. Stage 4 fills them -- this ticket
+# ships the slots so the rule above has somewhere to point, and nothing
+# else.
+#
+# The four employers below are NOT named in the decision sheet; they are
+# this file's reading of which four matter for a Zurich universe, and are
+# marked `proposed` for the owner to confirm or replace. Every table is
+# empty: a wage-class table typed from memory would put a number on
+# someone's salary expectation, which is the worst place in this product
+# to be approximately right.
+pay_scale_tables:
+  - id: bund
+    label: "Federal administration"
+    label_de: "Bundesverwaltung"
+    status: placeholder
+    proposed: true
+    class_field: "Lohnklasse 1-38"
+    source_url: null
+    table: []
+  - id: kanton_zh
+    label: "Canton of Zurich"
+    label_de: "Kanton Zürich"
+    status: placeholder
+    proposed: true
+    class_field: "Lohnklasse"
+    source_url: null
+    table: []
+  - id: stadt_zh
+    label: "City of Zurich"
+    label_de: "Stadt Zürich"
+    status: placeholder
+    proposed: true
+    class_field: "Funktionsstufe / Lohnklasse"
+    source_url: null
+    table: []
+  - id: eth_domain
+    label: "ETH domain"
+    label_de: "ETH-Bereich"
+    status: placeholder
+    proposed: true
+    class_field: "Lohnklasse"
+    source_url: null
+    table: []
+open_questions:
+  - "Which four pay-scale tables the owner means. The four above are
+     proposed; cantonal hospitals and the public-school salary scales are
+     the obvious alternatives."
+  - "A table entry's own shape is not fixed here either, because it
+     depends on what the published tables look like (a class usually has a
+     minimum, a maximum and a step count). Stage 4 settles it with the
+     first real table in hand."
+  - "Currency is assumed CHF throughout. A posting quoting EUR (a
+     cross-border employer) has no rule yet."

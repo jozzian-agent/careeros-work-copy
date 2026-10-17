@@ -1,0 +1,331 @@
+# Job families (owner decision D1, decision sheet CAREER-58, 2026-10-17):
+# the existing 40-value `function` facet, read as the CareerOS job-family
+# layer, with each family's ISCO-08 unit group beside it.
+#
+# WHERE THIS SITS. D1 settles three levels and this file is the middle one:
+#
+#   * CH-ISCO-19, 5 digits -- what a classified job stores. Graded at 4.
+#     See ch_isco19.yaml (the Swiss 5-digit extension is a stub there).
+#   * the job family -- this file. The owner's own 40 labels, which is
+#     what a person searches in ("ICT project manager"), each mapped to
+#     one 4-digit ISCO-08 unit group so a family and a 5-digit code can be
+#     compared at the grading level.
+#   * the ISCO roll-up -- a prefix of the 4-digit code (minor group, sub-
+#     major, major), so nothing needs storing for it.
+#
+# THIS FILE AND esco_occupations.yaml HOLD THE SAME 40 IDS, on purpose and
+# not as a duplicate to tidy away: the seed file is the EXTRACTION source
+# (keywords handed to the prompt, the ESCO citation behind each entry, and
+# the note explaining each local extension) and the facet in the vault is
+# the runtime registry seeded from it. This file is the TAXONOMY layer: the
+# id, its ISCO mapping and how much that mapping can be trusted. The two
+# are kept from drifting by a test rather than by a comment --
+# `tests/test_taxonomy.py` asserts that every family here exists in the
+# seed with the same label, the same isco and a consistent status, so an
+# edit to one file that the other does not follow fails the suite.
+#
+# STATUS, which is the whole point of the file:
+#
+#   * verified (10) -- the seed's ESCO-backed entries. `isco4` is the
+#     first four digits of a real ESCO concept's own code, fetched from
+#     the live ESCO API on 2026-10-16, and `esco_uri` is the citation.
+#   * proposed (25) -- a candidate code, not a citation. Every one was
+#     checked here against the ISCO-08 unit groups recorded in
+#     ch_isco19.yaml, so no family points at a group that does not exist
+#     and no family is unmapped by accident; what is still missing is
+#     confirmation that the group is the RIGHT one, which needs the ESCO
+#     portal or the ILO document. Four carry a `review` marker where that
+#     confirmation is more than a formality -- see them below.
+#   * unmapped (5) -- the `local: true` labels whose golden-set ESCO URIs
+#     404. D1 says leave them unmapped with a review flag, and that is
+#     what `review: unmapped_local_extension` is. Decision 22 scopes the
+#     ISCO roll-up guarantee to ESCO-backed entries and decision 25 keeps
+#     these labels expressible, so a hand-picked code here is exactly the
+#     thing both forbid. They sit in the "unmapped" bucket of any roll-up
+#     report rather than being left out of it.
+#
+# A family is single-valued per job in the sense that one code is graded;
+# a posting covering two roles carries the `multi_role` flag (see
+# value_record.yaml) rather than a second family.
+taxonomy_version: "1.0.0"
+standard: "CareerOS job families over ISCO-08 unit groups"
+standard_version: "function facet as of 2026-10-16 (CAREER-29 follow-up); ISCO-08 unit groups"
+changed_at: "2026-10-17"
+code_lists:
+  - dimension: occupation_family
+    complete: true
+    codes:
+      - code: ict-product-manager
+        label: "ICT product manager"
+        label_de: "ICT-Produktmanager"
+        isco4: "1330"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/a79170ad-0b7b-4697-864f-1748359aa10a"
+      - code: software-developer
+        label: "Software developer"
+        label_de: "Softwareentwickler"
+        isco4: "2512"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/f2b15a0e-e65a-438a-affb-29b9d50b77d1"
+      - code: ict-service-manager
+        label: "ICT service manager"
+        label_de: "IT-Servicemanager"
+        isco4: "1330"
+        status: proposed
+      - code: software-architect
+        label: "Software architect"
+        label_de: "Softwarearchitekt"
+        isco4: "2512"
+        status: proposed
+      - code: ict-system-administrator
+        label: "ICT system administrator"
+        label_de: "Systemadministrator"
+        isco4: "2522"
+        status: proposed
+      - code: ict-security-manager
+        label: "ICT security manager"
+        label_de: "IT-Sicherheitsmanager"
+        isco4: "1330"
+        status: proposed
+      - code: embedded-systems-security-engineer
+        label: "Embedded systems security engineer"
+        label_de: "Sicherheitsingenieur für eingebettete Systeme"
+        isco4: null
+        status: unmapped
+        review: unmapped_local_extension
+      - code: ict-project-manager
+        label: "ICT project manager"
+        label_de: "IT-Projektleiter"
+        isco4: "1330"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/8b6388a4-4904-471b-9331-d3b1211f5525"
+      - code: ict-business-analyst
+        label: "ICT business analyst"
+        label_de: "IT-Business-Analyst"
+        isco4: "2511"
+        status: proposed
+      - code: ict-business-analysis-manager
+        label: "ICT business analysis manager"
+        label_de: "Leiter IT-Business-Analyse"
+        isco4: "2511"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/4b3201cb-ffc5-4f61-9fc3-5c0f0038fa5f"
+      - code: ict-consultant
+        label: "ICT consultant"
+        label_de: "IT-Berater"
+        isco4: "2511"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/b1c80369-067e-4041-84c8-dbe65640a5d8"
+      - code: data-scientist
+        label: "Data scientist"
+        label_de: "Data Scientist"
+        isco4: "2511"
+        status: proposed
+        review: mapping_uncertain
+        review_note: >-
+          ISCO-08 predates the job title: there is no data-scientist unit
+          group. 2511 (systems analysts) and 2120 (mathematicians,
+          actuaries and statisticians) are both defensible readings and
+          the choice decides which roll-up the family lands in (25 ICT
+          professionals vs 21 science and engineering).
+      - code: data-engineer
+        label: "Data engineer"
+        label_de: "Data Engineer"
+        isco4: "2521"
+        status: proposed
+        review: mapping_uncertain
+        review_note: >-
+          2521 is database designers and administrators. A data or
+          analytics engineer builds pipelines rather than administering a
+          database, which reads closer to 2512 (software developers).
+      - code: data-analyst
+        label: "Data analyst"
+        label_de: "Datenanalyst"
+        isco4: "2511"
+        status: proposed
+        review: mapping_uncertain
+        review_note: >-
+          Same open choice as data-scientist, with 3314 (statistical and
+          mathematical associate professionals) as a third candidate for
+          the reporting-analyst end of the label.
+      - code: product-manager
+        label: "Product manager"
+        label_de: "Produktmanager"
+        isco4: "1223"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/9f508305-80ce-4111-8722-f2c9b4a44890"
+        note: >-
+          Verified, and still a surprise worth recording: ISCO-08 1223 is
+          research and development managers. The code is derived from the
+          ESCO concept's own code (1223.1) rather than read off the
+          standard, which is what decision 22 asks for -- so the oddity is
+          ESCO's placement, not this file's reading.
+      - code: chief-product-officer
+        label: "Chief product officer"
+        label_de: "Chief Product Officer"
+        isco4: null
+        status: unmapped
+        review: unmapped_local_extension
+      - code: user-experience-analyst
+        label: "User experience analyst"
+        label_de: "User-Experience-Analyst"
+        isco4: "2166"
+        status: proposed
+        review: mapping_uncertain
+        review_note: >-
+          2166 is graphic and multimedia designers, which fits a designer
+          and not a researcher. The label's own keywords cover both ("ux
+          researcher", "product designer"), so either the code or the
+          label needs splitting.
+      - code: user-interface-designer
+        label: "User interface designer"
+        label_de: "User-Interface-Designer"
+        isco4: "2166"
+        status: proposed
+      - code: marketing-manager
+        label: "Marketing manager"
+        label_de: "Marketingleiter"
+        isco4: "1221"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/6fcf4638-e7c7-4978-9302-9a7b63a3d57c"
+      - code: digital-marketing-manager
+        label: "Digital marketing manager"
+        label_de: "Digital-Marketing-Manager"
+        isco4: null
+        status: unmapped
+        review: unmapped_local_extension
+      - code: sales-manager
+        label: "Sales manager"
+        label_de: "Vertriebsleiter"
+        isco4: "1221"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/a7594892-ff23-4e2a-aedf-2f967ebca15c"
+      - code: technical-sales-representative
+        label: "Technical sales representative"
+        label_de: "Technischer Vertriebsmitarbeiter"
+        isco4: "2433"
+        status: proposed
+      - code: financial-investment-adviser
+        label: "Financial and investment adviser"
+        label_de: "Finanz- und Anlageberater"
+        isco4: "2412"
+        status: proposed
+      - code: banking-products-manager
+        label: "Banking products manager"
+        label_de: "Leiter Bankprodukte"
+        isco4: "1221"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/c530b0ee-46f8-40fb-818c-d9b44b891cb9"
+      - code: financial-analyst
+        label: "Financial analyst"
+        label_de: "Finanzanalyst"
+        isco4: "2413"
+        status: proposed
+      - code: accountant
+        label: "Accountant"
+        label_de: "Buchhalter"
+        isco4: "2411"
+        status: proposed
+      - code: financial-manager
+        label: "Financial manager"
+        label_de: "Leiter Finanzen"
+        isco4: "1211"
+        status: proposed
+      - code: risk-manager
+        label: "Risk manager"
+        label_de: "Risikomanager"
+        isco4: "2413"
+        status: proposed
+        review: mapping_uncertain
+        review_note: >-
+          2413 is financial analysts, which fits credit and market risk.
+          An operational-risk manager is not a financial analyst, and the
+          label's keywords cover both.
+      - code: compliance-officer
+        label: "Compliance officer"
+        label_de: "Compliance-Beauftragter"
+        isco4: "2619"
+        status: proposed
+      - code: human-resources-manager
+        label: "Human resources manager"
+        label_de: "Personalleiter"
+        isco4: "1212"
+        status: proposed
+      - code: recruitment-consultant
+        label: "Recruitment consultant"
+        label_de: "Personalberater"
+        isco4: "2423"
+        status: proposed
+      - code: management-consultant
+        label: "Management consultant"
+        label_de: "Unternehmensberater"
+        isco4: "2421"
+        status: proposed
+      - code: business-consultant
+        label: "Business consultant"
+        label_de: "Businessberater"
+        isco4: "2421"
+        status: verified
+        esco_uri: "http://data.europa.eu/esco/occupation/6a29d804-f775-446c-bec7-35fc4e28ac97"
+      - code: business-development-manager
+        label: "Business development manager"
+        label_de: "Leiter Geschäftsentwicklung"
+        isco4: "1221"
+        status: proposed
+      - code: innovation-manager
+        label: "Innovation manager"
+        label_de: "Innovationsmanager"
+        isco4: "1223"
+        status: proposed
+      - code: innovation-officer
+        label: "Innovation officer"
+        label_de: "Innovationsbeauftragter"
+        isco4: null
+        status: unmapped
+        review: unmapped_local_extension
+      - code: digital-transformation-manager
+        label: "Digital transformation manager"
+        label_de: "Leiter digitale Transformation"
+        isco4: null
+        status: unmapped
+        review: unmapped_local_extension
+      - code: supply-chain-manager
+        label: "Supply chain manager"
+        label_de: "Supply-Chain-Manager"
+        isco4: "1324"
+        status: proposed
+      - code: operations-manager
+        label: "Operations manager"
+        label_de: "Betriebsleiter"
+        isco4: "1219"
+        status: proposed
+      - code: customer-service-manager
+        label: "Customer service manager"
+        label_de: "Kundendienstleiter"
+        isco4: "1219"
+        status: proposed
+  # The three statuses, as a code list of their own, so a reader is not
+  # left to infer the vocabulary from which values happen to appear above.
+  - dimension: occupation_family_status
+    complete: true
+    codes:
+      - code: verified
+        label: "ESCO-verified"
+        description: "isco4 is derived from a validated ESCO concept's own code. A citation."
+      - code: proposed
+        label: "Proposed"
+        description: "A candidate 4-digit group that exists in ISCO-08 but has not been confirmed as the right one."
+      - code: unmapped
+        label: "Unmapped"
+        description: "A local extension with no ESCO concept, and therefore no code. Carries a review flag."
+open_questions:
+  - "25 of 40 families are `proposed`. Confirming one means finding its
+     ESCO concept, taking the first four digits of that concept's code,
+     and filling in `esco_uri` in esco_occupations.yaml -- the route
+     CAREER-29 already documented -- after which this file's status
+     follows. The five `mapping_uncertain` markers are where the answer is
+     likely to be a different code rather than the same one confirmed."
+  - "D1 says store 5-digit codes and grade at 4. Nothing stores a 5-digit
+     code yet, because the CH-ISCO-19 extension list is a stub
+     (ch_isco19.yaml). Until it lands, the family's own 4-digit code is
+     the finest level the product has."

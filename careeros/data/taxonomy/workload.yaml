@@ -1,0 +1,61 @@
+# Workload (owner decision, decision sheet CAREER-58, 2026-10-17): the
+# Swiss Pensum, as a percent range in steps of ten.
+#
+# A Swiss posting states workload as a percentage of a full position, and
+# usually as a range ("80-100%"). So a workload value is a PAIR -- min and
+# max -- over the eleven steps below, and a single-figure posting ("100%")
+# is the pair (100, 100). That is why the code list is the steps rather
+# than a list of ranges: eleven codes with a rule beats fifty-five range
+# codes.
+#
+# Steps of ten, because that is how postings are written. A posting that
+# says 85% rounds to the step that does not overstate what it asks for,
+# which is 80 for a minimum and 90 for a maximum, and the value carries
+# the posting's own figure in its evidence.
+#
+# WHAT 100% MEANS IN HOURS is not fixed nationally: the weekly hours of a
+# full position are the employer's (41-42 in much of the economy, 40 in
+# others). The 40-hour week used by the hourly-salary formula in
+# salary_rules.yaml is a normalisation convention for comparing pay, and
+# deliberately not a claim about any employer's full-time week.
+taxonomy_version: "1.0.0"
+standard: "Swiss Pensum (percent of a full position)"
+standard_version: "CAREER-58, 2026-10-17"
+changed_at: "2026-10-17"
+code_lists:
+  - dimension: workload
+    complete: true
+    codes:
+      - code: "10"
+        label: "10%"
+      - code: "20"
+        label: "20%"
+      - code: "30"
+        label: "30%"
+      - code: "40"
+        label: "40%"
+      - code: "50"
+        label: "50%"
+      - code: "60"
+        label: "60%"
+      - code: "70"
+        label: "70%"
+      - code: "80"
+        label: "80%"
+      - code: "90"
+        label: "90%"
+      - code: "100"
+        label: "100%"
+range:
+  step: 10
+  min: 10
+  max: 100
+  note: >-
+    A workload value is {min, max} over the codes above, min <= max. A
+    single figure is min == max. Zero is not a workload and nothing above
+    100% is one either: a posting asking for more than a full position is
+    asking for overtime, which is a condition and not a Pensum.
+open_questions:
+  - "Steps of ten cannot express the 5% steps a few public-sector
+     postings use (e.g. 85%). The step is the owner's decision; the
+     posting's own figure survives in the value's evidence either way."

@@ -1,0 +1,143 @@
+# Seniority (owner decision D6, decision sheet CAREER-58, 2026-10-17): a
+# six-step scale s0 to s5, two flags beside it, and years of experience as
+# a separate field rather than a step of the scale.
+#
+# WHY A SCALE PLUS FLAGS. The ordinal this replaces mixed three questions
+# into one list: how far into a career a role is (junior, mid, senior),
+# what kind of seniority it is (staff and principal are expert tracks,
+# manager and director are people tracks), and how big the job is. A
+# single list cannot order those -- is a principal engineer above or below
+# a manager? -- so the scale answers only the first question, and
+# `people_lead` and `budget_owner` answer the second without claiming an
+# order. A staff engineer and a team lead are both s4; one has the flag.
+#
+# YEARS ARE SEPARATE, per D6. "5+ years" is what a posting states and it
+# maps onto no step reliably: five years makes a senior developer and a
+# mid-level actuary. Years stay their own field on the job, and the
+# `years_hint` below is documentation of the usual overlap, never a
+# conversion anything applies.
+#
+# THE CROSSWALK AT THE BOTTOM is what lets the retired ordinal's stored
+# values be recomputed on this scale. See its own note: the mapping is
+# deliberately lossy and says so.
+taxonomy_version: "1.0.0"
+standard: "CareerOS seniority scale (owner decision D6)"
+standard_version: "CAREER-58 D6, 2026-10-17"
+changed_at: "2026-10-17"
+code_lists:
+  - dimension: seniority
+    complete: true
+    codes:
+      - code: s0
+        rank: 0
+        label: "Student or intern"
+        label_de: "Studierend oder Praktikum"
+        years_hint: "0"
+      - code: s1
+        rank: 1
+        label: "Entry"
+        label_de: "Einstieg"
+        years_hint: "0-2"
+      - code: s2
+        rank: 2
+        label: "Professional"
+        label_de: "Berufserfahren"
+        years_hint: "2-5"
+      - code: s3
+        rank: 3
+        label: "Senior"
+        label_de: "Senior"
+        years_hint: "5-10"
+      - code: s4
+        rank: 4
+        label: "Lead or expert"
+        label_de: "Lead oder Experte"
+        years_hint: "8+"
+        description: "Team lead, staff/principal expert, department head. The flags tell the two tracks apart."
+      - code: s5
+        rank: 5
+        label: "Executive"
+        label_de: "Geschäftsleitung"
+        years_hint: "12+"
+        description: "Runs a business unit or the company. C-level, director, Geschäftsleitung."
+  # The two flags D6 puts beside the scale. They are dimensions of their
+  # own rather than value-record flags (value_record.yaml), because they
+  # are facts the posting states about the role, not notes about how a
+  # labeller read it.
+  - dimension: seniority_flag
+    complete: true
+    codes:
+      - code: people_lead
+        label: "Leads people"
+        label_de: "Führt Mitarbeitende"
+        description: "Direct reports. A posting saying \"Führungserfahrung\" is evidence; \"Teamplayer\" is not."
+      - code: budget_owner
+        label: "Owns a budget"
+        label_de: "Budgetverantwortung"
+# Old ordinal -> s-scale. The retired list is `careeros.enrich.SENIORITY`
+# with `careeros.enrich.ALIASES` in front of it; both are reproduced here
+# in full so a recomputation needs nothing but this file.
+#
+# LOSSY, AND THAT IS THE POINT: four old values collapse into s4 and two
+# into s5, because the old list ordered an expert track and a people track
+# against each other and this scale refuses to. A `seniority_range`
+# recomputed through this crosswalk is therefore correct but coarser than
+# the old one looked -- the old precision was not real.
+#
+# NOTE ON THE DECISION SHEET'S WORDING: D6 calls the retired ordinal
+# "8-value". The ordinal in `careeros.enrich` has eleven values, listed
+# below. The crosswalk covers all eleven plus the three alias spellings,
+# so no stored value is left without a mapping whichever eight the sheet
+# had in mind.
+crosswalk:
+  old_constant: "careeros.enrich.SENIORITY"
+  old_values:
+    - old: intern
+      seniority: s0
+      flags: []
+    - old: entry
+      seniority: s1
+      flags: []
+    - old: junior
+      seniority: s1
+      flags: []
+    - old: mid
+      seniority: s2
+      flags: []
+    - old: senior
+      seniority: s3
+      flags: []
+    - old: lead
+      seniority: s4
+      flags: [people_lead]
+    - old: staff
+      seniority: s4
+      flags: []
+    - old: principal
+      seniority: s4
+      flags: []
+    - old: manager
+      seniority: s4
+      flags: [people_lead]
+    - old: director
+      seniority: s5
+      flags: [people_lead, budget_owner]
+    - old: executive
+      seniority: s5
+      flags: [people_lead, budget_owner]
+  old_aliases:
+    internship: intern
+    entry-level: entry
+    entry level: entry
+    mid-level: mid
+    mid level: mid
+    associate: junior
+open_questions:
+  - "`careeros.enrich.SENIORITY` is still in use in this ticket: it is
+     what `enrich_company` derives `seniority_range` from, and retiring it
+     means giving that derivation a new reader. This ticket ships data
+     files and a schema and no pipeline change, so the ordinal stays where
+     it is and this crosswalk is what makes its retirement a small change
+     later. Nothing writes an s-code yet."
+  - "Whether `manager` belongs at s4 or s3 is a judgement: the old ordinal
+     ranked it above principal, which this crosswalk preserves."

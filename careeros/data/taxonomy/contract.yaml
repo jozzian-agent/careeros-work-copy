@@ -1,0 +1,62 @@
+# Contract codes (owner decision, decision sheet CAREER-58, 2026-10-17):
+# eight fixed codes, and `via_agency` as a flag rather than a ninth code.
+#
+# WHY THE FLAG IS NOT A CODE. "Temporary assignment" and "published by an
+# agency" are two different facts and a posting can carry either without
+# the other: a staffing firm advertises permanent positions, and an
+# employer hires directly for three months. Folding them into one code
+# would lose whichever half the code did not name. `via_agency` lives in
+# the value record's flags (see value_record.yaml), so it travels with any
+# of the eight codes.
+#
+# HONESTY NOTE ON THE EIGHT. D3..D7 and the employer-type and work-model
+# lists are quoted in the ticket brief value by value. The contract
+# dimension is quoted as "8 fixed codes + via_agency flag" without the
+# eight being named, so the ids below are this file's reading of what a
+# Swiss posting offers, not a transcription of the decision sheet. They
+# need the owner's confirmation before anything classifies against them
+# (see open_questions).
+taxonomy_version: "1.0.0"
+standard: "CareerOS contract codes"
+standard_version: "CAREER-58, 2026-10-17 (code ids pending owner confirmation)"
+changed_at: "2026-10-17"
+code_lists:
+  - dimension: contract
+    complete: true
+    codes:
+      - code: permanent
+        label: "Permanent"
+        label_de: "Festanstellung, unbefristet"
+      - code: fixed_term
+        label: "Fixed term"
+        label_de: "Befristet"
+        description: "An end date or a stated duration, the employer hiring directly."
+      - code: temporary_assignment
+        label: "Temporary assignment"
+        label_de: "Temporäreinsatz"
+        description: "Short placement work. Usually carries the via_agency flag, but not by definition."
+      - code: internship
+        label: "Internship"
+        label_de: "Praktikum"
+      - code: apprenticeship
+        label: "Apprenticeship"
+        label_de: "Berufslehre"
+        description: "Leads to an EBA or EFZ qualification (see qualification.yaml)."
+      - code: trainee_programme
+        label: "Trainee programme"
+        label_de: "Trainee-Programm"
+        description: "A fixed-length graduate programme. Separate from internship because it is a first job, not a study placement."
+      - code: freelance_mandate
+        label: "Freelance or mandate"
+        label_de: "Freelance, Mandat, Auftrag"
+        description: "Not an employment contract: Auftrag or Werkvertrag rather than Arbeitsvertrag."
+      - code: on_call
+        label: "On call"
+        label_de: "Arbeit auf Abruf"
+open_questions:
+  - "The eight ids are proposed, not transcribed from the decision sheet.
+     `working_student` (Werkstudent/Studentenjob) and `seasonal`
+     (Saisonstelle) are the two candidates left out; if the owner's list
+     has either, it replaces `trainee_programme` or `on_call`."
+  - "Nothing classifies against this list yet (no pipeline in this
+     ticket), so a renamed id today costs nothing but a version bump."

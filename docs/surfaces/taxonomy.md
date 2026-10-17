@@ -26,7 +26,8 @@ Industries, Company size. Skills and Industries are sorted by count desc
 then name/label. Skills merges
 the legacy free-text `skills` field with tag tokens on the skill facets
 (`skill/capability`, `skill/domain`), shown by registry label. Company size
-always lists the canonical micro/small/medium/large order plus a trailing
+always lists the size vocabulary's own order
+(micro/small/medium/large/xl, from the taxonomy code list) plus a trailing
 unknown bucket whenever at least one company exists.
 
 ## States

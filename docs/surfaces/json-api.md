@@ -160,7 +160,8 @@ converts template tuples to arrays and rendered Markdown to strings.
   `end_reasons`, `end_note_title`, `closed_review`, `search_so_far`,
   `size_classes`, `entries`, `companies`, `function_options`, `empty`.
   `size_classes` is the company-size scale
-  (micro, small, medium, large), the same key the Companies contracts
+  (micro, small, medium, large, xl — the taxonomy code list, see
+  PROJECT.md "Taxonomy"), the same key the Companies contracts
   carry, so both pages filter over one vocabulary.
   The D7 keys (see [Jobs](jobs.md) for the rules behind them):
   `statuses` is the eight owner statuses in board order,
@@ -180,7 +181,7 @@ converts template tuples to arrays and rendered Markdown to strings.
   `company_industry`, `company_size_class` and `pending`. Companies maps IDs
   to `{name, industry, size_class}`: `industry` is the company's first ISIC
   sector, human-labeled (`None` with no sectors or an unknown code);
-  `size_class` is the raw micro/small/medium/large value (`None` when unset).
+  `size_class` is the raw micro/small/medium/large/xl value (`None` when unset).
   Pending means not enriched, matching the existing card attribute; it is
   distinct from active detail enrichment.
 - Job detail: `job`, `company`, `statuses`, `status_labels`, `function_labels`, `notes`,
@@ -352,8 +353,10 @@ converts template tuples to arrays and rendered Markdown to strings.
   `{skill, count}` row, deduplicated per experience, sorted by count desc
   then name. `industries` is `{code, label, count}` per ISIC section any
   company's `sectors` carries, deduplicated per company. `sizes` is
-  `{size_class, count}` in canonical micro/small/medium/large order plus a
-  trailing `unknown` bucket, always present even when no companies exist.
+  `{size_class, count}` in the size vocabulary's own order
+  (micro/small/medium/large/xl) plus a trailing `unknown` bucket, always
+  present even when no companies exist. One row per class in the
+  vocabulary, so a class added to the taxonomy appears here on its own.
 
 Pure assembly functions in the four existing page modules receive explicit
 record snapshots. Shared read-only loaders supply them to HTML and JSON.

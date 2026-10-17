@@ -1,0 +1,74 @@
+# Company size classes (owner decision D3, decision sheet CAREER-58,
+# 2026-10-17): the BFS class boundaries, plus one Swiss addition.
+#
+# WHAT CHANGED AND WHY. The thresholds this repository shipped until today
+# were inclusive at every boundary (micro <=10, small <=50, medium <=250),
+# which is off by one against both the BFS classes and the EU
+# recommendation `org_intake.classify` cites as their source: EU
+# Recommendation 2003/361/EC Article 2 says a micro enterprise "employs
+# fewer than 10 persons", so a company with exactly 10 people is small,
+# not micro. Same for 50 and 250. D3 settles the boundaries as the BFS
+# classes state them, and they are exclusive at the top of each class.
+#
+# `xl` is NOT a BFS class. D3 adds it because 250+ puts a 300-person
+# company and a 90 000-person bank in one bucket, which is not a useful
+# distinction in a Swiss universe where a handful of employers are that
+# large. It is marked local below so a roll-up to the BFS classes stays
+# possible: large_or_more = large + xl.
+#
+# One scale, as owner decision 2026-10-15 settled: the class is the only
+# size a record stores (`size_class`). The numeric `size_range` bucket is
+# retired and nothing derives one.
+#
+# HEADCOUNT OR FULL-TIME EQUIVALENTS. BFS publishes these classes over
+# both `Beschäftigte` (people employed) and `Vollzeitäquivalente` (FTE),
+# and a part-time-heavy employer can land in different classes under the
+# two. CareerOS classifies on people employed, because that is what a
+# posting or a register states; the choice is recorded here so a later
+# comparison against a BFS table knows which column it is comparing with.
+taxonomy_version: "1.0.0"
+standard: "BFS size classes (Grössenklassen)"
+standard_version: "BFS class boundaries, headcount basis; boundaries identical to EU Recommendation 2003/361/EC Art. 2 headcount criteria"
+changed_at: "2026-10-17"
+source_url: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:32003H0361"
+code_lists:
+  - dimension: company_size
+    complete: true
+    codes:
+      - code: micro
+        label: "Micro"
+        label_de: "Mikro"
+        min: 1
+        max: 9
+      - code: small
+        label: "Small"
+        label_de: "Klein"
+        min: 10
+        max: 49
+      - code: medium
+        label: "Medium"
+        label_de: "Mittel"
+        min: 50
+        max: 249
+      - code: large
+        label: "Large"
+        label_de: "Gross"
+        min: 250
+        max: 999
+      - code: xl
+        label: "Very large"
+        label_de: "Sehr gross"
+        min: 1000
+        max: null
+        local: true
+        note: "CareerOS addition (D3), not a BFS class. Rolls up into `large` for any comparison with a BFS table."
+open_questions:
+  - "The exact BFS publication that states the class boundaries is not
+     pinned here: it could not be fetched in this ticket (no network
+     access), and the EU recommendation above is cited instead because the
+     boundaries are identical and it is verifiable. TODO: pin the BFS
+     STATENT / Unternehmensstruktur publication URL and record it as
+     source_url."
+  - "Companies already stored under the old inclusive thresholds are not
+     migrated in this ticket. `scripts/flag_size_review.py` reports which
+     ones would change class."

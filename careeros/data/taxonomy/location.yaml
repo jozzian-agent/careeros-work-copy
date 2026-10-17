@@ -1,0 +1,145 @@
+# Location (owner decision, decision sheet CAREER-58, 2026-10-17): the
+# BFS municipality number, the canton, and coordinates.
+#
+# WHY THE MUNICIPALITY NUMBER. "Zurich" is written a dozen ways across the
+# owner's own stored postings (Zürich, Zurich, 8004 Zürich, Zürich-Oerlikon,
+# Opfikon), and PROJECT.md's fixed-list section has been asking for "one
+# format" since M1. The BFS Gemeindenummer is that format: a stable
+# integer per municipality, with the canton derivable from it through the
+# official register, so two spellings of one place become one code.
+#
+# THE MUNICIPALITY LIST IS A STUB, on purpose. Switzerland has roughly
+# 2 100 municipalities and the list changes several times a year as
+# municipalities merge. Writing two thousand entries from memory would
+# fabricate most of them, so this file ships the 26 cantons (a list that
+# is complete, short and stable) and an empty municipality list with the
+# BFS register named as its source. `careeros.taxonomy` reports the
+# municipality dimension as incomplete, which is what stops a caller from
+# treating a missing code as an invalid one.
+taxonomy_version: "1.0.0"
+standard: "BFS municipality and canton numbers (Amtliches Gemeindeverzeichnis der Schweiz)"
+standard_version: "canton list stable since 1979 (26 cantons); municipality register revision not pinned"
+changed_at: "2026-10-17"
+source_url: "https://www.bfs.admin.ch/bfs/de/home/grundlagen/agvch.html"
+source_url_confirmed: false
+code_lists:
+  # The BFS canton number is the code, as a string, because every other
+  # code in this taxonomy is a string and a mixed-type lookup is a trap.
+  # The two-letter abbreviation is the one a person reads and the one a
+  # posting prints, so it is kept beside it and never instead of it.
+  - dimension: canton
+    complete: true
+    codes:
+      - code: "1"
+        abbreviation: ZH
+        label: "Zürich"
+      - code: "2"
+        abbreviation: BE
+        label: "Bern / Berne"
+      - code: "3"
+        abbreviation: LU
+        label: "Luzern"
+      - code: "4"
+        abbreviation: UR
+        label: "Uri"
+      - code: "5"
+        abbreviation: SZ
+        label: "Schwyz"
+      - code: "6"
+        abbreviation: OW
+        label: "Obwalden"
+      - code: "7"
+        abbreviation: NW
+        label: "Nidwalden"
+      - code: "8"
+        abbreviation: GL
+        label: "Glarus"
+      - code: "9"
+        abbreviation: ZG
+        label: "Zug"
+      - code: "10"
+        abbreviation: FR
+        label: "Fribourg / Freiburg"
+      - code: "11"
+        abbreviation: SO
+        label: "Solothurn"
+      - code: "12"
+        abbreviation: BS
+        label: "Basel-Stadt"
+      - code: "13"
+        abbreviation: BL
+        label: "Basel-Landschaft"
+      - code: "14"
+        abbreviation: SH
+        label: "Schaffhausen"
+      - code: "15"
+        abbreviation: AR
+        label: "Appenzell Ausserrhoden"
+      - code: "16"
+        abbreviation: AI
+        label: "Appenzell Innerrhoden"
+      - code: "17"
+        abbreviation: SG
+        label: "St. Gallen"
+      - code: "18"
+        abbreviation: GR
+        label: "Graubünden / Grigioni / Grischun"
+      - code: "19"
+        abbreviation: AG
+        label: "Aargau"
+      - code: "20"
+        abbreviation: TG
+        label: "Thurgau"
+      - code: "21"
+        abbreviation: TI
+        label: "Ticino"
+      - code: "22"
+        abbreviation: VD
+        label: "Vaud"
+      - code: "23"
+        abbreviation: VS
+        label: "Valais / Wallis"
+      - code: "24"
+        abbreviation: NE
+        label: "Neuchâtel"
+      - code: "25"
+        abbreviation: GE
+        label: "Genève"
+      - code: "26"
+        abbreviation: JU
+        label: "Jura"
+  - dimension: municipality
+    complete: false
+    todo: >-
+      STUB: no municipality codes are shipped. Load them from the BFS
+      Amtliches Gemeindeverzeichnis (source_url above; the register is
+      published as a downloadable table and changes several times a year
+      through mergers). Each entry needs {code (BFS Gemeindenummer),
+      label (official name), canton (canton code above)}. Do not type
+      entries by hand: a merged-away number that lingers here would
+      silently mislocate every record that carries it.
+    codes: []
+# The shape of one stored location, and which parts are required. Shape
+# only: nothing fills it in this ticket.
+record:
+  fields:
+    municipality: "a BFS Gemeindenummer as a string, or null when the posting names only a region"
+    canton: "a canton code. Required: a posting that names any Swiss place names a canton implicitly, and the canton is what a filter uses."
+    label: "the posting's own place wording, kept verbatim"
+    latitude: "WGS84 decimal degrees, or null"
+    longitude: "WGS84 decimal degrees, or null"
+  coordinates_note: >-
+    Coordinates are stored in WGS84 decimal degrees, which is what a map
+    and a distance calculation want. The BFS register publishes the Swiss
+    LV95 (E/N) system instead, so loading coordinates from it means
+    converting them; this file records the target system so the conversion
+    happens once, at load, rather than being guessed per reader.
+open_questions:
+  - "A job outside Switzerland has no BFS number and no canton. Whether a
+     non-Swiss location is a country code in the same field or a separate
+     dimension is open; the universe is Swiss for now (PROJECT.md M3)."
+  - "The BFS register was not fetched in this ticket (no network access),
+     so the municipality list is empty rather than partial. The canton
+     numbers are the official BFS numbering and were recorded from the
+     standing list; TODO: confirm both lists against the register and
+     record a dated standard_version."

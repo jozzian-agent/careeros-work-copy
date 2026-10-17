@@ -47,7 +47,7 @@ page's own groups, count noun and toggle label:
   classified under, most-used first. A company matches when ANY of its
   sectors is checked.
 - **Size**, multi-select: the size classes companies are actually in, in
-  the scale's own order (micro → large), so the panel never offers a class
+  the scale's own order (micro → xl), so the panel never offers a class
   nothing is in.
 - **Open jobs**: "With open jobs" and "Without open jobs". Neither checked
   is "Any", which is also what Clear and Clear all leave behind.

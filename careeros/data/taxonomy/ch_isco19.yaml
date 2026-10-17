@@ -1,0 +1,131 @@
+# Occupations (owner decision D1, decision sheet CAREER-58, 2026-10-17):
+# store 5-digit CH-ISCO-19 codes, grade at 4 digits.
+#
+# CH-ISCO-19 is the Swiss occupational nomenclature BFS maintains on top
+# of ISCO-08: the first four digits are the international unit group, the
+# fifth is the Swiss subdivision. Grading at four digits is what makes
+# that split usable -- two postings that agree at the unit group are the
+# same occupation for search and similarity, whatever the fifth digit
+# says, and the fifth digit is kept because it is the level the Swiss
+# source states and throwing it away at write time cannot be undone.
+#
+# WHAT IS IN THIS FILE, HONESTLY:
+#
+#   * `isco_unit_group` -- SEED, not the standard. The 19 ISCO-08 unit
+#     groups the 40 job families in occupation_families.yaml point at, and
+#     nothing else: ISCO-08 has 436 unit groups and the other 417 would be
+#     dead weight in a product that classifies office and ICT work in
+#     Zurich. Marked incomplete for exactly that reason, so no caller
+#     reads a missing code as an invalid one. A family mapping that needs
+#     a new group adds it here in the same change (the test in
+#     tests/test_taxonomy.py fails otherwise).
+#   * `ch_isco19` -- A STUB, no entries. The 5-digit Swiss list is
+#     BFS-published and could not be read in this ticket (no network
+#     access). Writing 5-digit codes from memory is the one thing the
+#     ticket's rules forbid outright, so the list is empty with the source
+#     named below. Nothing stores a 5-digit code until it is loaded.
+#
+# ROLL-UPS NEED NO DATA: the minor group is the first three digits of the
+# unit group, the sub-major the first two, the major the first one. That
+# is why the unit group is the level recorded and why a coarser code is
+# never stored (settled 2026-10-16, CAREER-29).
+taxonomy_version: "1.0.0"
+standard: "CH-ISCO-19 (BFS), the Swiss 5-digit extension of ISCO-08 (ILO)"
+standard_version: "CH-ISCO-19; underlying ISCO-08"
+changed_at: "2026-10-17"
+source_url: "https://www.bfs.admin.ch/bfs/en/home/statistics/work-income/nomenclatures.html"
+source_url_confirmed: false
+code_lists:
+  - dimension: isco_unit_group
+    complete: false
+    todo: >-
+      Seed only: the 19 unit groups the job families reference. Extend it
+      when a family needs a group it does not have, taking the code and
+      title from the ILO's ISCO-08 structure, never from a guess.
+    codes:
+      - code: "1211"
+        label: "Finance managers"
+        major_group: "1"
+      - code: "1212"
+        label: "Human resource managers"
+        major_group: "1"
+      - code: "1219"
+        label: "Business services and administration managers not elsewhere classified"
+        major_group: "1"
+      - code: "1221"
+        label: "Sales and marketing managers"
+        major_group: "1"
+      - code: "1223"
+        label: "Research and development managers"
+        major_group: "1"
+      - code: "1324"
+        label: "Supply, distribution and related managers"
+        major_group: "1"
+      - code: "1330"
+        label: "Information and communications technology service managers"
+        major_group: "1"
+      - code: "2166"
+        label: "Graphic and multimedia designers"
+        major_group: "2"
+      - code: "2411"
+        label: "Accountants"
+        major_group: "2"
+      - code: "2412"
+        label: "Financial and investment advisers"
+        major_group: "2"
+      - code: "2413"
+        label: "Financial analysts"
+        major_group: "2"
+      - code: "2421"
+        label: "Management and organisation analysts"
+        major_group: "2"
+      - code: "2423"
+        label: "Personnel and careers professionals"
+        major_group: "2"
+      - code: "2433"
+        label: "Technical and medical sales professionals (excluding ICT)"
+        major_group: "2"
+      - code: "2511"
+        label: "Systems analysts"
+        major_group: "2"
+      - code: "2512"
+        label: "Software developers"
+        major_group: "2"
+      - code: "2521"
+        label: "Database designers and administrators"
+        major_group: "2"
+      - code: "2522"
+        label: "Systems administrators"
+        major_group: "2"
+      - code: "2619"
+        label: "Legal professionals not elsewhere classified"
+        major_group: "2"
+  - dimension: ch_isco19
+    complete: false
+    todo: >-
+      STUB: no 5-digit codes are shipped. Load CH-ISCO-19 from the BFS
+      nomenclature publication (source_url above; the deep link is not
+      confirmed -- the nomenclature is published under BFS statistics for
+      work and income). Each entry needs {code (5 digits as a string),
+      label, label_de, isco_unit_group (the first four digits)}. Do NOT
+      type 5-digit codes by hand: the fifth digit is a Swiss subdivision
+      with no pattern to infer, and a wrong one is indistinguishable from
+      a right one at a glance.
+    codes: []
+grading:
+  level: 4
+  rule: >-
+    Two occupation values match when the first four digits of their codes
+    match. A 4-digit value (a job family's own code, see
+    occupation_families.yaml) grades against a 5-digit value directly.
+open_questions:
+  - "The ISCO-08 unit-group titles above were recorded from the standard's
+     published structure and not re-checked against the ILO document in
+     this ticket. They are titles, not codes -- a wrong title misleads a
+     reader, while the codes themselves are what the mapping and the
+     grading depend on. TODO: confirm the titles, and pin the CH-ISCO-19
+     deep link, in the pass that loads the 5-digit list."
+  - "Whether CH-ISCO-19's 5-digit codes are published with an explicit
+     ISCO-08 parent column, or whether the parent is the first four digits
+     by construction, is unconfirmed. The grading rule above assumes the
+     latter."

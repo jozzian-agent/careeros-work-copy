@@ -99,18 +99,22 @@ def test_match_sectors_known_codes_are_isic_sections():
     assert len(sectors.known_section_codes()) == 21
 
 
-# --- Size derivation: the EU class, and only the EU class -----------------
+# --- Size derivation: the class, and only the class -----------------------
 
 @pytest.mark.parametrize('count,size_class', [
-    (9, 'micro'), (10, 'micro'),
-    (249, 'medium'), (250, 'medium'),
-    (1, 'micro'), (1001, 'large'),
+    (1, 'micro'), (9, 'micro'),
+    (10, 'small'), (49, 'small'),
+    (50, 'medium'), (249, 'medium'),
+    (250, 'large'), (999, 'large'),
+    (1000, 'xl'), (1001, 'xl'),
 ])
 def test_derive_size_boundary_values(count, size_class):
-    # Contract rule 8 (EU 2003/361/EC): thresholds are INCLUSIVE upper
-    # bounds (micro <=10, small <=50, medium <=250), so 10 is micro and
-    # 250 is medium. The old product thresholds were exclusive and are
-    # superseded by the contract.
+    # Owner decision D3 (2026-10-17): the BFS classes, where a published
+    # boundary count is the LOWER edge of the class above -- micro 1-9,
+    # small 10-49, medium 50-249, large 250-999, xl 1000+. The thresholds
+    # were inclusive until then (10 answered micro, 250 medium), which was
+    # off by one against the EU recommendation the capability cites, since
+    # that text says a micro enterprise employs "fewer than 10 persons".
     assert sectors.derive_size(count) == {'size_class': size_class}
 
 
@@ -131,38 +135,41 @@ def test_resolve_employee_count_range_resolves_to_upper_bound():
 def test_fill_size_updates_never_overwrites_populated_field():
     assert sectors.fill_size_updates(1500, '1-10', None) == {}  # contradicts size_range: refuse
     assert sectors.fill_size_updates(1500, None, 'micro') == {}  # contradicts size_class: refuse
-    assert sectors.fill_size_updates(1500, None, None) == {'size_class': 'large'}
-    assert sectors.fill_size_updates(1500, '1000+', None) == {'size_class': 'large'}
-    assert sectors.fill_size_updates(1500, '1000+', 'large') == {}
+    assert sectors.fill_size_updates(1500, None, None) == {'size_class': 'xl'}
+    assert sectors.fill_size_updates(1500, '1000+', None) == {'size_class': 'xl'}
+    assert sectors.fill_size_updates(1500, '1000+', 'xl') == {}
     # CAREER-33: a stored class settles size, so a consistent count has
     # nothing left to fill. It used to complete the pair by filling the
     # numeric range beside it; that scale is retired, and the derivation
     # no longer offers it.
-    assert sectors.fill_size_updates(1500, None, 'large') == {}
+    assert sectors.fill_size_updates(1500, None, 'xl') == {}
     # ...and agreeing with the stored class is not a conflict either.
-    assert sectors.count_conflicts_with_stored_size(1500, None, 'large') is False
+    assert sectors.count_conflicts_with_stored_size(1500, None, 'xl') is False
     assert sectors.count_conflicts_with_stored_size(1500, None, 'micro') is True
+    # D3: 'large' stops at 999, so a 1500-person count contradicts it.
+    assert sectors.count_conflicts_with_stored_size(1500, None, 'large') is True
 
 
 # --- Review fix round finding 1 (rewritten for contract rule 8): an LLM
 # size-class hint must be checked against an already-populated size_range's
-# own implied class(es) before it fills size_class. Under the contract's
-# INCLUSIVE EU thresholds (micro <=10, small <=50, medium <=250, large
-# >250) a bucket's implied classes come from its bounds: '11-50' implies
-# {small} only (both 11 and 50 are 'small'), so 'medium' is NOT compatible;
-# '201-1000' straddles 'medium' (201..250) and 'large' (>250), so both
-# adjacent classes are plausible.
+# own implied class(es) before it fills size_class. A bucket's implied
+# classes are every class it spans under the D3 boundaries (micro 1-9,
+# small 10-49, medium 50-249, large 250-999, xl 1000+): '1-10' spans
+# {micro, small}, '11-50' spans {small, medium}, and '201-1000' spans
+# three classes rather than two, {medium, large, xl}.
 @pytest.mark.parametrize('size_hint,size_range,expected', [
-    ('large', '1000+', True),
+    ('xl', '1000+', True),
+    ('large', '1000+', False),  # every count in '1000+' is xl under D3
     ('large', '1-10', False),  # '1-10' tops out at 10 employees: never 'large'
-    ('medium', '11-50', False),  # inclusive bounds: 11 and 50 are both 'small'
+    ('medium', '11-50', True),  # count==50 is 'medium' under D3
     ('small', '11-50', True),
     ('large', '11-50', False),
     ('medium', '51-200', True),
-    ('medium', '201-1000', True),  # boundary-spanning: count==201..250 is 'medium'
-    ('large', '201-1000', True),  # ...and count==251..1000 is 'large'
+    ('medium', '201-1000', True),  # count==201..249 is 'medium'
+    ('large', '201-1000', True),  # ...250..999 is 'large'
+    ('xl', '201-1000', True),  # ...and 1000 is xl
     ('small', '201-1000', False),
-    ('small', '1-10', False),  # inclusive: 1..10 is 'micro', never 'small'
+    ('small', '1-10', True),  # count==10 is 'small' under D3
     ('micro', '1-10', True),
 ])
 def test_size_class_hint_consistent_with_range(size_hint, size_range, expected):
@@ -263,10 +270,10 @@ def test_the_enrichment_derivation_no_longer_offers_a_size_range_at_all(tmp_path
     the write gate stays as the guard for a legacy payload that names the
     range itself (see the test above)."""
     derived = sectors.derive_size(1500)
-    assert derived == {'size_class': 'large'}
+    assert derived == {'size_class': 'xl'}
     assert 'size_range' not in derived
     company = vault.save_company(tmp_path, {'name': 'Enriched Co'} | derived)
-    assert company['size_class'] == 'large' and company['size_range'] is None
+    assert company['size_class'] == 'xl' and company['size_range'] is None
 
 
 def test_size_class_enum_validated(tmp_path):
@@ -728,7 +735,7 @@ def test_wikidata_signal_point_value_fills_the_size_class(root):
     product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500), collector=collector)
     saved = vault.load_company(root, company['id'])
-    assert saved['size_class'] == 'large'
+    assert saved['size_class'] == 'xl'
     # The capability derives the numeric range beside the class; the
     # product keeps the class alone (owner decision 2026-10-15).
     assert saved['size_range'] is None
@@ -753,11 +760,11 @@ def test_wikidata_signal_count_consistent_with_a_stored_class_changes_nothing(ro
     the class became the only scale, this call filled the numeric range
     beside it; that second scale is retired, so there is no half-filled
     pair left for it to complete."""
-    company = vault.save_company(root, {'name': 'Half Filled Co', 'size_class': 'large'})
+    company = vault.save_company(root, {'name': 'Half Filled Co', 'size_class': 'xl'})
     product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,),
                             fetch=_wikidata_fetch_for_count(1500))
     saved = vault.load_company(root, company['id'])
-    assert saved['size_class'] == 'large'
+    assert saved['size_class'] == 'xl'
     assert saved['size_range'] is None
     assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
 
@@ -800,8 +807,8 @@ def test_wikidata_signal_multiple_statements_latest_wins_through_cascade(root):
 
     product_enrich.backfill(root, sector_signals=(), size_signals=(company_lookup._wikidata_signal,), fetch=fetch)
     saved = vault.load_company(root, company['id'])
-    # The 2024 count (1500, large) rather than the 2020 one (100, medium).
-    assert saved['size_class'] == 'large'
+    # The 2024 count (1500, xl) rather than the 2020 one (100, medium).
+    assert saved['size_class'] == 'xl'
     assert saved['size_range'] is None
 
 
@@ -1624,13 +1631,15 @@ def test_llm_signal_size_hint_compatible_with_populated_range_fills_size_class(t
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
-        'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'large'})))
+        'sector': None, 'sector_label': None, 'confidence': 'high', 'size_hint': 'xl'})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Compatible Range Co'})
     write_legacy_size_range(tmp_path, company['id'], '1000+')
     product_enrich.backfill(tmp_path, sector_signals=(), size_signals=(company_lookup._llm_signal,))
     saved = vault.load_company(tmp_path, company['id'])
-    assert saved['size_class'] == 'large'
+    # The hint is 'xl' and not 'large': under D3 every count in the
+    # '1000+' bucket is xl, so 'large' is no longer compatible with it.
+    assert saved['size_class'] == 'xl'
     assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
 
 
@@ -1997,11 +2006,11 @@ def test_retry_company_leaves_an_owner_approved_size_class_untouched(client, roo
     monkeypatch.setattr(org_fetch, 'default_fetch', lambda url:
                         '<script type="application/ld+json">{"numberOfEmployees":1500}</script>')
     company = vault.save_company(root, {'name': 'Settled Size Co', 'website': 'https://settled.example',
-                                        'size_class': 'large'})
+                                        'size_class': 'xl'})
     response = client.post('/api/companies/' + company['id'] + '/retry')
     assert response.status_code == 200
     saved = vault.load_company(root, company['id'])
-    assert saved['size_class'] == 'large'
+    assert saved['size_class'] == 'xl'
     assert saved['size_range'] is None
     assert company_lookup.FLAG_SIZE_INCONSISTENT not in (saved.get('review_flags') or [])
     # Nothing was filled, and the accounting says so: while the cascade

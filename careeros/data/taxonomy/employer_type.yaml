@@ -1,0 +1,44 @@
+# What kind of organisation the employer is (owner decision, decision
+# sheet CAREER-58, 2026-10-17, taken from the labelling guide's own
+# employer-type dimension).
+#
+# This is a dimension of the EMPLOYER, not of the posting: a job published
+# by a staffing agency for a bank is a bank job with the `via_agency` flag
+# on its contract value (see contract.yaml), not an `agency` job. The
+# `agency` value below is for a record whose own business is staffing.
+#
+# It does not replace the existing company `kind` field
+# (`vault.KINDS`: employer / institution), which answers a different
+# question -- whether the record is a thing that hires at all. A company
+# can be kind=employer and employer_type=public_enterprise.
+taxonomy_version: "1.0.0"
+standard: "CareerOS employer types (labelling guide)"
+standard_version: "CAREER-58, 2026-10-17"
+changed_at: "2026-10-17"
+code_lists:
+  - dimension: employer_type
+    complete: true
+    codes:
+      - code: private
+        label: "Private company"
+        label_de: "Privatunternehmen"
+      - code: public
+        label: "Public administration"
+        label_de: "Öffentliche Verwaltung"
+        description: "Federal, cantonal or communal administration, and public schools and universities."
+      - code: public_enterprise
+        label: "Public enterprise"
+        label_de: "Öffentliches Unternehmen"
+        description: "A company the state owns or controls that trades on the market (SBB, Post, a cantonal bank, a utility)."
+      - code: nonprofit
+        label: "Non-profit"
+        label_de: "Non-Profit-Organisation"
+        description: "Association, foundation or cooperative whose purpose is not profit."
+      - code: international_org
+        label: "International organisation"
+        label_de: "Internationale Organisation"
+        description: "UN agencies, the ICRC, CERN, sport federations. Relevant in Switzerland because their staff hold Ci permits rather than ordinary ones (see permit.yaml)."
+      - code: agency
+        label: "Staffing agency"
+        label_de: "Personaldienstleister"
+        description: "The organisation's own business is placing people. Only for the agency itself."

@@ -1,0 +1,75 @@
+# Skills: the one dimension this ticket deliberately does NOT turn into a
+# code list (decision sheet CAREER-58, 2026-10-17 -- "ESCO skill codes
+# stay as-is").
+#
+# WHY THERE IS NO LIST HERE. ESCO has roughly 14 000 skill concepts, and
+# draft taxonomy choice 12 (confirmed) already rejected ESCO/ISCO for
+# skills as oversized, keeping a small local vocabulary instead. That
+# vocabulary is not a static file: it is the `skill/capability` and
+# `skill/domain` facets of the vault's own tag registry (`tags.yaml`),
+# which is open-with-review (choice 10) and grows as postings arrive. A
+# second copy here would be a second registry, which choice 24 forbids in
+# as many words. So this file carries the CONVENTION and no codes.
+#
+# WHAT A SKILL VALUE LOOKS LIKE TODAY. A stored skill is a tag token,
+# `facet:id`, validated by `careeros.vault.TAG_TOKEN_RE` against the fixed
+# facet list `careeros.vault.TAG_FACETS`:
+#
+#     skill/capability:stakeholder-management
+#     skill/domain:payments
+#     tool:kubernetes
+#
+# An ESCO-backed skill keeps its ESCO identity the way the function facet
+# keeps its occupation identity: the token is local, and the ESCO URI sits
+# on the registry entry as a citation. Nothing converts a URI into a code.
+#
+# THE `cos:skill:*` CONVENTION, AND THE CONFLICT IT CARRIES. The decision
+# sheet names `cos:skill:*` as the shape of a CareerOS-local skill code.
+# Written literally, that string is not a valid tag token in this
+# repository: `TAG_TOKEN_RE` is `([a-z0-9/_-]+):([a-z0-9-]+)` matched with
+# `re.fullmatch`, and the id half admits no colon, so `cos:skill:python`
+# is rejected by `vault.validate_tags` today. The two readings and what
+# each would cost are below under `local_code_convention`. Nothing is
+# migrated either way in this ticket: the existing tokens stay exactly as
+# they are, and the decision is the owner's.
+taxonomy_version: "1.0.0"
+standard: "ESCO skills (citations only); CareerOS-local skill vocabulary"
+standard_version: "CAREER-58, 2026-10-17"
+changed_at: "2026-10-17"
+# No code_lists key on purpose: this dimension has no shippable code list.
+# `careeros.taxonomy` therefore registers no `skill` dimension, and
+# `valid_code('skill', ...)` raises for an unknown dimension rather than
+# answering a question this file cannot answer. The vocabulary's own
+# validator is `vault.validate_tags`, which reads the vault registry.
+registry:
+  lives_in: "the vault's tags.yaml, facets skill/capability and skill/domain"
+  validator: "careeros.vault.validate_tags"
+  governance: "open-with-review (draft taxonomy choice 10, confirmed)"
+esco_skills:
+  rule: >-
+    ESCO skill concepts are referenced, never copied: a registry entry may
+    carry an ESCO URI as a citation, under the same rule the function
+    facet follows -- every URI validated against the live ESCO API before
+    it enters the vocabulary, and a label whose URI 404s recorded as a
+    local extension with a visible marker instead.
+local_code_convention:
+  decision_sheet_form: "cos:skill:<slug>"
+  stored_form_today: "skill/capability:<slug>, skill/domain:<slug>"
+  readings:
+    - reading: "`cos:` is a namespace prefix, so the token becomes cos:skill:<slug>."
+      cost: >-
+        Changes the token grammar (`TAG_TOKEN_RE`) and rewrites or
+        tombstones every referencing experience AND job, which is what
+        choice 10 requires of an id change. Nothing in the product reads a
+        namespace today, so the prefix buys nothing until a second
+        vocabulary needs telling apart.
+    - reading: "`cos:skill:*` names the IDEA of a CareerOS-local skill code, which the existing skill/* facets already implement."
+      cost: "Nothing. No migration, no grammar change, and the facet already says local."
+  recommendation: >-
+    The second reading, unless the owner wants the namespace for a reason
+    this file does not know about. Recorded as a recommendation and not as
+    a decision.
+open_questions:
+  - "Whether `cos:skill:*` is a literal token shape or a description of
+     the existing local facets. Until the owner says, the stored shape is
+     unchanged and this file is the record of the question."

@@ -1,0 +1,74 @@
+# Work-permit dimensions (owner decision, decision sheet CAREER-58,
+# 2026-10-17). Two code lists, because a permit is a fact about a PERSON
+# and what a posting says about permits is a fact about the JOB.
+#
+#   * `permit` -- the Swiss permit categories, as the State Secretariat
+#     for Migration (SEM) issues them. A letter, not a label CareerOS
+#     invented.
+#   * `permit_requirement` -- the job-side rule: what the posting says it
+#     will accept. Four values, `unknown` among them, because most
+#     postings say nothing at all and "said nothing" is not the same
+#     answer as "open to anyone".
+#
+# A posting is `open` only when it says so or when nothing about the role
+# could require a permit question; silence is `unknown`. That follows the
+# product rule that only confident matches fill anything.
+taxonomy_version: "1.0.0"
+standard: "Swiss residence and work permit categories (SEM)"
+standard_version: "SEM permit categories; revision not pinned (see open_questions)"
+changed_at: "2026-10-17"
+source_url: "https://www.sem.admin.ch/sem/en/home/themen/aufenthalt/nicht_eu_efta.html"
+source_url_confirmed: false
+code_lists:
+  - dimension: permit
+    complete: true
+    codes:
+      - code: L
+        label: "Short-stay permit (L)"
+        label_de: "Kurzaufenthaltsbewilligung (L)"
+      - code: B
+        label: "Residence permit (B)"
+        label_de: "Aufenthaltsbewilligung (B)"
+      - code: C
+        label: "Settlement permit (C)"
+        label_de: "Niederlassungsbewilligung (C)"
+      - code: Ci
+        label: "Residence permit with gainful employment (Ci)"
+        label_de: "Aufenthaltsbewilligung mit Erwerbstätigkeit (Ci)"
+        description: "Family members of staff of embassies and international organisations (see employer_type.yaml, international_org)."
+      - code: G
+        label: "Cross-border commuter permit (G)"
+        label_de: "Grenzgängerbewilligung (G)"
+      - code: F
+        label: "Provisionally admitted person (F)"
+        label_de: "Vorläufig aufgenommene Person (F)"
+      - code: N
+        label: "Asylum seeker (N)"
+        label_de: "Asylsuchende Person (N)"
+      - code: S
+        label: "Person in need of protection (S)"
+        label_de: "Schutzbedürftige Person (S)"
+  - dimension: permit_requirement
+    complete: true
+    codes:
+      - code: open
+        label: "Open to any work authorisation"
+        description: "The posting states it does not ask about permits, or the role is one a permit question cannot arise for."
+      - code: permit_required
+        label: "An existing permit is required"
+        description: "The posting asks for a Swiss or EU/EFTA work authorisation the applicant already holds."
+      - code: sponsorship
+        label: "The employer sponsors a permit"
+        description: "The posting offers to apply for a permit (relocation, work visa support)."
+      - code: unknown
+        label: "The posting does not say"
+        description: "The default. Silence is not openness."
+open_questions:
+  - "Swiss and EU/EFTA citizens hold no permit at all, so a seeker-side
+     profile needs a 'no permit needed' value that is not a SEM category.
+     That value belongs to the profile dimension, which this ticket does
+     not create, and it is deliberately not added to the SEM list here."
+  - "The SEM pages were not fetched in this ticket (no network access), so
+     the categories are recorded from the standing SEM scheme and the
+     revision is not pinned. TODO: confirm the list and the wording
+     against the SEM page above and record a dated standard_version."

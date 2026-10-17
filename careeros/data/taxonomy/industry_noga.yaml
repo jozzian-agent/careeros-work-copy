@@ -1,0 +1,167 @@
+# Industry (owner decision D2, decision sheet CAREER-58, 2026-10-17):
+# NOGA replaces the ISIC sections. A record stores the 2-DIGIT DIVISION;
+# the section is derived from it.
+#
+# WHY DIVISIONS. A section is 21 buckets for the whole economy, so "J,
+# information and communication" holds a telecom operator, a software
+# house and a publisher. That is too coarse for the industry filter the
+# Jobs board already has. The division is the next level down and is what
+# the Swiss register states, so storing the division and deriving the
+# section keeps the filter the product has today and makes a finer one
+# possible without a second classification pass.
+#
+# WHAT IS IN THIS FILE, HONESTLY:
+#
+#   * the 21 sections -- COMPLETE. The letters and labels are the ones
+#     this repository already ships in `careeros/data/isic_sections.yaml`,
+#     reused verbatim rather than retyped, because NACE Rev. 2 (which NOGA
+#     2008 implements) shares ISIC Rev. 4's section letters and titles.
+#     That shared level is also what makes D2 cheap: a company already
+#     storing the section letter 'J' keeps a meaningful value.
+#   * the divisions -- A STUB, no entries. The BFS NOGA publication could
+#     not be read in this ticket (no network access), and the division
+#     list is the one place where typing from memory would put a wrong
+#     label on a real code. The ticket's own rule is explicit about this
+#     case: ship a stub with the source URL and a TODO, never invent
+#     entries.
+#   * the section-of-division ranges -- RECORDED BUT UNVERIFIED, so that
+#     "the section is derived" is implementable the day the divisions
+#     land. They are the NOGA 2008 / NACE Rev. 2 structure. Note that the
+#     ranges cannot be expanded into a division list: the numbering has
+#     gaps (there is no division 34, 40 or 44), so every two-digit number
+#     inside a range is NOT a division.
+#
+# WHICH REVISION IS CURRENT is the second half of D2 and is NOT settled
+# here. A NOGA 2025 revision following NACE Rev. 2.1 is reported to have
+# been introduced for statistics from reference year 2025, which would
+# make NOGA 2008 the predecessor -- but confirming that, and with it which
+# revision CareerOS should classify against, needs the BFS page. Until
+# then `standard_version` says so in words rather than naming a revision
+# this file cannot stand behind. Rev. 2.1 restructured parts of the
+# classification, so the ranges below must be re-confirmed against
+# whichever revision is adopted, not assumed to carry over.
+taxonomy_version: "1.0.0"
+standard: "NOGA (Nomenclature générale des activités économiques), the Swiss implementation of NACE"
+standard_version: "UNCONFIRMED: NOGA 2008 (NACE Rev. 2) or NOGA 2025 (NACE Rev. 2.1) -- see the header and open_questions"
+changed_at: "2026-10-17"
+source_url: "https://www.bfs.admin.ch/bfs/en/home/statistics/industry-services/nomenclatures/noga.html"
+source_url_confirmed: false
+code_lists:
+  - dimension: noga_section
+    complete: true
+    codes:
+      - code: A
+        label: "Agriculture, forestry and fishing"
+        label_de: "Land- und Forstwirtschaft, Fischerei"
+      - code: B
+        label: "Mining and quarrying"
+        label_de: "Bergbau und Gewinnung von Steinen und Erden"
+      - code: C
+        label: "Manufacturing"
+        label_de: "Verarbeitendes Gewerbe"
+      - code: D
+        label: "Electricity, gas, steam and air conditioning supply"
+        label_de: "Energieversorgung"
+      - code: E
+        label: "Water supply; sewerage, waste management and remediation activities"
+        label_de: "Wasserversorgung; Abwasser- und Abfallentsorgung"
+      - code: F
+        label: "Construction"
+        label_de: "Baugewerbe"
+      - code: G
+        label: "Wholesale and retail trade; repair of motor vehicles and motorcycles"
+        label_de: "Handel; Instandhaltung und Reparatur von Kraftfahrzeugen"
+      - code: H
+        label: "Transportation and storage"
+        label_de: "Verkehr und Lagerei"
+      - code: I
+        label: "Accommodation and food service activities"
+        label_de: "Gastgewerbe/Beherbergung"
+      - code: J
+        label: "Information and communication"
+        label_de: "Information und Kommunikation"
+      - code: K
+        label: "Financial and insurance activities"
+        label_de: "Erbringung von Finanz- und Versicherungsdienstleistungen"
+      - code: L
+        label: "Real estate activities"
+        label_de: "Grundstücks- und Wohnungswesen"
+      - code: M
+        label: "Professional, scientific and technical activities"
+        label_de: "Erbringung von freiberuflichen, wissenschaftlichen und technischen Dienstleistungen"
+      - code: N
+        label: "Administrative and support service activities"
+        label_de: "Erbringung von sonstigen wirtschaftlichen Dienstleistungen"
+      - code: O
+        label: "Public administration and defence; compulsory social security"
+        label_de: "Öffentliche Verwaltung, Verteidigung; Sozialversicherung"
+      - code: P
+        label: "Education"
+        label_de: "Erziehung und Unterricht"
+      - code: Q
+        label: "Human health and social work activities"
+        label_de: "Gesundheits- und Sozialwesen"
+      - code: R
+        label: "Arts, entertainment and recreation"
+        label_de: "Kunst, Unterhaltung und Erholung"
+      - code: S
+        label: "Other service activities"
+        label_de: "Erbringung von sonstigen Dienstleistungen"
+      - code: T
+        label: "Activities of households as employers"
+        label_de: "Private Haushalte mit Hauspersonal"
+      - code: U
+        label: "Activities of extraterritorial organizations and bodies"
+        label_de: "Extraterritoriale Organisationen und Körperschaften"
+  - dimension: noga_division
+    complete: false
+    todo: >-
+      STUB: no divisions are shipped. Load the two-digit divisions and
+      their official labels from the BFS NOGA publication (source_url
+      above), for whichever revision D2's open half settles on. Each entry
+      needs {code (two digits, as a string, leading zero kept), label,
+      label_de, section}. The numbering has gaps, so the list cannot be
+      generated from the ranges below.
+    codes: []
+# How a section is derived from a division (D2: "sections derived").
+# UNVERIFIED: this is the NOGA 2008 / NACE Rev. 2 structure as recorded
+# here, not a reading of the BFS document, and NACE Rev. 2.1 changed parts
+# of it. Confirm it in the same pass that loads the divisions.
+derivation:
+  verified: false
+  rule: "A division's section is the section whose range contains it. Ranges are inclusive and do not overlap."
+  section_of_division:
+    A: ["01", "03"]
+    B: ["05", "09"]
+    C: ["10", "33"]
+    D: ["35", "35"]
+    E: ["36", "39"]
+    F: ["41", "43"]
+    G: ["45", "47"]
+    H: ["49", "53"]
+    I: ["55", "56"]
+    J: ["58", "63"]
+    K: ["64", "66"]
+    L: ["68", "68"]
+    M: ["69", "75"]
+    N: ["77", "82"]
+    O: ["84", "84"]
+    P: ["85", "85"]
+    Q: ["86", "88"]
+    R: ["90", "93"]
+    S: ["94", "96"]
+    T: ["97", "98"]
+    U: ["99", "99"]
+open_questions:
+  - "D2 asks which NOGA revision is current and for it to be recorded.
+     Unanswered: it needs the BFS page, which could not be fetched. TODO:
+     confirm NOGA 2008 vs NOGA 2025, record it in standard_version, and
+     re-confirm the derivation ranges against that revision."
+  - "`careeros/data/isic_sections.yaml` is still the live sector source:
+     the enrichment cascade keyword-matches against it and company
+     records store its letters (`vault.known_section_codes`). D2 is a
+     replacement of the standard, not of the stored values, and nothing in
+     this ticket migrates or rewires either. The section letters coincide,
+     so the two lists do not currently disagree -- but they are two files
+     carrying one list, which is a duplicate to remove when the divisions
+     land and the ISIC file retires."

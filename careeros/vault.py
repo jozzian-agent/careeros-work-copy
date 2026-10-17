@@ -12,13 +12,22 @@ import uuid
 
 from org_intake.classify import known_section_codes, match_sectors
 from org_intake.url import normalize_url
+from careeros import taxonomy
 from careeros.intake import posting_ats
 
 _logger = logging.getLogger(__name__)
 
 LISTS = ('roles', 'must_haves', 'nice_to_haves', 'avoid')
 KINDS = ('employer', 'institution')
-SIZE_CLASSES = ('micro', 'small', 'medium', 'large')
+# The one size scale (owner decision 2026-10-15), read from the taxonomy
+# code list rather than retyped here (CAREER-55): the same vocabulary used
+# to live in three places -- this tuple, `web.pages.taxonomy`'s own
+# SIZE_CLASS_ORDER and the capability's `classify.SIZE_CLASSES` -- and two
+# of the three were orderings of the same list. The capability keeps its
+# own constant, because a capability imports nothing from the product;
+# `tests/test_taxonomy.py` pins the two against each other so they cannot
+# drift. `xl` joined the list on 2026-10-17 (owner decision D3).
+SIZE_CLASSES = taxonomy.codes('company_size')
 COMPANY_LINK_REASONS = ('ats_tenant', 'domain', 'name_exact', 'fuzzy_name',
                         'employer_differs_from_tenant', 'shared_tenant', 'new_company', 'manual',
                         'ambiguous_exact')

@@ -83,6 +83,9 @@ def test_industry_counts_falls_back_to_the_code_for_an_unknown_section():
 
 
 def test_size_counts_canonical_order_with_an_honest_unknown_bucket():
+    """Every class in the vocabulary gets a row, in the vocabulary's own
+    order, whether or not a company is in it -- including `xl`, which
+    joined the list with the BFS boundaries (D3, 2026-10-17)."""
     companies = [{'size_class': 'small'}, {'size_class': 'small'}, {'size_class': 'large'},
                  {'size_class': None}, {}]
     assert taxonomy.size_counts(companies) == [
@@ -90,6 +93,7 @@ def test_size_counts_canonical_order_with_an_honest_unknown_bucket():
         {'size_class': 'small', 'count': 2},
         {'size_class': 'medium', 'count': 0},
         {'size_class': 'large', 'count': 1},
+        {'size_class': 'xl', 'count': 0},
         {'size_class': 'unknown', 'count': 2},
     ]
 
@@ -103,7 +107,7 @@ def test_aggregate_context_shape():
         'industries': [{'code': 'J', 'label': 'Information and communication', 'count': 1}],
         'sizes': [{'size_class': 'micro', 'count': 0}, {'size_class': 'small', 'count': 1},
                   {'size_class': 'medium', 'count': 0}, {'size_class': 'large', 'count': 0},
-                  {'size_class': 'unknown', 'count': 0}],
+                  {'size_class': 'xl', 'count': 0}, {'size_class': 'unknown', 'count': 0}],
         'tag_labels': {'function:builder': {'label': 'Builder', 'local': True}},
     }
 

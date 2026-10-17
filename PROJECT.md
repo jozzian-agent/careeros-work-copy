@@ -249,6 +249,31 @@ Owner and Friend, while the stored fixed list is `admin` and `tester`;
 the mapping is in that table, and the owner decided 2026-10-17 to keep
 both: the stored names stay as they are.
 
+2026-10-17, same day: the taxonomy stops being tuples scattered through
+the code and becomes versioned data files (CAREER-55, owner decisions D1,
+D2, D3, D4, D6, D7 on decision sheet CAREER-58). Sixteen files in
+`careeros/data/taxonomy/` and one reader, `careeros/taxonomy.py`; the
+Taxonomy section below is the one home for what they hold and how they
+are versioned. Three things changed in the app rather than only in data.
+The size boundaries are the BFS ones (micro 1-9, small 10-49, medium
+50-249, large 250-999, plus a new `xl` for 1000+), replacing thresholds
+that were inclusive at every boundary and therefore one off against the
+EU recommendation the capability's own contract cites; that edit is in
+the capability working tree, so the pin moves. The size vocabulary is one
+list instead of three — `vault.SIZE_CLASSES` is the code list itself and
+`web.pages.taxonomy`'s own copy of the order is gone, while the
+capability keeps its constant with a test pinning the two together. And
+no stored company is migrated: `scripts/flag_size_review.py` reports
+which records a re-derivation would move, writes nothing, and on the live
+vault finds nothing it can check, because 36 of the 53 companies hold a
+class with no headcount stored to re-derive it from. Three lists ship as
+honest stubs with their source and a TODO (CH-ISCO-19's 5-digit codes,
+the BFS municipality register, the NOGA divisions) because they could not
+be verified offline, and nothing in them is invented. The retired
+seniority ordinal in `careeros.enrich` stays where it is for now: D6's
+crosswalk onto the s-scale is in the data file, so removing it is a small
+change once something else derives `seniority_range`.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -408,10 +433,16 @@ Friends never delete jobs or companies. Only the owner edits shared records.
 - Requirement level. Must have, nice to have. Stored as `must` and
   `nice`; a requirement with no stated level is a must-have, since a
   posting insists unless it says otherwise.
-- Company size. Micro, Small, Medium, Large, by headcount (micro up to
-  10, small up to 50, medium up to 250, above that large — the
-  `org_intake.classify` thresholds), stored as `size_class` over
-  `vault.SIZE_CLASSES`. Settled by owner decision 2026-10-15: the class
+- Company size. Micro, Small, Medium, Large, Very large, by headcount
+  (micro 1–9, small 10–49, medium 50–249, large 250–999, `xl` 1000 and
+  above — the BFS classes, owner decision D3 2026-10-17, which replaced
+  thresholds that were inclusive at every boundary and so one off
+  against the EU recommendation they cited). Stored as `size_class` over
+  `vault.SIZE_CLASSES`, which since 2026-10-17 is the taxonomy code list
+  `careeros/data/taxonomy/company_size.yaml` rather than a tuple
+  (Taxonomy section below). No stored record is migrated onto the new
+  boundaries; `scripts/flag_size_review.py` reports which ones would
+  change and writes nothing. Settled by owner decision 2026-10-15: the class
   is the ONLY size scale, so the numeric `size_range` the intake cascade
   used to derive as well is retired by `scripts/migrate_company_size_scale.py` (dry
   run by default, `--apply` owner-gated) and every surface shows the
@@ -449,9 +480,13 @@ Friends never delete jobs or companies. Only the owner edits shared records.
 
 ### Fixed lists, to settle in milestone M1
 
-- Sector. Stored as ISIC, on purpose, so that Journey 3 can use standard codes. Show plain labels only if friends find the names confusing.
-- Location. One format. The prototype shows the same place written several ways.
-- Function. The filter exists, its values go in this list.
+All three are answered by owner decisions D1, D2 and the location ruling
+of 2026-10-17 and now live as versioned code lists; see the Taxonomy
+section below for where each one stands, including what is still a stub.
+
+- Sector. Stored as ISIC today, on purpose, so that Journey 3 can use standard codes. D2 replaces the standard with NOGA divisions (sections derived); the stored section letters carry over, and nothing is migrated yet. Show plain labels only if friends find the names confusing.
+- Location. One format: the BFS municipality number plus canton and coordinates (D-sheet CAREER-58). The prototype shows the same place written several ways. The municipality register itself is not loaded yet.
+- Function. The filter exists; its values are the 40 job families, each mapped to an ISCO-08 unit group (D1).
 
 ### Design system
 
@@ -484,6 +519,82 @@ Resolved 2026-10-11: contract rule 8 (inclusive EU thresholds: 10 is micro,
 `4e48cf6`. The pre-extraction exclusive-threshold test expectations were
 updated to the approved scale in task 2.4; the earlier product behavior
 classified exact-boundary counts one class up.
+
+Superseded 2026-10-17 by owner decision D3 (CAREER-58): those inclusive
+thresholds were off by one against the EU recommendation rule 8 itself
+cites, and the boundaries are now the BFS classes with an added `xl`.
+See the Taxonomy section below. That edit is in the capability working
+tree, so the pin moves.
+
+## Taxonomy
+
+The code lists CareerOS classifies against live in
+`careeros/data/taxonomy/`, one YAML file per dimension, and
+`careeros/taxonomy.py` is the only module that reads them. Settled by
+owner decisions D1, D2, D3, D4, D6, D7 and the dimension rulings on
+decision sheet CAREER-58, 2026-10-17 (CAREER-55 ships the files and the
+schema; no pipeline writes a classified value yet).
+
+**Where a list lives.** One dimension, one name, one file. A file may
+carry more than one list (`languages.yaml` carries `language` and
+`cefr`), and a dimension name is unique across every file, so a caller
+addresses a dimension by name and never by path:
+`taxonomy.codes('company_size')`, `taxonomy.valid_code('canton', '1')`.
+Anything in a file that is not a code list — the seniority crosswalk, the
+salary rules, the work-model detail keys — is read through
+`taxonomy.document()`. `vault.SIZE_CLASSES` is the `company_size` list
+itself, not a copy of it, and the capability's own
+`classify.SIZE_CLASSES` is pinned against it by a test, because a
+capability imports nothing from the product.
+
+| File | Dimensions | Standard | State |
+|---|---|---|---|
+| `occupation_families.yaml` | occupation_family, occupation_family_status | CareerOS families over ISCO-08 | complete: 40 families, 10 ESCO-verified, 25 proposed, 5 unmapped |
+| `ch_isco19.yaml` | isco_unit_group, ch_isco19 | CH-ISCO-19 over ISCO-08 | seed (19 unit groups the families use); the 5-digit Swiss list is a stub |
+| `industry_noga.yaml` | noga_section, noga_division | NOGA (NACE) | sections complete; divisions a stub; which revision is current is unanswered |
+| `company_size.yaml` | company_size | BFS size classes | complete, plus the local `xl` |
+| `employer_type.yaml` | employer_type | labelling guide | complete |
+| `seniority.yaml` | seniority, seniority_flag | owner decision D6 | complete, with the crosswalk from the retired ordinal |
+| `qualification.yaml` | qualification_type, isced_f, qualification_rule | Swiss types + NQR + ISCED-F 2013 | types partial (D7's list ends open); NQR level nullable |
+| `languages.yaml` | language, cefr | ISO 639-1, CEFR | CEFR complete; languages a curated subset |
+| `workload.yaml` | workload | Swiss Pensum | complete (steps of 10) |
+| `contract.yaml` | contract | owner decision | 8 codes, ids pending owner confirmation |
+| `work_model.yaml` | work_model | owner decision | complete |
+| `permit.yaml` | permit, permit_requirement | SEM categories | complete |
+| `location.yaml` | canton, municipality | BFS | cantons complete; municipality register a stub |
+| `salary_rules.yaml` | — | CareerOS normalisation | rules shipped; the four pay-scale tables are placeholders |
+| `skills.yaml` | — | ESCO citations + local facets | no code list on purpose: the vocabulary is the vault's tag registry |
+| `value_record.yaml` | source, flag | owner decision D4 | complete |
+
+**Versioning rule.** Every file carries `taxonomy_version` (semver),
+`standard`, `standard_version` and `changed_at`. **Any change to a file
+bumps its `taxonomy_version` and its `changed_at`** — adding a code,
+renaming a label, filling in a stub. `taxonomy.TAXONOMY_VERSION` is the
+newest version any file declares. A stored value record references the
+version of the dimension it was classified under, so a value classified
+under 1.0.0 stays readable after the list moves to 1.1.0 and a
+re-classification sweep can find everything older than a given version.
+
+**Honest lists.** Three lists ship empty or partial because the standard
+was too large or could not be verified (CH-ISCO-19's 5-digit codes, the
+BFS municipality register, the NOGA divisions). Each says so with a
+`complete: false` and a TODO naming its source, and no entry anywhere is
+invented. `taxonomy.is_complete(dim)` is what a caller has to read
+before treating "not in the list" as "not a valid code": for an
+incomplete dimension `make_value_record` keeps an unknown code and logs
+that the list needs extending, rather than refusing a real value.
+
+**Value records (D4).** `taxonomy.make_value_record()` is the one factory
+for a classified value: `{value, source, confidence, evidence,
+taxonomy_version, standard_version, classified_at, flags, guide_version}`.
+`source` is one of admin, user, feed, rule, llm and precedence runs in
+that order, which is the data-side half of "human edits always win".
+`unknown` is a real value for every dimension — a record carrying it was
+classified and came up empty, which is not the same fact as no record at
+all. The flags are the labelling guide's, and a record with flags carries
+the guide version they were chosen under. This is additive: no existing
+record field changes shape, and `field_provenance` (field name → source
+text) is untouched.
 
 ## What the audit says to remove or merge
 
