@@ -52,6 +52,15 @@ record field, so they arrive on `job` the way the flat
 `description_structured` block always has, and everything downstream of
 the page context reads them from there.
 
+2026-10-17 (M1, accounts and required login): every endpoint listed below
+now requires a session. An API call without one is answered
+`401 {"error": "login required"}` and nothing else: no record, no route
+name and no reason. A page request without one is redirected to
+`/login`. Three routes are outside the gate: `GET /login`, `POST /login`
+and `GET /api/health`. No existing contract changed otherwise: an
+authenticated call gets exactly the response it got before. See the gate
+and the login endpoints under Minimal contents.
+
 2026-10-17 (CAREER-36, async AI): the four AI entry points stopped
 answering with a record and now answer `202 {"status": "queued"}`, and the
 job record gained the four `ai_` fields the front end polls instead. The
@@ -93,6 +102,55 @@ record endpoints cannot supply their choices and derived labels alone.
 | POST | `/api/jobs/<id>/re-extract` | Job detail | New |
 | POST | `/api/jobs/<id>/notes`, `/api/companies/<id>/notes` | Job and Company detail | New |
 | PATCH, DELETE | `/api/jobs/<id>/notes/<note_id>`, `/api/companies/<id>/notes/<note_id>` | Job and Company detail | New |
+| GET | `/api/health` | None | New, M1, unauthenticated |
+| GET, POST | `/login` | Log in | New, M1, unauthenticated |
+| POST | `/logout` | The logout affordance in the app chrome | New, M1 |
+
+### The gate (M1)
+
+Every row above except the last three needs a session. Without one:
+
+- A path under `/api/` is answered `401 {"error": "login required"}`. The
+  body is that object and nothing else, on every endpoint, so no response
+  can leak a record before the caller has signed in.
+- Any other path is answered `302` to `/login`, including a path that does
+  not exist, so status codes cannot be read to find out which routes the
+  app has.
+
+The session is a Flask signed cookie holding one key, `user_id`. Role, name
+and whether the account is disabled are read off the user record on every
+request, so the cookie carries nothing a client could usefully forge, and
+disabling an account ends its live session on that account's next request.
+The cookie is `HttpOnly`, `SameSite=Lax` and lives 30 days, and the signing
+key is persisted in the vault ([schemas](../schemas.md)), so a session
+survives a server restart. `Secure` is deliberately not forced, because the
+instance is not always reached over HTTPS.
+
+`GET /api/health` answers `{"ok": true}` and nothing else. It is the one
+unauthenticated read, and it reads no record.
+
+`GET /login` is the login page: the built React page when the front end is
+built, otherwise the same form rendered from the shared shell, since the one
+page reachable without a session cannot be the one page that needs a build.
+A signed-in person asking for it is redirected to the board.
+
+`POST /login` takes `{email, password}` and answers:
+
+| Outcome | JSON request | Form request |
+|---|---|---|
+| Accepted | `200 {"ok": true, "next": "/jobs"}` | `302` to `/jobs` |
+| Refused | `401 {"error": "Wrong email or password."}` | `401`, the page with that message |
+
+One message for every refusal, whichever half was wrong and whether or not
+the account is disabled, so the endpoint cannot be used to find out who has
+an account. `POST /logout` drops the session and answers `{"ok": true}` to a
+JSON request or `302` to `/login` to a form post. Both are content
+negotiated on the request body, so the React page and the no-build fallback
+form share one endpoint each rather than needing one apiece.
+
+Known limits, accepted for a test of five people and recorded in
+`frontend/BUILD_NOTES.md`: no CSRF token beyond what `SameSite=Lax` plus
+same-origin JSON gives, and no rate limiting on `POST /login`.
 
 All existing default record responses and write methods retain their contracts.
 `view` selects GET representations only; writes still return records. JSON
@@ -305,6 +363,11 @@ routes; a serializer framework and new dependencies are unnecessary. Revisit
 only if a later page contract needs behavior the current builders cannot express.
 
 ## States
+
+No session is its own state, ahead of every state below: an API call is
+401 and a page request is a redirect to `/login`, before any record is
+read. An account that exists but is disabled is in that same state, so
+turning an account off is what ends its session.
 
 Empty collections return empty entry arrays and their existing empty message.
 Missing Search criteria is JSON null, or `data: null` in its page view.

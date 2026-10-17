@@ -253,3 +253,41 @@ export async function mockNoteWrites(page, urlGlob, { status = 200, body = { ok:
 export async function mockTaxonomy(page, body) {
   await page.route('**/api/taxonomy', (route) => route.fulfill({ json: body }));
 }
+
+// Mocks POST /login (M1), recording each attempt's parsed body so a spec
+// can prove what the form actually sent. The GET of the same path is the
+// page itself, so it is passed through to the dev server.
+export async function mockLogin(page, { status = 200, body = { ok: true, next: '/jobs' } } = {}) {
+  const attempts = [];
+  await page.route('**/login', (route) => {
+    if (route.request().method() !== 'POST') {
+      route.fallback();
+      return;
+    }
+    attempts.push(route.request().postDataJSON());
+    route.fulfill({ status, json: body });
+  });
+  return attempts;
+}
+
+// Mocks POST /logout, recording each call so a spec can prove the server
+// was actually asked to end the session and not only navigated away from.
+export async function mockLogout(page, { status = 200, body = { ok: true } } = {}) {
+  const calls = [];
+  await page.route('**/logout', (route) => {
+    calls.push(route.request().method());
+    route.fulfill({ status, json: body });
+  });
+  return calls;
+}
+
+// Answers every board load with the gate's own 401, the way a server that
+// has lost the session does.
+export async function mockBoardUnauthorized(page) {
+  const calls = { count: 0 };
+  await page.route('**/api/jobs?view=board', (route) => {
+    calls.count += 1;
+    route.fulfill({ status: 401, json: { error: 'login required' } });
+  });
+  return calls;
+}

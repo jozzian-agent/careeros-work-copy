@@ -1,6 +1,43 @@
-"""Suite-wide offline network guard."""
+"""Suite-wide offline network guard and signed-in client."""
 import pytest
-from careeros import intake, server
+from careeros import intake, server, users
+
+# M1: every page and every API call needs a session now. The suite's
+# existing tests are about records and not about the door, so one autouse
+# fixture signs all of them in rather than every test file growing a
+# login step. It replaces the one function the gate reads, so no test
+# needs a cookie, a secret key or a user record in its own vault, and no
+# test client had to change.
+#
+# The tests that are about the door itself take `raw_session`, which puts
+# the real loader back and drives the real cookie path end to end.
+# Identity and the one field the gate reads, and no credential of any
+# kind: nothing here signs a cookie or checks a password, because the
+# function this replaces is the one that has already done both.
+SUITE_USER = {'id': 'USER-001', 'email': 'suite@careeros.test', 'name': 'Suite',
+              'role': 'admin', 'disabled': False}
+_REAL_SESSION_USER = users.session_user
+
+
+#
+# Both fixtures below hold their own MonkeyPatch rather than the shared
+# `monkeypatch` fixture: a test that calls monkeypatch.undo() mid-test to
+# drop its own patch would otherwise sign itself out halfway through.
+@pytest.fixture(autouse=True)
+def signed_in():
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(users, 'session_user', lambda root: SUITE_USER)
+    yield SUITE_USER
+    patcher.undo()
+
+
+@pytest.fixture
+def raw_session():
+    """Undo `signed_in` for a test that exercises the gate itself."""
+    patcher = pytest.MonkeyPatch()
+    patcher.setattr(users, 'session_user', _REAL_SESSION_USER)
+    yield
+    patcher.undo()
 
 @pytest.fixture(autouse=True)
 def offline(monkeypatch):

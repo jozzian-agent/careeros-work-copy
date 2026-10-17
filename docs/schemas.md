@@ -13,6 +13,54 @@ Missing directories and files are valid empty states; reads never create files.
 Writes use safe YAML and atomic file replacement. The local Flask app serializes
 writes within its process; run one server process per vault.
 
+The vault also holds one file that is not a record: `secret_key`, the key the
+session cookie is signed with, created on first boot with mode 0600 and read
+on every later one, so a session outlives the process
+([users](#usersname-idyaml)). It is the one file a start writes whatever else
+it does, and the vault directory is created for it if it is not there yet,
+because every request reads the session: a server with no key could not serve
+even the login page. It is written atomically, and a file found empty or
+truncated is replaced with a warning rather than adopted, which signs out
+everybody holding a cookie signed with the old one.
+
+## `users/<name>-<id>.yaml`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| id | string, `USER-###` | Allocated as max existing numeric ID plus one |
+| email | nonempty string | The address signed in with, stored and matched lowercase, unique across the area |
+| name | nonempty string | What to call the person |
+| role | fixed list | `admin` or `tester` (`careeros.users.ROLES`) |
+| password_hash | nonempty string | A werkzeug `generate_password_hash` hash, never a plain password |
+| created_at | ISO timestamp | Set on the first save and never rewritten |
+| disabled | boolean | True turns the account off; it is refused on its next request |
+
+Added in M1 (accounts and required login). A user record never holds a plain
+password: a payload carrying a `password` key is refused rather than quietly
+dropped, and a `password_hash` that does not look like a werkzeug hash is
+refused too, so a plain password cannot be stored by mistake. The field list
+above is also applied to the stored record and not only to the payload, so a
+key added to a file by hand is dropped the next time that record is saved.
+Nothing outside this area holds either value, and no log line carries one.
+
+Accounts are managed from the command line, since the first admin cannot sign
+in to create themselves and M1 has no web UI for user management:
+
+```bash
+python -m careeros.users --vault PATH create --email ... --name ... --role admin --password ...
+python -m careeros.users --vault PATH list
+python -m careeros.users --vault PATH reset-password --email ... --password ...
+python -m careeros.users --vault PATH disable --email ...
+python -m careeros.users --vault PATH enable --email ...
+```
+
+`--role` defaults to `tester`, so an admin is only ever created by asking for
+one; asking while an admin already exists prints a warning rather than
+complying quietly. `list` never prints a hash. The role is read off the record
+on every request and is not carried in the cookie, so M1 stores it without yet
+reading it anywhere: the gate asks whether there is a user, never which kind,
+because the vault is still one shared world (the per-user split is M2).
+
 ## `search.yaml`
 
 | Field | Type | Meaning |

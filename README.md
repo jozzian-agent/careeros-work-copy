@@ -28,9 +28,49 @@ After cloning, initialize the pinned capability submodule and register its path
 in the product venv with the commands above. Repeat the path registration if
 the checkout moves or the venv is recreated.
 
-Open the address printed by Flask, then go to `/jobs`. Stop with Ctrl-C.
-`--vault PATH` takes precedence over `CAREEROS_VAULT`; pass it explicitly to
-select the intended data. Missing or empty vaults are supported.
+Every page and every API call needs a logged-in user, and there is no public
+signup, so create an account before starting the server. The first admin
+cannot sign in to create themselves, so accounts are managed from the command
+line. An account is a real credential, so put it in a personal vault outside
+the repository rather than in `sample/vault`:
+
+```bash
+export CAREEROS_VAULT=~/.careeros/vault
+# bash or zsh: type the phrase without it appearing on screen.
+printf 'Password for the new account: ' && read -rs NEW_PASSWORD && echo
+.venv/bin/python -m careeros.users \
+  create --email you@example.com --name 'Your Name' --role admin \
+  --password "$NEW_PASSWORD"
+unset NEW_PASSWORD
+```
+
+Then start the server on that same vault: with `CAREEROS_VAULT` exported,
+`.venv/bin/python -m careeros.server` reads it, so the account you just made
+is the one the login page accepts. An account created in one vault cannot sign
+in to another.
+
+Reading the phrase with `read -rs` keeps it off the screen and out of shell
+history. It is still passed as an argument, so it is visible in `ps` for the
+length of the call: create accounts on a machine nobody else is logged in to.
+Never type a password into this file or into a committed script.
+
+`list`, `reset-password`, `disable` and `enable` are the other commands; see
+[schemas](docs/schemas.md) for the user record and the full usage.
+
+To develop against the fictional sample records instead, pass
+`--vault sample/vault` to both commands. Signing in there writes a signing key
+and a user record into `sample/vault`; Git ignores both, and they are still
+credentials, so prefer a personal vault for anything but a quick look.
+
+Open the address printed by Flask, log in with that account, and the board
+opens. Log out from the affordance in the app header. Stop the server with
+Ctrl-C. `--vault PATH` takes precedence over `CAREEROS_VAULT`; pass it
+explicitly to select the intended data, for the accounts command as much as
+for the server. Missing or empty vaults are supported.
+
+The session is a signed cookie whose key is kept in the vault (`secret_key`,
+mode 0600), so signing in survives a server restart and a browser restart.
+Deleting that file signs everybody out.
 
 To use the React Jobs board, build its assets with Node and npm first:
 

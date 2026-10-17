@@ -50,6 +50,8 @@ def test_not_found(client):
     assert 'Page not found' in html
     assert 'CareerOS' in html and "<nav class='page-nav'" in html
     assert "aria-current='page'" not in html
+    # Behind the gate like every other page, so it offers the way out.
+    assert 'Log out' in html
 
 
 @pytest.mark.parametrize('exists', [True, False])
@@ -62,7 +64,11 @@ def test_empty_or_missing_vault(tmp_path, exists):
     # coexistence (JOZ-283); only /jobs is reachable with the flag off.
     for route in ['/jobs']:
         assert app.test_client().get(route).status_code == 200
-    assert list(vault.iterdir()) == [] if exists else not vault.exists()
+    # M1: a vault gains the session signing key on first boot and still
+    # nothing else. A vault that does not exist yet is created for the
+    # key, because every request reads the session: a server that skipped
+    # the key would answer 500 to the login page it is meant to serve.
+    assert [p.name for p in vault.iterdir()] == ['secret_key']
     assert app.config['VAULT_PATH'] == vault
 
 

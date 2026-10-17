@@ -1,8 +1,10 @@
+import { apiFetch } from './client.js';
+
 // GET /api/companies?view=page: the directory_context payload (entries,
 // counts, empty, isic_sections, sector_labels, size_classes) the
 // Companies list page reads.
 export async function fetchCompaniesPage() {
-  const response = await fetch('/api/companies?view=page');
+  const response = await apiFetch('/api/companies?view=page');
   if (!response.ok) {
     throw new Error('Could not load your companies.');
   }
@@ -14,7 +16,7 @@ export async function fetchCompaniesPage() {
 // needs_input, isic_sections, size_classes, kinds) the Company detail
 // page reads. Contract: docs/surfaces/json-api.md.
 export async function fetchCompanyPage(id) {
-  const response = await fetch(`/api/companies/${encodeURIComponent(id)}?view=page`);
+  const response = await apiFetch(`/api/companies/${encodeURIComponent(id)}?view=page`);
   if (!response.ok) {
     throw new Error('Could not load that company.');
   }
@@ -22,7 +24,7 @@ export async function fetchCompanyPage(id) {
 }
 
 export async function updateCompany(id, payload) {
-  const response = await fetch(`/api/companies/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/companies/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -39,7 +41,7 @@ export async function updateCompany(id, payload) {
 // delete confirmation renders inline rather than treating as a generic
 // failure.
 export async function deleteCompany(id) {
-  const response = await fetch(`/api/companies/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await apiFetch(`/api/companies/${encodeURIComponent(id)}`, { method: 'DELETE' });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const error = new Error(data?.error || 'Could not delete that company.');
@@ -52,7 +54,7 @@ export async function deleteCompany(id) {
 // POST /api/companies/<id>/retry: the owner-only sector/size enrichment
 // retry (careeros/server.py retry_company).
 export async function retryCompany(id) {
-  const response = await fetch(`/api/companies/${encodeURIComponent(id)}/retry`, { method: 'POST' });
+  const response = await apiFetch(`/api/companies/${encodeURIComponent(id)}/retry`, { method: 'POST' });
   if (!response.ok) {
     throw new Error('Retry failed.');
   }

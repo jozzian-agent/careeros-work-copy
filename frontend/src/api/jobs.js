@@ -1,8 +1,10 @@
+import { apiFetch } from './client.js';
+
 // Production fetch path for the Jobs board. Playwright specs intercept this
 // exact request (page.route) and fulfill it with tests/fixtures/board.json;
 // see frontend/README.md for why no dev-only mock branch lives here.
 export async function fetchBoard() {
-  const response = await fetch('/api/jobs?view=board');
+  const response = await apiFetch('/api/jobs?view=board');
   if (!response.ok) {
     throw new Error('Could not load the jobs board.');
   }
@@ -14,7 +16,7 @@ export async function fetchBoard() {
 // 'Posting closed' (D7), which is one owner decision and so one write, not
 // a move followed by a second request that could fail on its own.
 export async function moveJobStatus(id, status, fields) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status, ...fields }),
@@ -31,7 +33,7 @@ export async function moveJobStatus(id, status, fields) {
 // separate from moveJobStatus, whose fixed "Status update failed."
 // message (and the board specs pinning it) predates this ticket.
 export async function updateJob(id, payload) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -44,7 +46,7 @@ export async function updateJob(id, payload) {
 }
 
 export async function deleteJob(id) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!response.ok) {
     throw new Error('Could not delete that job.');
   }
@@ -57,7 +59,7 @@ export async function deleteJob(id) {
 // needs_input, reading, summary_effective, fit, fit_placeholder) the Job
 // detail page renders. Contract: docs/surfaces/json-api.md.
 export async function fetchJobPage(id) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}?view=page`);
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}?view=page`);
   if (!response.ok) {
     throw new Error('Could not load that job.');
   }
@@ -67,7 +69,7 @@ export async function fetchJobPage(id) {
 // GET /api/jobs/<id>/taxonomy: the classification_context payload the Edit
 // criteria popup edits (function/tags; sector is read-only, company-owned).
 export async function fetchJobTaxonomy(id) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/taxonomy`);
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/taxonomy`);
   if (!response.ok) {
     throw new Error('Could not load classification.');
   }
@@ -79,7 +81,7 @@ export async function fetchJobTaxonomy(id) {
 // watch_status, reason } -- a non-empty events list means history changed
 // and the caller should reload the page.
 export async function checkPosting(id) {
-  const response = await fetch(`/api/watch/scan?job=${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/watch/scan?job=${encodeURIComponent(id)}`, {
     method: 'POST',
   });
   const data = await response.json().catch(() => null);
@@ -90,7 +92,7 @@ export async function checkPosting(id) {
 }
 
 export async function retryIngest(id) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/extract`, {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/extract`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -106,7 +108,7 @@ export async function retryIngest(id) {
 // no stored text to read, or a reading of this job already running. Both
 // reasons are worth showing, so the error carries whichever it was.
 export async function reExtractJob(id) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/re-extract`, {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/re-extract`, {
     method: 'POST',
   });
   const data = await response.json().catch(() => null);
@@ -122,7 +124,7 @@ export async function reExtractJob(id) {
 // owner actually saw; the endpoint answers 409 when it has moved on, and
 // that message is the one worth showing, since reloading is the fix.
 export async function resolveReview(id, payload) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/resolve-review`, {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/resolve-review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -138,7 +140,7 @@ export async function resolveReview(id, payload) {
 // text manually" resume path (careeros/server.py paste_description).
 // Resumes extraction through the same worker /extract uses.
 export async function pasteDescription(id, description) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/paste-description`, {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/paste-description`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ description }),
@@ -155,7 +157,7 @@ export async function pasteDescription(id, description) {
 // ({ basis, existing: { id, title, in_pipeline }, actions }) the caller
 // must turn into the duplicate dialog. force resubmits past that check.
 export async function intakeJob(url, { force = false, origin = 'manual' } = {}) {
-  const response = await fetch('/api/jobs/intake', {
+  const response = await apiFetch('/api/jobs/intake', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(force ? { url, force: true, origin } : { url, origin }),
@@ -175,7 +177,7 @@ export async function intakeJob(url, { force = false, origin = 'manual' } = {}) 
 }
 
 export async function promoteJob(id) {
-  const response = await fetch(`/api/jobs/${encodeURIComponent(id)}/promote`, {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/promote`, {
     method: 'POST',
   });
   if (!response.ok) {

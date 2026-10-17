@@ -223,6 +223,32 @@ decisions. Two of the three change what the product records.
   the specimen screenshots AGENTS.md's component gate asks for are an
   agent's own business, not a module this repo keeps unreferenced.
 
+2026-10-17: the app has a door. Every page and every API call requires a
+logged-in user, the admin creates accounts from the command line and
+there is no public signup (M1 of the multi-user test release, goal
+CAREER-39, decisions CAREER-40 D1/D2/D3 as filed; that goal's own
+milestone list lives in the tracker and is not copied here, like every
+other ticket). The vault stays one shared world: data ownership did not
+change, so every logged-in person still sees everything, and hanging
+data off the new identity is the next milestone. What this adds is a
+`users/` area in the vault (one YAML per user:
+[schemas](docs/schemas.md)), a `secret_key` file the session cookie is
+signed with so a session survives a server restart, a `/login` page, a
+logout affordance in the app header ([surface](docs/surfaces/accounts.md)), one unauthenticated health check
+(`GET /api/health`), and the gate itself, which is one `before_request`:
+an API call without a session gets `401 {"error": "login required"}` and
+nothing else, a page request gets a redirect to `/login`
+([contracts](docs/surfaces/json-api.md)). Accounts are created, listed,
+reset, disabled and enabled with `python -m careeros.users`, because the
+first admin cannot sign in to create themselves; a web UI for user
+management is not in this milestone. Two limits are accepted rather than
+solved, for a test of five people: no CSRF token beyond what
+`SameSite=Lax` plus same-origin JSON gives, and no rate limiting on the
+login endpoint. Recorded conflict: the Roles table below calls the two
+roles Owner and Friend, while the stored fixed list is `admin` and
+`tester`; the mapping is in that table and whether the words should be
+unified is a new open question.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -268,10 +294,15 @@ The six owner rules live in the Journey 1 spec. These are the ones the flows bel
 
 ### Roles
 
-| Role | Can do |
-|---|---|
-| Owner | Everything, including editing jobs and companies, resolving review cards and retrying enrichment |
-| Friend | Add jobs, manage their own board and preferences, send feedback |
+| Role | Stored as | Can do |
+|---|---|---|
+| Owner | `admin` | Everything, including editing jobs and companies, resolving review cards and retrying enrichment. Creates every account from the command line. |
+| Friend | `tester` | Add jobs, manage their own board and preferences, send feedback |
+
+The stored ids are the fixed list below, set on a user record from M1,
+2026-10-17. Nothing reads the role yet: the gate asks whether there is a
+user and never which kind, because the vault is still one shared world.
+Which of the two words to keep is an open question.
 
 ### Concepts
 
@@ -284,6 +315,8 @@ The six owner rules live in the Journey 1 spec. These are the ones the flows bel
 | Board | The user's jobs grouped by status. In the data this is the in-pipeline flag, which must become per user. | none |
 | Needs attention | A filter showing every job with a reason, closed, changed or needs your input. Proposed merge of two existing ideas. | Needs your input as a separate indicator |
 | Note | One thing the user wants to remember about one job or one company: a title and a body. A record holds any number of them. | The single notes field per record |
+| User | One person with an account: an email, a name, a role and a password nobody stores in the clear. Added M1, 2026-10-17. | none |
+| Session | Being logged in. One signed cookie holding one user id, re-checked against the record on every request. Added M1, 2026-10-17. | none |
 
 ### Statuses
 
@@ -327,7 +360,10 @@ state survives a restart.
 | Experiences | Bring yourself |
 | Preferences | Bring yourself |
 | Notes | Reading a job, company browse; every note in one place, each linked to its record ([surface](docs/surfaces/notes.md)) |
+| Log in | The way into every other surface. Email, password, one message for a refused attempt. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [contracts](docs/surfaces/json-api.md)) |
 | JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md) |
+| Accounts command line | Creating, listing, resetting, disabling and enabling an account, since the first admin cannot sign in to create themselves. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [schemas](docs/schemas.md)) |
+| Health check | `GET /api/health`, the one unauthenticated read: is the process up. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md)) |
 
 Interviews is removed from the navigation until it exists. Tab order is Jobs, Companies, Experiences, Preferences. Proposed.
 
@@ -345,11 +381,24 @@ Interviews is removed from the navigation until it exists. Tab order is Jobs, Co
 | Add a note | The Notes section of a job or a company, in its own window | Everyone |
 | Re-extract | The extraction row on a job, enabled once posting text exists | Owner |
 | Send feedback | One link in the footer | Everyone |
+| Log in | The Log in page | Everyone |
+| Log out | One affordance in the app header | Everyone |
+| Create, reset, disable or enable an account | `python -m careeros.users` | Owner |
 
 Friends never delete jobs or companies. Only the owner edits shared records.
 
 ### Fixed lists
 
+- Role. `admin`, `tester` (`careeros.users.ROLES`), stored on a user
+  record. Settled by the M1 brief, 2026-10-17: one admin role and up to
+  five tester accounts, which is the friend test's own number. The five
+  is the plan and not a rule the code enforces
+  (`careeros.users.TESTER_PLAN`): refusing a sixth account would be a
+  refusal the brief does not ask for. A new account is a tester unless
+  `--role admin` is asked for, so an admin is never created by leaving an
+  argument out. Whether an account is off is the separate `disabled`
+  boolean on the same record, which is the admin's decision and ends that
+  account's session on its next request.
 - Requirement group. Education, Experience, Skills, Languages,
   Certifications. Settled by owner decision 2026-10-14; a requirement the
   extractor cannot place goes to Skills, and no free-form group exists.
@@ -544,6 +593,11 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
 - Which parts of M4 are done by hand, and how friends are told, if at all.
 - Whether fit and CV reading join the first test, see M5.
 - Merging Needs attention and Needs your input.
+- One word per role. The Roles table says Owner and Friend; a user record
+  stores `admin` and `tester` (M1, 2026-10-17). Two words for one concept
+  is the drift the inventory exists to prevent, and picking one means
+  renaming either the stored list or most of this file, so the mapping is
+  recorded and the rename is the owner's call.
 - Rename the Search tab to Preferences.
 - Options per round, two or three.
 - Format of the fit score.

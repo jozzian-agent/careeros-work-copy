@@ -12,3 +12,9 @@ frontend/node_modules/
 frontend/dist/
 
 .hermes/
+
+# M1: running the app or the accounts command against the sample vault
+# leaves a session signing key and real user records there. Both are
+# secrets, and neither belongs in the fictional sample data.
+sample/vault/secret_key
+sample/vault/users/

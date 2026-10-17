@@ -1,3 +1,5 @@
+import { apiFetch } from './client.js';
+
 // The notes API (contract: docs/surfaces/json-api.md). A note belongs to
 // exactly one record, so every write names the kind of record it lives in
 // ('jobs' or 'companies') instead of this file carrying two
@@ -8,7 +10,7 @@ function notesUrl(kind, recordId, noteId) {
 }
 
 async function send(url, method, failure, body) {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method,
     ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
   });
@@ -37,7 +39,7 @@ export function deleteNote(kind, recordId, noteId) {
 // newest first, as {notes, empty}. Read-only; the Notes page links
 // through to the record that holds a note rather than editing it.
 export async function fetchNotes() {
-  const response = await fetch('/api/notes');
+  const response = await apiFetch('/api/notes');
   if (!response.ok) {
     throw new Error('Could not load your notes.');
   }

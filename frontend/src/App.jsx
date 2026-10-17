@@ -10,6 +10,7 @@ import CompaniesList from './pages/CompaniesList.jsx';
 import CompanyDetail from './pages/CompanyDetail.jsx';
 import Notes from './pages/Notes.jsx';
 import Taxonomy from './pages/Taxonomy.jsx';
+import Login from './pages/Login.jsx';
 
 // JOZ-280: the SPA now owns the detail-page URLs too (server.py mounts the
 // same built index.html at each of these paths once CAREEROS_REACT_UI is
@@ -28,6 +29,10 @@ function App() {
   return (
     <ThemeProvider colorScheme="light">
       <Routes>
+        {/* M1: the only route outside Page, because the login screen has
+            no nav. Every link it could show leads back to itself until
+            there is a session. */}
+        <Route path="/login" element={<Login />} />
         <Route path="/" element={<Page currentPage="search"><SearchCriteria /></Page>} />
         <Route path="/jobs" element={<Page currentPage="jobs"><JobsBoard /></Page>} />
         <Route path="/jobs/:id" element={<Page currentPage="jobs"><JobDetail /></Page>} />

@@ -26,7 +26,15 @@ import {
 } from './helpers.js';
 
 const ROUTES = ['/', '/jobs', '/jobs/JOB-001', '/companies', '/companies/CO-001',
-                '/experiences', '/experiences/EXP-001', '/notes', '/taxonomy'];
+                '/experiences', '/experiences/EXP-001', '/notes', '/taxonomy', '/login'];
+
+// Every route shows the shared nav except the login page, which carries
+// none: a person without a session has nowhere to navigate to (M1).
+function landmark(page, route) {
+  return route === '/login'
+    ? page.getByRole('heading', { name: 'Log in' })
+    : page.getByRole('navigation', { name: 'Main' });
+}
 
 test.beforeEach(async ({ page }) => {
   await mockBoard(page, loadBoardFixture());
@@ -53,7 +61,7 @@ for (const route of ROUTES) {
     });
 
     await page.goto(route);
-    await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
+    await expect(landmark(page, route)).toBeVisible();
 
     expect(errors).toEqual([]);
     expect(external).toEqual([]);

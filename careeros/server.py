@@ -2,15 +2,17 @@
 
 import argparse
 from contextlib import nullcontext
+from html import escape
 import os
 from threading import RLock, Thread
 from pathlib import Path
 from urllib.parse import urlsplit, unquote
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, redirect, send_from_directory, url_for
 from careeros import vault as storage
 from careeros import intake
 from careeros import ingest
+from careeros import users
 from org_intake import classify as sectors
 from org_intake import enrich as org_enrich
 from careeros import enrich as company_enrichment
@@ -22,6 +24,7 @@ from careeros import dedupe
 from careeros.extraction_worker import ai_queue
 import difflib
 
+from careeros.web import ui
 from careeros.web.pages import companies, experiences, jobs, notes, search, taxonomy
 from careeros.web.theme import page_shell
 
@@ -357,10 +360,55 @@ def _company_website(value):
 
 
 
+# M1: where a signed-in person lands. One home for the fact, read by the
+# form redirect and sent to the React login page as `next`, so the two
+# cannot disagree about where logging in takes you.
+AFTER_LOGIN = '/jobs'
+
+# M1: the endpoints the gate lets through without a session. Everything
+# else needs one, including an unknown path, so a stranger cannot learn
+# which routes exist by reading status codes. 'static' and 'react_assets'
+# are the asset routes; a login page that could not load its own assets
+# would be a door with no handle.
+PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets'})
+
+
+def login_page(error: str | None = None) -> str:
+    """The sign-in page served when the React build is not available.
+
+    /jobs already falls back to a Jinja rendering when there is no build
+    (see create_app), and the one page a person must be able to reach
+    before they have a session cannot be the one page that needs a build.
+    Built from the shell and the shared control styles with no CSS of its
+    own: plain fields and one primary button, per the design system
+    record. Nothing on it reads a record, so there is nothing here to
+    leak.
+
+    No navigation and no logout, like the React rendering of the same page
+    (docs/surfaces/accounts.md): every link a nav could show leads back
+    here until there is a session.
+    """
+    message = f"<p class='danger' role='alert'>{escape(error)}</p>" if error else ''
+    return page_shell(
+        'Log in', '',
+        "<section class='card'><h1>Log in</h1>"
+        "<p class='muted'>CareerOS is invitation only. Ask the owner for an account.</p>"
+        f"{message}"
+        "<form class='stack spaced' method='post' action='/login'>"
+        "<label>Email<input type='email' name='email' autocomplete='username' required></label>"
+        "<label>Password<input type='password' name='password' "
+        "autocomplete='current-password' required></label>"
+        "<button type='submit' class='primary'>Log in</button>"
+        "</form></section>",
+        ui.CSS,
+        nav=False,
+    )
+
+
 def create_app(vault: str | Path | None = None) -> Flask:
     """Build the app with an explicit, environment, or default vault path."""
     app = Flask(__name__)
-    app.config['VAULT_PATH'] = Path(vault if vault is not None else os.environ.get('CAREEROS_VAULT', DEFAULT_VAULT)).expanduser()
+    app.config['VAULT_PATH'] = users.vault_root(vault)
     # M0 migration (JOZ-273): with CAREEROS_REACT_UI=1 the Jobs page is
     # served by the built React/Gestalt front end instead of the Jinja
     # template. The SPA fetches the same JSON API either way, so flipping
@@ -398,6 +446,84 @@ def create_app(vault: str | Path | None = None) -> Flask:
     app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
     app.add_url_rule('/experiences/<identifier>/edit', 'experience_edit', experiences.form)
     app.add_url_rule('/jobs/<identifier>/taxonomy', 'job_taxonomy', jobs.taxonomy)
+
+    # M1 sessions. A signed cookie holding one user id: HttpOnly so no
+    # script can read it, SameSite=Lax so another site cannot post with
+    # it, and a 30-day life so closing the browser does not sign anybody
+    # out. Secure is deliberately not forced, because the instance is not
+    # always reached over HTTPS.
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_SECURE=False,
+        PERMANENT_SESSION_LIFETIME=users.SESSION_MAX_AGE,
+    )
+    # The signing key is persisted in the vault, so sessions survive a
+    # restart (see users.secret_key). Set unconditionally: every request
+    # reads the session, including the login page's own, so a process with
+    # no key answers 500 to everything rather than being merely unable to
+    # sign anybody in. A vault directory that does not exist yet is
+    # created for it -- the one write a read-only start makes, because a
+    # fresh vault has to be able to serve a working login.
+    app.secret_key = users.secret_key(app.config['VAULT_PATH'])
+
+    # The gate (M1 scope 4). One before_request, registered before every
+    # other hook so nothing runs on behalf of a request that has no
+    # business being served. An API call without a session is told to log
+    # in and nothing else; a page request is sent to the login page.
+    @app.before_request
+    def require_login():
+        if request.endpoint in PUBLIC_ENDPOINTS:
+            return None
+        if users.session_user(app.config['VAULT_PATH']) is not None:
+            return None
+        if request.path.startswith('/api/'):
+            return jsonify(error=users.LOGIN_REQUIRED), 401
+        return redirect(url_for('login'))
+
+    @app.get('/api/health')
+    def health():
+        """The one unauthenticated check: is the process up.
+
+        It answers that and nothing else, so it cannot grow into a way to
+        read a record without logging in.
+        """
+        return jsonify(ok=True)
+
+    @app.route('/login', methods=['GET', 'POST'])
+    def login():
+        """The sign-in page and the sign-in itself.
+
+        A JSON request is answered with JSON and a form post with a
+        redirect, so the React page and the no-build fallback form share
+        one endpoint rather than needing one each. A failed attempt gets
+        one message whichever half was wrong, so the page cannot be used
+        to find out who has an account.
+        """
+        root = app.config['VAULT_PATH']
+        if request.method == 'GET':
+            if users.session_user(root) is not None:
+                return redirect(AFTER_LOGIN)
+            return send_from_directory(react_dist, 'index.html') if react_ui else login_page()
+        payload = request.get_json(silent=True)
+        wants_json = isinstance(payload, dict)
+        submitted = payload if wants_json else request.form
+        user = users.authenticate(root, submitted.get('email'), submitted.get('password'))
+        if user is None:
+            if wants_json:
+                return jsonify(error=users.SIGN_IN_FAILED), 401
+            return login_page(users.SIGN_IN_FAILED), 401
+        users.sign_in(user)
+        return jsonify(ok=True, next=AFTER_LOGIN) if wants_json else redirect(AFTER_LOGIN)
+
+    @app.post('/logout')
+    def logout():
+        """Drop the session. Behind the gate, like every other route: a
+        request with no session has nothing to log out of."""
+        users.sign_out()
+        return jsonify(ok=True) if isinstance(request.get_json(silent=True), dict) \
+            else redirect(url_for('login'))
+
     write_lock = storage.WriteLock(app.config['VAULT_PATH'], RLock())
 
     # JOZ-265: idempotent, additive-only; safe to run on every startup.
@@ -2409,10 +2535,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def not_found(error):
         if request.endpoint in ('job_taxonomy_api', 'experience_form_api'):
             return jsonify(error='Record not found.'), 404
+        # Behind the gate like every other page, so it carries the logout
+        # affordance too: the login page is the one exception, because it
+        # is the one page reachable without a session to end.
         return page_shell(
             'Page not found', '',
             "<section class='card empty-state'><h1>Page not found</h1>"
             "<p class='muted'>This page does not exist. <a href='/search'>Return to Search</a>.</p></section>",
+            logout=True,
         ), 404
 
     return app

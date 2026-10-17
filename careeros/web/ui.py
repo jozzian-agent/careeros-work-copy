@@ -19,9 +19,20 @@ JS = """
 <script>
 let toastTimer;
 function toast(message,error=false){const t=document.getElementById('toast');t.textContent=message;t.className='toast'+(error?' error':'');t.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.hidden=true,5000);}
-async function api(url,method,data){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});let result;try{result=await r.json();}catch{throw Error('Unable to save. Please try again.');}if(!r.ok)throw Error(result.error||'Unable to save.');return result;}
+// A 401 is a lost session, not a failed write: the page goes to the login
+// page once instead of toasting 'login required' and leaving the caller to
+// ask again. The returned promise never settles on purpose, so no caller's
+// success or error path runs on a page that is already navigating away.
+// Unconditional, unlike the React client's apiFetch, which has to spare
+// the login page's own 401: every page that calls this one sits behind the
+// gate, and the fallback login page posts its form without JavaScript.
+async function api(url,method,data){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:data===undefined?undefined:JSON.stringify(data)});if(r.status===401){location.assign('/login');return new Promise(()=>{});}let result;try{result=await r.json();}catch{throw Error('Unable to save. Please try again.');}if(!r.ok)throw Error(result.error||'Unable to save.');return result;}
 </script>
 """
 
 def page(title, current, template, **context):
-    return page_shell(title, current, JS + render_template(template, **context), CSS)
+    # Every page built here sits behind the login gate, so every one of
+    # them carries the logout affordance. So does Page not found, which
+    # calls page_shell directly; the login page is the one page without
+    # it, being the one page reachable without a session.
+    return page_shell(title, current, JS + render_template(template, **context), CSS, logout=True)

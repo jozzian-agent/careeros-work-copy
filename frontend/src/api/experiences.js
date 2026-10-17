@@ -1,7 +1,9 @@
+import { apiFetch } from './client.js';
+
 // GET /api/experiences?view=page: the library_context payload (entries,
 // empty, companies, labels, tag_labels) the Experiences list page reads.
 export async function fetchExperiencesPage() {
-  const response = await fetch('/api/experiences?view=page');
+  const response = await apiFetch('/api/experiences?view=page');
   if (!response.ok) {
     throw new Error('Could not load your experiences.');
   }
@@ -12,7 +14,7 @@ export async function fetchExperiencesPage() {
 // (exp, label, companies, tag_labels, markdown) the Experience detail page
 // and the Edit position popup both read.
 export async function fetchExperiencePage(id) {
-  const response = await fetch(`/api/experiences/${encodeURIComponent(id)}?view=page`);
+  const response = await apiFetch(`/api/experiences/${encodeURIComponent(id)}?view=page`);
   if (!response.ok) {
     throw new Error('Could not load that position.');
   }
@@ -20,7 +22,7 @@ export async function fetchExperiencePage(id) {
 }
 
 export async function updateExperience(id, payload) {
-  const response = await fetch(`/api/experiences/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/experiences/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -37,7 +39,7 @@ export async function updateExperience(id, payload) {
 // from), so the Edit position popup can offer the same options without a
 // new backend endpoint.
 export async function fetchExperienceTagsRegistry() {
-  const response = await fetch('/api/experiences/new');
+  const response = await apiFetch('/api/experiences/new');
   if (!response.ok) {
     throw new Error('Could not load the tag registry.');
   }
@@ -46,7 +48,7 @@ export async function fetchExperienceTagsRegistry() {
 }
 
 export async function deleteExperience(id) {
-  const response = await fetch(`/api/experiences/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const response = await apiFetch(`/api/experiences/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!response.ok) {
     throw new Error('Could not delete that position.');
   }
@@ -57,7 +59,7 @@ export async function deleteExperience(id) {
 // company field re-link/create flow (mirrors experience_form.html's own
 // create-company-btn handling, including the fuzzy-match suggestion).
 export async function linkExperienceCompany(id, payload) {
-  const response = await fetch(`/api/experiences/${encodeURIComponent(id)}/link-company`, {
+  const response = await apiFetch(`/api/experiences/${encodeURIComponent(id)}/link-company`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

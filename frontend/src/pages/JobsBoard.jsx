@@ -24,6 +24,7 @@ import FilterChip from '../components/FilterChip.jsx';
 import { EndingChooser, ReasonPopup, WonConfirm } from '../components/EndJobFlow.jsx';
 import { ClosedPostingsBanner, ClosedPostingsReview } from '../components/ClosedPostings.jsx';
 import { usePhoneLayout } from '../layout.js';
+import { sessionEnded } from '../api/client.js';
 import { anyReading } from '../aiStatus.js';
 import { countBy, presentOptions, sortedOptions } from '../filters.js';
 
@@ -386,8 +387,14 @@ export default function JobsBoard() {
   // Counting the attempt rather than the result means a transient
   // failure costs one interval and nothing more, and no failure can
   // schedule a second timer: the effect holds one at a time.
+  //
+  // M1: counting the attempt is also what made a lost session expensive.
+  // A 401 is not a transient failure -- every later ask gets the same
+  // answer -- so the loop re-arming on it would be a request storm aimed
+  // at a server that has already said no. The session check ends the loop
+  // instead, while the api client takes the browser to the login page.
   useEffect(() => {
-    if (!board || !anyReading(board.entries)) return undefined;
+    if (!board || sessionEnded() || !anyReading(board.entries)) return undefined;
     const timer = window.setTimeout(() => {
       load().finally(() => setPollTick((previous) => previous + 1));
     }, AI_POLL_MS);

@@ -177,3 +177,30 @@ the same thing.
 | The warning closed chip uses `--color-background-warning-weak` and an alert icon, against "Badge usage" above (a machine-state notice must never alarm) | The canvas asks for it, and it is the one closed-posting case that wants the owner's attention: a posting gone for over a week on a job they never applied to. Every other closed posting keeps the quiet chip. |
 | `StatusSelect.css` draws a rule above the Ended section of the status dropdown | `Dropdown.Section` adds space above itself and no divider, and the canvas asks for a divider. The selector is keyed to the dropdown's own id, so no other `Dropdown.Section` in the app is restyled. |
 
+
+## Log in and the logout affordance (M1)
+
+Proposed 2026-10-17 with the accounts milestone. Two new visible
+elements, both built only from components this app has already adopted,
+so nothing below is custom and nothing is restyled for one surface. The
+brief fixes the look in one sentence: the login form is plain fields and
+one primary button, no new visual language.
+
+| Entry | What it is | Rule |
+|---|---|---|
+| Log in page (`pages/Login.jsx`) | `Heading`, one `Text` line, two `TextField`s, one primary `Button` | Plain fields and one primary button. The `Button` is `type="submit"` inside a real `form`, so Enter in either field signs in. |
+| Log in error | `BannerSlim type="error"` with the server's one message | The same banner every popup already shows a failed write in. One message for every refused attempt, so the page cannot be used to find out who has an account. |
+| Log in page chrome | None | It is the one route outside the shared `Page` wrapper, so it shows no nav. Every link a nav could offer leads back here until there is a session. |
+| Logout affordance (`Nav.jsx`) | One `Button size="sm" color="transparent"` in the app header | The chrome every page already renders, not a settings page and not a menu: a menu holding one action is a container earning nothing. Transparent, because signing out is not the thing a person came to the page to do. |
+
+The password field shows Gestalt's own "Show password" control. That
+comes with `TextField type="password"` rather than being an element this
+page added, and it is kept rather than suppressed: a typed password
+nobody can check is how a tester ends up locked out of an account the
+admin just made for them.
+
+The no-build rendering of the same page (served when `frontend/dist` is
+absent, the way `/jobs` already falls back) uses no CSS of its own. The
+shared control styles in `careeros/web/ui.py` already cover a label, an
+input and a primary button, so the fallback is a second rendering of one
+page rather than a second visual language.

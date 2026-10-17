@@ -114,6 +114,7 @@ a.external::after { content: ' \\2197'; display: inline-block; }
 .src-icon { font-size: 11px; }
 .chart-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .app-header { display: flex; align-items: center; gap: 14px; margin-bottom: 32px; }
+.app-header .logout { margin-left: auto; }
 .wordmark { color: var(--text-primary); font-size: 20px; font-weight: 590; text-decoration: none; letter-spacing: -0.02em; }
 .page-nav { flex-wrap: wrap; gap: 12px 24px; border-bottom: 1px solid var(--border-standard); padding-bottom: 16px; }
 .page-nav a.active { text-decoration: underline; text-decoration-color: var(--accent-indigo); text-underline-offset: 17px; }
@@ -182,10 +183,24 @@ def nav_html(current_page: str) -> str:
     return f"<nav class='page-nav' aria-label='Main'>{links}</nav>"
 
 
-def page_shell(title: str, current_page: str, body: str, extra_css: str = "") -> str:
+#: The logout affordance a page behind the login gate carries (M1), in the
+#: chrome every page already shows rather than as a settings page that
+#: would exist for one action. A form and not a link, because logging out
+#: changes state, and it needs no JavaScript.
+LOGOUT_FORM = ("<form class='logout' method='post' action='/logout'>"
+               "<button type='submit'>Log out</button></form>")
+
+
+def page_shell(title: str, current_page: str, body: str, extra_css: str = "",
+               logout: bool = False, nav: bool = True) -> str:
     """Wrap already-escaped page body HTML in the shared Linear-dark head/shell.
 
     ``title`` is escaped for the document title. ``current_page`` is a slug from NAV_PAGES, highlighted in the nav.
+    ``logout`` adds the logout affordance; it is off by default so the one
+    page reachable without a session does not offer to end one.
+    ``nav`` drops the navigation and the wordmark link for the same page:
+    every link they offer leads back to the login page until there is a
+    session, so showing them would be chrome standing for nothing.
     """
     return (
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
@@ -195,7 +210,9 @@ def page_shell(title: str, current_page: str, body: str, extra_css: str = "") ->
         f"<style>{CSS_VARS}{BASE_CSS}{SCROLLBAR_CSS}{extra_css}</style>"
         "</head><body>"
         "<div class='page'><header class='app-header'>"
-        "<a class='wordmark' href='/'>CareerOS</a></header>"
-        f"{nav_html(current_page)}<main>{body}</main></div>"
+        + ("<a class='wordmark' href='/'>CareerOS</a>" if nav
+           else "<span class='wordmark'>CareerOS</span>")
+        + f"{LOGOUT_FORM if logout else ''}</header>"
+        + f"{nav_html(current_page) if nav else ''}<main>{body}</main></div>"
         "</body></html>"
     )

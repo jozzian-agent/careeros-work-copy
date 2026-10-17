@@ -7,6 +7,7 @@ timestamp: 2026-10-15
 
 # Documentation
 
+- [Accounts and login](surfaces/accounts.md): Describe the login page, the logout affordance, the health check and the accounts command line.
 - [Empty description and summary in the live vault](audits/redaction-residue.md): Name every live job whose description or summary is empty, what the record says about why, and what a re-read could restore.
 - [Company enrichment](company-enrichment.md): Describe the company enrichment endpoint and stored output.
 - [Organisation intake](capabilities/org-intake.md): Contract for the capability that resolves a loose organisation reference to a known, classified record.
