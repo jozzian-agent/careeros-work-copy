@@ -1,4 +1,4 @@
-<div id="board-view" class="kanban" aria-label="Jobs board">
+<div id="board-view" class="kanban" aria-label="My Jobs board">
 {% for status in statuses %}<section class="kanban-column stack" data-column="{{ status }}"><h2>{{ status|title }} <span class="chip column-count">{{ entries|selectattr('status', 'equalto', status)|list|length }}</span></h2>
 {% for job in entries if job.status == status %}<article class="card job-card" draggable="true" data-status="{{ job.status }}" data-id="{{ job.id }}" data-pending="{{ 'false' if job.enriched else 'true' }}" data-function="{{ job.function|join(' ') }}" data-needs="{{ 'true' if job.needs_attention else 'false' }}">
 <div class="job-heading"><h2 class="job-title"><a href="/jobs/{{ job.id|urlencode }}">{{ job.title }}</a></h2><select class="job-status" aria-label="Move {{ job.title }} to">{% for choice in statuses %}<option value="{{ choice }}" {% if choice == job.status %}selected{% endif %}>{{ choice|title }}</option>{% endfor %}</select></div>

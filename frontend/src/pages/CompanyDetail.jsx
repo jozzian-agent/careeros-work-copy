@@ -213,6 +213,11 @@ export default function CompanyDetail() {
   const {
     company, jobs = [], experiences = [], classification = {}, needs_input: needsInput, notes = [],
     isic_sections: sectorOptions = [], size_classes: sizeOptions = [],
+    // M2 (CAREER-39, decision D3): a company is shared universe, so
+    // everybody reads this page and the admin alone changes it. Every
+    // control that writes the record is behind this flag rather than
+    // left on the page to answer 403 when a tester presses it.
+    can_edit_shared: canEditShared = false,
   } = page;
   const locations = (company.locations || []).join(', ');
   const sectorText = classification.sector?.value || 'Sector unknown';
@@ -226,7 +231,7 @@ export default function CompanyDetail() {
           type="COMPANY"
           backHref="/companies"
           backLabel="Companies"
-          chip={needsInput ? <NeedsInputChip /> : null}
+          chip={needsInput && canEditShared ? <NeedsInputChip /> : null}
           title={company.name}
           subtitle={`${sectorText} · ${sizeText}`}
           location={locations || null}
@@ -238,12 +243,17 @@ export default function CompanyDetail() {
           editLabel="Edit company"
           onEdit={() => setEditOpen(true)}
           onDelete={() => setDeleteOpen(true)}
+          showActions={canEditShared}
         />
         {/* The one ask, and only when automation has genuinely run out of
             ideas: the backend decides that (companies.py
             company_needs_input), so a stale review flag on a field that
-            does have a value can no longer keep the card up. */}
-        {needsInput ? (
+            does have a value can no longer keep the card up.
+
+            M2: and only for the admin. Both of its actions write the
+            shared company record, so for everybody else the card would
+            be an ask they cannot answer. */}
+        {needsInput && canEditShared ? (
           <SectionCard
             title={NEEDS_INPUT_TITLE}
             variant="needs-input"
@@ -279,7 +289,7 @@ export default function CompanyDetail() {
             onDismiss={() => setRetryFeedback(null)}
           />
         ) : null}
-        <SectionCard title="Jobs">
+        <SectionCard title="My Jobs">
           {jobs.length ? <LinkedRows rows={jobs} hrefPrefix="/jobs" /> : <EmptyState text="No jobs linked yet" />}
         </SectionCard>
         <SectionCard title="Experiences">
@@ -296,21 +306,22 @@ export default function CompanyDetail() {
         <SectionCard
           title="Classification"
           collapsible
-          actions={(
+          actions={canEditShared ? (
             <Button
               text="Edit classification"
               color="gray"
               size="sm"
               onClick={() => setClassificationOpen(true)}
             />
-          )}
+          ) : null}
         >
           <Flex direction="column" gap={3}>
             <ClassificationRow label="Sector" field={classification.sector} />
             <ClassificationRow label="Size" field={classification.size} />
           </Flex>
         </SectionCard>
-        <NotesSection kind="companies" recordId={id} notes={notes} onChanged={load} />
+        <NotesSection kind="companies" recordId={id} notes={notes} canWrite={canEditShared}
+                      onChanged={load} />
       </Flex>
       {editOpen ? (
         <EditCompanyPopup company={company} onSave={handleSave} onDismiss={() => setEditOpen(false)} />

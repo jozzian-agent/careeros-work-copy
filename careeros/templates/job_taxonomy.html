@@ -6,11 +6,12 @@
   <fieldset><legend>Sector</legend><p class="muted">Sector belongs to the company, not the job. {% if company %}Shown from <a href="/companies/{{ company.id|urlencode }}/taxonomy">{{ company.name }}</a> — edit it there.{% else %}This job has no linked company.{% endif %}</p>
     <div class="row">{% if company and company.sectors %}{% for code in company.sectors %}<span class="chip">{{ code }} · {{ isic_labels.get(code, code) }}</span>{% endfor %}{% else %}<span class="muted">(not set)</span>{% endif %}</div>
   </fieldset>
-  <fieldset><legend>Tags</legend><p class="muted">Controlled vocabulary — pick from the registry, or propose a new value.</p>
+  <fieldset><legend>Tags</legend><p class="muted">Controlled vocabulary — pick from the registry{% if can_edit_shared %}, or propose a new value{% else %}. Only the admin adds new values{% endif %}.</p>
     <div class="row spaced" id="tag-chips">{% for token in tags %}<label class="row chip"><input type="checkbox" name="tag" value="{{ token }}" checked> {{ tag_labels.get(token, {}).get('label') or token }}</label>{% endfor %}</div>
     <div class="row spaced"><label class="row">Add from registry<select id="tag-select" style="max-width:320px"><option value="">— select a tag —</option>{% for facet, info in tag_registry.facets.items() %}{% if facet != 'function' %}<optgroup label="{{ info.label }}">{% for v in info.get('values', []) %}<option value="{{ facet }}:{{ v.id }}" {% if facet + ':' + v.id in tags %}disabled{% endif %}>{{ v.get('label') or v.id }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}</select></label>
+{% if can_edit_shared %}
     <label class="row">Facet<select id="new-tag-facet">{% for facet, info in tag_registry.facets.items() %}{% if facet != 'function' %}<option value="{{ facet }}">{{ info.label }}</option>{% endif %}{% endfor %}</select></label>
-    <label class="row" style="flex:1">New tag id<input id="new-tag-input" placeholder="e.g. machine-learning"></label>
+    <label class="row" style="flex:1">New tag id<input id="new-tag-input" placeholder="e.g. machine-learning"></label>{% endif %}
     <button type="button" id="add-tag">+ Add tag</button></div>
   </fieldset>
   <div class="row"><button class="primary">Save changes</button><span id="save-status" class="muted" role="status" aria-live="polite"></span></div>
@@ -20,10 +21,14 @@ const form=document.getElementById('taxonomy-form');
 const proposed=new Set({{ tags|tojson }});
 const chips=document.getElementById('tag-chips');
 document.getElementById('add-tag').onclick=()=>{
+  // M2 (decision D3): the two propose-a-value controls are rendered only
+  // for the admin, so for everybody else this button adds from the
+  // registry and says so when nothing is picked.
   const input=document.getElementById('new-tag-input');
   const select=document.getElementById('tag-select');
   let token, label;
   if(select.value){token=select.value;label=select.selectedOptions[0].textContent;select.value='';}
+  else if(!input){toast('Pick a tag from the registry.',true);return;}
   else{
     const raw=input.value.trim().toLowerCase().replace(/[^a-z0-9-]+/g,'-').replace(/^-|-$/g,'');
     if(!raw){toast('Enter a tag id or pick one from the registry.',true);return;}

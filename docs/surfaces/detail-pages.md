@@ -168,7 +168,9 @@ The Company page is rebuilt in the same round:
    names the field and the sources that were tried, "Set it yourself"
    opens Edit classification and "Try again" calls
    `POST /api/companies/<id>/retry`, whose outcome renders below it.
-3. Jobs: each linked job's title as a link, with its status.
+3. My Jobs: each of the reader's own linked jobs, its title as a link,
+   with its status. Scoped to the reader since M2 (CAREER-39, decision
+   D3) and headed with the same word the board carries (D10).
 4. Experiences: the same row, with present or past.
 5. Classification, collapsed: the sector and the size, each with where
    the value came from ("Set by you", "Found by AI", "Found on Wikidata",
@@ -192,7 +194,7 @@ what they are looking at and how to get back, edit or delete it.
 
 ## Appears in
 
-Jobs board → a job card's title → Job detail. Experiences list → a
+My Jobs board → a job card's title → Job detail. Experiences list → a
 position → Experience detail. Companies directory → a company → Company
 detail → Edit classification → Company Classification.
 

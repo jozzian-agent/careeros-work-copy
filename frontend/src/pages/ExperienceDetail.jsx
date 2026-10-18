@@ -22,6 +22,8 @@ function formatSalary(value) {
 export default function ExperienceDetail() {
   const { id } = useParams();
   const [page, setPage] = useState(null);
+  // { tags, canEditShared }: the shared tag registry and whether this
+  // user may add a value to it, both from GET /api/experiences/new.
   const [tagRegistry, setTagRegistry] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -200,7 +202,8 @@ export default function ExperienceDetail() {
         <EditPositionPopup
           exp={exp}
           companies={page.companies}
-          tagRegistry={tagRegistry}
+          tagRegistry={tagRegistry.tags}
+          canProposeTags={tagRegistry.canEditShared}
           onSave={handleSave}
           onDismiss={handleEditDismiss}
           onCompanyLinked={handleCompanyLinked}

@@ -308,7 +308,7 @@ export default function JobDetail() {
         <DetailHeader
           type="JOB"
           backHref="/jobs"
-          backLabel="Jobs"
+          backLabel="My Jobs"
           chip={needsInput ? <NeedsInputChip /> : null}
           title={job.title}
           subtitle={company ? <Link href={`/companies/${encodeURIComponent(company.id)}`}>{company.name}</Link> : null}

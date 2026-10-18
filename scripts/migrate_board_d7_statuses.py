@@ -213,6 +213,8 @@ def records(root):
     is skipped everywhere else, and named on stderr so a retired status
     hiding in one cannot pass unnoticed."""
     for path in sorted((Path(root) / 'jobs').glob('*.yaml')):
+        if path.name.startswith(vault.RESERVED_PREFIX):
+            continue
         data = vault._read(path)
         if data:
             yield path, data

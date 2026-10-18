@@ -101,6 +101,113 @@ def enrich_company(jobs):
     )
 
 
+def _shared_owners(root):
+    """The owners whose records a shared record may be built from, or
+    None when ownership does not apply to this vault at all.
+
+    None means there is not one stored account, which is a pre-M1 vault
+    or a test fixture: there is no tester in it to protect, so everything
+    in it contributes. Otherwise it is the ids of the admins, and an
+    ownerless record contributes alongside them (see
+    `contributes_to_shared`).
+    """
+    from careeros import users
+
+    accounts = users.list_users(root)
+    return None if not accounts else {user['id'] for user in accounts
+                                      if users.is_admin(user)}
+
+
+def contributes_to_shared(root, record, owners=None):
+    """Whether this one record's save may write a shared company record.
+
+    M2 (CAREER-39, decision D3). Everything stored on a company is
+    readable by every user, because a company is shared universe. A
+    tester's job is readable by nobody else, down to its id, so a
+    tester's job contributes nothing to a company: not the rollup below,
+    not the contact-email promotion in `vault.save_job`, not the
+    metadata and website fills on the intake and enrichment paths.
+    Until the M3 merge queue exists, the shipped decision is that a
+    tester does not write a shared record, and this is the one rule that
+    says which saves may.
+
+    True for a record with no owner, which is the pre-M2 record the admin
+    inherits (`vault.Owner`), and for one an admin owns.
+
+    False for a stored owner that is not an admin's. A record whose owner
+    names no stored account at all is also false, which is a shape
+    nothing produces: the accounts command line creates, disables and
+    enables an account and never deletes one, so an owner id on a record
+    names a stored account unless somebody edited the YAML by hand. The
+    strict reading is the safe one there, because the alternative would
+    publish a record nobody can read.
+
+    Keyed on the record's owner and never on the session, so it answers
+    the same on the request thread and on the AI queue, where there is no
+    session to read.
+    """
+    from careeros import vault
+
+    if owners is None:
+        owners = _shared_owners(root)
+    if owners is None:
+        return True
+    owner = (record or {}).get(vault.OWNER_FIELD)
+    return not owner or owner in owners
+
+
+def record_owner_scope(root, record):
+    """The ownership scope the owner of this record reads under.
+
+    Company resolution reads jobs: the employer names recorded against
+    an ATS tenant, and the legacy fallback's own sweep for a job on the
+    same tenant. Owner decision 2026-10-18: those reads are the
+    caller's own and nobody else's. A private posting must not change
+    which company somebody else's posting resolves to, must not flip a
+    link from `linked` to `needs_review`/`shared_tenant`, and must not
+    have its ATS association published as an identifier on a shared
+    company. Cross-user resolution consistency is the thing traded away
+    for that, deliberately: the same tenant may resolve differently for
+    two users, which is the same shape as the two of them disagreeing
+    about whether a retired company exists.
+
+    On the request thread the caller is the session. On the AI queue
+    there is none, so the scope is reconstructed from the record being
+    processed, which is what this answers.
+
+    An ownerless record is the admin's (`vault.Owner`), so it reads
+    under the admin's own scope: admin-owned plus the legacy ownerless
+    records, the same set the rollup above aggregates. A vault with no
+    admin, or no accounts at all, is unscoped, which is the pre-M1 and
+    fixture case `contributes_to_shared` already treats that way.
+    """
+    from careeros import users, vault
+
+    identifier = (record or {}).get(vault.OWNER_FIELD)
+    user = users.load_user(root, identifier) if identifier else None
+    if user is None:
+        found = users.admins(root)
+        user = found[0] if found else None
+    return users.owner(user)
+
+
+def shared_jobs(root):
+    """The jobs a shared company record may be derived from.
+
+    The rollup below puts a posting's id (in the headcount evidence), its
+    location, its keywords, its seniority and the count of a company's
+    postings onto a record every user reads. So it reads the shared half
+    of the vault only, per `contributes_to_shared`.
+    """
+    from careeros import vault
+
+    owners = _shared_owners(root)
+    if owners is None:
+        return vault.list_jobs(root)
+    return [job for job in vault.list_jobs(root)
+            if contributes_to_shared(root, job, owners)]
+
+
 def regenerate_company(root, identifier):
     """Merge derived facts through vault helpers; caller holds any write lock.
 
@@ -119,12 +226,18 @@ def regenerate_company(root, identifier):
     it is gated and actively deleted the same way: the matrix gives a
     non-employer no size at all, and leaving evidence toward a class
     behind would be the nested-rollup leak above under a second name.
+
+    M2 (decision D3): the postings it aggregates are the shared half of
+    the vault (`shared_jobs`), never every user's. A rollup over all of
+    them would publish one user's private postings -- their count, their
+    locations, their keywords, and the id of the posting the headcount
+    came from -- on a record every user reads.
     """
     from careeros import vault
     company = vault.load_company(root, identifier)
     if company is None:
         return None
-    derived = enrich_company(job for job in vault.list_jobs(root)
+    derived = enrich_company(job for job in shared_jobs(root)
                              if job.get('company_id') == identifier)
     previous = company.get('enrichment')
     block = dict(previous) if isinstance(previous, dict) else {}
@@ -226,7 +339,10 @@ def plan_backfill(root, sector_signals=SECTOR_SIGNALS, size_signals=SIZE_SIGNALS
     plan = []
     scanned = 0
     for company in vault.list_companies(root):
-        if company.get('kind', 'employer') != 'employer':
+        # M2 soft retire: a company the admin retired is gone from their
+        # world, so an admin-triggered sweep does not spend a network
+        # call on it or write a fresh classification onto it.
+        if company.get('kind', 'employer') != 'employer' or vault.is_retired(company):
             continue
         scanned += 1
         changes = {}
@@ -273,6 +389,8 @@ def apply_backfill(root, plan):
         if current is None:
             continue
         for identifier in identifiers:
+            # Writable on purpose: the only caller of apply_backfill is
+            # the admin-gated backfill endpoint (M2, decision D3).
             current = add_identifier(VaultOrganisationStore(root), current, identifier['type'],
                                      identifier['value'], identifier['provenance'])
         vault.save_company(root, changes, company['id'])

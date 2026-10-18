@@ -1,14 +1,24 @@
 ---
 type: Surface
-title: "Jobs"
-description: "Describe the approved React Jobs board and its acceptance state."
+title: "My Jobs"
+description: "Describe the approved React My Jobs board and its acceptance state."
 timestamp: 2026-10-15
 ---
 
-# Jobs
+# My Jobs
 
 Surface: /jobs (React rewrite of jobs.html + job_cards.html).
 Status: Approved 2026-10-10 (owner: "Go" on plan defaults + sketch).
+
+2026-10-18 (CAREER-39 M2, owner decision D10): the surface is called **My
+Jobs** in the navigation, in the page title, in the detail page's back
+link and in its empty state, because the board holds the signed-in user's
+own postings and nobody else's (decision D3). The route stays `/jobs` and
+so do the slugs and data attributes: those are not words a person reads.
+The board is scoped server-side, by `vault.Owner` on
+`jobs.page_context`; the payload shape did not change, so nothing in the
+behaviour contract below moves. The empty state is now "My Jobs is empty
+— paste a posting link to get started.
 Owner click-test: Passed 2026-10-11 on live LAN server with the real vault
 ("works all"). One gap found: navigation to the other pages is missing
 from the React Jobs page; tracked as M0 follow-up below.
@@ -26,7 +36,7 @@ Track jobs on the React board and list while preserving approved interactions.
 
 ## Appears in
 
-Jobs → add a posting, review a card, change status or open job detail.
+My Jobs → add a posting, review a card, change status or open job detail.
 
 ## Minimal contents
 
@@ -80,7 +90,7 @@ frontend/src/theme.js.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│ Jobs                       [+] [Board] [List]               │  PageHeader
+│ My Jobs                    [+] [Board] [List]               │  PageHeader
 ├────────────────────────────────────────────────────────────┤
 │ Fit▾ Function▾ Location▾ More filters▾ │ Needs attention(1) │  filters
 │                                              N of M jobs    │

@@ -1,13 +1,22 @@
-"""Posting board and job detail."""
+"""Posting board and job detail.
+
+M2 (CAREER-39): every job read here is scoped to one user. The `owner`
+argument is a `vault.Owner` and comes from the session, so the board, the
+detail page and the classification sub-page all answer with that user's
+own jobs and nothing else (decision D3).
+"""
 from datetime import date
 import re
 
 from flask import abort, current_app
-from careeros import history, vault, watcher
+from careeros import history, users, vault, watcher
 from org_intake import classify as sectors
 from careeros.web.ui import page
 
-EMPTY_STATE = 'No jobs yet — paste a posting link to get started.'
+# The section is My Jobs since M2 (decision D10), so its empty state
+# names it that way rather than saying "no jobs yet" about a page the
+# owner now reads as theirs.
+EMPTY_STATE = 'My Jobs is empty — paste a posting link to get started.'
 
 # How long a closed posting sits on a job the owner has not applied to
 # before the board asks about it (D7).
@@ -112,8 +121,8 @@ def search_so_far(entries):
     return stats
 
 
-def page_context(root):
-    return board_context(vault.list_jobs(root), vault.list_companies(root),
+def page_context(root, owner=None):
+    return board_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner),
                          vault.function_label_map(root))
 
 def board_context(entries, companies, function_labels, today=None):
@@ -167,8 +176,8 @@ def company_summaries(companies, isic_sections):
 
 def build_page():
     root = current_app.config['VAULT_PATH']
-    context = page_context(root)
-    return page('Jobs', 'jobs', 'jobs.html', **context)
+    context = page_context(root, users.owner(users.session_user(root)))
+    return page('My Jobs', 'jobs', 'jobs.html', **context)
 
 def show_remote_chip(job):
     """Show the remote label only when the location does not already include it.
@@ -269,8 +278,8 @@ def job_needs_input(job):
     return None
 
 
-def detail_context(root, identifier, llm_pending=False):
-    job = vault.load_job(root, identifier)
+def detail_context(root, identifier, llm_pending=False, owner=None):
+    job = vault.load_job(root, identifier, owner)
     if job is None:
         abort(404)
     return job_context(job, vault.load_company(root, job.get('company_id')),
@@ -324,19 +333,20 @@ def job_context(job, company, function_labels, llm_pending=False, isic_sections=
         fit_placeholder=FIT_PLACEHOLDER,
     )
 
-def taxonomy_context(root, identifier):
+def taxonomy_context(root, identifier, owner=None, can_edit_shared=True):
     """Taxonomy sub-page (approved wireframe 2026-10-07): function (ESCO),
     the company's ISIC sectors read-only, and controlled-vocabulary tags.
     No provenance display per the owner's decision."""
-    job = vault.load_job(root, identifier)
+    job = vault.load_job(root, identifier, owner)
     if job is None:
         abort(404)
     return classification_context(
         job, vault.load_company(root, job.get('company_id')),
         vault.function_label_map(root), sectors.load_isic_sections(),
-        vault.tag_label_map(root), vault.load_tags(root))
+        vault.tag_label_map(root), vault.load_tags(root), can_edit_shared)
 
-def classification_context(job, company, function_labels, isic_sections, tag_labels, tag_registry):
+def classification_context(job, company, function_labels, isic_sections, tag_labels, tag_registry,
+                           can_edit_shared=True):
     function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
                               key=lambda pair: pair[1].casefold())
     isic_labels = {s['code']: s['label'] for s in isic_sections}
@@ -349,9 +359,14 @@ def classification_context(job, company, function_labels, isic_sections, tag_lab
         tags=job.get('tags') or [],
         tag_labels=tag_labels,
         tag_registry=tag_registry,
+        # M2 (D3): whether this user may add a value to the shared tag
+        # vocabulary. The page offers the propose-a-new-tag control only
+        # when they may, rather than leaving a button that answers 403.
+        can_edit_shared=can_edit_shared,
     )
 
 def taxonomy(identifier):
     root = current_app.config['VAULT_PATH']
-    context = taxonomy_context(root, identifier)
+    user = users.session_user(root)
+    context = taxonomy_context(root, identifier, users.owner(user), users.is_admin(user))
     return page(f"Classification · {context['job'].get('title', 'Job')}", 'jobs', 'job_taxonomy.html', **context)

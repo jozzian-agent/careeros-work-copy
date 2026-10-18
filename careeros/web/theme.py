@@ -17,11 +17,15 @@ CONTENT_MAX_WIDTH = 1180
 #: still expect two.
 MOBILE_BREAKPOINT = 640
 
-#: Navigation order shared by every CareerOS page.
+#: Navigation order shared by every CareerOS page. The slug is the route
+#: and the label is the word a person reads, which is why they differ for
+#: jobs: M2 (CAREER-39, decision D10) renamed the section to My Jobs,
+#: because a board holds the signed-in user's own postings and nobody
+#: else's, while /jobs stays /jobs.
 NAV_PAGES = (
     ("search", "Search"),
     ("experiences", "Experiences"),
-    ("jobs", "Jobs"),
+    ("jobs", "My Jobs"),
     ("companies", "Companies"),
 )
 

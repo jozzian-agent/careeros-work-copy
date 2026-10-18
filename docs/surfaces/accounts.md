@@ -24,9 +24,21 @@ logged-in user, the admin creates every account, and there is no public
 signup. The session survives a browser restart and a server restart, so a
 tester signs in once rather than every time they open the tab.
 
-Data ownership is unchanged: the vault is still one shared world and every
-logged-in person sees everything. This milestone gives every request an
-identity; hanging data off that identity is the next one.
+M1 gave every request an identity and nothing more: the vault was still
+one shared world and every logged-in person saw everything.
+
+2026-10-18 (CAREER-39 M2, owner decisions D3/D4) hangs the data off that
+identity. A job and an experience belong to one user, by the `owner_id`
+field on the record, and reach nobody else: a record the reader does not
+own answers exactly as one that does not exist, and that includes the
+admin, who gets no window into a tester's private records. Companies and
+the tag vocabulary stay one shared universe every user reads, and
+changing one of them is the admin's alone: a tester's attempt answers
+403 with one sentence, "Only the admin can change companies and
+vocabulary." (`users.SHARED_READ_ONLY`), and the interface does not offer
+them the control in the first place. The role is read in exactly one
+function for this, `users.is_admin`; what a user may see of the private
+records is decided by ownership and never by role.
 
 ## Appears in
 

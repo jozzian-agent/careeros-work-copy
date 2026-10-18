@@ -26,8 +26,13 @@ export default function EditClassificationPopup({
   mode = 'job', taxonomy, company, sectorOptions = [], sizeOptions = [], onSave, onDismiss,
 }) {
   const isJob = mode === 'job';
+  // M2 (CAREER-39, decision D3): the tag registry is shared vocabulary,
+  // so adding a value to it is the admin's. Picking a value already in
+  // it is a write to this job alone and stays open to everybody, which
+  // is why only the propose half below is behind this flag.
   const { job, company: linkedCompany, function_options: functionOptions, isic_labels: isicLabels,
-    tags: knownTags, tag_labels: tagLabels, tag_registry: tagRegistry } = taxonomy || {};
+    tags: knownTags, tag_labels: tagLabels, tag_registry: tagRegistry,
+    can_edit_shared: canProposeTags = false } = taxonomy || {};
 
   const [selectedFunctions, setSelectedFunctions] = useState(job?.function || []);
   const [tags, setTags] = useState(knownTags || []);
@@ -135,7 +140,12 @@ export default function EditClassificationPopup({
                   : <Text color="subtle">Not found in posting</Text>}
               </Flex>
             </Fieldset>
-            <Fieldset legend="Tags" helperText="Controlled vocabulary: pick from the registry, or propose a new value.">
+            <Fieldset
+              legend="Tags"
+              helperText={canProposeTags
+                ? 'Controlled vocabulary: pick from the registry, or propose a new value.'
+                : 'Controlled vocabulary: pick from the registry. Only the admin adds new values.'}
+            >
               <Flex direction="column" gap={3}>
                 <Flex gap={3} wrap>
                   {tags.map((token) => (
@@ -162,33 +172,39 @@ export default function EditClassificationPopup({
                       ))}
                     </SelectList>
                   </Box>
-                  <Box minWidth={160}>
-                    <SelectList
-                      id="classification-new-tag-facet"
-                      label="Facet"
-                      value={newFacet}
-                      onChange={({ value }) => setNewFacet(value)}
-                    >
-                      {Object.entries(tagRegistry?.facets || {})
-                        .filter(([facet]) => facet !== 'function')
-                        .map(([facet, info]) => (
-                          <SelectList.Option key={facet} value={facet} label={info.label} />
-                        ))}
-                    </SelectList>
-                  </Box>
-                  <Box minWidth={160}>
-                    <TextField
-                      id="classification-new-tag"
-                      label="New tag id"
-                      placeholder="e.g. machine-learning"
-                      value={newTagId}
-                      onChange={({ value }) => setNewTagId(value)}
-                    />
-                  </Box>
+                  {canProposeTags ? (
+                    <Box minWidth={160}>
+                      <SelectList
+                        id="classification-new-tag-facet"
+                        label="Facet"
+                        value={newFacet}
+                        onChange={({ value }) => setNewFacet(value)}
+                      >
+                        {Object.entries(tagRegistry?.facets || {})
+                          .filter(([facet]) => facet !== 'function')
+                          .map(([facet, info]) => (
+                            <SelectList.Option key={facet} value={facet} label={info.label} />
+                          ))}
+                      </SelectList>
+                    </Box>
+                  ) : null}
+                  {canProposeTags ? (
+                    <Box minWidth={160}>
+                      <TextField
+                        id="classification-new-tag"
+                        label="New tag id"
+                        placeholder="e.g. machine-learning"
+                        value={newTagId}
+                        onChange={({ value }) => setNewTagId(value)}
+                      />
+                    </Box>
+                  ) : null}
                 </Flex>
                 <Flex gap={2}>
                   <Button text="+ Add from registry" onClick={addFromRegistry} disabled={!registryPick} />
-                  <Button text="+ Add tag" onClick={addNewTag} disabled={!newTagId.trim()} />
+                  {canProposeTags ? (
+                    <Button text="+ Add tag" onClick={addNewTag} disabled={!newTagId.trim()} />
+                  ) : null}
                 </Flex>
               </Flex>
             </Fieldset>

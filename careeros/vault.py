@@ -71,6 +71,52 @@ REQUIREMENT_LEVELS = ('must', 'nice')
 TAG_FACETS = ('skill/capability', 'skill/domain', 'function', 'experience-type', 'tool')
 TAG_TOKEN_RE = re.compile(r'([a-z0-9/_-]+):([a-z0-9-]+)')
 
+# CAREER-39 M2, owner decisions D3 and D4: a job and an experience belong
+# to one user and to nobody else, while companies and the tag vocabulary
+# stay one shared universe every user reads. This is the field that says
+# whose record it is, holding a user record id from careeros.users
+# ('USER-001').
+#
+# Named for the relationship rather than for the kind it points at, even
+# though `company_id` names the kind: the word `user` is already spent
+# twice in this product, once as the `field_provenance` value meaning "the
+# owner typed this" and once as the session cookie's `user_id`, which is
+# the subject of a request and not a field of a record. `owner_id` is the
+# only one of the three that can only mean one thing.
+OWNER_FIELD = 'owner_id'
+
+
+class Owner(NamedTuple):
+    """Whose private records one read or one write may touch.
+
+    Every job and experience read goes through here rather than comparing
+    ids at each call site, so "no user ever sees another user's jobs"
+    (D3) is one rule in one place. `None` in place of an Owner means no
+    scoping at all, which is what the cron watcher and the migration
+    scripts run under: they have no session to scope to.
+
+    `inherits_ownerless` is true for the admin. A record written before
+    this field existed carries no owner, and the migration gives every
+    one of them to the admin (scripts/migrate_record_owner.py), so the
+    same rule read at read time means a vault that has not been migrated
+    yet already answers correctly for the one person the migration would
+    hand those records to. For everybody else an ownerless record is
+    somebody else's, which is to say it does not exist.
+    """
+
+    identifier: str
+    inherits_ownerless: bool = False
+
+    def owns(self, record):
+        stored = (record or {}).get(OWNER_FIELD)
+        return stored == self.identifier or (not stored and self.inherits_ownerless)
+
+
+def owned(records, owner):
+    """The records this owner may see, or all of them when unscoped."""
+    return records if owner is None else [r for r in records if owner.owns(r)]
+
+
 def slugify(value):
     return re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-') or 'position'
 
@@ -192,6 +238,27 @@ def validate_tags(root, tokens, proposed=()):
     if dirty:
         save_tags(root, tags)
     return list(dict.fromkeys(result))
+
+def unregistered_tags(root, tokens):
+    """The facet:id tokens the shared registry does not hold yet.
+
+    Which is to say the ones a write carrying them would add to
+    tags.yaml. M2 reads this before a write, because extending the shared
+    vocabulary is an admin act (decision D3) and a tester has to be told
+    so instead of having a value registered on their behalf. A malformed
+    token is not reported here: it registers nothing, and validate_tags
+    is the one place that refuses it.
+    """
+    tags = load_tags(root)
+    missing = []
+    for token in tokens or ():
+        if not isinstance(token, str) or not TAG_TOKEN_RE.fullmatch(token):
+            continue
+        facet, value_id = split_tag_id(token)
+        values = (tags['facets'].get(facet) or {}).get('values') or []
+        if not any(value.get('id') == value_id for value in values):
+            missing.append(token)
+    return missing
 
 def known_function_ids(root):
     tags = load_tags(root)
@@ -367,20 +434,27 @@ def migrate_skills_to_tags(root):
     return migrated
 
 def _entries(root):
-    for path in sorted((Path(root) / 'experiences').glob('*.yaml')):
-        data = _read(path)
-        if data:
-            yield path, data
+    """Every stored experience, through the one filtered reader, so a
+    tombstone is as invisible here as it is for a job or a company."""
+    return _records(root, 'experiences')
 
-def list_experiences(root):
-    return sorted((d for _, d in _entries(root)), key=lambda d: str(d.get('start', '')), reverse=True)
+def list_experiences(root, owner=None):
+    return owned(sorted((d for _, d in _entries(root)), key=lambda d: str(d.get('start', '')), reverse=True),
+                 owner)
 
-def load_experience(root, identifier):
-    return next((d for _, d in _entries(root) if d.get('id') == identifier), None)
+def load_experience(root, identifier, owner=None):
+    """One stored experience, or None.
+
+    A record this owner does not own reads as None, which is the same
+    answer a record that is not there gives (D3: no existence leak). The
+    callers that answer 'Position not found.' on None therefore need no
+    second branch for somebody else's record.
+    """
+    record = next((d for _, d in _entries(root) if d.get('id') == identifier), None)
+    return record if record is not None and (owner is None or owner.owns(record)) else None
 
 def next_id(root):
-    numbers = [int(d['id'][4:]) for _, d in _entries(root) if re.fullmatch(r'EXP-\d+', str(d.get('id', '')))]
-    return f'EXP-{max(numbers, default=0) + 1:03d}'
+    return _next(root, 'experiences')
 
 def validate_experience(data, existing=None):
     """Merge onto ``existing`` (the stored record, or {} for a new one) the
@@ -391,7 +465,10 @@ def validate_experience(data, existing=None):
     if not isinstance(data, dict):
         raise ValueError('Position must be an object.')
     defaults = dict(company='', title='', start='', end='', location='', summary='', detail='',
-                     highlights=[], skills=[], tags=[], people_led=None, custom={}, company_id=None)
+                     highlights=[], skills=[], tags=[], people_led=None, custom={}, company_id=None,
+                     # M2: whose experience this is. Null on every record
+                     # written before the split; see OWNER_FIELD.
+                     owner_id=None)
     result = defaults | (existing or {})
     result.update({k: v for k, v in data.items() if k in defaults})
     # Same rule as _save_record's own allowlist, and the same reason for
@@ -427,8 +504,9 @@ def validate_experience(data, existing=None):
     if not isinstance(custom, dict) or any(not isinstance(k, str) for k in custom):
         raise ValueError('Custom fields must be an object with text keys.')
     result['custom'] = custom
-    if result['company_id'] is not None and not isinstance(result['company_id'], str):
-        raise ValueError('company_id must be text or null.')
+    for key in ('company_id', OWNER_FIELD):
+        if result[key] is not None and not isinstance(result[key], str):
+            raise ValueError(f'{key} must be text or null.')
     return result
 
 def save_experience(root, data, identifier=None):
@@ -436,7 +514,8 @@ def save_experience(root, data, identifier=None):
     if identifier and not existing:
         raise KeyError(identifier)
     result = validate_experience(data, existing[1] if existing else None)
-    if result['company_id'] is not None and not load_company(root, result['company_id']):
+    if result['company_id'] is not None and not linkable_company(
+            root, result['company_id'], (existing[1] if existing else {}).get('company_id')):
         raise ValueError('Company not found.')
     # Unlinking through the ordinary PUT must freeze the currently resolved
     # company label into the free-text field, exactly like the dedicated
@@ -471,7 +550,7 @@ def save_experience(root, data, identifier=None):
     if not isinstance(proposed, list) or any(not isinstance(t, str) for t in proposed):
         raise ValueError('proposed_tags must be a list of facet:id values.')
     result['tags'] = validate_tags(root, result['tags'], proposed=proposed)
-    result['id'] = identifier or next_id(root)
+    result['id'] = identifier or _allocate(root, 'experiences')
     # Compensation can only be changed by editing the file itself.
     result['salary'] = existing[1].get('salary') if existing else None
     filename = f"{slugify(result['company'] + ' ' + result['title'])}-{result['id'].lower()}.yaml"
@@ -484,6 +563,11 @@ def save_experience(root, data, identifier=None):
 def delete_experience(root, identifier):
     for path, data in _entries(root):
         if data.get('id') == identifier:
+            # The number survives the data twice over: the counter
+            # mark before the file goes, and the reservation tombstone
+            # that keeps it readable even if the counter is later lost.
+            retain_id_high_water(root, 'experiences')
+            reserve_id(root, 'experiences', identifier)
             path.unlink()
             return True
     return False
@@ -617,44 +701,330 @@ def recover_interrupted_ai(root):
         changed.append(record['id'])
     return changed
 
-def _records(root, kind):
+def _all_records(root, kind):
+    """Every readable file in one record directory, id-reservation
+    tombstones included.
+
+    The id allocator is the only reader that wants them (see
+    `reserve_id`); everything else goes through `_records` below, which
+    filters them out.
+    """
     for path in sorted((Path(root) / kind).glob('*.yaml')):
         data = _read(path)
         if data:
-            if kind == 'jobs':
-                for key in ('sectors', 'industries', 'function'):
-                    if data.get(key) is None:
-                        data[key] = []
-            if kind == 'companies':
-                for key in ('sectors', 'review_flags', 'identifiers', 'sources'):
-                    if data.get(key) is None:
-                        data[key] = []
             yield path, data
 
-def list_jobs(root):
-    return sorted((d for _, d in _records(root, 'jobs')), key=lambda d: str(d.get('added', '')), reverse=True)
+def _records(root, kind):
+    """Every stored record of one kind.
+
+    The one chokepoint where id-reservation tombstones are filtered out,
+    which is what makes them invisible to every reader rather than to
+    the ones somebody remembered: listings, counts, searches, company
+    suggestions, the resolution ladder, the rollups, the link checks and
+    the deletion counts all read records through here or through the
+    `list_*` helpers built on it.
+    """
+    for path, data in _all_records(root, kind):
+        if is_reserved(data):
+            continue
+        if kind == 'jobs':
+            for key in ('sectors', 'industries', 'function'):
+                if data.get(key) is None:
+                    data[key] = []
+        if kind == 'companies':
+            for key in ('sectors', 'review_flags', 'identifiers', 'sources'):
+                if data.get(key) is None:
+                    data[key] = []
+        yield path, data
+
+def list_jobs(root, owner=None):
+    return owned(sorted((d for _, d in _records(root, 'jobs')),
+                        key=lambda d: str(d.get('added', '')), reverse=True), owner)
 
 def list_companies(root):
     return sorted((d for _, d in _records(root, 'companies')), key=lambda d: str(d.get('name', '')).casefold())
 
+def is_retired(company):
+    """True once the admin has retired this company (M2 soft retire).
+
+    One reader for the tombstone, so no surface decides for itself what
+    retired means, the same way `is_open_job` is the one reader of the
+    job status that ends a job.
+    """
+    return bool((company or {}).get('retired'))
+
+def visible_companies(root, owner=None):
+    """Every company this reader may see.
+
+    Companies are shared universe, so the list is the same for everybody
+    except for the retired ones (owner decision, 2026-10-18): the admin
+    asked for those to go, so they are gone for them, and they are still
+    there for a user whose own job or experience still links one, because
+    retiring a company must not break a record somebody else owns.
+
+    Unscoped (`owner` None) answers the whole vault, retired included,
+    which is what the migration scripts and the cron watcher want: they
+    run for the host and are not a surface anybody reads.
+    """
+    companies = list_companies(root)
+    if owner is None:
+        return companies
+    if not any(is_retired(company) for company in companies):
+        # The common case, and the whole reason for the early exit: a
+        # vault with no tombstone in it must not pay for two extra record
+        # sweeps on every company read.
+        return companies
+    linked = {record.get('company_id')
+              for record in list_jobs(root, owner) + list_experiences(root, owner)}
+    return [company for company in companies
+            if not is_retired(company) or company.get('id') in linked]
+
+def linkable_company(root, identifier, current=None):
+    """Whether a write may store this company_id.
+
+    A retired company takes no new link, from anybody (M2 soft retire).
+    The answer for one is the same `Company not found.` a deleted id
+    gets, for every caller and on every write path, which is what keeps
+    the tombstone from being detectable through a write: an admin who
+    tried to link a company they just retired would otherwise be told
+    apart from one who linked an id that never existed, and the link
+    would put the record back in front of them.
+
+    `current` is the company_id the record already carries, and it is
+    what grandfathers an existing link: a record that pointed at the
+    company when it was retired keeps pointing at it and keeps saving,
+    which is the whole reason the delete leaves a tombstone instead of
+    removing the file. Only a link that MOVES has to be to a live
+    company.
+    """
+    company = load_company(root, identifier)
+    if company is None:
+        return False
+    return not is_retired(company) or identifier == current
+
+
+def may_see_company(root, identifier, owner=None):
+    """The one company this reader may see under that id, or None.
+
+    A retired company reads as absent for the reader who has no record
+    pointing at it, which is the same answer an id that was never used
+    gives: the admin's own delete and a company that never existed must
+    not be tellable apart (M2, decision D3).
+    """
+    return next((company for company in visible_companies(root, owner)
+                 if company.get('id') == identifier), None)
+
+def retire_company(root, identifier):
+    """Mark one company retired, stamping the day it happened.
+
+    The soft half of a company delete: used when the deleting admin has
+    no link of their own left but somebody else still does. Idempotent,
+    and it never moves an existing date: the day a company left the
+    admin's world is the day it first left it.
+    """
+    company = load_company(root, identifier)
+    if company is None:
+        raise ValueError('Company not found.')
+    if is_retired(company):
+        return company
+    return save_company(root, {'retired': True,
+                               'retired_at': company.get('retired_at') or date.today().isoformat()},
+                        identifier)
+
 def _load(root, kind, identifier):
     return next((d for _, d in _records(root, kind) if d.get('id') == identifier), None)
 
-def load_job(root, identifier):
-    return _load(root, 'jobs', identifier)
+def load_job(root, identifier, owner=None):
+    """One stored job, or None.
+
+    Somebody else's job reads as None, exactly like a job that is not
+    there (D3: no existence leak), so every caller that already answers
+    'Job not found.' on None answers it here too without a second branch.
+    """
+    record = _load(root, 'jobs', identifier)
+    return record if record is not None and (owner is None or owner.owns(record)) else None
 
 def load_company(root, identifier):
     return _load(root, 'companies', identifier)
 
-def _next(root, kind, prefix):
-    numbers = [int(d['id'][len(prefix):]) for _, d in _records(root, kind) if re.fullmatch(prefix + r'\d+', str(d.get('id', '')))]
-    return f'{prefix}{max(numbers, default=0)+1:03d}'
+#: The id prefix of every numbered record kind, by the vault directory
+#: the records live in. One table, so the allocator below is the same
+#: code for all four and a fifth kind cannot arrive with its own rule.
+ID_PREFIXES = {'jobs': 'JOB-', 'companies': 'CO-',
+               'experiences': 'EXP-', 'users': 'USER-'}
+
+#: The vault file that remembers the highest record number ever handed
+#: out per kind. One file rather than one per kind: it is one fact about
+#: the vault, read and written under the same write lock every record
+#: save already holds.
+#:
+#: Why it exists at all. An id used to be `max stored id + 1`, which
+#: made the id of the next record a readable fact about which records
+#: the vault still holds. M2 soft retire turned that into a leak: a
+#: company the admin deletes is removed from disk when nothing links it
+#: and kept as a tombstone when another user's record does, and the two
+#: answer identically on purpose -- but the next company id did not,
+#: because the tombstone still occupied its number. So the admin could
+#: learn whether somebody else privately links that company by creating
+#: one more and reading its id. The same shape was readable for jobs and
+#: experiences without any tombstone: a number freed by another user's
+#: delete came back as the next caller's id.
+#:
+#: Monotonic allocation closes all of it. A number is handed out once
+#: and never again, whether the record was deleted, retired or is still
+#: there, so the next id says nothing about what the vault holds.
+ID_COUNTER_FILE = 'ids.yaml'
+
+def _highest_allocated(root, kind):
+    """The highest number ever handed out for one record kind.
+
+    The stored counter and what is on disk, whichever is higher. A vault
+    written before the counter existed has no file, so it falls back to
+    the records themselves, which is exactly the answer the old
+    `max + 1` gave: no migration, and no existing id moves. The disk
+    scan stays in the maximum afterwards too, so a vault whose counter
+    file is lost or hand-edited downwards can still never reissue a
+    number a stored record already carries.
+
+    The fallback is safe because a hard delete leaves an id-reservation
+    tombstone in the directory this scans (`reserve_id`), so the files
+    that survive always carry every number ever handed out for the kind,
+    counter or no counter. `retain_id_high_water` writes the mark before
+    the delete as well; either alone would do, and the point of having
+    both is that neither has to be trusted.
+
+    An earlier round of this work relied on the mark alone and claimed
+    an invariant it did not have: that a vault which had ever deleted
+    would always have a counter file. It does, but the file can be lost,
+    reset or corrupted AFTERWARDS, and this then fell back to the
+    records that survive, where a deleted number left no trace while a
+    RETIRED one did, because a tombstone is still a stored record. That
+    difference was the last readable form of the allocation oracle.
+
+    The invariant itself is written down in docs/schemas.md, under
+    "Record ids: handed out once, never again".
+    """
+    prefix = ID_PREFIXES[kind]
+    counter = (_read(Path(root) / ID_COUNTER_FILE) or {}).get(kind)
+    stored = [int(d['id'][len(prefix):]) for _, d in _all_records(root, kind)
+              if re.fullmatch(prefix + r'\d+', str(d.get('id', '')))]
+    return max(counter if isinstance(counter, int) and counter > 0 else 0,
+               max(stored, default=0))
+
+def _next(root, kind):
+    """What the next id for this kind would be, without taking it.
+
+    A pure read, for a caller that wants to know rather than to create
+    (a migration planning its own writes, a test). Taking one is
+    `_allocate`, which is what every save path calls.
+    """
+    return f'{ID_PREFIXES[kind]}{_highest_allocated(root, kind) + 1:03d}'
+
+def _allocate(root, kind):
+    """The next id for this kind, taken: the counter moves with it.
+
+    Callers hold the vault write lock, which every record save path does,
+    so the read-bump-write here cannot interleave with another
+    allocation.
+    """
+    number = _highest_allocated(root, kind) + 1
+    counters = _read(Path(root) / ID_COUNTER_FILE) or {}
+    _write(Path(root) / ID_COUNTER_FILE, {**counters, kind: number})
+    return f'{ID_PREFIXES[kind]}{number:03d}'
+
+#: The one key an id-reservation tombstone carries besides its id, and
+#: the only thing any reader has to look at to know this is not a record.
+RESERVED_FIELD = 'reserved'
+
+#: The filename prefix a tombstone is written under. A leading underscore
+#: is a shape `slugify` can never produce (it emits `[a-z0-9]` runs joined
+#: by single dashes, never a leading separator), so a tombstone's name can
+#: never collide with a record's however a company is named.
+RESERVED_PREFIX = '_reserved-'
+
+
+def is_reserved(data):
+    """True for an id-reservation tombstone rather than a record.
+
+    Read off the stored content and not the filename, so a file moved or
+    renamed by hand still reads as what it is.
+    """
+    return bool((data or {}).get(RESERVED_FIELD))
+
+
+def reserve_id(root, kind, identifier):
+    """Keep one record's number after its data is gone.
+
+    A hard delete removes the file, and with it the only trace of the
+    number that record held. The counter file remembers it, but only
+    while the counter file is intact: lose it, reset it or corrupt it
+    and `_highest_allocated` falls back to the records that survive, so
+    a deleted number comes back as the next caller's id -- while
+    RETIRING a company keeps it, because a tombstone is still a stored
+    record. That difference is the allocation oracle, and it is what
+    this closes for good: the reserved number is in the directory the
+    fallback scans, so the fallback answers the same whether the record
+    was deleted, retired, or the counter file was later damaged.
+
+    What it stores is the id and the word reserved, and nothing else. No
+    title, no name, no owner, no status, no count, nothing anybody could
+    learn anything from: it is a number taken out of circulation, not a
+    record of anything. Every record reader filters it out in `_records`,
+    so it reaches no listing, no count, no search, no company
+    suggestion, no resolution, no rollup and no link check. The id
+    allocator is the one reader that sees it, through `_all_records`.
+
+    Returns the path written, or None for an id this kind does not number.
+    """
+    if not re.fullmatch(ID_PREFIXES[kind] + r'\d+', str(identifier or '')):
+        return None
+    path = Path(root) / kind / f'{RESERVED_PREFIX}{str(identifier).lower()}.yaml'
+    _write(path, {'id': identifier, RESERVED_FIELD: True})
+    return path
+
+
+def retain_id_high_water(root, kind):
+    """Persist one kind's high-water mark, so a delete cannot lose it.
+
+    Called by every hard delete BEFORE the file goes, because afterwards
+    the number is gone: `_highest_allocated` could only recover it from
+    the records that survive. Records the whole kind's mark rather than
+    just the doomed id, which is the same thing one call cheaper, and
+    idempotent -- a mark already recorded writes nothing.
+
+    Returns the number recorded, or None when there was nothing to
+    record (no numbered record of this kind, or the counter already
+    says it).
+    """
+    counters = _read(Path(root) / ID_COUNTER_FILE) or {}
+    highest = _highest_allocated(root, kind)
+    if not highest or counters.get(kind) == highest:
+        return None
+    _write(Path(root) / ID_COUNTER_FILE, {**counters, kind: highest})
+    return highest
+
+def initialize_id_counters(root):
+    """Record the high-water mark of every numbered kind from what is
+    stored now, so a vault written before the counter starts monotonic
+    without waiting for its first write.
+
+    For the live vault, which predates `ids.yaml`
+    (scripts/migrate_record_owner.py runs this). Idempotent and safe
+    twice: a mark the counter already holds is left alone, and a counter
+    standing above the stored records -- the normal state once anything
+    has been deleted -- is never pulled down to them.
+
+    Returns {kind: number} for the kinds it wrote, empty when there was
+    nothing to record.
+    """
+    return {kind: number for kind in ID_PREFIXES
+            if (number := retain_id_high_water(root, kind)) is not None}
 
 def next_job_id(root):
-    return _next(root, 'jobs', 'JOB-')
+    return _next(root, 'jobs')
 
 def next_company_id(root):
-    return _next(root, 'companies', 'CO-')
+    return _next(root, 'companies')
 
 # One owner note: a title, a body, and when it was written and last
 # changed. Notes live under `note_list` on the job or company record they
@@ -926,11 +1296,26 @@ def _record_defaults(kind):
                  # CAREER-36: where this record's AI reading stands. Null
                  # means never tried, which is what every record written
                  # before this field carries, so no migration is needed.
-                 ai_status=None, ai_error=None, ai_started=None, ai_finished=None) if job else
+                 ai_status=None, ai_error=None, ai_started=None, ai_finished=None,
+                 # CAREER-39 M2: whose job this is (D3/D4). Null on every
+                 # record written before the split; see OWNER_FIELD, and
+                 # scripts/migrate_record_owner.py for the one-shot that
+                 # hands those to the admin.
+                 owner_id=None) if job else
             dict(name='', name_source='owner', website=None, size=None, locations=[], sector=None,
                  contact_email='', notes='', note_list=[], custom={}, enrichment={},
                  kind='employer', sectors=[], size_range=None, size_class=None, review_flags=[],
-                 identifiers=[], sources=[], field_provenance={}))
+                 identifiers=[], sources=[], field_provenance={},
+                 # M2 soft retire (owner decision, 2026-10-18). A company
+                 # the admin deleted while another user's record still
+                 # linked it is gone from the admin's world and still
+                 # there for that user, so it is a tombstone rather than
+                 # an unlink or a hard delete. Shaped on the job's own
+                 # `closed`/`closed_at` pair, which is the house
+                 # convention for a thing that is gone as a fact: the
+                 # flag is what every reader checks, and the date is what
+                 # makes it auditable afterwards. See retire_company.
+                 retired=False, retired_at=None))
 
 
 def job_field_names():
@@ -1000,7 +1385,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
             raise ValueError(f'{key} must be text.')
     if not result[required].strip():
         raise ValueError(f'{required} is required.')
-    for key in (('company_id', 'original_url', 'sector', 'industry') if job else
+    for key in (('company_id', 'original_url', 'sector', 'industry', OWNER_FIELD) if job else
                 ('website', 'size', 'sector', 'size_range')):
         if result[key] is not None and not isinstance(result[key], str):
             raise ValueError(f'{key} must be text or null.')
@@ -1163,7 +1548,9 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                 result[key] = date.fromisoformat(str(value)).isoformat()
             except ValueError:
                 raise ValueError(f'{key} must be YYYY-MM-DD.')
-        if result['company_id'] and not load_company(root, result['company_id']):
+        if result['company_id'] and not linkable_company(
+                root, result['company_id'],
+                (existing[1] if existing else {}).get('company_id')):
             raise ValueError('Company not found.')
         if existing and result['status'] != existing[1].get('status'):
             result['status_changed'] = date.today().isoformat()
@@ -1220,6 +1607,13 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                 raise ValueError(f'{key} must be a list of text values.')
         if result['kind'] not in KINDS:
             raise ValueError('Invalid company kind.')
+        if type(result['retired']) is not bool:
+            raise ValueError('retired must be boolean.')
+        if result['retired_at'] is not None:
+            try:
+                result['retired_at'] = date.fromisoformat(str(result['retired_at'])).isoformat()
+            except ValueError:
+                raise ValueError('retired_at must be YYYY-MM-DD.')
         unknown_sections = [code for code in result['sectors'] if code not in known_section_codes()]
         if unknown_sections:
             raise ValueError(f'Unknown ISIC section code(s): {", ".join(unknown_sections)}')
@@ -1252,7 +1646,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         validate_enrichment(data['enrichment'])
     if not job and result['name_source'] not in ('auto', 'owner'):
         raise ValueError('Invalid company name_source.')
-    result['id'] = identifier or (next_job_id(root) if job else next_company_id(root))
+    result['id'] = identifier or _allocate(root, kind)
     path = Path(root) / kind / f"{slugify(result[required])}-{result['id'].lower()}.yaml"
     _write(path, result)
     if existing and existing[0] != path:
@@ -1260,9 +1654,18 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
     return result, existing[1] if existing else None
 
 def save_job(root, data, identifier=None, *, correction_detail=None, history_event=None):
-    from careeros.enrich import regenerate_company
+    from careeros.enrich import contributes_to_shared, regenerate_company
     result, previous = _save_record(root, 'jobs', data, identifier, correction_detail=correction_detail,
                                      history_event=history_event)
+    # M2 (CAREER-39, decision D3): both things this save does to the
+    # linked COMPANY are writes to a shared record, so a job that may not
+    # write one does neither. A tester's posting therefore promotes no
+    # contact address onto a company every user reads, and rewrites no
+    # rollup. The job itself is already saved above either way: this gate
+    # never refuses the owner's own record, only its side effects on the
+    # shared half. See enrich.contributes_to_shared.
+    if not contributes_to_shared(root, result):
+        return result
     from careeros.ingest import is_valid_contact_email
     # Unresolved employer corrections retain email on the job until review links it.
     if (result.get('company_link_state') != 'needs_review'
@@ -1450,6 +1853,8 @@ def migrate_company_fields(root):
     the rest of the sweep, for the same reasons migrate_job_fields does."""
     migrated = []
     for path in sorted((Path(root) / 'companies').glob('*.yaml')):
+        if path.name.startswith(RESERVED_PREFIX):
+            continue
         # m9: read, transform, AND write all sit inside one isolation
         # boundary per record -- a write failure (e.g. a transient OSError)
         # must report to stderr and let the sweep continue onto the next
@@ -1486,6 +1891,8 @@ def migrate_job_fields(root):
     the whole sweep (and, since this runs at app startup, the whole app)."""
     migrated = []
     for path in sorted((Path(root) / 'jobs').glob('*.yaml')):
+        if path.name.startswith(RESERVED_PREFIX):
+            continue
         # m9: see migrate_company_fields -- read, transform, and write all
         # sit inside the same per-record isolation boundary now.
         data = None
@@ -1516,11 +1923,17 @@ def backfill_company_kind(root):
     return updated
 
 def delete_job(root, identifier):
-    from careeros.enrich import regenerate_company
+    from careeros.enrich import contributes_to_shared, regenerate_company
     for path, data in _records(root, 'jobs'):
         if data.get('id') == identifier:
+            retain_id_high_water(root, 'jobs')
+            reserve_id(root, 'jobs', identifier)
             path.unlink()
-            if data.get('company_id'):
+            # M2: same rule as save_job. A job that never contributed to
+            # the shared rollup has nothing to withdraw from it, and a
+            # tester removing their own posting must not rewrite a record
+            # every user reads.
+            if data.get('company_id') and contributes_to_shared(root, data):
                 try:
                     regenerate_company(root, data['company_id'])
                 except Exception:
@@ -1533,6 +1946,11 @@ def delete_job(root, identifier):
 def delete_company(root, identifier):
     for path, data in _records(root, 'companies'):
         if data.get('id') == identifier:
+            # The one delete that has a soft twin: retiring a company
+            # keeps the record and its number, so removing one has to
+            # keep the number too or the next id tells the two apart.
+            retain_id_high_water(root, 'companies')
+            reserve_id(root, 'companies', identifier)
             path.unlink()
             return True
     raise ValueError('Company not found.')
@@ -1592,8 +2010,11 @@ def save_watch_result(root, job):
     path = next(p for p, d in _records(root, 'jobs') if d.get('id') == job['id'])
     _write(path, job)
     if job.get('company_id'):
-        from careeros.enrich import regenerate_company
-        regenerate_company(root, job['company_id'])
+        from careeros.enrich import contributes_to_shared, regenerate_company
+        # M2: same rule as save_job. A scan of a tester's posting writes
+        # that posting and nothing shared.
+        if contributes_to_shared(root, job):
+            regenerate_company(root, job['company_id'])
 
 
 def validate_enrichment(block):

@@ -34,17 +34,18 @@ export async function updateExperience(id, payload) {
   return data;
 }
 
-// GET /api/experiences/new: reused only for its `tags` registry (the same
+// GET /api/experiences/new: reused for its `tags` registry (the same
 // facet/value list experience_form.html populates its Skills checkboxes
-// from), so the Edit position popup can offer the same options without a
-// new backend endpoint.
+// from) and, since M2, for whether this user may add a value to that
+// registry at all, so the Edit position popup can offer the same options
+// without a new backend endpoint.
 export async function fetchExperienceTagsRegistry() {
   const response = await apiFetch('/api/experiences/new');
   if (!response.ok) {
     throw new Error('Could not load the tag registry.');
   }
   const data = await response.json();
-  return data.tags;
+  return { tags: data.tags, canEditShared: Boolean(data.can_edit_shared) };
 }
 
 export async function deleteExperience(id) {

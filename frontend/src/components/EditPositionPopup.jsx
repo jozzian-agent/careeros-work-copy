@@ -23,7 +23,14 @@ function matchCompanyByName(companies, name) {
 // (frontend/wireframes/joz280/edit-position.html). Saves via the existing
 // PUT /api/experiences/<id>; a pending company create goes through the
 // existing POST .../link-company the same way the current form does it.
-export default function EditPositionPopup({ exp, companies, tagRegistry, onSave, onDismiss, onCompanyLinked }) {
+//
+// canProposeTags (M2, CAREER-39, decision D3): the tag registry is
+// shared vocabulary, so adding a value to it is the admin's. Picking a
+// value already in it writes only this position and stays open to
+// everybody, which is why only the propose half is behind the flag.
+export default function EditPositionPopup({
+  exp, companies, tagRegistry, canProposeTags = false, onSave, onDismiss, onCompanyLinked,
+}) {
   const [title, setTitle] = useState(exp.title || '');
   const [start, setStart] = useState(exp.start || '');
   const [end, setEnd] = useState(exp.end || '');
@@ -269,7 +276,12 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
           value={detail}
           onChange={({ value }) => setDetail(value)}
         />
-        <Fieldset legend="Skills" helperText="Controlled vocabulary — pick from the registry, or propose a new value.">
+        <Fieldset
+          legend="Skills"
+          helperText={canProposeTags
+            ? 'Controlled vocabulary — pick from the registry, or propose a new value.'
+            : 'Controlled vocabulary — pick from the registry. Only the admin adds new values.'}
+        >
           <Flex direction="column" gap={3}>
             <Flex gap={3} wrap>
               {tags.map((token) => {
@@ -301,33 +313,39 @@ export default function EditPositionPopup({ exp, companies, tagRegistry, onSave,
                   ))}
                 </SelectList>
               </Box>
-              <Box minWidth={160}>
-                <SelectList
-                  id="edit-position-new-tag-facet"
-                  label="Facet"
-                  value={newFacet}
-                  onChange={({ value }) => setNewFacet(value)}
-                >
-                  {Object.entries(tagRegistry.facets)
-                    .filter(([facet]) => facet !== 'function')
-                    .map(([facet, info]) => (
-                      <SelectList.Option key={facet} value={facet} label={info.label} />
-                    ))}
-                </SelectList>
-              </Box>
-              <Box minWidth={160}>
-                <TextField
-                  id="edit-position-new-tag"
-                  label="Propose a new tag"
-                  placeholder="e.g. Public speaking"
-                  value={newTagId}
-                  onChange={({ value }) => setNewTagId(value)}
-                />
-              </Box>
+              {canProposeTags ? (
+                <Box minWidth={160}>
+                  <SelectList
+                    id="edit-position-new-tag-facet"
+                    label="Facet"
+                    value={newFacet}
+                    onChange={({ value }) => setNewFacet(value)}
+                  >
+                    {Object.entries(tagRegistry.facets)
+                      .filter(([facet]) => facet !== 'function')
+                      .map(([facet, info]) => (
+                        <SelectList.Option key={facet} value={facet} label={info.label} />
+                      ))}
+                  </SelectList>
+                </Box>
+              ) : null}
+              {canProposeTags ? (
+                <Box minWidth={160}>
+                  <TextField
+                    id="edit-position-new-tag"
+                    label="Propose a new tag"
+                    placeholder="e.g. Public speaking"
+                    value={newTagId}
+                    onChange={({ value }) => setNewTagId(value)}
+                  />
+                </Box>
+              ) : null}
             </Flex>
             <Flex gap={2}>
               <Button text="+ Add from registry" onClick={addFromRegistry} disabled={!registryPick} />
-              <Button text="+ Add tag" onClick={addNewTag} disabled={!newTagId.trim()} />
+              {canProposeTags ? (
+                <Button text="+ Add tag" onClick={addNewTag} disabled={!newTagId.trim()} />
+              ) : null}
             </Flex>
           </Flex>
         </Fieldset>

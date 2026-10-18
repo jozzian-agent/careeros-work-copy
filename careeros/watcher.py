@@ -50,7 +50,15 @@ def content_hash(fields):
                                      separators=(',', ':')).encode()).hexdigest()
 
 
-def scan(root, fetch=None, dry_run=False, *, job_id=None, lock=None) -> list[Event]:
+def scan(root, fetch=None, dry_run=False, *, job_id=None, lock=None, owner=None) -> list[Event]:
+    """Recheck every watched posting, or one named job.
+
+    M2: `owner` scopes the sweep to one user's jobs, which is what the
+    /api/watch/scan endpoint passes, so a scan started from the app can
+    neither read nor report another user's posting. The cron entry point
+    (main) passes nothing and keeps sweeping the whole vault: it runs for
+    the host and has no session to scope to.
+    """
     # Resolve dynamically so offline fixtures also cover the production fetch path.
     fetch = intake.fetch_url if fetch is None else fetch
     root = Path(root)
@@ -58,7 +66,7 @@ def scan(root, fetch=None, dry_run=False, *, job_id=None, lock=None) -> list[Eve
         raise OSError('Vault is not a readable directory')
     list(root.iterdir())
     events = []
-    for snapshot in vault.list_jobs(root):
+    for snapshot in vault.list_jobs(root, owner):
         identifier = snapshot['id']
         url = snapshot.get('url')
         if (job_id is not None and identifier != job_id) or not url or snapshot.get('status') not in WATCH_STATUSES:
@@ -73,7 +81,7 @@ def scan(root, fetch=None, dry_run=False, *, job_id=None, lock=None) -> list[Eve
         except Exception as exc:
             error = exc
         with lock if lock is not None else vault.WriteLock(root):
-            job = vault.load_job(root, identifier)
+            job = vault.load_job(root, identifier, owner)
             # Discard stale results after concurrent deletion, URL/status change or scan.
             if (job is None or job.get('url') != url
                     or job.get('status') != snapshot.get('status')

@@ -1,16 +1,22 @@
 """Hard duplicate check for Journey 1, Step 2: instant, no network calls.
 
 Compares a candidate normalized_url and detected ATS posting id against
-every job already in the vault (pipeline and universe records alike).
-Never merges, never silently drops; the caller decides what to do with
-the match.
+every job the adding user already has (pipeline and universe records
+alike). Never merges, never silently drops; the caller decides what to do
+with the match.
+
+M2 (CAREER-39, decision D4): the comparison is against that user's own
+jobs and no further. A posting belongs to whoever added it, so the same
+link added by two users is two records and not a duplicate, and the
+warning payload names a job id and title -- telling one user that another
+user holds the posting would be the existence leak D3 forbids.
 """
 from careeros import vault
 
 
-def find_duplicate(root, normalized_url, ats_match):
+def find_duplicate(root, normalized_url, ats_match, owner=None):
     """Return (existing_job, basis) or (None, None)."""
-    jobs = vault.list_jobs(root)
+    jobs = vault.list_jobs(root, owner)
     if normalized_url:
         match = next((job for job in jobs if job.get('normalized_url') == normalized_url), None)
         if match:

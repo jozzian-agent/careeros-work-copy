@@ -87,6 +87,9 @@ def records(root):
     own tolerant reader."""
     for path in sorted((Path(root) / 'jobs').glob('*.yaml')):
         data = vault._read(path)
+        if data and vault.is_reserved(data):
+            # A reserved id is a number, not a job: nothing to classify.
+            continue
         if data:
             yield path, data
         else:

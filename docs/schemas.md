@@ -13,7 +13,80 @@ Missing directories and files are valid empty states; reads never create files.
 Writes use safe YAML and atomic file replacement. The local Flask app serializes
 writes within its process; run one server process per vault.
 
-The vault also holds one file that is not a record: `secret_key`, the key the
+A company is never deleted out from under another user's record: see
+`retired` below, and `vault.retire_company`.
+
+Since M2 (CAREER-39, 2026-10-18) a record is either private or shared.
+Jobs and experiences are private: each carries `owner_id`, the id of the
+one user it belongs to, and no other user can read or write it by any
+path. Companies, `tags.yaml` and `search.yaml` carry no owner: companies
+and the tag vocabulary are shared universe that every user reads and the
+admin alone changes (decision D3), and `search.yaml` is shared because
+the M2 split did not cover it (PROJECT.md open question).
+
+## Record ids: handed out once, never again
+
+**A record number is allocated once and is never reused, whatever later
+happens to the record it was given to.** That is the invariant, and it
+is absolute rather than best-effort: it holds whether the record was
+deleted, retired or is still there, and whether `ids.yaml` is intact,
+missing, reset or corrupt.
+
+It exists because an id used to be `max stored id + 1`, which made the
+id of the next record a readable fact about which records the vault
+still holds. Once a company delete became a soft retire when another
+user's record links it (`retired` above), that fact became a leak: the
+tombstone kept its number and a removed record did not, so creating one
+more company told the admin which of the two had happened, and therefore
+whether somebody else privately links that company. The same shape was
+readable for jobs and experiences without any tombstone, where a number
+freed by another user's delete came back as the next caller's id.
+
+Two things hold it up, so neither has to be trusted alone.
+
+- **`ids.yaml`** (`vault.ID_COUNTER_FILE`), a mapping of record kind to
+  the highest number ever handed out, written by the allocator and
+  re-written by every hard delete before the record goes. Not a record
+  and not per-record: one fact about the vault, read and written under
+  the write lock every record save already holds.
+- **An id-reservation tombstone** per hard-deleted record, written into
+  that kind's own directory as `_reserved-<id>.yaml`
+  (`vault.RESERVED_PREFIX`). It is what makes the invariant survive
+  damage to `ids.yaml` *after* a delete, which the counter alone could
+  not: with the counter gone the allocator falls back to scanning the
+  directory, and the reservation is in the directory.
+
+### What a tombstone contains
+
+Two keys, and never a third:
+
+```yaml
+id: CO-001
+reserved: true
+```
+
+No name, no title, no owner, no status, no counts, no employer text,
+nothing a reader could learn anything from. It is a number taken out of
+circulation, not a record of anything that was there. The leading
+underscore in its filename is a shape `vault.slugify` can never produce,
+so a tombstone's name can never collide with a record's, and
+`vault.is_reserved` reads the stored `reserved` key rather than the
+filename, so a file renamed by hand still reads as what it is.
+
+### Where a tombstone is visible
+
+In the id allocator, and nowhere else. `vault._records` is the one
+chokepoint every record reader goes through, and it filters reservations
+out, so a tombstone reaches no listing, no count, no search, no company
+suggestion, no resolution candidate, no rollup, no link check and no
+deletion count; it never satisfies `vault.linkable_company`, and it
+never counts as the foreign link that turns a company delete into a
+retire. `vault._all_records` is the raw reader, and the only caller that
+wants one. The handful of places that scan a record directory directly
+-- the two startup field migrations and the migration scripts under
+`scripts/` -- skip the filename prefix for the same reason.
+
+`secret_key` is the vault's other non-record file, the key the
 session cookie is signed with, created on first boot with mode 0600 and read
 on every later one, so a session outlives the process
 ([users](#usersname-idyaml)). It is the one file a start writes whatever else
@@ -80,6 +153,7 @@ the saved document. GET returns the current document, or JSON null when missing.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | id | string, `EXP-###` | Allocated as max existing numeric ID plus one |
+| owner_id | string `USER-###` or null | Which user this position belongs to (M2, decisions D3/D4). Stamped by the path that creates the record and never moved; a write payload carrying it is ignored. Null on a record written before M2, which reads as the admin's and which `scripts/migrate_record_owner.py` assigns ([runbook](runbooks/migrate-record-owner.md)) |
 | company | nonempty string | Employer |
 | title | nonempty string | Position |
 | start | string, `YYYY-MM` | First month |
@@ -125,6 +199,7 @@ the sample workflow. Back up the destination vault before a future import.
 | Field | Type / meaning |
 | --- | --- |
 | id | Allocated `JOB-###` |
+| owner_id | `USER-###` or null. Which user this job belongs to (M2, decisions D3/D4); same rule as the experience field of the same name above |
 | company_id | Existing `CO-###` or null |
 | title | Nonempty string |
 | url | HTTP(S) pasted posting URL |
@@ -263,6 +338,12 @@ No original company URL is invented from an ATS URL.
 | id | Allocated `CO-###` |
 | name | Nonempty string |
 | name_source | `auto` for intake/enrichment-created companies; `owner` after every human PUT. Missing provenance is treated as `owner`. |
+| retired | Boolean. True once the admin deleted this company while another user's record still linked it (M2 soft retire, owner decision 2026-10-18). A retired company is gone from every admin-facing surface and from the resolution ladder, and unchanged for the user whose own job or experience links it. Shaped on the job's own `closed` flag: the thing is gone as a fact, so it is a flag and never a status. |
+| retired_at | ISO date the company was retired, or null. Never moved once set. |
+
+A retired company accepts no new `company_id` link from any record
+(`vault.linkable_company`), and the link it already had keeps saving, so
+retiring one never breaks a record that pointed at it.
 | website | HTTP(S) employer website from JSON-LD sameAs/url, or null |
 | size | String or null, e.g. 50-200. Legacy and read-only: nothing writes one since 2026-10-16 (CAREER-33); `size_class` is the one size scale (PROJECT.md Fixed lists). Still read, and still writable by an owner PUT. |
 | locations | List of strings |

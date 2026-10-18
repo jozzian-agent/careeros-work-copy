@@ -22,7 +22,13 @@ function notePreview(body) {
 // `notes` is the record context's migrated notes list, and `onChanged`
 // reloads that context: this component holds no copy of the list, so what
 // the section shows after a save is always what the backend stored.
-export default function NotesSection({ kind, recordId, notes, onChanged }) {
+//
+// `canWrite` (M2, CAREER-39, decision D3) is false on a company for
+// everybody but the admin, because a note on a company is a write to a
+// shared record and the whole vault reads it. A note on a job is always
+// writable: the job is the reader's own record. Rows stay visible either
+// way; it is Add, Edit and Delete that go.
+export default function NotesSection({ kind, recordId, notes, canWrite = true, onChanged }) {
   // null when no window is open, the note when editing one, and the empty
   // object when adding: a new note is a note without an id yet.
   const [editing, setEditing] = useState(null);
@@ -51,7 +57,9 @@ export default function NotesSection({ kind, recordId, notes, onChanged }) {
     }
   }
 
-  const addButton = <Button text="Add a note" size="sm" color="gray" onClick={() => setEditing({})} />;
+  const addButton = canWrite
+    ? <Button text="Add a note" size="sm" color="gray" onClick={() => setEditing({})} />
+    : null;
 
   return (
     <SectionCard title="Notes">
@@ -77,29 +85,31 @@ export default function NotesSection({ kind, recordId, notes, onChanged }) {
                     </Text>
                   ) : null}
                 </Flex>
-                <Flex gap={2}>
-                  <Button
-                    text="Edit"
-                    size="sm"
-                    color="gray"
-                    accessibilityLabel={`Edit ${note.title}`}
-                    onClick={() => setEditing(note)}
-                  />
-                  <Button
-                    text="Delete"
-                    size="sm"
-                    color="transparent"
-                    accessibilityLabel={`Delete ${note.title}`}
-                    onClick={() => {
-                      setRemoveError(null);
-                      setRemoving(note);
-                    }}
-                  />
-                </Flex>
+                {canWrite ? (
+                  <Flex gap={2}>
+                    <Button
+                      text="Edit"
+                      size="sm"
+                      color="gray"
+                      accessibilityLabel={`Edit ${note.title}`}
+                      onClick={() => setEditing(note)}
+                    />
+                    <Button
+                      text="Delete"
+                      size="sm"
+                      color="transparent"
+                      accessibilityLabel={`Delete ${note.title}`}
+                      onClick={() => {
+                        setRemoveError(null);
+                        setRemoving(note);
+                      }}
+                    />
+                  </Flex>
+                ) : null}
               </Flex>
             )}
           />
-          <Flex>{addButton}</Flex>
+          {addButton ? <Flex>{addButton}</Flex> : null}
         </Flex>
       ) : (
         <EmptyState text="No notes yet." action={addButton} />

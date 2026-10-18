@@ -99,7 +99,7 @@ test('header renders type label, title, subtitle and actions', async ({ page }) 
 
 test('back link navigates to the jobs board', async ({ page }) => {
   await page.goto('/jobs/JOB-001');
-  await page.getByRole('link', { name: 'Back to Jobs' }).click();
+  await page.getByRole('link', { name: 'Back to My Jobs' }).click();
   await expect(page).toHaveURL('/jobs');
 });
 
@@ -1295,7 +1295,7 @@ test('Delete confirmation opens, deletes and returns to the jobs board, which ac
   await expect(alert).toBeVisible();
   await alert.getByRole('button', { name: 'Delete job' }).click();
   await expect(page).toHaveURL('/jobs');
-  await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'My Jobs' })).toBeVisible();
 });
 
 test('Delete confirmation Keep job closes without deleting', async ({ page }) => {

@@ -16,7 +16,7 @@ from careeros import users
 from org_intake import classify as sectors
 from org_intake import enrich as org_enrich
 from careeros import enrich as company_enrichment
-from careeros.org_store import VaultOrganisationStore
+from careeros.org_store import CompanyCreationDenied, VaultOrganisationStore
 from org_intake import identity, ats
 from org_intake.url import normalize_url
 from careeros.intake import posting_ats
@@ -86,9 +86,31 @@ def add_source(root, company, kind, url, ats_provider=None):
 
 
 
-def tenant_employer_names(root, url):
+def tenant_employer_names(root, url, owner=None):
+    """Every employer name the caller's own jobs record against one ATS
+    tenant.
+
+    Scoped since the M2 privacy review (owner decision 2026-10-18), and
+    an earlier round of this work argued the opposite: that resolution
+    should read the whole vault so one tenant resolved to one company
+    for everybody. It cannot. `employer_named_in_posting` is text
+    extracted from a private posting, and the ladder acts on it -- one
+    foreign job on the same tenant is enough to turn a clean `linked`
+    into `needs_review` with reason `shared_tenant`, and enough for an
+    admin resolution to publish a tester's ATS association as an
+    identifier on a shared company. Both are another user's private
+    record changing what this user sees and what the shared half
+    records.
+
+    So the read is the caller's own: for a tester their own jobs, for
+    the admin theirs plus the legacy ownerless records, which is what
+    `vault.Owner` already means. Cross-user resolution consistency is
+    traded away on purpose; see enrich.record_owner_scope and the
+    PROJECT.md open question. The same scoping applies to
+    `find_company`'s own tenant sweep below.
+    """
     match = ats.detect_ats(url)
-    return [job.get('employer_named_in_posting') for job in storage.list_jobs(root)
+    return [job.get('employer_named_in_posting') for job in storage.list_jobs(root, owner)
             if match and job.get('ats_provider') == match['provider']
             and job.get('ats_tenant') == match['tenant']]
 
@@ -114,11 +136,39 @@ def company_job_fields(result):
                 company_review=review)
 
 
-def resolve_company(root, *, url, **kwargs):
-    """Pass product evidence in and map capability output to stored job fields."""
-    result = identity.resolve_identity(VaultOrganisationStore(root), url=url,
-        tenant_employer_names=tenant_employer_names(root, url), **kwargs)
-    if result['record_id'] and result['link_state'] == 'linked':
+def resolve_company(root, *, url, shared=True, owner=None, **kwargs):
+    """Pass product evidence in and map capability output to stored job fields.
+
+    `owner` is the ownership scope the jobs this resolution reads are
+    read under (M2, owner decision 2026-10-18): the caller's own, never
+    the whole vault. See tenant_employer_names.
+
+    `shared` is whether the job being resolved may write the shared half
+    (M2, decision D3; see enrich.contributes_to_shared). False means the
+    posting resolves to a company that already exists and never brings
+    one into existence, teaches it nothing, and has no careers page or
+    ATS feed recorded onto it as a source.
+
+    A posting whose company does not exist yet therefore answers
+    `pending` with no company_id, which is the state the product already
+    has for a posting whose employer it could not place. The job keeps
+    the employer name as its own free text (the `company` field it was
+    extracted into), so the owner still reads who the posting is from;
+    what they do not get is a shared record nobody reviewed. Giving a
+    tester's evidence a way into the shared half is the M3 merge queue
+    (PROJECT.md open questions).
+    """
+    store = VaultOrganisationStore(root, shared=shared)
+    try:
+        result = identity.resolve_identity(store, url=url,
+            tenant_employer_names=tenant_employer_names(root, url, owner), **kwargs)
+    except CompanyCreationDenied:
+        # The ladder reached its create rung. Nothing was written: every
+        # other write it makes carries an id, and those are no-ops on a
+        # store that may not write (see careeros.org_store).
+        return company_job_fields(dict(record_id=None, link_state='pending',
+                                       link_reason=None, review=None))
+    if shared and result['record_id'] and result['link_state'] == 'linked':
         record_company_source(root, storage.load_company(root, result['record_id']), url)
     return company_job_fields(result)
 
@@ -481,6 +531,57 @@ def create_app(vault: str | Path | None = None) -> Flask:
             return jsonify(error=users.LOGIN_REQUIRED), 401
         return redirect(url_for('login'))
 
+    # The M2 split (CAREER-39, decisions D3/D4). Three readings of the
+    # signed-in user, so no route decides for itself what privacy means:
+    #
+    #   session_owner()    whose private records this request may touch.
+    #                      Every job and experience read is filtered
+    #                      through it, and a record it does not own
+    #                      answers like one that does not exist.
+    #   may_edit_shared()  whether this request may change a company or
+    #                      the tag vocabulary, which is the admin alone.
+    #   shared_denied()    the one answer a tester's shared write gets.
+    #
+    # Each reads the session user again rather than caching it on `g`:
+    # the record is one small YAML file, the gate above has already read
+    # it on this request, and one cache is one more place an answer can
+    # go stale inside a request.
+    #
+    # Every route scopes its FIRST read of a record, which is the one
+    # that decides whether the request is answered at all. The reloads
+    # inside the AI queue and the background extraction threads
+    # (apply_enrichment, refresh_and_enrich, mark_ingest_state,
+    # set_ai_status, start_llm_enrichment and the rest) are deliberately
+    # unscoped: they re-read a job id their own request already proved
+    # the caller owns, they run off the request thread where there is no
+    # session to read, and ownership never moves once stamped.
+    def session_owner():
+        return users.owner(users.session_user(app.config['VAULT_PATH']))
+
+    def may_edit_shared():
+        return users.is_admin(users.session_user(app.config['VAULT_PATH']))
+
+    def shared_denied():
+        return jsonify(error=users.SHARED_READ_ONLY), 403
+
+    def vocabulary_additions(root, payload):
+        """The tag values this payload would add to the shared registry.
+
+        A write registers a new value only through the explicit proposal
+        flow (`proposed_tags`, see vault.validate_tags) or through the
+        legacy skills-only experience payload, which proposes its own
+        translation inside vault.save_experience. Both are checked here,
+        so a tester cannot extend shared vocabulary by either route.
+        """
+        if not isinstance(payload, dict):
+            return []
+        proposed = payload.get('proposed_tags')
+        tokens = [t for t in proposed if isinstance(t, str)] if isinstance(proposed, list) else []
+        if 'skills' in payload and 'tags' not in payload and isinstance(payload.get('skills'), list):
+            tokens += [storage.legacy_skill_to_tag_id(skill) for skill in payload['skills']
+                       if isinstance(skill, str) and skill.strip()]
+        return storage.unregistered_tags(root, tokens)
+
     @app.get('/api/health')
     def health():
         """The one unauthenticated check: is the process up.
@@ -624,6 +725,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
             if current.get('enrichment', {}).get('attempted_at') != company.get('enrichment', {}).get('attempted_at'):
                 return current, []
             for identifier in identifiers:
+                # Writable on purpose: both callers of run_company_cascade
+                # are admin-gated (the company Retry endpoint and
+                # schedule_company_cascade, which only fires when the
+                # driving job may write the shared half).
                 current = identity.add_identifier(VaultOrganisationStore(root), current,
                     identifier['type'], identifier['value'], identifier['provenance'])
             provenance = current.get('field_provenance', {})
@@ -744,7 +849,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         segments = [s for s in urlsplit(website).path.split('/') if s]
         return bool(segments) and segments[0].casefold() == ats_match.tenant.casefold()
 
-    def find_company(root, name, posting_url):
+    def find_company(root, name, posting_url, owner=None):
         """Pre-JOZ-266 matching, kept as org_intake.identity's legacy_hint: a
         company predates the identifiers table whenever it was created
         before this ladder existed (its ATS tenant/domain lives only in its
@@ -762,8 +867,23 @@ def create_app(vault: str | Path | None = None) -> Flask:
         classifier matching on host alone, and never a different tenant
         under the same provider). A provider-host match WITHOUT an
         identical tenant slug (two different Refline tenants, say) is
-        never promoted to ats_tenant ownership; it is simply not a match."""
-        companies_ = storage.list_companies(root)
+        never promoted to ats_tenant ownership; it is simply not a match.
+
+        M2 (owner decision 2026-10-18): the tenant sweep below reads the
+        caller's own jobs, through `owner`, and never the whole vault.
+        Deriving a company link from somebody else's private posting is
+        that posting changing what this user sees, and the link it
+        produces gets its tenant taught onto a shared company as an
+        identifier. See tenant_employer_names for the full reasoning."""
+        # M2 soft retire: this is the ladder's own legacy fallback, so it
+        # answers over the same candidates the ladder's store offers (see
+        # careeros.org_store). Without the filter a retired company would
+        # come back as a legacy hint and the ladder would honour it,
+        # resurrecting the record the admin retired -- and for a tester it
+        # would produce a new link `vault.linkable_company` then refuses,
+        # failing their intake. One answer for everybody, like the store.
+        companies_ = [c for c in storage.list_companies(root)
+                      if not storage.is_retired(c)]
         if name:
             matches = [c for c in companies_
                       if str(c.get('name', '')).strip().casefold() == name.strip().casefold()]
@@ -785,7 +905,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     or _lenient_website_tenant_match(website, ats_match)
                 ):
                     return company
-            for job in storage.list_jobs(root):
+            for job in storage.list_jobs(root, owner):
                 if not job.get('company_id'):
                     continue
                 job_match = posting_ats(job.get('url') or '')
@@ -798,8 +918,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             return None
         return next((c for c in companies_ if c.get('website') and _domain_of(c['website']) == domain), None)
 
-    def legacy_hint(root, name, posting_url):
-        company = find_company(root, name, posting_url)
+    def legacy_hint(root, name, posting_url, owner=None):
+        company = find_company(root, name, posting_url, owner)
         if company is None:
             return None
         return (company, 'ats_tenant' if posting_ats(posting_url) is not None else 'domain')
@@ -834,6 +954,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
         job = storage.load_job(root, baseline['id'])
         if job is None or any(job.get(key) != baseline.get(key) for key in ('url', 'original_url')):
             return
+        # M2 (D3): whether this job's reading may write the shared company
+        # it resolves to. Read off the record's own owner, not a session:
+        # this runs on the AI queue, where there is no request.
+        shared = company_enrichment.contributes_to_shared(root, job)
+        # And whose jobs this resolution may read, reconstructed from the
+        # record for the same reason: no session on the queue.
+        scope = company_enrichment.record_owner_scope(root, job)
         provenance = job.get('field_provenance', {})
         explicit_empty_summary = 'summary' in fields and not (fields['summary'] or '').strip()
         redacted = []
@@ -899,7 +1026,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
             owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
             if not owner_locked:
                 resolution = resolve_company(
-                    root, url=job.get('url') or '', employer_name=correction,
+                    root, url=job.get('url') or '', shared=shared, owner=scope,
+                    employer_name=correction,
                     fallback_name=updates.get('company', job.get('company')),
                     existing=(job.get('company_id'), job.get('company_link_reason')))
                 updates.update(resolution)
@@ -1226,7 +1354,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                                               history=('extract_failed', 'Extraction failed.'), locked=True)
                         set_ai_status(job_id, storage.ai_failed(
                             ai_failure_reason(reason)), locked=True)
-                if new_company_id is not None:
+                if new_company_id is not None and shared:
                     schedule_company_cascade(root, new_company_id)
             except Exception as error:
                 # M3: applying a successful result (or recording its own
@@ -1357,20 +1485,34 @@ def create_app(vault: str | Path | None = None) -> Flask:
         root = app.config['VAULT_PATH']
         normalized = normalize_url(url)
         ats_match = posting_ats(url)
+        # M2 (D4): the posting belongs to whoever adds it. The same owner
+        # scopes the duplicate check below, so the same link added by two
+        # users is two private records rather than one of them being told
+        # about the other's.
+        owner = session_owner()
+        # M2 (D3): and whether anything this intake learns may be written
+        # onto the shared company it resolves to. A tester's posting may
+        # bring a company into existence to point at, and may add not one
+        # fact to it: no website, no size, no sector, no source, and no
+        # enrichment cascade. Read once here rather than per write site,
+        # and from the session rather than from the record, because the
+        # record this will create does not exist yet.
+        shared = may_edit_shared()
 
         # Step 2 (hard duplicate check) and Step 3 (stub creation) share one
         # lock scope: no network/LLM call happens in here, so this never
         # holds the write-lock across a slow call, and two concurrent
         # intake calls for the same URL can never both slip past the check.
         with write_lock:
-            existing, basis = dedupe.find_duplicate(root, normalized, ats_match)
+            existing, basis = dedupe.find_duplicate(root, normalized, ats_match, owner)
             if existing and not force:
                 return jsonify(dedupe.duplicate_payload(existing, basis))
             # Resolution ladder rungs 1-2 (JOZ-266): pure local identifier
             # lookups, no network I/O, safe to run synchronously here
             # before the fetch below. Rungs 3-5 need the posting text and
             # run after fetch, in Phase B.
-            pre_link = resolve_company(root, url=url, legacy_hint=legacy_hint(root, '', url))
+            pre_link = resolve_company(root, url=url, shared=shared, owner=owner,
+                                       legacy_hint=legacy_hint(root, '', url, owner))
             stub_fields = {
                 'url': url, 'normalized_url': normalized, 'title': stub_title(url),
                 'status': 'new', 'ingest_state': 'stub', 'in_pipeline': True,
@@ -1378,6 +1520,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 'ats_provider': ats_match.provider if ats_match else None,
                 'ats_tenant': ats_match.tenant if ats_match else None,
                 'ats_posting_id': ats_match.posting_id if ats_match else None,
+                storage.OWNER_FIELD: owner.identifier,
                 **pre_link,
             }
             history = (('duplicate_override', f'Added despite matching {existing["id"]} ({basis}).')
@@ -1438,7 +1581,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             discarded = False
             new_company_id = None
             with write_lock:
-                current = storage.load_job(root, job['id'])
+                current = storage.load_job(root, job['id'], owner)
                 if current is None:
                     return jsonify(job=job, company=None), 201
                 if current.get('url') != job.get('url'):
@@ -1472,13 +1615,20 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     # JOZ-265), without ever basing a review question or a
                     # flag on a guess.
                     resolution = resolve_company(
-                        root, url=url, employer_name=data.get('employer_named_in_posting'), fallback_name=name,
-                        legacy_hint=legacy_hint(root, name, url),
+                        root, url=url, shared=shared, owner=owner,
+                        employer_name=data.get('employer_named_in_posting'), fallback_name=name,
+                        legacy_hint=legacy_hint(root, name, url, owner),
                         existing=(current.get('company_id'), current.get('company_link_reason')))
                     if resolution.get('company_link_reason') == 'new_company' and resolution.get('company_id'):
                         new_company_id = resolution['company_id']
                     company = storage.load_company(root, resolution['company_id']) if resolution['company_id'] else None
-                    if company is not None:
+                    # M2 (D3): every fill below writes the shared company
+                    # record, so a tester's intake reads the company and
+                    # changes nothing on it. The capability is gated, not
+                    # removed: the same posting added by the admin fills
+                    # all of it, and the M3 merge queue is where a
+                    # tester's evidence earns its way in.
+                    if company is not None and shared:
                         # employee_count has no company-schema home of its own: the
                         # company only ever stores the derived size_class, which is
                         # the one scale the capability derives (and the one write
@@ -1547,7 +1697,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         if discarded:
             return jsonify(job=job, company=None), 201
 
-        if new_company_id is not None:
+        if new_company_id is not None and shared:
             schedule_company_cascade(root, new_company_id)
 
         token = reserve_enrichment(job['id'])
@@ -1576,7 +1726,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         bypass fix enforces."""
         root = app.config['VAULT_PATH']
         with write_lock:
-            job = storage.load_job(root, identifier)
+            job = storage.load_job(root, identifier, session_owner())
             if job is None:
                 return jsonify(error='Job not found.'), 404
             payload = request.get_json()
@@ -1587,8 +1737,42 @@ def create_app(vault: str | Path | None = None) -> Flask:
             submitted_token = payload.get('review_token')
             if not submitted_token or review is None or review.get('token') != submitted_token:
                 return jsonify(error='This review is out of date. Reload and try again.'), 409
+            # M2 (D3): picking one of the candidates this review offers is
+            # a write to the owner's own job. Creating a company instead
+            # is a write to the shared half, so it is the admin's, the
+            # same rule the intake ladder's create rung now follows (see
+            # careeros.org_store). A review a tester can actually reach
+            # is an ambiguity between companies that already exist, so
+            # there is always a candidate to pick: their own intake
+            # answers `pending` rather than proposing a new company.
+            creating = bool(payload.get('create')) and not payload.get('company_id')
+            if creating and not may_edit_shared():
+                return shared_denied()
+            # Validate the selection BEFORE apply_review, because
+            # apply_review writes on its way through: it teaches the
+            # chosen company a name_variant, and the link validation
+            # inside save_job runs only after that. Submitting a retired
+            # company id therefore used to leave the variant behind and
+            # then answer 400, which is both a mutation on a refused
+            # request and the tombstone made readable. The answer is the
+            # one apply_review itself gives for an id that is not there,
+            # so a retired id and a nonexistent one stay the same
+            # request with the same outcome and no side effect either way.
+            selected = payload.get('company_id')
+            if selected and not storage.linkable_company(root, selected, job.get('company_id')):
+                raise ValueError('Company not found.')
+            # M2 (D3): selecting a candidate is a write to the owner's own
+            # job and stays open to everybody. What is not open is the
+            # thing apply_review also does on the way through: it teaches
+            # the chosen company a `name_variant` identifier carrying
+            # `employer_named_in_posting`, which is text extracted from
+            # this user's own private posting, onto a record every user
+            # reads. So a tester gets the read-only store, which links
+            # the job and no-ops the variant, exactly as the intake
+            # ladder's own identifier writes are no-opped for them.
+            shared = company_enrichment.contributes_to_shared(root, job)
             try:
-                result = identity.apply_review(VaultOrganisationStore(root),
+                result = identity.apply_review(VaultOrganisationStore(root, shared=shared),
                     url=job.get('url'), link_reason=job.get('company_link_reason'),
                     employer_name=job.get('employer_named_in_posting'),
                     record_id=payload.get('company_id'), create=payload.get('create'),
@@ -1596,7 +1780,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             except ValueError as error:
                 raise ValueError(str(error).replace('Record', 'Company').replace('record', 'company')) from error
             company = result['record']
-            if payload.get('create') and not payload.get('company_id'):
+            if creating:
                 company = record_company_source(root, company, job.get('url') or '')
             provenance = {**job.get('field_provenance', {}), 'company_id': 'user',
                          'company_link_state': 'user', 'company_link_reason': 'user'}
@@ -1614,19 +1798,34 @@ def create_app(vault: str | Path | None = None) -> Flask:
         (global rule 1: human edits always win)."""
         root = app.config['VAULT_PATH']
         with write_lock:
-            job = storage.load_job(root, identifier)
+            job = storage.load_job(root, identifier, session_owner())
             if job is None:
                 return jsonify(error='Job not found.'), 404
             owner_set = any((job.get('field_provenance') or {}).get(key) == 'user'
                             for key in ('company_id', 'company_link_state', 'company_link_reason'))
-            result = identity.rerun(VaultOrganisationStore(root), url=job.get('url') or '',
-                employer_name=job.get('employer_named_in_posting'), fallback_name=job.get('company'),
-                record_id=job.get('company_id'), link_reason=job.get('company_link_reason'),
-                link_state=job.get('company_link_state'), review=job.get('company_review'),
-                owner_set=owner_set, tenant_employer_names=tenant_employer_names(root, job.get('url') or ''))
+            # M2 (D3): re-running the ladder can reach its create rung, so
+            # it runs against the same gated store the intake path uses,
+            # keyed on this job's own owner.
+            shared = company_enrichment.contributes_to_shared(root, job)
+            scope = session_owner()
+            try:
+                result = identity.rerun(
+                    VaultOrganisationStore(root, shared=shared), url=job.get('url') or '',
+                    employer_name=job.get('employer_named_in_posting'), fallback_name=job.get('company'),
+                    record_id=job.get('company_id'), link_reason=job.get('company_link_reason'),
+                    link_state=job.get('company_link_state'), review=job.get('company_review'),
+                    owner_set=owner_set,
+                    tenant_employer_names=tenant_employer_names(root, job.get('url') or '', scope))
+            except CompanyCreationDenied:
+                result = dict(record_id=None, link_state='pending', link_reason=None, review=None)
             resolution = company_job_fields(result) if not owner_set else {
                 key: job.get(key) for key in ('company_id', 'company_link_state', 'company_link_reason', 'company_review')}
-            if not owner_set and result['record_id'] and result['link_state'] == 'linked':
+            if (not owner_set and result['record_id'] and result['link_state'] == 'linked'
+                    and shared):
+                # M2 (D3): same rule as the intake ladder. Re-running the
+                # resolution relinks the owner's own job either way; what
+                # the gate withholds is the source written onto the
+                # shared company.
                 record_company_source(root, storage.load_company(root, result['record_id']), job.get('url') or '')
             return jsonify(storage.save_job(root, resolution, identifier))
 
@@ -1636,7 +1835,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         universe record. Nothing creates in_pipeline false records yet."""
         root = app.config['VAULT_PATH']
         with write_lock:
-            job = storage.load_job(root, identifier)
+            job = storage.load_job(root, identifier, session_owner())
             if job is None:
                 return jsonify(error='Job not found.'), 404
             if job.get('in_pipeline'):
@@ -1669,7 +1868,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         board stopped polling while a reading was still owed.
         """
         root = app.config['VAULT_PATH']
-        job = storage.load_job(root, identifier)
+        job = storage.load_job(root, identifier, session_owner())
         if job is None:
             return jsonify(error='Job not found.'), 404
         try:
@@ -1773,11 +1972,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 # too (existing[0] falsy there), which still gets full rungs
                 # 1-5 treatment via resolve_and_link.
                 new_company_id = None
+                # M2 (D3): off the record's own owner, since this runs on
+                # the AI queue with no session to read.
+                shared = company_enrichment.contributes_to_shared(root, job)
+                scope = company_enrichment.record_owner_scope(root, job)
                 owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
                 if not owner_locked:
                     resolution = resolve_company(
-                        root, url=url, employer_name=employer_evidence, fallback_name=name,
-                        legacy_hint=legacy_hint(root, name, url),
+                        root, url=url, shared=shared, owner=scope,
+                        employer_name=employer_evidence, fallback_name=name,
+                        legacy_hint=legacy_hint(root, name, url, scope),
                         existing=(job.get('company_id'), job.get('company_link_reason')))
                     updates.update(resolution)
                     # B3, second path: the link group is written in one breath
@@ -1797,7 +2001,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
                         new_company_id = resolution['company_id']
                 target_id = updates.get('company_id', job.get('company_id'))
                 target = storage.load_company(root, target_id) if target_id else None
-                if target:
+                # M2 (D3): the same two shared-company fills the intake
+                # path does, behind the same gate.
+                if target and shared:
                     fill_company_metadata(root, target, extracted)
                     if website and not target.get('website'):
                         storage.save_company(root, {'website': website}, target['id'])
@@ -1810,7 +2016,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 updates.update(function_drop_status(job, extracted.get('function'), dropped_functions))
                 updates['enriched'] = True
                 storage.save_job(root, updates, identifier)
-                if new_company_id is not None:
+                if new_company_id is not None and shared:
                     schedule_company_cascade(root, new_company_id)
 
         token = reserve_enrichment(identifier)
@@ -1847,7 +2053,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         """
         root = app.config['VAULT_PATH']
         with write_lock:
-            job = storage.load_job(root, identifier)
+            job = storage.load_job(root, identifier, session_owner())
             if job is None:
                 return jsonify(error='Job not found.'), 404
             token = reserve_enrichment(identifier)
@@ -2035,7 +2241,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         """
         root = app.config['VAULT_PATH']
         with write_lock:
-            job = storage.load_job(root, identifier)
+            job = storage.load_job(root, identifier, session_owner())
             if job is None:
                 return jsonify(error='Job not found.'), 404
             if not (job.get('description') or '').strip():
@@ -2127,7 +2333,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             raise ValueError('Provide posting text.')
         text = payload['description'].strip()
         with write_lock:
-            job = storage.load_job(root, identifier)
+            job = storage.load_job(root, identifier, session_owner())
             if job is None:
                 return jsonify(error='Job not found.'), 404
             if job.get('ingest_state') not in ('stub', 'fetch_failed'):
@@ -2173,7 +2379,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
         """
         from careeros.enrich import regenerate_company
         root = app.config['VAULT_PATH']
-        if storage.load_company(root, identifier) is None:
+        # M2 (D3): the aggregation writes the shared company record, so
+        # it is an admin act like every other company write.
+        if not may_edit_shared():
+            return shared_denied()
+        if storage.may_see_company(root, identifier, session_owner()) is None:
             return jsonify(error='Company not found.'), 404
 
         def aggregate():
@@ -2189,12 +2399,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
         from careeros import watcher
         root = app.config['VAULT_PATH']
         identifier = request.args.get('job')
-        if identifier is not None and storage.load_job(root, identifier) is None:
+        # M2: the sweep is this user's own jobs, named or not. A scan with
+        # no job argument used to recheck every posting in the vault and
+        # report an event per change, which would have named another
+        # user's job id and title.
+        owner = session_owner()
+        if identifier is not None and storage.load_job(root, identifier, owner) is None:
             return jsonify(error='Job not found.'), 404
-        events = watcher.scan(root, job_id=identifier, lock=write_lock)
+        events = watcher.scan(root, job_id=identifier, lock=write_lock, owner=owner)
         result = dict(events=events)
         if identifier:
-            job = storage.load_job(root, identifier)
+            job = storage.load_job(root, identifier, owner)
             if not watcher.eligible(job):
                 result.update(watch_status='not_watched', reason=watcher.NOT_WATCHED_REASON)
             else:
@@ -2204,7 +2419,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
     @app.get('/api/jobs')
     def job_collection():
         if request.args.get('view') == 'board':
-            context = jobs.page_context(app.config['VAULT_PATH'])
+            context = jobs.page_context(app.config['VAULT_PATH'], session_owner())
             summaries = jobs.company_summaries(context['companies'], sectors.load_isic_sections())
             return jsonify(context | {
                 'companies': summaries,
@@ -2214,37 +2429,46 @@ def create_app(vault: str | Path | None = None) -> Flask:
                                    'pending': not bool(job.get('enriched'))}
                             for job in context['entries']],
             })
-        return jsonify(storage.list_jobs(app.config['VAULT_PATH']))
+        return jsonify(storage.list_jobs(app.config['VAULT_PATH'], session_owner()))
 
     @app.get('/api/companies')
     def company_collection():
+        # The company records themselves are shared universe and are sent
+        # to everybody; what the directory view scopes is the open-jobs
+        # count on each card, which is this user's own (M2, D3).
         if request.args.get('view') == 'page':
-            return jsonify(companies.page_context(app.config['VAULT_PATH']))
-        return jsonify(storage.list_companies(app.config['VAULT_PATH']))
+            return jsonify(companies.page_context(app.config['VAULT_PATH'], session_owner()))
+        return jsonify(storage.visible_companies(app.config['VAULT_PATH'], session_owner()))
 
     @app.get('/api/jobs/<identifier>/taxonomy')
     def job_taxonomy_api(identifier):
-        return jsonify(jobs.taxonomy_context(app.config['VAULT_PATH'], identifier))
+        return jsonify(jobs.taxonomy_context(app.config['VAULT_PATH'], identifier,
+                                             session_owner(), may_edit_shared()))
 
     @app.get('/api/taxonomy')
     def taxonomy_api():
-        return jsonify(taxonomy.taxonomy_context(app.config['VAULT_PATH']))
+        return jsonify(taxonomy.taxonomy_context(app.config['VAULT_PATH'], session_owner()))
 
     @app.get('/api/experiences/new')
     @app.get('/api/experiences/<identifier>/edit')
     def experience_form_api(identifier=None):
-        return jsonify(experiences.form_context(app.config['VAULT_PATH'], identifier))
+        return jsonify(experiences.form_context(app.config['VAULT_PATH'], identifier,
+                                                session_owner(), may_edit_shared()))
 
     @app.route('/api/jobs/<identifier>', methods=['GET', 'PUT', 'DELETE'])
     def job_api(identifier):
         root = app.config['VAULT_PATH']
+        owner = session_owner()
         with write_lock:
-            data = storage.load_job(root, identifier)
+            # Somebody else's job reads as None here, so every method
+            # below answers 'Job not found.' for it, which is the same
+            # answer a job that was never added gets (M2, D3).
+            data = storage.load_job(root, identifier, owner)
             if data is None:
                 return jsonify(error='Job not found.'), 404
             if request.method == 'GET':
                 if request.args.get('view') == 'page':
-                    return jsonify(jobs.detail_context(root, identifier, identifier in llm_pending))
+                    return jsonify(jobs.detail_context(root, identifier, identifier in llm_pending, owner))
                 return jsonify(data | {'llm_pending': identifier in llm_pending})
             if request.method == 'DELETE':
                 storage.delete_job(root, identifier)
@@ -2252,12 +2476,26 @@ def create_app(vault: str | Path | None = None) -> Flask:
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Record must be an object.')
+            # M2 (D3/D4): a tag value this edit would add to the shared
+            # registry is an admin act, so a tester is told so rather
+            # than having the vocabulary extended on their behalf. Their
+            # own tags, picked from values already registered, save fine.
+            if not may_edit_shared() and vocabulary_additions(root, payload):
+                return shared_denied()
             # Only trusted extraction paths (apply_llm_update, /enrich,
             # /extract) may set summary_source: strip any client-supplied
             # value, then clear it whenever this PUT actually changes the
             # summary text (replacement or clearing to empty), since an
             # owner edit must never keep an AI badge on text it didn't write.
-            payload = {k: v for k, v in payload.items() if k != 'summary_source'}
+            #
+            # owner_id is stripped on the same principle and for a harder
+            # reason: it is who the record belongs to, it is stamped once
+            # by the path that creates the record, and a client that
+            # could set it could hand its own job to somebody else or
+            # take one of theirs (D4: a posting belongs to whoever added
+            # it, and that never changes).
+            payload = {k: v for k, v in payload.items()
+                       if k not in ('summary_source', storage.OWNER_FIELD)}
             if 'summary' in payload and payload['summary'] != data.get('summary'):
                 payload['summary_source'] = ''
             # N2 (fix round 2): normalized_url and ATS identity must be
@@ -2315,21 +2553,66 @@ def create_app(vault: str | Path | None = None) -> Flask:
     @app.route('/api/companies/<identifier>', methods=['GET', 'PUT', 'DELETE'])
     def company_api(identifier):
         root = app.config['VAULT_PATH']
+        owner = session_owner()
         with write_lock:
-            data = storage.load_company(root, identifier)
+            # A company the admin retired reads as absent for them, which
+            # is the same answer an id nothing ever used gives: their own
+            # delete and a company that never existed must not be
+            # tellable apart (M2 soft retire). A user whose own record
+            # still links it keeps reading it here.
+            data = storage.may_see_company(root, identifier, owner)
             if data is None:
                 return jsonify(error='Company not found.'), 404
             if request.method == 'GET':
                 if request.args.get('view') == 'page':
-                    return jsonify(companies.detail_context(root, identifier))
+                    return jsonify(companies.detail_context(root, identifier, session_owner(),
+                                                            may_edit_shared()))
                 return jsonify(data)
+            # M2 (D3): the record is shared universe, so everybody reads
+            # it and the admin alone changes it. Checked after the 404 so
+            # a tester cannot learn which company ids exist by comparing
+            # 403 against 404.
+            if not may_edit_shared():
+                return shared_denied()
             if request.method == 'DELETE':
-                job_count = sum(job.get('company_id') == identifier for job in storage.list_jobs(root))
-                exp_count = sum(exp.get('company_id') == identifier for exp in storage.list_experiences(root))
+                # M2 (D3): the counts in this answer are the deleter's
+                # OWN links and nobody else's. They used to be vault-wide,
+                # which told the admin how many private records other
+                # users hold against a company -- a count is a leak like
+                # any other. Their own links are a conflict they can act
+                # on, so they still get the 409 and the numbers.
+                job_count = sum(job.get('company_id') == identifier
+                                for job in storage.list_jobs(root, owner))
+                exp_count = sum(exp.get('company_id') == identifier
+                                for exp in storage.list_experiences(root, owner))
                 if job_count or exp_count:
                     pieces = [f'{job_count} jobs'] * bool(job_count) + [f'{exp_count} experiences'] * bool(exp_count)
                     return jsonify(error='Still linked to ' + ' and '.join(pieces), count=job_count + exp_count), 409
-                storage.delete_company(root, identifier)
+                # Nothing of theirs links. SOFT RETIRE (owner decision,
+                # 2026-10-18): the delete succeeds from here, whether or
+                # not somebody else's record still points at the company,
+                # and the answer is the same either way. Refusing when a
+                # foreign record linked was the last one-bit leak -- an
+                # admin with no links of their own could tell "somebody
+                # has records here" from "nobody does".
+                #
+                # Which of the two actually happens is invisible from the
+                # API and matters on disk. A company nothing links to is
+                # deleted outright, as before: no tombstone earns its
+                # place when no record needs the id to keep resolving. A
+                # company another user's record links is tombstoned
+                # instead, because deleting it would leave that job
+                # pointing at nothing and `save_job` would then refuse
+                # every later edit to it, breaking a record for an owner
+                # who can see no cause. Retired, it is gone from every
+                # admin-facing surface and from the resolution ladder, so
+                # the admin's own next posting never resurrects it, while
+                # the user who links it reads it exactly as before.
+                if any(record.get('company_id') == identifier
+                       for record in storage.list_jobs(root) + storage.list_experiences(root)):
+                    storage.retire_company(root, identifier)
+                else:
+                    storage.delete_company(root, identifier)
                 return jsonify(deleted=identifier)
             payload = request.get_json()
             if not isinstance(payload, dict):
@@ -2347,24 +2630,39 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # the same list arithmetic. Writes go through save_job/save_company,
     # so a note write is an ordinary record write: same lock, same
     # validation, same history backstop.
-    NOTE_KINDS = {'jobs': (storage.load_job, storage.save_job, 'Job not found.'),
-                  'companies': (storage.load_company, storage.save_company, 'Company not found.')}
+    #
+    # M2 (D3) splits the two halves apart, which is why the loader is
+    # wrapped rather than named directly: a note on a job is a write to
+    # one user's own private record, so it is scoped to them and
+    # somebody else's job answers 'Job not found.'; a note on a company
+    # is a write to a shared record, so it is the admin's alone. Giving a
+    # note privacy of its own is CAREER-41 and not this change.
+    NOTE_KINDS = {
+        'jobs': (lambda root, identifier: storage.load_job(root, identifier, session_owner()),
+                 storage.save_job, 'Job not found.', False),
+        'companies': (lambda root, identifier: storage.may_see_company(root, identifier,
+                                                                        session_owner()),
+                      storage.save_company, 'Company not found.', True),
+    }
 
     @app.get('/api/notes')
     def notes_api():
-        """Every note in the vault, newest first, with its record. Read
-        only: a note is edited on the page of the record that holds it."""
-        return jsonify(notes.page_context(app.config['VAULT_PATH']))
+        """Every note on this user's own jobs plus every company note,
+        newest first, with its record. Read only: a note is edited on the
+        page of the record that holds it."""
+        return jsonify(notes.page_context(app.config['VAULT_PATH'], session_owner()))
 
     @app.post('/api/jobs/<identifier>/notes', defaults={'kind': 'jobs'})
     @app.post('/api/companies/<identifier>/notes', defaults={'kind': 'companies'})
     def create_note(kind, identifier):
         root = app.config['VAULT_PATH']
-        load, save, missing = NOTE_KINDS[kind]
+        load, save, missing, shared = NOTE_KINDS[kind]
         with write_lock:
             record = load(root, identifier)
             if record is None:
                 return jsonify(error=missing), 404
+            if shared and not may_edit_shared():
+                return shared_denied()
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Note must be an object.')
@@ -2381,11 +2679,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
                defaults={'kind': 'companies'})
     def note_api(kind, identifier, note_id):
         root = app.config['VAULT_PATH']
-        load, save, missing = NOTE_KINDS[kind]
+        load, save, missing, shared = NOTE_KINDS[kind]
         with write_lock:
             record = load(root, identifier)
             if record is None:
                 return jsonify(error=missing), 404
+            if shared and not may_edit_shared():
+                return shared_denied()
             stored = storage.notes_view(record)
             target = next((note for note in stored if note['id'] == note_id), None)
             if target is None:
@@ -2414,34 +2714,61 @@ def create_app(vault: str | Path | None = None) -> Flask:
     @app.route('/api/experiences', methods=['GET', 'POST'])
     def experience_collection():
         root = app.config['VAULT_PATH']
+        owner = session_owner()
         if request.method == 'GET':
             if request.args.get('view') == 'page':
-                return jsonify(experiences.page_context(root))
-            return jsonify(storage.list_experiences(root))
+                return jsonify(experiences.page_context(root, owner))
+            return jsonify(storage.list_experiences(root, owner))
+        payload = request.get_json()
+        if not may_edit_shared() and vocabulary_additions(root, payload):
+            return shared_denied()
         with write_lock:
-            return jsonify(storage.save_experience(root, request.get_json())), 201
+            # M2 (D3): a new position is this user's, stamped here, which
+            # is the one and only path that creates one. The stamp goes
+            # last so a payload carrying its own owner_id cannot name
+            # somebody else as the owner.
+            return jsonify(storage.save_experience(
+                root, _experience_payload(payload) | {storage.OWNER_FIELD: owner.identifier})), 201
+
+    def _experience_payload(payload):
+        """One experience write payload with `owner_id` taken out.
+
+        Who a record belongs to is stamped by the path that creates it
+        and never again (D4), so a client cannot hand its own position to
+        another user or take one of theirs. A non-object payload passes
+        through untouched, so save_experience raises its own error for it
+        rather than this helper raising a different one.
+        """
+        return ({k: v for k, v in payload.items() if k != storage.OWNER_FIELD}
+                if isinstance(payload, dict) else payload)
 
     @app.route('/api/experiences/<identifier>', methods=['GET', 'PUT', 'POST', 'DELETE'])
     def experience_api(identifier):
         root = app.config['VAULT_PATH']
+        owner = session_owner()
         with write_lock:
-            data = storage.load_experience(root, identifier)
+            # Somebody else's position reads as None, so every method
+            # answers 'Position not found.' for it (M2, D3).
+            data = storage.load_experience(root, identifier, owner)
             if data is None:
                 return jsonify(error='Position not found.'), 404
             if request.method == 'GET':
                 if request.args.get('view') == 'page':
-                    return jsonify(experiences.detail_context(root, identifier))
+                    return jsonify(experiences.detail_context(root, identifier, owner))
                 return jsonify(data)
             if request.method == 'DELETE':
                 storage.delete_experience(root, identifier)
                 return jsonify(deleted=identifier)
-            return jsonify(storage.save_experience(root, request.get_json(), identifier))
+            payload = request.get_json()
+            if not may_edit_shared() and vocabulary_additions(root, payload):
+                return shared_denied()
+            return jsonify(storage.save_experience(root, _experience_payload(payload), identifier))
 
     @app.post('/api/experiences/<identifier>/link-company')
     def link_experience_company(identifier):
         root = app.config['VAULT_PATH']
         with write_lock:
-            exp = storage.load_experience(root, identifier)
+            exp = storage.load_experience(root, identifier, session_owner())
             if exp is None:
                 return jsonify(error='Position not found.'), 404
             payload = request.get_json()
@@ -2455,14 +2782,32 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 label = company['name'] if company else exp.get('company')
                 return jsonify(storage.save_experience(root, {'company_id': None, 'company': label}, identifier))
             if payload.get('company_id'):
-                if not storage.load_company(root, payload['company_id']):
+                # A company this user cannot see is one they cannot link
+                # to, and answers like an id that was never used.
+                if not storage.may_see_company(root, payload['company_id'], session_owner()):
                     return jsonify(error='Company not found.'), 404
                 return jsonify(storage.save_experience(root, {'company_id': payload['company_id']}, identifier))
             create = payload.get('create')
             if not isinstance(create, dict) or not str(create.get('name') or '').strip():
                 raise ValueError('Provide company_id, create, or unlink.')
+            # M2 (D3): creating a company is a write to the shared half,
+            # so it is the admin's. Checked before the suggestion lookup
+            # below, because the request's whole intent is to create one
+            # and offering a near-match to pick instead would be a flow
+            # that cannot end. Linking this position to a company that
+            # already exists (the company_id branch above) and unlinking
+            # it stay open to everybody: both write the position only.
+            if not may_edit_shared():
+                return shared_denied()
             name = create['name'].strip()
-            candidates = storage.list_companies(root)
+            # The reader's own view, not the whole vault: a retired
+            # company coming back as a near-match suggestion while a
+            # deleted one does not is the tombstone being readable
+            # through a response shape (M2 soft retire). Only the admin
+            # reaches this line, and a company they retired is one they
+            # may not see, so the suggestion never names it and typing
+            # that name creates a fresh company instead.
+            candidates = storage.visible_companies(root, session_owner())
             if not payload.get('confirm_create'):
                 casefolded = {c.get('name', '').strip().casefold(): c for c in candidates}
                 close = difflib.get_close_matches(name.casefold(), list(casefolded), n=1, cutoff=0.6)
@@ -2484,6 +2829,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
         it, which reads as 'both buttons do nothing'. Planning is read-only;
         only the fast local-filesystem apply phase takes the lock."""
         root = app.config['VAULT_PATH']
+        # M2 (D3): a sweep that rewrites every company is the broadest
+        # shared write there is, so it is the admin's alone.
+        if not may_edit_shared():
+            return shared_denied()
         collector = org_enrich.BackfillAccounting()
         plan, scanned = company_enrichment.plan_backfill(root, collector=collector)
         with write_lock:
@@ -2498,9 +2847,15 @@ def create_app(vault: str | Path | None = None) -> Flask:
         (the same sectors_cascade/size_cascade entry points) scoped to one
         company instead of sweeping all of them. Never gated on
         AUTO_CASCADE_ENABLED: a deliberate Retry click must never appear
-        to do nothing."""
+        to do nothing.
+
+        M2 (D3): Retry writes the shared company record, so it stays with
+        the admin, and the company page offers the control to nobody
+        else."""
         root = app.config['VAULT_PATH']
-        company = storage.load_company(root, identifier)
+        if not may_edit_shared():
+            return shared_denied()
+        company = storage.may_see_company(root, identifier, session_owner())
         if company is None:
             return jsonify(error='Company not found.'), 404
         if company.get('kind', 'employer') != 'employer':

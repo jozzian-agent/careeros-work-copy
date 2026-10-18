@@ -1,12 +1,18 @@
-"""Read-only taxonomy/methodology page: vault-wide counts for the skills
-tagged on experiences, the ISIC industry sections companies sit in, and
-companies' EU size classes. No editing lives here; this is a reporting
-surface only."""
+"""Read-only taxonomy/methodology page: counts for the skills tagged on
+the reading user's own experiences (M2: those records are private, see
+decision D3), plus the ISIC industry sections companies sit in and
+companies' EU size classes, which are shared universe and so stay
+vault-wide. No editing lives here; this is a reporting surface only."""
 from careeros import vault
 from org_intake import classify as sectors
 
-def taxonomy_context(root):
-    return aggregate_context(vault.list_experiences(root), vault.list_companies(root),
+def taxonomy_context(root, owner=None):
+    # M2 (CAREER-39): the skill counts are over this user's own
+    # positions, so the page reports their own experience and never
+    # aggregates somebody else's (D3). The industry and size breakdowns
+    # are over companies, which are shared universe and stay vault-wide.
+    return aggregate_context(vault.list_experiences(root, owner),
+                             vault.visible_companies(root, owner),
                              sectors.load_isic_sections(), vault.tag_label_map(root))
 
 def aggregate_context(experiences, companies, isic_sections, tag_labels):

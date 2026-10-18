@@ -75,6 +75,15 @@ silently.
    `vendor/capa-repo/org_intake/identity.py` `resolve_rungs_3_5`'s
    `tenant_rooted` branch.
 
+   The product decides WHICH postings count as that evidence, and since
+   M2 (owner decision 2026-10-18) it is the caller's own and nobody
+   else's: `careeros/server.py` `tenant_employer_names` reads jobs
+   through the session user's `vault.Owner`. A posting belongs to one
+   user and nobody else sees it, so another user's posting must not
+   raise this flag. One consequence for this rule: a tenant that really
+   does host two employers is only reported as `shared_tenant` once the
+   caller has seen both postings themselves.
+
 7. Classification runs against one fixed external taxonomy - UN ISIC
    Rev.4, 21 sections - by keyword matching on free-text industry
    strings; a string whose keywords match more than one section is

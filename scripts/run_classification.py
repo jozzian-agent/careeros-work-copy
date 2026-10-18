@@ -98,6 +98,8 @@ def vault_jobs(root):
     """Every stored job, through the vault's own tolerant reader."""
     jobs = []
     for path in sorted((Path(root) / 'jobs').glob('*.yaml')):
+        if path.name.startswith(vault.RESERVED_PREFIX):
+            continue
         data = vault._read(path)
         if data:
             jobs.append(data)

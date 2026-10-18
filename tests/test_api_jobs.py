@@ -53,6 +53,10 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
               'occupation_code': 'NoneType',
               'origin': 'str',
               'original_url': 'NoneType',
+              # M2 (CAREER-39): whose job it is. Null on this fixture,
+              # whose records are written straight through the vault and
+              # so carry no owner; the API's own create path stamps one.
+              'owner_id': 'NoneType',
               'pending': 'bool',
               'posted_date': 'NoneType',
               'posting_quality': 'NoneType',
@@ -128,6 +132,8 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
              'name_source': 'str',
              'note_list': [],
              'notes': 'str',
+             'retired': 'bool',
+             'retired_at': 'NoneType',
              'review_flags': ['str'],
              'sector': 'NoneType',
              'sectors': ['str'],
@@ -191,6 +197,7 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
          'occupation_code': 'NoneType',
          'origin': 'str',
          'original_url': 'NoneType',
+         'owner_id': 'NoneType',
          'posted_date': 'NoneType',
          'posting_quality': 'NoneType',
          'refresh': 'str',
@@ -294,4 +301,4 @@ def test_board_empty_and_unlinked(api_client):
     vault.delete_job(root, 'JOB-001')
     data = api_client.get('/api/jobs?view=board').get_json()
     assert data['entries'] == []
-    assert data['empty'] == 'No jobs yet — paste a posting link to get started.'
+    assert data['empty'] == 'My Jobs is empty — paste a posting link to get started.'

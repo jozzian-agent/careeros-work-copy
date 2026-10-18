@@ -134,6 +134,94 @@ built, otherwise the same form rendered from the shared shell, since the one
 page reachable without a session cannot be the one page that needs a build.
 A signed-in person asking for it is redirected to the board.
 
+### The split (M2)
+
+Since 2026-10-18 (CAREER-39, owner decisions D3/D4) a session does not
+only let a request in, it decides what the request can see.
+
+- **Jobs and experiences are private.** Every list above answers with
+  the session user's own records. Every per-record path answers for
+  somebody else's record exactly as it answers for a record that is not
+  there: the same status, the same body, including the admin asking for a
+  tester's. There is no 403 on this half, on purpose, because a 403
+  would itself say the record exists.
+- **Companies and the tag vocabulary are shared.** Every user reads
+  them. Changing one is the admin's: a PUT or DELETE on a company, a
+  company note write, `/enrich`, `/retry`, `backfill-sector-size`, and
+  any payload that would register a new tag value (`proposed_tags`, or
+  the legacy skills-only experience payload) answer
+  `403 {"error": "Only the admin can change companies and vocabulary."}`.
+  The check runs after the record lookup, so a company that does not
+  exist still answers 404 and a tester cannot map the vault by comparing
+  the two.
+- **`owner_id` is never accepted from a client.** The job PUT and both
+  experience write paths strip it, so a record's owner is set once by
+  the path that creates it and never moves.
+- **A private record's save writes nothing shared.** A job belonging to
+  a tester does not promote its contact address onto the company, does
+  not enter the company's rollup, and does not fill the company's
+  website, size, sector or sources on intake, re-resolve or enrichment.
+  One rule decides it, `enrich.contributes_to_shared`, keyed on the
+  record's owner rather than on the session so the AI queue answers the
+  same. `POST /api/experiences/<id>/link-company` with `create` is
+  403 for the same reason; linking to a company that already exists, and
+  unlinking, stay open to everybody.
+- **A tester's posting resolves to a company that exists, or to none.**
+  The resolution ladder never creates a company for a tester, by any
+  route: intake, `POST /api/jobs/<id>/resolve`, the `create` half of
+  `POST /api/jobs/<id>/resolve-review` (403) and the `create` half of
+  `POST /api/experiences/<id>/link-company` (403). A posting whose
+  company is not in the vault answers `company_id: null` with
+  `company_link_state: "pending"`, and the job keeps the employer name
+  as its own free text.
+- **Company resolution reads the caller's own jobs.** The employer
+  names recorded against an ATS tenant, and the legacy fallback's own
+  tenant sweep, are scoped to the caller (a tester's own jobs; the
+  admin's plus the legacy ownerless ones). So another user's private
+  posting cannot change which company this user's posting resolves to,
+  cannot raise the `shared_tenant` review, and cannot have its ATS
+  association published as an identifier on a shared company. The cost
+  is that the same tenant may resolve differently for two users.
+- **`POST /api/jobs/<id>/resolve-review` validates the selection before
+  it writes.** A `company_id` that is retired or absent answers
+  `400 {"error": "Company not found."}` with no side effect; before, the
+  capability wrote a `name_variant` onto the company and only then
+  failed the job save.
+- **A retired company answers like one that never existed, on writes
+  too.** `company_id` on a job PUT or an experience write is validated
+  through `vault.linkable_company`: a retired id is refused with the
+  same `400 {"error": "Company not found."}` a deleted id gets, for
+  every caller. The exception is the link a record already carries,
+  which keeps saving. A tester's review selection
+  (`POST /api/jobs/<id>/resolve-review` with `company_id`) links their
+  job and writes no `name_variant` onto the shared company; the admin's
+  still does.
+- **A record id says nothing about what the vault holds.** Ids are
+  allocated from a monotonic per-kind counter, so the id of the next
+  record is the same whether the last delete removed a company or left a
+  tombstone -- which is what keeps the two delete outcomes below
+  indistinguishable in every observable, not just in their response
+  bodies.
+- **`DELETE /api/companies/<id>` is a soft retire when another user's
+  record links the company.** The caller's own links are a 409 reporting
+  their own counts. Otherwise the delete succeeds with
+  `{"deleted": "<id>"}` whether or not anybody else links it: a company
+  nothing links to is removed, and one another user's record links gains
+  the `retired` tombstone ([schemas](../schemas.md)). From the API the
+  two are the same answer, which is the point -- the old refusal told an
+  admin with no links of their own that somebody else had records there.
+  A retired company then answers every company route exactly as an id
+  that was never used, including a second delete, and is absent from the
+  company list, the directory, the Notes page, the Taxonomy counts and
+  the position form's picker. The user whose own job or experience links
+  it reads and edits it unchanged.
+- **Three page payloads gained one key**, `can_edit_shared` (boolean):
+  `GET /api/companies/<id>?view=page`, `GET /api/jobs/<id>/taxonomy` and
+  `GET /api/experiences/new` / `<id>/edit`. The front end reads it to
+  leave out a control a tester's own write would refuse, rather than
+  rendering a button that answers 403. The companies directory did not
+  gain it: it offers no company write to hide.
+
 `POST /login` takes `{email, password}` and answers:
 
 | Outcome | JSON request | Form request |
@@ -371,6 +459,11 @@ No session is its own state, ahead of every state below: an API call is
 401 and a page request is a redirect to `/login`, before any record is
 read. An account that exists but is disabled is in that same state, so
 turning an account off is what ends its session.
+
+Somebody else's job or experience is deliberately not a state of its
+own: it is the missing-record state, byte for byte (M2, decision D3).
+A refused write to shared data is a state of its own, 403 with one
+sentence, because the record is there and the caller may read it.
 
 Empty collections return empty entry arrays and their existing empty message.
 Missing Search criteria is JSON null, or `data: null` in its page view.

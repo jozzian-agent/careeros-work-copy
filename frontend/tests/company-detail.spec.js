@@ -51,7 +51,7 @@ test('sections render in the canvas order, with no Details section and no Name r
     .locator('[data-testid^="section-"]')
     .evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
   expect(sections).toEqual([
-    'section-jobs', 'section-experiences', 'section-classification', 'section-notes',
+    'section-my-jobs', 'section-experiences', 'section-classification', 'section-notes',
   ]);
   // The Details card repeated the title as a Name row and the website
   // that is now in the header.
@@ -62,7 +62,7 @@ test('sections render in the canvas order, with no Details section and no Name r
 test('linked jobs and positions render as links with their state', async ({ page }) => {
   await page.goto('/companies/CO-001');
   await expect(page.getByRole('link', { name: fixture.jobs[0].title })).toBeVisible();
-  await expect(page.getByTestId('section-jobs').getByText('Interested')).toBeVisible();
+  await expect(page.getByTestId('section-my-jobs').getByText('Interested')).toBeVisible();
   await expect(page.getByRole('link', { name: fixture.experiences[0].title })).toBeVisible();
   await expect(page.getByTestId('section-experiences').getByText('Past')).toBeVisible();
 });

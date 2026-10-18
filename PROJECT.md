@@ -526,6 +526,206 @@ German texts the feed labels `fr` or `en`, which is `base.language_record`
 being honest that it measures the language a tenant publishes a variant
 in rather than a reading of the text.
 
+2026-10-18, same day: the vault stops being one shared world (CAREER-39,
+milestone M2, owner decisions D3/D4/D10). A job and an experience now
+belong to one user and reach nobody else; companies and the tag
+vocabulary stay one shared universe every user reads and the admin alone
+changes; and the section called Jobs is called **My Jobs** everywhere a
+person reads it, in the same change as the split (D10: one vocabulary
+change, one batch).
+
+- **One field, one rule.** A job and an experience record carry
+  `owner_id`, a user record id (`vault.OWNER_FIELD`). Every read goes
+  through `vault.Owner`, which the session hands down as one value, so
+  "no user ever sees another user's jobs" is one rule in one place
+  rather than an id comparison at thirty call sites. A record the reader
+  does not own reads as `None`, which is exactly what a record that does
+  not exist reads as, so every route that already answered "Job not
+  found." answers it for somebody else's job too: there is no status
+  code, message or timing that distinguishes the two. No database was
+  added.
+- **The admin gets no window.** D3 is privacy and not hierarchy, so the
+  admin's board holds the admin's own jobs and a tester's are invisible
+  to them as well. What the role does decide is the shared half: a
+  tester's write to a company or to the tag vocabulary answers 403 with
+  one sentence (`users.SHARED_READ_ONLY`), and the interface stops
+  offering the control rather than leaving a button that fails. The role
+  is read in exactly one function, `users.is_admin`.
+- **Ownership is stamped once and never moves.** Intake stamps the
+  adding user on the stub; `POST /api/experiences` stamps the creator.
+  Both write paths strip `owner_id` out of any payload that carries it,
+  so no client can hand its own record away or take somebody else's
+  (D4).
+- **The duplicate check narrowed, on purpose.** It used to compare a
+  pasted link against every job in the vault and answer with the
+  matching job's id and title. Scoped to the adder's own jobs now: the
+  same posting added by two users is two private records, which is what
+  D4 says, and the old answer would have named another user's job.
+- **A record written before the split is the admin's.** `vault.Owner`
+  lets the admin inherit the records that carry no owner, which is the
+  same rule `scripts/migrate_record_owner.py` writes down for good
+  (dry run by default, `--apply` owner-gated, not run as part of this
+  build; [runbook](docs/runbooks/migrate-record-owner.md)). So the app
+  answers correctly either side of the migration, and the migration is
+  idempotent because after it there is nothing left with no owner.
+
+Two things the split touched that the brief did not name, and one it
+left alone.
+
+- **Derived and aggregate surfaces had to be scoped too**, because a
+  count is a leak: the open-jobs number on a company card, the linked
+  jobs and positions on a company profile, the skill counts on the
+  Taxonomy page, the Notes page's job half, and the watcher sweep, which
+  used to walk every posting in the vault and report an event naming a
+  job id and title.
+- **A note on a company is now the admin's**, because it is a write to a
+  shared record every user reads. A note on a job is the reader's own
+  record and stays open to them. Giving a note privacy of its own is
+  CAREER-41 and not this change.
+- **`search.yaml`, the saved criteria, is still one shared file.** It is
+  not a job or an experience, so neither the split nor the migration
+  touches it, and the brief does not cover it. It is personal data all
+  the same, so it is an open question below rather than a silent gap.
+
+A privacy review of the first build found five ways private data still
+reached the shared half, all of them a job's save writing the company it
+names rather than a read answering with the wrong record. The fix is one
+rule: `enrich.contributes_to_shared` asks whether one stored record may
+write a shared one, keyed on the record's own owner so it answers the
+same on the request thread and on the AI queue. Behind it now sit the
+company rollup (which published a company's posting count, its
+locations, its keywords and the **id** of the posting its headcount came
+from), the contact-email promotion in `save_job`, the rollup rewrite on
+every job save, delete and watcher scan, and the metadata, website, size
+and source fills on the intake, re-resolve and enrichment paths. A
+tester's posting now brings the company it names into existence, so
+their own private job has something to point at, and adds **not one
+fact** to it. Company deletion counts only the deleter's own links.
+
+**The capability is gated, not removed.** A tester's posting carries
+real evidence about a company -- a website, a headcount, a location --
+and refusing it is a loss, not a win. The M3 merge queue is where that
+evidence is meant to earn its way in, with a review step. Until it
+exists the shipped decision stands: a tester does not write a shared
+record. The same posting added by the admin fills all of it, so nothing
+about the pipeline was deleted, only keyed on who owns the job driving
+it.
+
+A second review round closed the last two holes, and both needed a
+decision rather than a patch.
+
+**Creating a company is the admin's too.** The first round gated every
+fact written onto a company and left creation open, on the reasoning
+that a private job with nowhere to point is a record its owner cannot
+act on. That left the boundary half-drawn: the pinned capability decides
+to create inside `org_intake.identity.resolve_identity`, which this
+product does not edit. The boundary is now drawn at the one seam that
+does belong to us, the store the capability writes through
+(`careeros/org_store.py`): a store built for a tester's job raises
+rather than creating, and `resolve_company` turns that into the ordinary
+`pending` answer. So a tester's posting **resolves to a company that
+already exists or to none at all**, by every route -- intake, the
+re-resolve endpoint, the review popup's create, and the experience
+link-company create. A job whose company is not in the vault keeps the
+employer name as its own free text, which is a state the product already
+had for a posting whose employer it could not place.
+
+**Company resolution reads the caller's own jobs and nobody else's**
+(owner decision 2026-10-18), which overturns an argument an earlier
+round of this work made: that resolution should read the whole vault so
+one ATS tenant resolved to one company for everybody. It cannot.
+`employer_named_in_posting` is text extracted from a private posting and
+the ladder acts on it. One foreign job on the same tenant was enough to
+turn a clean `linked` into `needs_review` with reason `shared_tenant`,
+and enough for the legacy fallback to derive a company link from
+somebody else's posting and then have that tenant published as an
+identifier on a shared company. Both are one user's private record
+changing what another user sees and what the shared half records.
+
+So `tenant_employer_names` and the legacy fallback's tenant sweep read
+through the caller's own `vault.Owner`: a tester's own jobs, the admin's
+plus the legacy ownerless ones, which is the same set the rollup
+aggregates. On the AI queue there is no session, so the scope is
+reconstructed from the record being processed
+(`enrich.record_owner_scope`). **Cross-user resolution consistency is
+traded away deliberately**: the same tenant may resolve differently for
+two users, and a shared ATS identifier is published only when the
+evidence came from admin-visible jobs. That is the same shape as the two
+of them disagreeing about whether a retired company exists.
+
+**A retired company takes no new link, and is not detectable.** Hiding
+the tombstone from the read surfaces was not enough: three routes still
+told it apart from a company that was never there. The near-match
+suggestion the link-company create flow offers read the whole vault, so
+a retired name came back as a suggestion while a deleted one did not.
+The `company_id` validation on the generic job and experience writes
+checked raw existence, so a retired id was accepted where a deleted id
+was refused -- and the accepted link put the company back on the admin's
+own pages. And `resolve-review` handed the capability a writable store
+even when a tester merely selected a candidate, so `apply_review` wrote
+that tester's private employer text onto the shared company as a
+`name_variant`. All three now answer the same for every caller: a
+retired company is absent from the resolution ladder's candidate list
+(`org_store.list_organisations`) and from every suggestion lookup, and
+`vault.linkable_company` refuses it on any write with the same
+`Company not found.` a deleted id gets. The link it already had is
+grandfathered, which is the whole reason the tombstone exists; only a
+link that MOVES has to point at a live company. That withdraws one
+reading from the first soft-retire round: a tester's NEW posting naming a
+retired company resolves to nothing rather than to the tombstone.
+
+**A record id is handed out once and never again**, and that is now
+absolute rather than best-effort. Three rounds of review went into it,
+and the last two are worth recording because each closed a weaker
+version of the same leak. The counter file (`ids.yaml`) closed ordinary
+allocation. Persisting the mark before a hard delete closed the vault
+that had never written one. What stayed open was damage to the counter
+AFTER a delete: the allocator then falls back to scanning the record
+directory, where a deleted number had left no trace while a RETIRED one
+had, because a tombstone is still a stored record. So a hard delete now
+also leaves an **id-reservation tombstone** in that directory
+(`_reserved-<id>.yaml`): the id and the word reserved, and nothing else
+-- no name, no owner, no counts, no posting text. It is invisible to
+every record reader, because `vault._records` is the one chokepoint they
+all go through and it filters reservations out; the id allocator reads
+raw and is the only thing that sees one. The full invariant and what a
+tombstone contains are in [schemas](docs/schemas.md), which is where an
+earlier round claimed they were and had not put them.
+
+**The original statement of that rule:** The last thing that
+told the two delete outcomes apart was not a response body but the next
+id: ids were `max stored id + 1`, the tombstone kept its number and a
+removed record did not, so creating one more company told the admin
+which had happened and therefore whether another user privately links
+that company. Allocation is monotonic now, from a per-kind high-water
+counter in the vault (`ids.yaml`), seeded from what is on disk so no
+existing id moves and no migration runs. Applied to all four numbered
+kinds, not just companies: a job and an experience never had a tombstone
+but did have the weaker half of the same leak, where a number freed by
+another user's delete came back as the next caller's id. Notes are
+unaffected, being uuids rather than a sequence; accounts share the
+allocator for uniformity, having no delete command at all.
+
+**Deleting a company another user links is a SOFT RETIRE** (owner
+decision, 2026-10-18). Caller-scoped counts were not enough on their
+own: refusing when a foreign record linked, and succeeding when none
+did, still told an admin with no links of their own that somebody else
+holds records there. Now the delete succeeds either way and answers the
+same. What differs is only what happens on disk: a company nothing links
+to is deleted outright, and one another user's record links gains a
+tombstone (`retired`, `retired_at`, shaped on the job's own
+`closed`/`closed_at` pair). A retired company is gone from every
+admin-facing surface -- the directory, the raw list, the profile, the
+Notes page, the Taxonomy counts, the position form's picker, the
+admin-triggered backfill sweep -- and gone from the resolution ladder and
+its legacy fallback, so the admin's own next posting never resurrects it.
+It stays exactly as it was for the user whose job or experience still
+links it: they read it, their label still resolves, and their job still
+saves, which is the breakage the tombstone exists to prevent (a job
+pointing at a deleted company is refused by `save_job` on every later
+edit). Visibility is "my own record links it", so a user with no link
+reads a retired company the same way the admin does: not found.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -577,23 +777,29 @@ The six owner rules live in the Journey 1 spec. These are the ones the flows bel
 | Friend | `tester` | Add jobs, manage their own board and preferences, send feedback |
 
 The stored ids are the fixed list below, set on a user record from M1,
-2026-10-17. Nothing reads the role yet: the gate asks whether there is a
-user and never which kind, because the vault is still one shared world.
-Which of the two words to keep is an open question.
+2026-10-17. The gate still asks only whether there is a user and never
+which kind. Since M2 (CAREER-39, 2026-10-18) the role is read in exactly
+one place, `users.is_admin`, which decides who may change a shared
+record; what a user may see of the private records is decided by
+ownership and not by role, so the admin gets no window into a tester's
+jobs or experiences (decision D3). Which of the two words to keep is an
+open question.
 
 ### Concepts
 
 | Word | Meaning | Replaces |
 |---|---|---|
-| Job | One posting | position, posting, opportunity, role |
+| Job | One posting. Private to the user who added it since M2, 2026-10-18 (decisions D3/D4). | position, posting, opportunity, role |
 | Company | One real organisation, never split by country | none |
 | Experience | A position the user held | none |
 | Preferences | The user's roles, must-haves, nice-to-haves and avoid lists. Tab is called Search today, rename proposed. | Search |
-| Board | The user's jobs grouped by status. In the data this is the in-pipeline flag, which must become per user. | none |
+| Board | The user's jobs grouped by status. Called My Jobs in the interface since M2, 2026-10-18 (decision D10). | none |
 | Needs attention | A filter showing every job with a reason, closed, changed or needs your input. Proposed merge of two existing ideas. | Needs your input as a separate indicator |
 | Note | One thing the user wants to remember about one job or one company: a title and a body. A record holds any number of them. | The single notes field per record |
 | User | One person with an account: an email, a name, a role and a password nobody stores in the clear. Added M1, 2026-10-17. | none |
 | Session | Being logged in. One signed cookie holding one user id, re-checked against the record on every request. Added M1, 2026-10-17. | none |
+| Owner of a record | Which user a job or an experience belongs to: the `owner_id` field holding a user record id (`vault.OWNER_FIELD`). Stamped by the path that creates the record and never moved. Added M2, 2026-10-18. | none |
+| Shared universe | The records every user reads and the admin alone changes: companies and the tag vocabulary. Added M2, 2026-10-18. | Universe (a backend word that never appears in the interface) |
 
 ### Statuses
 
@@ -630,7 +836,7 @@ state survives a restart.
 
 | Surface | Flow step |
 |---|---|
-| Jobs, as board and as list | Board |
+| My Jobs, as board and as list | Board. Holds the signed-in user's own postings only, M2 2026-10-18 ([surface](docs/surfaces/jobs.md)) |
 | Job | Reading a job, flags |
 | Companies | Company browse |
 | Company | Company browse |
@@ -642,13 +848,13 @@ state survives a restart.
 | Accounts command line | Creating, listing, resetting, disabling and enabling an account, since the first admin cannot sign in to create themselves. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [schemas](docs/schemas.md)) |
 | Health check | `GET /api/health`, the one unauthenticated read: is the process up. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md)) |
 
-Interviews is removed from the navigation until it exists. Tab order is Jobs, Companies, Experiences, Preferences. Proposed.
+Interviews is removed from the navigation until it exists. Tab order is My Jobs, Companies, Experiences, Preferences. Proposed.
 
 ### Actions
 
 | Action | Where it lives | Who |
 |---|---|---|
-| Add a job by link or title | One field on Jobs | Everyone |
+| Add a job by link or title | One field on My Jobs | Everyone |
 | Change a job's status | One control on the card | Everyone |
 | Retry | On the card or company, visible after a failed or exhausted step | Owner |
 | Resolve a company match | The review card | Owner |
@@ -661,8 +867,14 @@ Interviews is removed from the navigation until it exists. Tab order is Jobs, Co
 | Log in | The Log in page | Everyone |
 | Log out | One affordance in the app header | Everyone |
 | Create, reset, disable or enable an account | `python -m careeros.users` | Owner |
+| Edit or delete a company, or add a value to the tag vocabulary | The company profile and the two classification popups | Owner |
+| Assign every pre-M2 job and experience to the admin | `python scripts/migrate_record_owner.py` ([runbook](docs/runbooks/migrate-record-owner.md)) | Owner |
 
-Friends never delete jobs or companies. Only the owner edits shared records.
+Friends delete their own jobs and experiences and nobody else's. Only the
+owner edits shared records: a friend's write to a company or to the tag
+vocabulary answers 403 with one message (`users.SHARED_READ_ONLY`), and
+the interface does not offer them the control. In force since M2,
+2026-10-18.
 
 ### Fixed lists
 
@@ -917,7 +1129,7 @@ Each milestone is accepted when the owner clicks through a running instance. Tas
 | Milestone | Outcome | Not in scope |
 |---|---|---|
 | M1 The app matches the inventory | Every item in the audit table is removed or merged, the fixed lists are settled and existing records follow them, and the inventory lists every page, action and word. A reviewer checks the inventory diff. | New features, restyling |
-| M2 Friends can reach their own board | A person outside the local network signs in, adds a job and sees only their own board. Edits to shared records stay with the owner. Needs the edit model decision. | Fit, CV reading |
+| M2 Friends can reach their own board | A person outside the local network signs in, adds a job and sees only their own board. Edits to shared records stay with the owner. Needs the edit model decision. Data split and the My Jobs rename built 2026-10-18 (CAREER-39, decisions D3/D4/D10); owner click-test pending. | Fit, CV reading |
 | M3 The universe is big enough | At least 50 companies and 50 jobs in Zurich, each with sector, size and location from the fixed lists. Verified by a count. | Other regions, the company-page watcher |
 | M4 Bring jobs works for a friend | A fresh friend account pastes one link and ends with three jobs in New after two rounds. The owner may fill extracted fields and choose the round options by hand. Every manual step is written down as it happens. Needs M2 and M3. | Automating the manual steps, profile, fit |
 | M5 Decision on fit and CV reading | Recorded. Either they join the first test and become a milestone, or they move to the later list. The reason is stated. Fit needs the Journey 3 spec and JOZ-267. | Building either |
@@ -954,7 +1166,75 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
 
 ## Open questions
 
-- Edit model for the friend test. Per-user boards with owner-only edits to shared records is proposed. The brief lists it as open.
+- ~~Edit model for the friend test.~~ Settled by owner decisions D3/D4
+  and built 2026-10-18 (CAREER-39 M2): per-user jobs and experiences,
+  shared companies and vocabulary, owner-only edits to the shared half.
+- Saved criteria (`search.yaml`) is one shared file, so every user edits
+  the same roles, must-haves and avoid lists. It is personal data and it
+  is not a job or an experience, so the M2 split did not cover it.
+  Splitting it per user needs a per-user file naming decision.
+- **A tester's posting enriches no company until M3.** Website, size,
+  sector, location and ATS source from a tester's posting are dropped
+  rather than written to the shared company
+  (`enrich.contributes_to_shared`, 2026-10-18). That is the right call
+  while nothing reviews a friend's evidence, and it is a real loss: the
+  universe stops growing from exactly the traffic the friend test
+  generates. The M3 merge queue is the intended home for it. Decide
+  then whether a tester's evidence lands as a proposal, as provisional
+  fields the admin confirms, or not at all.
+- **A tester's posting that names an unknown company links to nothing.**
+  Settled 2026-10-18: a tester resolves to an existing company or to
+  none, and never creates one. The job keeps the employer name as free
+  text and sits at `pending`, so the owner reads who the posting is from
+  and the board shows the company as unplaced. Nothing re-resolves it
+  for them, so it stays that way until the admin adds the company or the
+  M3 merge queue lands. That is the cost of the no-create rule and it is
+  the same open decision as the enrichment one above: whether a friend's
+  posting may propose a company for review, and what the admin sees when
+  it does.
+- ~~Company deletion still tells the admin one bit they did not own.~~
+  Settled 2026-10-18 by owner decision: soft retire. The delete succeeds
+  whether or not another user's record links the company, and answers the
+  same, so there is no bit left to read. See the entry above.
+- **A retired company is never un-retired.** Nothing in the interface
+  brings one back, because the admin cannot see it to ask. A company
+  retired by mistake is recovered by editing `retired: false` in the
+  YAML by hand. Whether that earns a command is open; it has not come up
+  once yet.
+- **A tester's grandfathered link to a retired company is read-only in
+  one direction.** Their existing link keeps working and keeps saving,
+  but once they unlink it they cannot link back, and a new posting of
+  theirs naming that company resolves to nothing. That is the price of
+  one answer for every caller, which is what makes the tombstone
+  undetectable rather than merely hidden. Whether a tester should be
+  able to re-link a company their own records still reference is open;
+  nothing in the interface asks for it yet.
+- **An id sequence still reports that somebody created something.** Ids
+  count up across the whole vault, so a gap in the numbers a user is
+  handed means another user created a record in between. That is a
+  weaker fact than the one that was closed (it says a record was made,
+  never which, whose, or that one was removed), and closing it properly
+  means per-user sequences or opaque ids, which changes every id in the
+  vault and every URL that carries one. Not worth it for the friend
+  test; worth revisiting if the vault ever serves people who do not know
+  about each other.
+- **The same ATS tenant can resolve to different companies for
+  different users.** Settled 2026-10-18 in favour of privacy: resolution
+  reads only the caller's own jobs, so a tenant one user has already
+  placed is unplaced for the next until they place it themselves, and
+  the `shared_tenant` ambiguity flag only ever fires on evidence the
+  caller can see. The universe therefore learns a tenant once per user
+  rather than once. The M3 merge queue is where a friend's tenant
+  evidence could be promoted to shared evidence, which is the same
+  decision as the enrichment and company-creation ones above and should
+  be taken with them.
+- **A tester's review selection no longer teaches the company its
+  employer name.** The `name_variant` identifier is what stops the same
+  fuzzy case asking twice, so a tester resolving the same employer text
+  on two postings now answers the review twice. The admin's selection
+  still writes the variant. This is the merge-queue tension again, in
+  its smallest form: the evidence is good, the writer is not trusted
+  yet.
 - Which parts of M4 are done by hand, and how friends are told, if at all.
 - Whether fit and CV reading join the first test, see M5.
 - Merging Needs attention and Needs your input.

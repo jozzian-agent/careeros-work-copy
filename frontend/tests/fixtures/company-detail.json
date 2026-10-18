@@ -1,4 +1,5 @@
 {
+  "can_edit_shared": true,
   "company": {
     "id": "CO-001",
     "name": "Northwind Systems",

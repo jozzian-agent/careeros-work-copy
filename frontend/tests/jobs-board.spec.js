@@ -102,6 +102,36 @@ test('no board card shows a fit rating', async ({ page }) => {
   }
 });
 
+// M2 (CAREER-39, decision D10): the section is My Jobs, in the nav and
+// on the page itself, because the board holds the signed-in user's own
+// postings and nobody else's.
+test('the board is headed My Jobs, in the page title and the nav', async ({ page }) => {
+  await page.goto('/jobs');
+  await expect(page.getByRole('heading', { name: 'My Jobs', exact: true })).toBeVisible();
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  await expect(nav.getByRole('link', { name: 'My Jobs', exact: true })).toHaveAttribute(
+    'aria-current', 'page');
+  // The old word is gone from both.
+  await expect(page.getByRole('heading', { name: 'Jobs', exact: true })).toHaveCount(0);
+  await expect(nav.getByRole('link', { name: 'Jobs', exact: true })).toHaveCount(0);
+});
+
+// The board renders exactly the jobs GET /api/jobs?view=board answered
+// with and invents none, which is the front-end half of "a user sees
+// only their own jobs": the scoping itself is the server's, pinned
+// end to end against two real sessions in
+// tests/test_record_privacy.py (every API response is mocked in this
+// suite, so a two-user flow here could only assert its own mock).
+test('the board shows the jobs the API answered with and no others', async ({ page }) => {
+  const mine = fixture.entries.filter((entry) => entry.id === 'JOB-001');
+  await mockBoard(page, { ...fixture, entries: mine, counts: { open: 1, ended: 0 } });
+  await page.goto('/jobs');
+  await expect(page.getByTestId('job-card-JOB-001')).toBeVisible();
+  for (const entry of fixture.entries.filter((e) => e.id !== 'JOB-001')) {
+    await expect(page.getByText(entry.title, { exact: true })).toHaveCount(0);
+  }
+});
+
 test('empty state renders the empty message from the API', async ({ page }) => {
   const emptyBoard = { ...fixture, entries: [], empty: 'No jobs match this test fixture.' };
   await mockBoard(page, emptyBoard);

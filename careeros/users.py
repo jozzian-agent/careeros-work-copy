@@ -1,9 +1,14 @@
 """User records, the accounts command line, and the session the gate reads.
 
 M1 puts a real door on the app: every page and every API call needs a
-logged-in user. The vault itself stays one shared world, so a user record
-carries an identity and nothing else. Hanging data off that identity is
-M2 and no field here anticipates it.
+logged-in user. A user record carries an identity and nothing else, and
+it still does after M2: the data hangs off the identity from the other
+side, as the `owner_id` field on a job or an experience record (see
+vault.OWNER_FIELD), so nothing here has to list what a user owns.
+
+What M2 adds here is the two readings of a user that the rest of the app
+asks for: `owner`, the scope a user's own records are read under, and
+`is_admin`, which decides whether they may change the shared ones.
 
 A user record never holds the plain password. The only thing stored is a
 werkzeug hash, and the plain text exists for the length of one call: the
@@ -30,8 +35,10 @@ from careeros import vault
 
 #: The two roles, a fixed list (PROJECT.md Roles). One admin manages
 #: accounts from the command line; a tester signs in and uses the app.
-#: M1 reads neither of them anywhere else: the gate asks whether there is
-#: a user, never which kind, because the vault is still one shared world.
+#: The gate still asks only whether there is a user, never which kind.
+#: Since M2 the role is read in exactly one more place, `is_admin`, which
+#: decides who may change the shared records; what a user may see of the
+#: private ones is decided by ownership and not by role (D3).
 ROLES = ('admin', 'tester')
 
 #: The role the command line gives a new account unless told otherwise.
@@ -77,6 +84,13 @@ SIGN_IN_FAILED = 'Wrong email or password.'
 #: What an API call without a session is told. It names no record and no
 #: route, so a caller learns only that it has to sign in.
 LOGIN_REQUIRED = 'login required'
+
+#: What a tester is told when they try to change shared data (M2,
+#: decision D3). Companies and the tag vocabulary are one universe every
+#: user reads and the admin alone edits. It names the two kinds rather
+#: than the route, so the same sentence serves every shared write path,
+#: and it says who may instead of only saying no.
+SHARED_READ_ONLY = 'Only the admin can change companies and vocabulary.'
 
 _EMAIL_RE = re.compile(r'[^@\s]+@[^@\s]+\.[^@\s]+')
 
@@ -181,7 +195,12 @@ def _entries(root):
     """
     for path in sorted((Path(root) / 'users').glob('*.yaml')):
         data = vault._read(path)
-        if data:
+        # An id-reservation tombstone is not an account (vault.reserve_id).
+        # No command deletes one, so none exists today; filtered here all
+        # the same, because the allocator this kind shares would leave one
+        # the day a delete arrives, and a tombstone reaching the sign-in
+        # path would be an account with no email and no hash.
+        if data and not vault.is_reserved(data):
             yield path, data
 
 
@@ -207,9 +226,16 @@ def find_by_email(root, email):
 
 
 def next_id(root):
-    numbers = [int(d['id'][5:]) for _, d in _entries(root)
-               if re.fullmatch(r'USER-\d+', str(d.get('id', '')))]
-    return f'USER-{max(numbers, default=0) + 1:03d}'
+    """What the next account id would be, without taking it.
+
+    Numbered through the vault's own monotonic allocator like every other
+    record kind (vault.ID_PREFIXES), so no account id is ever reused.
+    There is no command that deletes an account, so this kind never had
+    the reuse oracle the others did; it shares the allocator anyway,
+    because "a record id is handed out once" is easier to keep true as
+    one rule than as three.
+    """
+    return vault._next(root, 'users')
 
 
 def admins(root):
@@ -275,7 +301,7 @@ def save_user(root, data, identifier=None):
     clash = find_by_email(root, result['email'])
     if clash and clash['id'] != (identifier or ''):
         raise ValueError(f"A user with the email {result['email']} already exists.")
-    result['id'] = identifier or next_id(root)
+    result['id'] = identifier or vault._allocate(root, 'users')
     path = Path(root) / 'users' / f"{vault.slugify(result['name'])}-{result['id'].lower()}.yaml"
     vault._write(path, result)
     if existing and existing[0] != path:
@@ -355,6 +381,30 @@ def session_user(root):
     if user is None or user.get('disabled'):
         return None
     return user
+
+
+def is_admin(user):
+    """Whether this user may change shared records (M2, decision D3).
+
+    The one place the role is read as a permission. Companies and the tag
+    vocabulary are one shared universe every user reads; changing them
+    stays with the admin, and a tester gets SHARED_READ_ONLY instead.
+    """
+    return (user or {}).get('role') == 'admin'
+
+
+def owner(user):
+    """The ownership scope this user's reads and writes run under.
+
+    Returns a `vault.Owner`, which is what every job and experience read
+    is filtered through. The admin inherits the records that carry no
+    owner, because those are the pre-M2 records the migration hands them
+    (see vault.Owner and scripts/migrate_record_owner.py).
+
+    None for no user, which no request path reaches: the gate turns a
+    request with no session away before anything reads a record.
+    """
+    return None if user is None else vault.Owner(user['id'], is_admin(user))
 
 
 # --- The accounts command line -------------------------------------------

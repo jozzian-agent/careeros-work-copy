@@ -212,7 +212,7 @@ function ListView({ entries, statusLabels, onRetry }) {
         </SelectList>
       </Box>
       <Box overflow="auto">
-        <Table accessibilityLabel="Jobs list">
+        <Table accessibilityLabel="My Jobs list">
           <Table.Header>
             <Table.Row>
               {LIST_COLUMNS.map((label, index) => (
@@ -1172,7 +1172,7 @@ export default function JobsBoard() {
 
   const boardUi = (
     <Box padding={6}>
-      <PageHeader title="Jobs" />
+      <PageHeader title="My Jobs" />
       {/* PageHeader's own items slot is `display: none` below the md
           breakpoint (gestalt/src/PageHeader/components.tsx
           PageHeaderItemsBlock), so Board/List lived there would be

@@ -1,4 +1,5 @@
 {
+  "can_edit_shared": true,
   "job": { "id": "JOB-001", "function": ["engineering"], "tags": ["tool:python"] },
   "company": { "id": "CO-001", "name": "Northwind Systems", "sectors": ["J"] },
   "function_options": [

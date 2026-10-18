@@ -1,6 +1,10 @@
 """Pinned JSON page contracts against an isolated fixture vault."""
 
-JOB_SHAPE = {'company': {'contact_email': 'str',
+JOB_SHAPE = {
+ # M2 (CAREER-39, decision D3): whether this reader may add a value to
+ # the shared tag vocabulary. The propose-a-new-tag control reads it.
+ 'can_edit_shared': 'bool',
+ 'company': {'contact_email': 'str',
              'custom': {},
              'enrichment': {'employee_count': 'NoneType',
                             'employee_count_evidence': 'NoneType',
@@ -20,6 +24,8 @@ JOB_SHAPE = {'company': {'contact_email': 'str',
              'name_source': 'str',
              'note_list': [],
              'notes': 'str',
+             'retired': 'bool',
+             'retired_at': 'NoneType',
              'review_flags': ['str'],
              'sector': 'NoneType',
              'sectors': ['str'],
@@ -98,6 +104,7 @@ JOB_SHAPE = {'company': {'contact_email': 'str',
          'occupation_code': 'NoneType',
          'origin': 'str',
          'original_url': 'NoneType',
+         'owner_id': 'NoneType',
          'posted_date': 'NoneType',
          'posting_quality': 'NoneType',
          'refresh': 'str',

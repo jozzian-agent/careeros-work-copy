@@ -72,7 +72,7 @@ test('Notes is marked as the current page on /notes', async ({ page }) => {
   await page.goto('/notes');
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav.getByRole('link', { name: 'Notes', exact: true })).toHaveAttribute('aria-current', 'page');
-  for (const label of ['Search', 'Experiences', 'Jobs', 'Companies', 'Taxonomy']) {
+  for (const label of ['Search', 'Experiences', 'My Jobs', 'Companies', 'Taxonomy']) {
     await expect(nav.getByRole('link', { name: label, exact: true })).not.toHaveAttribute('aria-current');
   }
 });

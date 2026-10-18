@@ -83,7 +83,36 @@ under `careerCompaniesFilters`; there is no URL state (owner decision).
 `GET /api/companies?view=page` ([contract](json-api.md)), unchanged in
 shape except that each entry now carries `needs_attention` (any review
 flag), derived server-side the same way the board derives it for a job.
-`counts` is the open-jobs count per company, over the one rule above.
+`counts` is the open-jobs count per company, over the one rule above,
+and since M2 (CAREER-39, decision D3) it counts the reading user's own
+jobs only: a count of somebody else's postings is a leak like any
+other. The company records themselves are shared universe and are sent
+to everybody; editing one is the admin's alone, so the profile page
+carries `can_edit_shared` and leaves out every control a tester's own
+write would refuse.
+
+## Retired companies (M2 soft retire)
+
+A company the admin deletes while another user's job or experience still
+links it is not removed; it gains the `retired` tombstone (owner
+decision 2026-10-18, [schemas](../schemas.md)). The directory, the
+profile, the raw list, the Notes page, the Taxonomy breakdowns, the
+position form's company picker, the admin-triggered backfill sweep and
+the resolution ladder all leave it out, so for the admin it is gone and
+their next posting never resurrects it. For the user whose own record
+links it nothing changes: the card is in their directory, the profile
+loads, the label resolves and their job still saves. Visibility is "my
+own record links it", so a user with no link sees it the way the admin
+does.
+
+A retired company takes no new link either: `company_id` naming one is
+refused on every write with the same answer a deleted id gets, so the
+tombstone cannot be read off a write any more than off a read. The link
+a record already carried is grandfathered and keeps saving, which is the
+whole point of retiring rather than removing.
+
+Nothing un-retires a company through the interface, because the admin
+cannot see one to ask about. That is an open question in PROJECT.md.
 
 ## Migration: one size scale
 

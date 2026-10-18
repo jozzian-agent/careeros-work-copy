@@ -14,8 +14,13 @@ def body_preview(body):
     return first if len(first) <= PREVIEW_LIMIT else first[:PREVIEW_LIMIT].rstrip() + '…'
 
 
-def page_context(root):
-    return notes_context(vault.list_jobs(root), vault.list_companies(root))
+def page_context(root, owner=None):
+    # M2 (CAREER-39): the job half is this user's own jobs, so a note on
+    # somebody else's job is not listed and not countable. The company
+    # half stays shared, because a company note lives on a shared record
+    # and only the admin can write one (D3); giving a note its own
+    # privacy is CAREER-41 and not this change.
+    return notes_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner))
 
 
 def notes_context(jobs, companies):

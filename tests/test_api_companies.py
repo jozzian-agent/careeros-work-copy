@@ -25,6 +25,11 @@ DIRECTORY_SHAPE = {'counts': {'CO-001': 'int'},
               'needs_attention': 'bool',
               'note_list': [],
               'notes': 'str',
+              # M2 soft retire: the tombstone a company gains when the
+              # admin deletes one another user's record still links. False
+              # and null on every live company, which is this fixture.
+              'retired': 'bool',
+              'retired_at': 'NoneType',
               'review_flags': ['str'],
               'sector': 'NoneType',
               'sectors': ['str'],
@@ -44,7 +49,8 @@ def test_directory_contract(api_client, assert_json_shape):
     assert_json_shape(response.get_json(), DIRECTORY_SHAPE)
 
 
-DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'str'},
+DETAIL_SHAPE = {'can_edit_shared': 'bool',
+ 'classification': {'sector': {'source': 'NoneType', 'value': 'str'},
                     'size': {'source': 'NoneType', 'value': 'str'}},
  'companies': {'CO-001': {'contact_email': 'str',
                           'custom': {},
@@ -67,6 +73,8 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
                           'name_source': 'str',
                           'note_list': [],
                           'notes': 'str',
+                          'retired': 'bool',
+                          'retired_at': 'NoneType',
                           'review_flags': ['str'],
                           'sector': 'NoneType',
                           'sectors': ['str'],
@@ -95,6 +103,8 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
              'name_source': 'str',
              'note_list': [],
              'notes': 'str',
+             'retired': 'bool',
+             'retired_at': 'NoneType',
              'review_flags': ['str'],
              'sector': 'NoneType',
              'sectors': ['str'],
@@ -151,6 +161,7 @@ DETAIL_SHAPE = {'classification': {'sector': {'source': 'NoneType', 'value': 'st
               'occupation_code': 'NoneType',
               'origin': 'str',
               'original_url': 'NoneType',
+              'owner_id': 'NoneType',
               'posted_date': 'NoneType',
               'posting_quality': 'NoneType',
               'refresh': 'str',

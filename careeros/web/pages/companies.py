@@ -1,4 +1,12 @@
-"""Company directory and editable profiles."""
+"""Company directory and editable profiles.
+
+M2 (CAREER-39): a company record is shared universe, readable by every
+user and editable by the admin alone (decision D3). What is private is
+what hangs off it here: the open-jobs count on a directory card and the
+linked jobs and positions on a profile are read through the session
+user's own `vault.Owner`, so one user's board never shows in another's
+company page.
+"""
 from flask import abort
 from careeros import vault
 from org_intake import classify as sectors
@@ -24,14 +32,19 @@ FILLED_OUTCOMES = ('matched', 'filled')
 # can claim to have tried.
 NOT_ATTEMPTED = 'not-attempted'
 
-def page_context(root):
-    return directory_context(vault.list_jobs(root), vault.list_companies(root),
+def page_context(root, owner=None):
+    # visible_companies, not list_companies: a company the admin retired
+    # is gone from their directory, and still on the card list of a user
+    # whose own record links it (M2 soft retire).
+    return directory_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner),
                              sectors.load_isic_sections())
 
 def directory_context(jobs, entries, isic_sections):
     # Open-jobs count per company, over vault.is_open_job: the one place
     # that says which statuses still count as open, shared with every
-    # filter built on this number.
+    # filter built on this number. M2: `jobs` is the reading user's own
+    # jobs, so the count is "my open jobs here" and never a count of
+    # somebody else's (D3).
     counts = {c.get('id'): sum(j.get('company_id') == c.get('id') and vault.is_open_job(j) for j in jobs)
               for c in entries}
     isic_labels = {section['code']: section['label'] for section in isic_sections}
@@ -47,6 +60,9 @@ def directory_context(jobs, entries, isic_sections):
     # the detail page's `needs_input`, which asks only about a field
     # automation has run out of ideas on.
     entries = [c | {'needs_attention': bool(c.get('review_flags'))} for c in entries]
+    # No can_edit_shared here, unlike the profile below: the directory
+    # offers no company write at all, so there is nothing on it to hide
+    # from a tester and no reason to send the flag.
     return dict(
         entries=entries,
         counts=counts,
@@ -152,14 +168,15 @@ def linked_experiences(experiences, identifier):
             for exp in experiences if exp.get('company_id') == identifier]
 
 
-def detail_context(root, identifier):
-    company = vault.load_company(root, identifier)
+def detail_context(root, identifier, owner=None, can_edit_shared=True):
+    company = vault.may_see_company(root, identifier, owner)
     if company is None:
         abort(404)
-    return company_context(company, vault.list_jobs(root), vault.list_experiences(root),
-                           sectors.load_isic_sections())
+    return company_context(company, vault.list_jobs(root, owner),
+                           vault.list_experiences(root, owner),
+                           sectors.load_isic_sections(), can_edit_shared)
 
-def company_context(company, jobs, experiences, isic_sections):
+def company_context(company, jobs, experiences, isic_sections, can_edit_shared=True):
     identifier = company['id']
     isic_labels = {s['code']: s['label'] for s in isic_sections}
     # Same read-time label mapping as the directory card (page_context):
@@ -189,4 +206,9 @@ def company_context(company, jobs, experiences, isic_sections):
         isic_sections=isic_sections,
         size_classes=vault.SIZE_CLASSES,
         kinds=vault.KINDS,
+        # M2 (D3): the company itself is shared and the admin alone edits
+        # it, so Edit company, Delete, Edit classification, Try again and
+        # the notes controls are offered only when this is true. The
+        # linked lists above are already this user's own records.
+        can_edit_shared=can_edit_shared,
     )
