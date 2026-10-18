@@ -1,4 +1,4 @@
-"""The golden-set pool export, and the stratification keys it carries.
+"""The golden-set pool export, multi-provider, and its stratification keys.
 
 The spec: "one command exports all in-scope open postings as a file with:
 snapshot id, tenant, company, title, language, municipality, contract
@@ -10,6 +10,19 @@ EVERY ROW IS READ OUT OF A SNAPSHOT, never out of a live fetch. That is
 the point of the snapshot store: "the golden set always references a
 snapshot id, never the live posting", so the pool and the label are about
 the same text even if the posting changes tomorrow.
+
+ONE POOL, SIX PROVIDERS (CAREER-54). `build_pool` takes one store or
+several, and every row names the provider it came from plus its whole
+source chain -- the feed URL, the raw-feed snapshot, the content hash,
+the fetch time, the run and the provider's own API documentation URL
+(owner ruling 2026-10-17: "keep the source of the job"). The strata are
+the one thing that is not uniform across providers, and the row says so
+rather than papering over it: Personio states its own occupation ids,
+Recruitee a `category_code`, SmartRecruiters a `function`, and
+Greenhouse, Lever and Ashby state only a department the employer typed.
+`stratum_source` names which of those a row's stratum came from, so a
+stratified sample can tell a machine-readable id from a free-text
+department.
 
 ## The job family, and why there is no LLM guess here
 
@@ -102,6 +115,42 @@ def _value(posting, dimension):
     return record.get('value')
 
 
+#: Which field a provider's machine-readable stratum lives in, and what
+#: to call that kind of evidence. A provider with no such field falls
+#: back to the department the employer typed, which is free text and is
+#: labelled as free text.
+STRATUM_FIELDS = {
+    'personio': ('occupation', 'occupation_category', "Personio's own occupation taxonomy"),
+    'recruitee': ('category_raw', None, "Recruitee's category_code"),
+    'smartrecruiters': ('function_raw', 'industry_raw',
+                        "SmartRecruiters' function and industry ids"),
+}
+
+
+def _stratum(posting):
+    """`(stratum, category, source)` for one posting.
+
+    Three of the six providers state a machine-readable occupation or
+    function id; the other three state nothing but a department, which
+    is the employer's own free text. Both are usable for drawing a
+    stratified sample and they are NOT the same kind of evidence, so the
+    row carries which one it got.
+    """
+    provider = posting.get('provider')
+    fields = STRATUM_FIELDS.get(provider)
+    if fields:
+        stratum, category, source = fields
+        value = posting.get(stratum)
+        if value:
+            return value, (posting.get(category) if category else None), source
+    department = posting.get('department')
+    return (department, None,
+            'the department the employer typed: this provider states no occupation id'
+            if department else
+            'no stratum: this provider states no occupation id and the posting names no '
+            'department')
+
+
 def pool_row(entry, posting):
     """One export row: the state entry plus the frozen posting.
 
@@ -118,6 +167,8 @@ def pool_row(entry, posting):
     """
     salary = salary_signal(posting.get('description'))
     location = entry.get('location') or posting.get('location') or {}
+    provenance = posting.get('provenance') or entry.get('provenance') or {}
+    stratum, stratum_category, stratum_source = _stratum(posting)
     return {
         'key': posting['key'],
         'snapshot_id': entry.get('snapshot_id'),
@@ -127,6 +178,17 @@ def pool_row(entry, posting):
         'tenant': posting.get('tenant'),
         'posting_id': posting.get('posting_id'),
         'url': posting.get('url'),
+        # The source chain, flat, because a pool row has to be able to
+        # answer "where did this come from" on its own (owner ruling
+        # 2026-10-17 2a). The nested block stays on the snapshot and on
+        # the state entry.
+        'feed_url': provenance.get('feed_url'),
+        'feed_variant': provenance.get('feed_variant'),
+        'detail_url': provenance.get('detail_url'),
+        'api_doc_url': provenance.get('api_doc_url'),
+        'api_doc_accessed': provenance.get('api_doc_accessed'),
+        'fetched_at': provenance.get('fetched_at'),
+        'run_id': provenance.get('run_id'),
         'company': posting.get('employer_name'),
         'title': posting.get('title'),
         'language': _value(posting, 'language'),
@@ -149,14 +211,16 @@ def pool_row(entry, posting):
         'employment_type_raw': posting.get('employment_type_raw'),
         'workload_min': _value(posting, 'workload_min'),
         'workload_max': _value(posting, 'workload_max'),
-        'schedule_raw': posting.get('schedule_raw'),
+        'schedule_raw': posting.get('schedule_raw') or posting.get('commitment_raw'),
+        'work_model': _value(posting, 'work_model'),
         'seniority': _value(posting, 'seniority'),
-        'seniority_hint': posting.get('seniority_hint'),
+        'seniority_hint': posting.get('seniority_hint') or posting.get('experience_raw'),
         'years_of_experience': posting.get('years_of_experience'),
         'department': posting.get('department'),
         'recruiting_category': posting.get('recruiting_category'),
-        'stratum_occupation_category': posting.get('occupation_category'),
-        'stratum_occupation': posting.get('occupation'),
+        'stratum_occupation_category': posting.get('occupation_category') or stratum_category,
+        'stratum_occupation': posting.get('occupation') or stratum,
+        'stratum_source': stratum_source,
         'job_family': None,
         'job_family_status': ('not classified: CAREER-53 does not classify occupations and '
                               'CAREER-57 owns the pipeline that will. The strata above are '
@@ -173,8 +237,8 @@ def pool_row(entry, posting):
     }
 
 
-def build_pool(store, *, tenants=None, include_out_of_area=False):
-    """Every live in-scope posting, as export rows.
+def build_pool(stores, *, tenants=None, include_out_of_area=False):
+    """Every live in-scope posting of one or several stores, as rows.
 
     "Live" is not closed, which includes `suspected_closing` -- a posting
     missing from ONE fetch is not closed (the spec), and dropping it from
@@ -185,21 +249,28 @@ def build_pool(store, *, tenants=None, include_out_of_area=False):
 
     Returns `(rows, skipped)`, where `skipped` says why each posting was
     left out, so the pool's size is always explainable.
+
+    `stores` is one `Store` or several. Several is the multi-provider
+    pool: the rows interleave and sort by key, which is
+    `{provider}:{tenant}:{id}`, so the file is grouped by provider
+    without anything grouping it.
     """
     rows, skipped = [], []
-    for tenant in (tenants if tenants is not None else store.tenants_with_state()):
-        for entry in store_module.live_postings(store, tenant):
-            area = entry.get('area_status')
-            if area != geocode.IN_AREA and not include_out_of_area:
-                skipped.append({'key': entry['key'], 'reason': area or 'no area status'})
-                continue
-            snapshot = store.read_posting_snapshot(tenant, entry['posting_id'],
-                                                   entry.get('content_hash'))
-            if not snapshot or not snapshot.get('posting'):
-                skipped.append({'key': entry['key'],
-                                'reason': 'the snapshot this posting points at is missing'})
-                continue
-            rows.append(pool_row(entry, snapshot['posting']))
+    for store in ([stores] if hasattr(stores, 'root') else list(stores)):
+        for tenant in (tenants if tenants is not None else store.tenants_with_state()):
+            for entry in store_module.live_postings(store, tenant):
+                area = entry.get('area_status')
+                if area != geocode.IN_AREA and not include_out_of_area:
+                    skipped.append({'key': entry['key'], 'provider': store.provider,
+                                    'reason': area or 'no area status'})
+                    continue
+                snapshot = store.read_posting_snapshot(tenant, entry['posting_id'],
+                                                       entry.get('content_hash'))
+                if not snapshot or not snapshot.get('posting'):
+                    skipped.append({'key': entry['key'], 'provider': store.provider,
+                                    'reason': 'the snapshot this posting points at is missing'})
+                    continue
+                rows.append(pool_row(entry, snapshot['posting']))
     rows.sort(key=lambda row: row['key'])
     return rows, skipped
 
@@ -212,9 +283,21 @@ def summarise(rows):
         return dict(Counter(row.get(field) or 'unknown' for row in rows).most_common())
 
     categories = Counter(row.get('stratum_occupation_category') or 'unknown' for row in rows)
+    providers = {}
+    for row in rows:
+        provider = providers.setdefault(row.get('provider') or 'unknown',
+                                        {'postings': 0, 'tenants': set(), 'with_description': 0})
+        provider['postings'] += 1
+        provider['tenants'].add(row.get('tenant'))
+        provider['with_description'] += 1 if row.get('description_characters') else 0
     return {
         'postings': len(rows),
-        'tenants': len({row['tenant'] for row in rows}),
+        'providers': len(providers),
+        'by_provider': {name: {'postings': counts['postings'],
+                               'tenants': len(counts['tenants']),
+                               'with_description': counts['with_description']}
+                        for name, counts in sorted(providers.items())},
+        'tenants': len({(row.get('provider'), row['tenant']) for row in rows}),
         'companies': len({row['company'] for row in rows if row['company']}),
         'municipalities': len({row['municipality'] for row in rows if row['municipality']}),
         'geocoded_to_municipality': sum(1 for row in rows if row['municipality']),
@@ -226,6 +309,8 @@ def summarise(rows):
         'with_salary_signal': sum(1 for row in rows if row['has_salary']),
         'by_language': tally('language'),
         'by_contract': tally('contract'),
+        'by_work_model': tally('work_model'),
+        'by_stratum_source': tally('stratum_source'),
         'by_seniority_hint': tally('seniority_hint'),
         'by_workload': dict(Counter(f"{row.get('workload_min')}-{row.get('workload_max')}"
                                     for row in rows).most_common()),
@@ -248,7 +333,9 @@ def write_pool(store, rows, *, day, summary=None, meta=None):
     repository is YAML and a row carries a list (`keywords`) that a CSV
     would have to flatten and a reader un-flatten."""
     path = store.export_path(day)
-    payload = {'provider': 'personio', 'exported_at': store_module.now(), 'day': day}
+    payload = {'provider': store.provider,
+               'providers': sorted({row.get('provider') for row in rows if row.get('provider')}),
+               'exported_at': store_module.now(), 'day': day}
     payload.update(meta or {})
     payload['summary'] = summary if summary is not None else summarise(rows)
     payload['postings'] = rows

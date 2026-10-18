@@ -330,6 +330,97 @@ that report; the two that change stored data are the spec's
 adapter follows D6) and the 4.7% of pool rows whose Zurich match rests on
 a bare municipality name that a foreign place shares.
 
+2026-10-17, same day: five more job feeds, and the contract that makes
+the next one cheap (CAREER-54). CAREER-53 promised that the next adapter
+would be "a new mapper, not a new pipeline"; `careeros/feeds/base.py` is
+what turns that promise into something checkable. It states the whole of
+what a provider adapter owns — its request variants, its parse, its
+field mapping, the documentation URL it was built from and the day that
+documentation was read, its tenant-id pattern, its crawl-index patterns
+and which taxonomy dimensions its API can actually state — and supplies
+everything else: the gzip codec, the HTML-to-text pass, the Swiss Pensum
+reader, the content hash, the D4 value-record shapes and the provenance
+block. `base.check_adapter` is that list as a function, and the suite
+runs it over every registered adapter, so a seventh provider cannot
+half-exist. Personio is the first implementation and its behaviour is
+unchanged; **Greenhouse, Lever, Ashby, Recruitee and SmartRecruiters**
+are the five that followed, one module each, every one of them carrying
+in its own docstring the endpoint it was verified against live on
+2026-10-17 and the field decisions it refused to make. The pipeline they
+share — `fetch`, `geocode`, `store`, `discovery`, `export` — gained
+variants, paging and a posting-detail pass and did not gain a single
+provider name. `scripts/run_ats_fetch.py` is the runner for all six and
+`scripts/run_personio_fetch.py` is now that program with Personio's
+defaults filled in, so CAREER-53's documented command line still works.
+
+- **Provenance is a contract the store enforces** (owner ruling
+  2026-10-17, "keep the source of the job"). Every posting carries a
+  `provenance` block naming its provider, tenant, posting id, canonical
+  posting URL, the exact feed URL and variant it was read from, the
+  raw-feed snapshot it is frozen beside, its content hash, the fetch
+  time, the run id and the provider's own API documentation URL and
+  access date. `store.write_posting_snapshot` calls
+  `base.require_provenance` before it writes anything and **raises** for
+  a posting that cannot say where it came from, including one whose
+  value records do not carry `source: feed`. A posting stored before
+  this (CAREER-53's 2 214) keeps working and its pool row shows the new
+  columns empty until its tenant is fetched again.
+- **The ATS platform map is the second deliverable the owner asked for
+  by name**: `data/ats_platform_map.yaml` and
+  `data/ats_platform_map_<date>.md` (both tracked and small),
+  `scripts/build_platform_map.py`, logic in
+  `careeros/feeds/platform_map.py`. It answers "which company uses which
+  hiring platform" over ten providers — the six with an adapter plus
+  Workday, Teamtailor, Join and Refline, which it counts from the crawl
+  index without fetching anything, because the owner's "Workday: build
+  or skip" decision needs that count to be comparable. Four confidence
+  levels that are never mixed (`confirmed_live`, `dead`, `recorded`,
+  `observed_in_crawl_index`), a Zurich answer that distinguishes "no
+  office" from "nobody asked", and a per-provider row saying how many
+  index pages were read out of how many exist, so a capped sweep is
+  never presented as a census. It supersedes and absorbs CAREER-52's
+  vault-domain probe (`scripts/ats_overview.py`), which could say which
+  provider a careers page linked to but not the tenant, the evidence or
+  whether the feed is live.
+
+Three things reach beyond the ticket's own files.
+
+- **The geocoder reads the country a provider states.**
+  `geocode.geocode_office(text, country=…)` is new and four of the six
+  adapters fill it (Lever's `country`, SmartRecruiters'
+  `location.country`, Recruitee's `country_code`, Ashby's
+  `address.postalAddress.addressCountry`). A stated Swiss country
+  corroborates a bare municipality name; a stated anything else makes
+  the office out of area before any name is matched. That is the fix for
+  the one false positive CAREER-53 documented and could not rule out —
+  "Lindau" is a municipality in canton Zurich and a town on the German
+  side of the Bodensee. It needs no table of the world's countries,
+  only a list of the ways Switzerland is written, because the question
+  is never which foreign country but whether it is this one. Personio
+  states no country, so its behaviour is unchanged.
+- **CAREER-53's "the Common Crawl index sometimes returns a truncated
+  body" was half our own fault.** `scripts/polite_http` inherits the
+  capability's 2 MB body cap and `discovery` never passed anything else,
+  so an index page bigger than that was cut by us and reported as the
+  service's. `discovery.CDX_MAX_BODY` is now 64 MB — and with that cap
+  the biggest pages still come back short, so a truncated page is now
+  **re-read block by block** (`pageSize=1`), which is five smaller
+  responses instead of one big one, and the discovery report says how
+  many blocks were recovered and whether the page is complete. The
+  Personio trial's one truncated page was almost certainly the cap.
+- **A bare percentage in a long description is not a Pensum.** The first
+  live Ashby run stored a workload of 30 for an engineering management
+  role, read out of "…grew 30%…" in a 20 000-character description. The
+  shared reader now takes a title match as it stands and requires a
+  Pensum word (`Pensum`, `Arbeitszeit`, `Beschäftigungsgrad`,
+  `Teilzeit`, `full-time`, `FTE`, …) within 60 characters of a match
+  inside the posting text. Personio's own two cases — a title
+  percentage and a "Pensum 80 – 100 %" line — still match.
+
+What the capped live trial measured, in full, is
+`data/ats/TRIAL_REPORT.md`, and the platform map's own report is
+`data/ats_platform_map_2026-10-17.md`. PLACEHOLDER_TRIAL_NUMBERS
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.

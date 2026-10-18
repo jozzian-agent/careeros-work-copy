@@ -1,0 +1,813 @@
+{
+ "offers": [
+  {
+   "location": "Darmstadt, Hessen, Deutschland",
+   "title": "Lead Frontend Architekt*",
+   "position": 118,
+   "max_hours": null,
+   "postal_code": "64295",
+   "sharing_image": null,
+   "cover_image": null,
+   "sharing_title": "Lead Frontend Architekt*",
+   "guid": "bmg1u",
+   "careers_apply_url": "https://accso.recruitee.com/o/lead-frontend-architekt/c/new",
+   "state_code": "HE",
+   "options_cv": "required",
+   "min_hours": null,
+   "country_code": "DE",
+   "min_hours_per_week": null,
+   "locations_question_type": "multiple_choice",
+   "options_salutation": "required",
+   "translations": {
+    "de": {
+     "description": "<p style=\"min-height: 1.7em;\"></p><figure style=\"text-align:center;\"><img style=\"width:869px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/pg5osr5dn4k723kfvat81f6w4w57ry/Accso_Stellenanzeige_Dr._Xenija_Neufeldt.jpg\"></figure><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das erwartet dich bei uns:</span></strong></h4><ul><li><p><span style=\"color:#335f5f\">Du arbeitest in Beratungs- und Softwareentwicklungsprojekten bei Kunden wie AXA, BMW, ZDF und der Deutschen Bahn</span></p></li><li><p><span style=\"color:#335f5f\">Du verantwortest die Architektur von Web- und Enterprise-Anwendungen, arbeitest praktisch an Frontend-Lösungen mit und steuerst Anforderungen und Projekte</span></p></li><li><p><span style=\"color:#335f5f\">Du konzipierst, entwickelst und implementierst Softwarelösungen, in dem du AI-Methoden und Tools im gesamten Softwareentwicklungsprozess anwendest, z.B. LLMs oder RAG-Lösungen</span></p></li><li><p><span style=\"color:#335f5f\">Du berätst unsere Kunden im Hinblick auf Architekturfragen, technische Entscheidungen und Zukunftsthemen</span></p></li><li><p><span style=\"color:#335f5f\">Beispielprojekte findest du unter </span><a rel=\"noopener\" target=\"_blank\" href=\"https://accso.de/success-stories\"><span style=\"color:#7878fa\">Success-Stories</span></a></p><p style=\"min-height: 1.7em;\"></p></li></ul><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das zeichnet dich aus:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335f5f\">Du hast ein Studium der Informatik oder einer vergleichbaren Disziplin erfolgreich abgeschlossen und verfügst über einschlägige Berufserfahrung in Software Engineering, Software Architektur, Anforderungs- und Projektmanagement</span></p></li><li><p><span style=\"color:#335f5f\">Du verfügst über fundierte Erfahrung in der agilen Frontend-Entwicklung mit Angular, React, </span><a rel=\"noopener\" target=\"_blank\" href=\"http://Vue.js\"><span style=\"color:#335f5f\">Vue.js</span></a><span style=\"color:#335f5f\"> oder TypeScript und besitzt ein solides Backend-Verständnis</span></p></li><li><p><span style=\"color:#335f5f\">Du kennst dich mit Agentic Coding, LLM-APIs und Streaming in Frontend-Anwendungen aus und bringst Verständnis für UX und Sicherheit von KI-Funktionen mit</span></p></li><li><p><span style=\"color:#335f5f\">Du verfügst über ausgeprägte Kundenorientierung, unternehmerisches Denken und hervorragende Kommunikationsfähigkeit bis auf Vorstandsebene</span></p></li><li><p><span style=\"color:#335f5f\">Du sprichst fließend Deutsch (mindestens C1 Level) und sehr gut Englisch (mindestens B2)</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Unser Angebot an dich:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335F5F\">Wertschätzung </span><span style=\"color:#335f5f\">&amp; Zusammenarbeit auf Augenhöhe</span></p></li><li><p><span style=\"color:#335f5f\">12 Weiterbildun</span><span style=\"color:#335F5F\">gstage pro Jahr</span></p></li><li><p><span style=\"color:#335F5F\">Fachlicher Austausch &amp; Wissenstransfer: 14 interne Communities &amp; Netzwerke (z. B. ML, Green IT, Architektur, IoT)</span></p></li><li><p><span style=\"color:#335F5F\">Familienfreundliche Arbeitszeiten und hybrides Arbeiten mit Homeoffice-Anteil</span></p></li><li><p><span style=\"color:#335F5F\">Jobrad, Workation, Sabbatical, Kinderbetreuungszuschuss, Gesundheitsprogramme und vieles mehr</span></p></li><li><p><span style=\"color:#335F5F\">Faires Gehaltsmodell: Finale Vergütung richtet sich nach deiner Qualifikation und bisherigen Erfahrung</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das ist Accso:​</span></strong></h4><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">Accso ist Digitalpartner für anspruchsvolle Softwarelösungen nach Maß – mit </span><strong><span style=\"color:#335f5f\">AI Native Mindset</span></strong><span style=\"color:#335f5f\">. Wir verbinden exzellentes Engineering und Qualitätsbewusstsein mit pragmatischem KI-Einsatz, von der Konzeption über die Entwicklung bis hin zum Betrieb. Uns treibt eine klare Vision: </span><strong><span style=\"color:#335f5f\">die Welt ein Stück besser machen</span></strong><span style=\"color:#335f5f\">, indem wir gemeinsam mit unseren Kunden zukunftssichere Softwareentwicklung und messbaren Impact schaffen. Dabei steht der </span><strong><span style=\"color:#335f5f\">Mensch im Fokus</span></strong><span style=\"color:#335f5f\"> – bei unseren Kunden genauso wie in unseren Teams. Wir arbeiten partnerschaftlich, lösungsorientiert, exzellenzgetrieben, mit offener Kommunikation auf Augenhöhe. In interdisziplinären Teams bringst du dich direkt beim Kunden ein – mit viel Gestaltungsspielraum, aktivem Wissenstransfer und einer Kultur, die Neugier, Verantwortung und Lernen fördert. Bei uns kannst du dich einbringen, wie du bist, moderne Technologien verantwortungsbewusst einsetzen und dich fachlich wie persönlich stetig weiterentwickeln. Wir freuen uns auf deine Bewerbung.</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Deine Bewerbung:</span></strong></h4><p class=\"text-element-body_text\"><strong><span style=\"color:#335f5f\">Es ist uns nicht so wichtig, dass du die Stellenanforderungen zu 100% erfüllst, sondern dass du unser Team mit deinen Talenten, deinem Wissen und deiner Art bereicherst und wir gemeinsam wachsen. ​</span></strong></p><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">*Für uns ist dein Talent entscheidend, nicht dein Geschlecht, deine Herkunft, Glaubensrichtung, sexuelle Orientierung oder eine eventuelle Behinderung.​</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\" style=\"text-align:start;\"><strong><span style=\"color:#00ca75\">Kontakt</span></strong></h4><div style=\"display: flex;\" class=\"pm-columns\"><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><p style=\"min-height: 1.7em;\"></p><p><strong><span style=\"color:#335f5f\">Katharina Schmidt</span></strong></p><p><span style=\"color:#335f5f\">Talent Manager<br>Mobil: +49 151 40230 891<br>Email:</span><span style=\"color:#1B1B2D\"> </span><a rel=\"noopener\" target=\"_blank\" href=\"mailto:bewerben@accso.de\">bewerben@accso.de</a></p><p style=\"min-height: 1.7em;\"></p></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:165px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/dnevwye8n2p7g3rathr2c2p7coskuy/Katharina.jpg\"></figure></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:263px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/64kf2ethndh4ll179wgvkbut7nus4s/GPTW_2026.png\"></figure></div></div><p style=\"min-height: 1.7em;\"></p><p style=\"min-height: 1.7em;\"></p>",
+     "title": "Lead Frontend Architekt*",
+     "highlight": null,
+     "requirements": null,
+     "sharing_image": null,
+     "locations_question": "Was ist dein bevorzugter Arbeitsort?",
+     "sharing_description": "Werde zum Baumeister digitaler Welten. Als Lead Frontend Architekt entwirfst du das Grundgerüst für stabile Softwarelösungen. Dabei behältst du stets den Überblick über die Konstruktion.",
+     "sharing_title": "Lead Frontend Architekt*"
+    }
+   },
+   "hybrid": true,
+   "location_question_visible": false,
+   "state_name": "Hessen",
+   "experience_code": "experienced",
+   "tags": [
+    "Discovery",
+    "MC",
+    "PR"
+   ],
+   "highlight": null,
+   "department": null,
+   "company_name": "Accso – Accelerated Solutions GmbH",
+   "on_site": false,
+   "slug": "lead-frontend-architekt",
+   "options_phone": "required",
+   "country": "Deutschland",
+   "sharing_description": "Werde zum Baumeister digitaler Welten. Als Lead Frontend Architekt entwirfst du das Grundgerüst für stabile Softwarelösungen. Dabei behältst du stets den Überblick über die Konstruktion.",
+   "salary": {
+    "max": "98000",
+    "min": "77000",
+    "period": null,
+    "currency": "EUR"
+   },
+   "description": "<p style=\"min-height: 1.7em;\"></p><figure style=\"text-align:center;\"><img style=\"width:869px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/pg5osr5dn4k723kfvat81f6w4w57ry/Accso_Stellenanzeige_Dr._Xenija_Neufeldt.jpg\"></figure><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das erwartet dich bei uns:</span></strong></h4><ul><li><p><span style=\"color:#335f5f\">Du arbeitest in Beratungs- und Softwareentwicklungsprojekten bei Kunden wie AXA, BMW, ZDF und der Deutschen Bahn</span></p></li><li><p><span style=\"color:#335f5f\">Du verantwortest die Architektur von Web- und Enterprise-Anwendungen, arbeitest praktisch an Frontend-Lösungen mit und steuerst Anforderungen und Projekte</span></p></li><li><p><span style=\"color:#335f5f\">Du konzipierst, entwickelst und implementierst Softwarelösungen, in dem du AI-Methoden und Tools im gesamten Softwareentwicklungsprozess anwendest, z.B. LLMs oder RAG-Lösungen</span></p></li><li><p><span style=\"color:#335f5f\">Du berätst unsere Kunden im Hinblick auf Architekturfragen, technische Entscheidungen und Zukunftsthemen</span></p></li><li><p><span style=\"color:#335f5f\">Beispielprojekte findest du unter </span><a rel=\"noopener\" target=\"_blank\" href=\"https://accso.de/success-stories\"><span style=\"color:#7878fa\">Success-Stories</span></a></p><p style=\"min-height: 1.7em;\"></p></li></ul><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das zeichnet dich aus:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335f5f\">Du hast ein Studium der Informatik oder einer vergleichbaren Disziplin erfolgreich abgeschlossen und verfügst über einschlägige Berufserfahrung in Software Engineering, Software Architektur, Anforderungs- und Projektmanagement</span></p></li><li><p><span style=\"color:#335f5f\">Du verfügst über fundierte Erfahrung in der agilen Frontend-Entwicklung mit Angular, React, </span><a rel=\"noopener\" target=\"_blank\" href=\"http://Vue.js\"><span style=\"color:#335f5f\">Vue.js</span></a><span style=\"color:#335f5f\"> oder TypeScript und besitzt ein solides Backend-Verständnis</span></p></li><li><p><span style=\"color:#335f5f\">Du kennst dich mit Agentic Coding, LLM-APIs und Streaming in Frontend-Anwendungen aus und bringst Verständnis für UX und Sicherheit von KI-Funktionen mit</span></p></li><li><p><span style=\"color:#335f5f\">Du verfügst über ausgeprägte Kundenorientierung, unternehmerisches Denken und hervorragende Kommunikationsfähigkeit bis auf Vorstandsebene</span></p></li><li><p><span style=\"color:#335f5f\">Du sprichst fließend Deutsch (mindestens C1 Level) und sehr gut Englisch (mindestens B2)</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Unser Angebot an dich:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335F5F\">Wertschätzung </span><span style=\"color:#335f5f\">&amp; Zusammenarbeit auf Augenhöhe</span></p></li><li><p><span style=\"color:#335f5f\">12 Weiterbildun</span><span style=\"color:#335F5F\">gstage pro Jahr</span></p></li><li><p><span style=\"color:#335F5F\">Fachlicher Austausch &amp; Wissenstransfer: 14 interne Communities &amp; Netzwerke (z. B. ML, Green IT, Architektur, IoT)</span></p></li><li><p><span style=\"color:#335F5F\">Familienfreundliche Arbeitszeiten und hybrides Arbeiten mit Homeoffice-Anteil</span></p></li><li><p><span style=\"color:#335F5F\">Jobrad, Workation, Sabbatical, Kinderbetreuungszuschuss, Gesundheitsprogramme und vieles mehr</span></p></li><li><p><span style=\"color:#335F5F\">Faires Gehaltsmodell: Finale Vergütung richtet sich nach deiner Qualifikation und bisherigen Erfahrung</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das ist Accso:​</span></strong></h4><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">Accso ist Digitalpartner für anspruchsvolle Softwarelösungen nach Maß – mit </span><strong><span style=\"color:#335f5f\">AI Native Mindset</span></strong><span style=\"color:#335f5f\">. Wir verbinden exzellentes Engineering und Qualitätsbewusstsein mit pragmatischem KI-Einsatz, von der Konzeption über die Entwicklung bis hin zum Betrieb. Uns treibt eine klare Vision: </span><strong><span style=\"color:#335f5f\">die Welt ein Stück besser machen</span></strong><span style=\"color:#335f5f\">, indem wir gemeinsam mit unseren Kunden zukunftssichere Softwareentwicklung und messbaren Impact schaffen. Dabei steht der </span><strong><span style=\"color:#335f5f\">Mensch im Fokus</span></strong><span style=\"color:#335f5f\"> – bei unseren Kunden genauso wie in unseren Teams. Wir arbeiten partnerschaftlich, lösungsorientiert, exzellenzgetrieben, mit offener Kommunikation auf Augenhöhe. In interdisziplinären Teams bringst du dich direkt beim Kunden ein – mit viel Gestaltungsspielraum, aktivem Wissenstransfer und einer Kultur, die Neugier, Verantwortung und Lernen fördert. Bei uns kannst du dich einbringen, wie du bist, moderne Technologien verantwortungsbewusst einsetzen und dich fachlich wie persönlich stetig weiterentwickeln. Wir freuen uns auf deine Bewerbung.</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Deine Bewerbung:</span></strong></h4><p class=\"text-element-body_text\"><strong><span style=\"color:#335f5f\">Es ist uns nicht so wichtig, dass du die Stellenanforderungen zu 100% erfüllst, sondern dass du unser Team mit deinen Talenten, deinem Wissen und deiner Art bereicherst und wir gemeinsam wachsen. ​</span></strong></p><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">*Für uns ist dein Talent entscheidend, nicht dein Geschlecht, deine Herkunft, Glaubensrichtung, sexuelle Orientierung oder eine eventuelle Behinderung.​</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\" style=\"text-align:start;\"><strong><span style=\"color:#00ca75\">Kontakt</span></strong></h4><div style=\"display: flex;\" class=\"pm-columns\"><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><p style=\"min-height: 1.7em;\"></p><p><strong><span style=\"color:#335f5f\">Katharina Schmidt</span></strong></p><p><span style=\"color:#335f5f\">Talent Manager<br>Mobil: +49 151 40230 891<br>Email:</span><span style=\"color:#1B1B2D\"> </span><a rel=\"noopener\" target=\"_blank\" href=\"mailto:bewerben@accso.de\">bewerben@accso.de</a></p><p style=\"min-height: 1.7em;\"></p></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:165px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/dnevwye8n2p7g3rathr2c2p7coskuy/Katharina.jpg\"></figure></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:263px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/64kf2ethndh4ll179wgvkbut7nus4s/GPTW_2026.png\"></figure></div></div><p style=\"min-height: 1.7em;\"></p><p style=\"min-height: 1.7em;\"></p>",
+   "employment_type_code": "fulltime_permanent",
+   "max_hours_per_week": null,
+   "careers_url": "https://accso.recruitee.com/o/lead-frontend-architekt",
+   "created_at": "2026-10-16 08:44:27 UTC",
+   "city": "Darmstadt",
+   "locations_question": "Was ist dein bevorzugter Arbeitsort?",
+   "remote": false,
+   "close_at": null,
+   "options_photo": "off",
+   "locations": [
+    {
+     "id": 263772,
+     "name": "Darmstadt",
+     "state": "Hessen",
+     "country": "Deutschland",
+     "city": "Darmstadt",
+     "translations": {
+      "de": {
+       "name": "Darmstadt",
+       "city": "Darmstadt",
+       "postal_code": "64295",
+       "street": "Hilpertstraße 12",
+       "note": null
+      }
+     },
+     "country_code": "DE",
+     "state_code": "HE",
+     "postal_code": "64295",
+     "street": "Hilpertstraße 12",
+     "note": null
+    }
+   ],
+   "category_code": "internet",
+   "id": 2786549,
+   "mailbox_email": "job.bmg1u@accso.recruitee.com",
+   "options_title": "off",
+   "education_code": "high_school_coursework",
+   "published_at": "2026-10-16 09:09:25 UTC",
+   "dynamic_fields": [],
+   "locations_question_required": true,
+   "options_cover_letter": "optional",
+   "requirements": null,
+   "status": "published",
+   "open_questions": [
+    {
+     "id": 3700697,
+     "position": 1,
+     "options": {},
+     "required": true,
+     "body": "Wie sind deine Deutschkenntnisse?",
+     "kind": "single_choice",
+     "translations": {
+      "de": {
+       "body": "Wie sind deine Deutschkenntnisse?"
+      }
+     },
+     "open_question_options": [
+      {
+       "id": 5456871,
+       "position": 0,
+       "body": "Grundkenntnisse",
+       "translations": {
+        "de": {
+         "body": "Grundkenntnisse"
+        }
+       }
+      },
+      {
+       "id": 5456872,
+       "position": 1,
+       "body": "Gut",
+       "translations": {
+        "de": {
+         "body": "Gut"
+        }
+       }
+      },
+      {
+       "id": 5456873,
+       "position": 2,
+       "body": "Fließend",
+       "translations": {
+        "de": {
+         "body": "Fließend"
+        }
+       }
+      },
+      {
+       "id": 5456874,
+       "position": 3,
+       "body": "Verhandlungssicher",
+       "translations": {
+        "de": {
+         "body": "Verhandlungssicher"
+        }
+       }
+      },
+      {
+       "id": 5456875,
+       "position": 4,
+       "body": "Muttersprache",
+       "translations": {
+        "de": {
+         "body": "Muttersprache"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "id": 3700698,
+     "position": 2,
+     "options": {},
+     "required": false,
+     "body": "Abschlusszeugnisse",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Abschlusszeugnisse"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700699,
+     "position": 3,
+     "options": {},
+     "required": false,
+     "body": "Arbeitszeugnisse",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Arbeitszeugnisse"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700700,
+     "position": 4,
+     "options": {},
+     "required": false,
+     "body": "Projektliste",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Projektliste"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700701,
+     "position": 5,
+     "options": {},
+     "required": false,
+     "body": "Sonstiges",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Sonstiges"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700702,
+     "position": 6,
+     "options": {},
+     "required": false,
+     "body": "Sonstiges",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Sonstiges"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700703,
+     "position": 7,
+     "options": {},
+     "required": false,
+     "body": "Sonstiges",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Sonstiges"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3706721,
+     "position": 8,
+     "options": {},
+     "required": true,
+     "body": "Wie bist du auf die Stelle aufmerksam geworden",
+     "kind": "multi_choice",
+     "translations": {
+      "de": {
+       "body": "Wie bist du auf die Stelle aufmerksam geworden"
+      }
+     },
+     "open_question_options": [
+      {
+       "id": 5466165,
+       "position": 0,
+       "body": "LinkedIn",
+       "translations": {
+        "de": {
+         "body": "LinkedIn"
+        }
+       }
+      },
+      {
+       "id": 5466189,
+       "position": 1,
+       "body": "Kununu",
+       "translations": {
+        "de": {
+         "body": "Kununu"
+        }
+       }
+      },
+      {
+       "id": 5466188,
+       "position": 2,
+       "body": "Google Jobs",
+       "translations": {
+        "de": {
+         "body": "Google Jobs"
+        }
+       }
+      },
+      {
+       "id": 5466166,
+       "position": 3,
+       "body": "Xing",
+       "translations": {
+        "de": {
+         "body": "Xing"
+        }
+       }
+      },
+      {
+       "id": 5466173,
+       "position": 4,
+       "body": "Get-in-IT",
+       "translations": {
+        "de": {
+         "body": "Get-in-IT"
+        }
+       }
+      },
+      {
+       "id": 5466174,
+       "position": 5,
+       "body": "Indeed",
+       "translations": {
+        "de": {
+         "body": "Indeed"
+        }
+       }
+      },
+      {
+       "id": 6307517,
+       "position": 6,
+       "body": "Stepstone",
+       "translations": {
+        "de": {
+         "body": "Stepstone"
+        }
+       }
+      },
+      {
+       "id": 5466191,
+       "position": 7,
+       "body": "Sonstige Jobbörsen",
+       "translations": {
+        "de": {
+         "body": "Sonstige Jobbörsen"
+        }
+       }
+      },
+      {
+       "id": 6404143,
+       "position": 8,
+       "body": "GPTW (Great Place To Work)",
+       "translations": {
+        "de": {
+         "body": "GPTW (Great Place To Work)"
+        }
+       }
+      },
+      {
+       "id": 5466190,
+       "position": 9,
+       "body": "Jobmesse (Pitch Club, ITCS etc.)",
+       "translations": {
+        "de": {
+         "body": "Jobmesse (Pitch Club, ITCS etc.)"
+        }
+       }
+      },
+      {
+       "id": 6406270,
+       "position": 10,
+       "body": "Unsere Aktionen bezüglich Diversität (Charta der Vielfalt, Netzwerk, CSD)",
+       "translations": {
+        "de": {
+         "body": "Unsere Aktionen bezüglich Diversität (Charta der Vielfalt, Netzwerk, CSD)"
+        }
+       }
+      },
+      {
+       "id": 6307518,
+       "position": 11,
+       "body": "Event bei Accso (Meetup, WomenPowerIT etc.)",
+       "translations": {
+        "de": {
+         "body": "Event bei Accso (Meetup, WomenPowerIT etc.)"
+        }
+       }
+      },
+      {
+       "id": 6307519,
+       "position": 12,
+       "body": "Hochschularbeit von Accso (Vorlesungen, Professor:in Empfehlung etc.)",
+       "translations": {
+        "de": {
+         "body": "Hochschularbeit von Accso (Vorlesungen, Professor:in Empfehlung etc.)"
+        }
+       }
+      },
+      {
+       "id": 5466175,
+       "position": 13,
+       "body": "Empfehlung von Mitarbeiter:in bei Accso",
+       "translations": {
+        "de": {
+         "body": "Empfehlung von Mitarbeiter:in bei Accso"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "updated_at": "2026-10-16 09:09:25 UTC"
+  },
+  {
+   "location": "Darmstadt, Hessen, Deutschland",
+   "title": "Senior Fullstack Entwickler - Java, Spring, Angular*",
+   "position": 117,
+   "max_hours": null,
+   "postal_code": "64295",
+   "sharing_image": null,
+   "cover_image": null,
+   "sharing_title": "Senior Fullstack Entwickler - Java, Spring, Angular*",
+   "guid": "gsea3",
+   "careers_apply_url": "https://accso.recruitee.com/o/senior-fullstack-entwickler-java-spring-angular-6/c/new",
+   "state_code": "HE",
+   "options_cv": "required",
+   "min_hours": null,
+   "country_code": "DE",
+   "min_hours_per_week": null,
+   "locations_question_type": "multiple_choice",
+   "options_salutation": "required",
+   "translations": {
+    "de": {
+     "description": "<p style=\"min-height: 1.7em;\"></p><figure style=\"text-align:center;\"><img style=\"width:869px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/wegb9ads29p3e3dhf9t27scn89et83/DSC00101.jpg\"></figure><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das erwartet dich bei uns:</span></strong></h4><ul><li><p><span style=\"color:#335f5f\">Du arbeitest in Beratungs- und Softwareentwicklungsprojekten bei Kunden wie AXA, BMW, ZDF und der Deutschen Bahn</span></p></li><li><p><span style=\"color:#335F5F\">Du konzipierst, entwickelst und implementierst Softwarelösungen, in dem du AI-Methoden und Tools im gesamten Softwareentwicklungsprozess anwendest (z.B. LLMs, agentische Frameworks, Codegenerierung und Testautomatisierung)</span></p></li><li><p><span style=\"color:#335F5F\">Du übernimmst bei Bedarf die fachliche Führung im Projektteam und gibst dein Wissen (z.B. über Schulungen) weiter</span></p></li><li><p><span style=\"color:#335F5F\">Du gestaltest aktiv alle Phasen des Software-Engineerings mit agilen Methoden und bindest den Kunden aktiv ein</span></p></li><li><p><span style=\"color:#335f5f\">Beispielprojekte findest du unter </span><a rel=\"noopener\" target=\"_blank\" href=\"https://accso.de/success-stories\"><span style=\"color:#7878fa\">Success-Stories</span></a></p><p style=\"min-height: 1.7em;\"></p></li></ul><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das zeichnet dich aus:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335f5f\">Du hast einen Hochschulabschluss in Informatik oder in einer vergleichbaren Disziplin erfolgreich abgeschlossen</span></p></li><li><p><span style=\"color:#335f5f\">Du bringst tiefgehende, praktische Kenntnisse in Frontend und Backend (u.a. in Java, Spring, Kotlin, Angular, VueJS, React)&nbsp;mit</span></p></li><li><p><span style=\"color:#335f5f\">Du verstehst es, nachhaltige Kundenbeziehungen vertrauensvoll auszubauen, souverän auf Augenhöhe zu kommunizieren und die Zusammenarbeit mit unseren Kunden aktiv zu gestalten</span></p></li><li><p><span style=\"color:#335f5f\">Du arbeitest eigenverantwortlich und trägst aktiv zum Erfolg deines Projektteams bei</span></p></li><li><p><span style=\"color:#335f5f\">Du sprichst fließend Deutsch (mindestens C1 Level) und sehr gut Englisch (mindestens B2)</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Unser Angebot an dich:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335F5F\">Wertschätzung </span><span style=\"color:#335f5f\">&amp; Zusammenarbeit auf Augenhöhe</span></p></li><li><p><span style=\"color:#335f5f\">12 Weiterbildun</span><span style=\"color:#335F5F\">gstage pro Jahr</span></p></li><li><p><span style=\"color:#335F5F\">Fachlicher Austausch &amp; Wissenstransfer: 14 interne Communities &amp; Netzwerke (z. B. ML, Green IT, Architektur, IoT)</span></p></li><li><p><span style=\"color:#335F5F\">Familienfreundliche Arbeitszeiten und hybrides Arbeiten mit Homeoffice-Anteil</span></p></li><li><p><span style=\"color:#335F5F\">Jobrad, Workation, Sabbatical, Kinderbetreuungszuschuss, Gesundheitsprogramme und vieles mehr</span></p></li><li><p><span style=\"color:#335F5F\">Faires Gehaltsmodell: Finale Vergütung richtet sich nach deiner Qualifikation und bisherigen Erfahrung</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das ist Accso:​</span></strong></h4><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">Accso ist Digitalpartner für anspruchsvolle Softwarelösungen nach Maß – mit </span><strong><span style=\"color:#335f5f\">AI Native Mindset</span></strong><span style=\"color:#335f5f\">. Wir verbinden exzellentes Engineering und Qualitätsbewusstsein mit pragmatischem KI-Einsatz, von der Konzeption über die Entwicklung bis hin zum Betrieb. Uns treibt eine klare Vision: </span><strong><span style=\"color:#335f5f\">die Welt ein Stück besser machen</span></strong><span style=\"color:#335f5f\">, indem wir gemeinsam mit unseren Kunden zukunftssichere Softwareentwicklung und messbaren Impact schaffen. Dabei steht der </span><strong><span style=\"color:#335f5f\">Mensch im Fokus</span></strong><span style=\"color:#335f5f\"> – bei unseren Kunden genauso wie in unseren Teams. Wir arbeiten partnerschaftlich, lösungsorientiert, exzellenzgetrieben, mit offener Kommunikation auf Augenhöhe. In interdisziplinären Teams bringst du dich direkt beim Kunden ein – mit viel Gestaltungsspielraum, aktivem Wissenstransfer und einer Kultur, die Neugier, Verantwortung und Lernen fördert. Bei uns kannst du dich einbringen, wie du bist, moderne Technologien verantwortungsbewusst einsetzen und dich fachlich wie persönlich stetig weiterentwickeln. Wir freuen uns auf deine Bewerbung.</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Deine Bewerbung:</span></strong></h4><p class=\"text-element-body_text\"><strong><span style=\"color:#335f5f\">Es ist uns nicht so wichtig, dass du die Stellenanforderungen zu 100% erfüllst, sondern dass du unser Team mit deinen Talenten, deinem Wissen und deiner Art bereicherst und wir gemeinsam wachsen. ​</span></strong></p><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">*Für uns ist dein Talent entscheidend, nicht dein Geschlecht, deine Herkunft, Glaubensrichtung, sexuelle Orientierung oder eine eventuelle Behinderung.​</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\" style=\"text-align:start;\"><strong><span style=\"color:#00ca75\">Kontakt</span></strong></h4><div style=\"display: flex;\" class=\"pm-columns\"><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><p style=\"min-height: 1.7em;\"></p><p><strong><span style=\"color:#335f5f\">Katharina Schmidt</span></strong></p><p><span style=\"color:#335f5f\">Talent Manager<br>Mobil: +49 151 40230 891<br>Email:</span><span style=\"color:#1B1B2D\"> </span><a rel=\"noopener\" target=\"_blank\" href=\"mailto:bewerben@accso.de\">bewerben@accso.de</a></p><p style=\"min-height: 1.7em;\"></p></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:165px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/dnevwye8n2p7g3rathr2c2p7coskuy/Katharina.jpg\"></figure></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:263px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/64kf2ethndh4ll179wgvkbut7nus4s/GPTW_2026.png\"></figure></div></div><p style=\"min-height: 1.7em;\"></p><p style=\"min-height: 1.7em;\"></p>",
+     "title": "Senior Fullstack Entwickler - Java, Spring, Angular*",
+     "highlight": null,
+     "requirements": null,
+     "sharing_image": null,
+     "locations_question": "Was ist dein bevorzugter Arbeitsort?",
+     "sharing_description": "Ob Frontend und Backend dein Code bildet das Fundament für begeisternde User Experience. Starte durch als Senior Fullstack Entwickler bei Accso.",
+     "sharing_title": "Senior Fullstack Entwickler - Java, Spring, Angular*"
+    }
+   },
+   "hybrid": true,
+   "location_question_visible": false,
+   "state_name": "Hessen",
+   "experience_code": "experienced",
+   "tags": [
+    "MC",
+    "SSE"
+   ],
+   "highlight": null,
+   "department": null,
+   "company_name": "Accso – Accelerated Solutions GmbH",
+   "on_site": false,
+   "slug": "senior-fullstack-entwickler-java-spring-angular-6",
+   "options_phone": "required",
+   "country": "Deutschland",
+   "sharing_description": "Ob Frontend und Backend dein Code bildet das Fundament für begeisternde User Experience. Starte durch als Senior Fullstack Entwickler bei Accso.",
+   "salary": {
+    "max": "85000",
+    "min": "60000",
+    "period": null,
+    "currency": "EUR"
+   },
+   "description": "<p style=\"min-height: 1.7em;\"></p><figure style=\"text-align:center;\"><img style=\"width:869px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/wegb9ads29p3e3dhf9t27scn89et83/DSC00101.jpg\"></figure><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das erwartet dich bei uns:</span></strong></h4><ul><li><p><span style=\"color:#335f5f\">Du arbeitest in Beratungs- und Softwareentwicklungsprojekten bei Kunden wie AXA, BMW, ZDF und der Deutschen Bahn</span></p></li><li><p><span style=\"color:#335F5F\">Du konzipierst, entwickelst und implementierst Softwarelösungen, in dem du AI-Methoden und Tools im gesamten Softwareentwicklungsprozess anwendest (z.B. LLMs, agentische Frameworks, Codegenerierung und Testautomatisierung)</span></p></li><li><p><span style=\"color:#335F5F\">Du übernimmst bei Bedarf die fachliche Führung im Projektteam und gibst dein Wissen (z.B. über Schulungen) weiter</span></p></li><li><p><span style=\"color:#335F5F\">Du gestaltest aktiv alle Phasen des Software-Engineerings mit agilen Methoden und bindest den Kunden aktiv ein</span></p></li><li><p><span style=\"color:#335f5f\">Beispielprojekte findest du unter </span><a rel=\"noopener\" target=\"_blank\" href=\"https://accso.de/success-stories\"><span style=\"color:#7878fa\">Success-Stories</span></a></p><p style=\"min-height: 1.7em;\"></p></li></ul><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das zeichnet dich aus:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335f5f\">Du hast einen Hochschulabschluss in Informatik oder in einer vergleichbaren Disziplin erfolgreich abgeschlossen</span></p></li><li><p><span style=\"color:#335f5f\">Du bringst tiefgehende, praktische Kenntnisse in Frontend und Backend (u.a. in Java, Spring, Kotlin, Angular, VueJS, React)&nbsp;mit</span></p></li><li><p><span style=\"color:#335f5f\">Du verstehst es, nachhaltige Kundenbeziehungen vertrauensvoll auszubauen, souverän auf Augenhöhe zu kommunizieren und die Zusammenarbeit mit unseren Kunden aktiv zu gestalten</span></p></li><li><p><span style=\"color:#335f5f\">Du arbeitest eigenverantwortlich und trägst aktiv zum Erfolg deines Projektteams bei</span></p></li><li><p><span style=\"color:#335f5f\">Du sprichst fließend Deutsch (mindestens C1 Level) und sehr gut Englisch (mindestens B2)</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Unser Angebot an dich:</span></strong></h4><ul class=\"ak-ul\"><li><p><span style=\"color:#335F5F\">Wertschätzung </span><span style=\"color:#335f5f\">&amp; Zusammenarbeit auf Augenhöhe</span></p></li><li><p><span style=\"color:#335f5f\">12 Weiterbildun</span><span style=\"color:#335F5F\">gstage pro Jahr</span></p></li><li><p><span style=\"color:#335F5F\">Fachlicher Austausch &amp; Wissenstransfer: 14 interne Communities &amp; Netzwerke (z. B. ML, Green IT, Architektur, IoT)</span></p></li><li><p><span style=\"color:#335F5F\">Familienfreundliche Arbeitszeiten und hybrides Arbeiten mit Homeoffice-Anteil</span></p></li><li><p><span style=\"color:#335F5F\">Jobrad, Workation, Sabbatical, Kinderbetreuungszuschuss, Gesundheitsprogramme und vieles mehr</span></p></li><li><p><span style=\"color:#335F5F\">Faires Gehaltsmodell: Finale Vergütung richtet sich nach deiner Qualifikation und bisherigen Erfahrung</span></p></li></ul><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Das ist Accso:​</span></strong></h4><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">Accso ist Digitalpartner für anspruchsvolle Softwarelösungen nach Maß – mit </span><strong><span style=\"color:#335f5f\">AI Native Mindset</span></strong><span style=\"color:#335f5f\">. Wir verbinden exzellentes Engineering und Qualitätsbewusstsein mit pragmatischem KI-Einsatz, von der Konzeption über die Entwicklung bis hin zum Betrieb. Uns treibt eine klare Vision: </span><strong><span style=\"color:#335f5f\">die Welt ein Stück besser machen</span></strong><span style=\"color:#335f5f\">, indem wir gemeinsam mit unseren Kunden zukunftssichere Softwareentwicklung und messbaren Impact schaffen. Dabei steht der </span><strong><span style=\"color:#335f5f\">Mensch im Fokus</span></strong><span style=\"color:#335f5f\"> – bei unseren Kunden genauso wie in unseren Teams. Wir arbeiten partnerschaftlich, lösungsorientiert, exzellenzgetrieben, mit offener Kommunikation auf Augenhöhe. In interdisziplinären Teams bringst du dich direkt beim Kunden ein – mit viel Gestaltungsspielraum, aktivem Wissenstransfer und einer Kultur, die Neugier, Verantwortung und Lernen fördert. Bei uns kannst du dich einbringen, wie du bist, moderne Technologien verantwortungsbewusst einsetzen und dich fachlich wie persönlich stetig weiterentwickeln. Wir freuen uns auf deine Bewerbung.</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\"><strong><span style=\"color:#00ca75\">Deine Bewerbung:</span></strong></h4><p class=\"text-element-body_text\"><strong><span style=\"color:#335f5f\">Es ist uns nicht so wichtig, dass du die Stellenanforderungen zu 100% erfüllst, sondern dass du unser Team mit deinen Talenten, deinem Wissen und deiner Art bereicherst und wir gemeinsam wachsen. ​</span></strong></p><p class=\"text-element-body_text\"><span style=\"color:#335f5f\">*Für uns ist dein Talent entscheidend, nicht dein Geschlecht, deine Herkunft, Glaubensrichtung, sexuelle Orientierung oder eine eventuelle Behinderung.​</span></p><p style=\"min-height: 1.7em;\"></p><h4 class=\"text-element-header_text-4\" style=\"text-align:start;\"><strong><span style=\"color:#00ca75\">Kontakt</span></strong></h4><div style=\"display: flex;\" class=\"pm-columns\"><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><p style=\"min-height: 1.7em;\"></p><p><strong><span style=\"color:#335f5f\">Katharina Schmidt</span></strong></p><p><span style=\"color:#335f5f\">Talent Manager<br>Mobil: +49 151 40230 891<br>Email:</span><span style=\"color:#1B1B2D\"> </span><a rel=\"noopener\" target=\"_blank\" href=\"mailto:bewerben@accso.de\">bewerben@accso.de</a></p><p style=\"min-height: 1.7em;\"></p></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:165px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/dnevwye8n2p7g3rathr2c2p7coskuy/Katharina.jpg\"></figure></div><div style=\"display: flex; flex-direction: column; flex: 1; padding: 0 0.5em\" class=\"pm-column\"><figure><img style=\"width:263px\" src=\"https://recruitee-main.s3.eu-central-1.amazonaws.com/uploads/64kf2ethndh4ll179wgvkbut7nus4s/GPTW_2026.png\"></figure></div></div><p style=\"min-height: 1.7em;\"></p><p style=\"min-height: 1.7em;\"></p>",
+   "employment_type_code": "fulltime_permanent",
+   "max_hours_per_week": null,
+   "careers_url": "https://accso.recruitee.com/o/senior-fullstack-entwickler-java-spring-angular-6",
+   "created_at": "2026-10-15 10:20:30 UTC",
+   "city": "Darmstadt",
+   "locations_question": "Was ist dein bevorzugter Arbeitsort?",
+   "remote": false,
+   "close_at": null,
+   "options_photo": "off",
+   "locations": [
+    {
+     "id": 263772,
+     "name": "Darmstadt",
+     "state": "Hessen",
+     "country": "Deutschland",
+     "city": "Darmstadt",
+     "translations": {
+      "de": {
+       "name": "Darmstadt",
+       "city": "Darmstadt",
+       "postal_code": "64295",
+       "street": "Hilpertstraße 12",
+       "note": null
+      }
+     },
+     "country_code": "DE",
+     "state_code": "HE",
+     "postal_code": "64295",
+     "street": "Hilpertstraße 12",
+     "note": null
+    }
+   ],
+   "category_code": "internet",
+   "id": 2785053,
+   "mailbox_email": "job.gsea3@accso.recruitee.com",
+   "options_title": "off",
+   "education_code": "high_school_coursework",
+   "published_at": "2026-10-15 11:06:12 UTC",
+   "dynamic_fields": [],
+   "locations_question_required": true,
+   "options_cover_letter": "optional",
+   "requirements": null,
+   "status": "published",
+   "open_questions": [
+    {
+     "id": 3700697,
+     "position": 1,
+     "options": {},
+     "required": true,
+     "body": "Wie sind deine Deutschkenntnisse?",
+     "kind": "single_choice",
+     "translations": {
+      "de": {
+       "body": "Wie sind deine Deutschkenntnisse?"
+      }
+     },
+     "open_question_options": [
+      {
+       "id": 5456871,
+       "position": 0,
+       "body": "Grundkenntnisse",
+       "translations": {
+        "de": {
+         "body": "Grundkenntnisse"
+        }
+       }
+      },
+      {
+       "id": 5456872,
+       "position": 1,
+       "body": "Gut",
+       "translations": {
+        "de": {
+         "body": "Gut"
+        }
+       }
+      },
+      {
+       "id": 5456873,
+       "position": 2,
+       "body": "Fließend",
+       "translations": {
+        "de": {
+         "body": "Fließend"
+        }
+       }
+      },
+      {
+       "id": 5456874,
+       "position": 3,
+       "body": "Verhandlungssicher",
+       "translations": {
+        "de": {
+         "body": "Verhandlungssicher"
+        }
+       }
+      },
+      {
+       "id": 5456875,
+       "position": 4,
+       "body": "Muttersprache",
+       "translations": {
+        "de": {
+         "body": "Muttersprache"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "id": 3700698,
+     "position": 2,
+     "options": {},
+     "required": false,
+     "body": "Abschlusszeugnisse",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Abschlusszeugnisse"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700699,
+     "position": 3,
+     "options": {},
+     "required": false,
+     "body": "Arbeitszeugnisse",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Arbeitszeugnisse"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700700,
+     "position": 4,
+     "options": {},
+     "required": false,
+     "body": "Projektliste",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Projektliste"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700701,
+     "position": 5,
+     "options": {},
+     "required": false,
+     "body": "Sonstiges",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Sonstiges"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700702,
+     "position": 6,
+     "options": {},
+     "required": false,
+     "body": "Sonstiges",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Sonstiges"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3700703,
+     "position": 7,
+     "options": {},
+     "required": false,
+     "body": "Sonstiges",
+     "kind": "file",
+     "translations": {
+      "de": {
+       "body": "Sonstiges"
+      }
+     },
+     "open_question_options": []
+    },
+    {
+     "id": 3706721,
+     "position": 8,
+     "options": {},
+     "required": true,
+     "body": "Wie bist du auf die Stelle aufmerksam geworden",
+     "kind": "multi_choice",
+     "translations": {
+      "de": {
+       "body": "Wie bist du auf die Stelle aufmerksam geworden"
+      }
+     },
+     "open_question_options": [
+      {
+       "id": 5466165,
+       "position": 0,
+       "body": "LinkedIn",
+       "translations": {
+        "de": {
+         "body": "LinkedIn"
+        }
+       }
+      },
+      {
+       "id": 5466189,
+       "position": 1,
+       "body": "Kununu",
+       "translations": {
+        "de": {
+         "body": "Kununu"
+        }
+       }
+      },
+      {
+       "id": 5466188,
+       "position": 2,
+       "body": "Google Jobs",
+       "translations": {
+        "de": {
+         "body": "Google Jobs"
+        }
+       }
+      },
+      {
+       "id": 5466166,
+       "position": 3,
+       "body": "Xing",
+       "translations": {
+        "de": {
+         "body": "Xing"
+        }
+       }
+      },
+      {
+       "id": 5466173,
+       "position": 4,
+       "body": "Get-in-IT",
+       "translations": {
+        "de": {
+         "body": "Get-in-IT"
+        }
+       }
+      },
+      {
+       "id": 5466174,
+       "position": 5,
+       "body": "Indeed",
+       "translations": {
+        "de": {
+         "body": "Indeed"
+        }
+       }
+      },
+      {
+       "id": 6307517,
+       "position": 6,
+       "body": "Stepstone",
+       "translations": {
+        "de": {
+         "body": "Stepstone"
+        }
+       }
+      },
+      {
+       "id": 5466191,
+       "position": 7,
+       "body": "Sonstige Jobbörsen",
+       "translations": {
+        "de": {
+         "body": "Sonstige Jobbörsen"
+        }
+       }
+      },
+      {
+       "id": 6404143,
+       "position": 8,
+       "body": "GPTW (Great Place To Work)",
+       "translations": {
+        "de": {
+         "body": "GPTW (Great Place To Work)"
+        }
+       }
+      },
+      {
+       "id": 5466190,
+       "position": 9,
+       "body": "Jobmesse (Pitch Club, ITCS etc.)",
+       "translations": {
+        "de": {
+         "body": "Jobmesse (Pitch Club, ITCS etc.)"
+        }
+       }
+      },
+      {
+       "id": 6406270,
+       "position": 10,
+       "body": "Unsere Aktionen bezüglich Diversität (Charta der Vielfalt, Netzwerk, CSD)",
+       "translations": {
+        "de": {
+         "body": "Unsere Aktionen bezüglich Diversität (Charta der Vielfalt, Netzwerk, CSD)"
+        }
+       }
+      },
+      {
+       "id": 6307518,
+       "position": 11,
+       "body": "Event bei Accso (Meetup, WomenPowerIT etc.)",
+       "translations": {
+        "de": {
+         "body": "Event bei Accso (Meetup, WomenPowerIT etc.)"
+        }
+       }
+      },
+      {
+       "id": 6307519,
+       "position": 12,
+       "body": "Hochschularbeit von Accso (Vorlesungen, Professor:in Empfehlung etc.)",
+       "translations": {
+        "de": {
+         "body": "Hochschularbeit von Accso (Vorlesungen, Professor:in Empfehlung etc.)"
+        }
+       }
+      },
+      {
+       "id": 5466175,
+       "position": 13,
+       "body": "Empfehlung von Mitarbeiter:in bei Accso",
+       "translations": {
+        "de": {
+         "body": "Empfehlung von Mitarbeiter:in bei Accso"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "updated_at": "2026-10-15 11:06:12 UTC"
+  }
+ ]
+}

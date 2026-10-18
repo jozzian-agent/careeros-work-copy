@@ -1,9 +1,11 @@
-"""The Personio mapper: feed URL, XML parse, field mapping.
+"""The Personio adapter: feed URL, XML parse, field mapping.
 
-Everything Personio-specific in CAREER-53 is in this module. A Greenhouse
-adapter is a sibling with the same three entry points -- `feed_urls`,
-`parse_feed`, `map_posting` -- and the rest of `careeros.feeds` does not
-change (the spec: "a new mapper, not a new pipeline").
+Everything Personio-specific is in this module. CAREER-54 turned the
+"same three entry points" this file's first version promised into the
+contract in `careeros.feeds.base`, and this adapter is its first
+implementation: what moved out is the gzip codec, the HTML-to-text pass,
+the Pensum reader, the content hash and the provenance block, all of
+which five more adapters now share. What stayed is every sentence below.
 
 ## What was verified live, 2026-10-17
 
@@ -82,37 +84,60 @@ notes, both of which need an owner ruling (recorded in
 `workload` dimensions. A `schedule` of `part-time` is the spec's weakest
 field: the spec says 20-90 at low confidence unless a percentage is
 stated, so this module looks for a Pensum in the title and the posting
-text first (`80-100%`, `60 %`, `80 – 100 %`) and only falls back to the
+text first (`80-100%`, `60 %`, `80 - 100 %`) and only falls back to the
 range. A value record holds one code, so a workload RANGE is two records,
 `workload_min` and `workload_max`, over the same dimension -- which is
 what workload.yaml's own `range` block describes.
+
+**The feed states no work model.** Four of the six adapters can fill the
+`work_model` dimension because their APIs carry a remote/hybrid/on-site
+field; Personio's XML does not, so this adapter declares five dimensions
+(`MAPPED_DIMENSIONS`) rather than writing a sixth record whose `unknown`
+would mean "this provider has no such field" and not "this posting left
+it empty". Which provider can state what is a line in the trial report.
 
 ## Reuse
 
 `careeros.intake.Posting` is the repository's HTML-to-text parser and it
 takes a fragment, which is what a `jobDescription` value is (CDATA
-HTML). It is reused here together with `intake._collapse_lines`, a
-private helper, rather than writing a fourth HTML-to-text pass: the
-alternative is duplicating block-tag handling that already exists and is
-already tested. `org_intake.ats.detect_ats` is reused for tenant
-recognition in `careeros.feeds.discovery` for the same reason.
+HTML). It is reused through `base.html_to_text` together with
+`intake._collapse_lines`, a private helper, rather than writing a fourth
+HTML-to-text pass. `org_intake.ats.detect_ats` is reused in
+`tenant_from_url` for the same reason.
 """
-import gzip
-import hashlib
-import json
 import logging
 import re
+import sys
+from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
-from careeros import intake, taxonomy
+from careeros import taxonomy
+from careeros.feeds import base
+
+from org_intake.ats import detect_ats
 
 _logger = logging.getLogger(__name__)
 
 PROVIDER = 'personio'
 
+#: Personio's own documentation of this endpoint, and the day it was last
+#: read. Part of every stored posting's provenance.
+DOC_URL = 'https://developer.personio.de/v1.0/reference/get_xml'
+DOC_ACCESSED = '2026-10-17'
+
+SNAPSHOT_SUFFIX = 'xml'
+
 #: Both hosts Personio serves a career site on. `.de` first, per the
 #: spec; see the module docstring on what checking that actually found.
 HOSTS = ('jobs.personio.de', 'jobs.personio.com')
+
+#: What a Common Crawl domain match is run against. A domain match on
+#: `jobs.personio.de` also returns `*.jobs.personio.de`, which is what
+#: gives the tenants.
+CDX_PATTERNS = tuple((host, 'domain') for host in HOSTS)
+
+#: A tenant id as Personio issues them: lower-case, digits, hyphens.
+TENANT_ID = re.compile(r'[a-z0-9][a-z0-9-]*')
 
 #: The languages the feed accepts, from Personio's own reference. A
 #: language outside this list is not refused by the server -- it answers
@@ -124,8 +149,15 @@ FEED_LANGUAGES = ('de', 'en', 'fr', 'es', 'nl', 'it', 'pt')
 #: and only kept when it actually carries descriptions.
 DEFAULT_LANGUAGES = ('de', 'en')
 
+#: What the runner may pass through to `feed_variants`.
+VARIANT_OPTIONS = ('languages', 'hosts')
+
 ROOT_TAG = 'workzag-jobs'
 POSITION_TAG = 'position'
+
+#: The taxonomy dimensions this feed can state. See the docstring on why
+#: `work_model` is not one of them.
+MAPPED_DIMENSIONS = ('contract', 'seniority', 'language', 'workload_min', 'workload_max')
 
 #: Personio's `employmentType` -> the taxonomy `contract` code. The four
 #: on the left of the spec's table, plus the values seen live. A value
@@ -137,10 +169,8 @@ CONTRACT_MAP = {
     'internship': 'internship',
     'trainee': 'trainee_programme',
     'freelance': 'freelance_mandate',
-    'working-student': 'working_student',
     'working_student': 'working_student',
     'temporary': 'temporary_assignment',
-    'fixed-term': 'fixed_term',
     'fixed_term': 'fixed_term',
     'apprenticeship': 'apprenticeship',
 }
@@ -171,12 +201,6 @@ SCHEDULE_MAP = {
     'part_time': ((20, 90), 0.2),
 }
 
-#: A Pensum as a Swiss posting writes it: "80-100%", "60 %", "80 – 100%".
-#: Checked against the title and the posting text before the part-time
-#: fallback, per the spec.
-_PENSUM = re.compile(r'(\d{2,3})\s*(?:[-–—]|\bbis\b|\bto\b)\s*(\d{2,3})\s*%'
-                     r'|(?<![\d.,])(\d{2,3})\s*%')
-
 #: Only the posting fields the feed itself states go into the content
 #: hash, in this order. Not the fetch time, not the run id, not anything
 #: derived: a re-fetch of an unchanged posting has to hash the same, or
@@ -191,7 +215,7 @@ HASHED_FIELDS = ('posting_id', 'title', 'employer_name', 'department', 'recruiti
 def feed_url(tenant, *, language='de', host=HOSTS[0]):
     """The one feed URL shape that exists. See the docstring: `/de/xml`
     is a 404, the language is a query parameter."""
-    if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', tenant or ''):
+    if not re.fullmatch(TENANT_ID, tenant or ''):
         raise ValueError(f'not a Personio tenant id: {tenant!r}')
     if language not in FEED_LANGUAGES:
         raise ValueError(f'Personio serves {", ".join(FEED_LANGUAGES)}, not {language!r}')
@@ -207,6 +231,25 @@ def feed_urls(tenant, *, languages=DEFAULT_LANGUAGES, hosts=HOSTS):
             for host in hosts for language in languages]
 
 
+def feed_variants(tenant, *, languages=DEFAULT_LANGUAGES, hosts=HOSTS):
+    """The contract's view of the same list: four requests, grouped by
+    host, with the second language optional.
+
+    One group per host and `stop_after_group`, because `.com` is the same
+    career site as `.de` (docstring). The first language of a host is the
+    `primary` one, so a 404 on it skips the rest of that host instead of
+    spending one request per language on a tenant that has no career site
+    at all.
+    """
+    languages = tuple(languages or DEFAULT_LANGUAGES)
+    return [base.Variant(key=f'{host}:{language}',
+                         url=feed_url(tenant, language=language, host=host),
+                         slug=language, host=host, language=language, group=host,
+                         primary=(index == 0), optional=(index > 0), stop_after_group=True)
+            for host in (hosts or HOSTS)
+            for index, language in enumerate(languages)]
+
+
 def posting_url(tenant, posting_id, *, host=HOSTS[0], language=None):
     """The link back, per the spec's table. The language is appended only
     when asked for, because the bare URL is the canonical one."""
@@ -216,23 +259,41 @@ def posting_url(tenant, posting_id, *, host=HOSTS[0], language=None):
 
 def posting_key(tenant, posting_id):
     """`personio:{tenant}:{id}`, the spec's stable key."""
-    return f'{PROVIDER}:{tenant}:{posting_id}'
+    return base.posting_key(PROVIDER, tenant, posting_id)
+
+
+def tenant_from_url(url):
+    """`{'tenant', 'host', 'how'}` for a Personio URL, or None.
+
+    `how` is `posting_url` when `detect_ats` recognised a posting-shaped
+    URL (the confident reading) and `host_pattern` when only the host
+    said so. Both are kept because the second is how a careers-page link
+    to a bare career site is found, and a report should be able to tell
+    them apart.
+    """
+    match = detect_ats(url or '')
+    host = (urlsplit(url or '').hostname or '').casefold()
+    if match and match['provider'] == PROVIDER:
+        return {'tenant': match['tenant'], 'host': _host_suffix(host), 'how': 'posting_url'}
+    for suffix in HOSTS:
+        if host.endswith('.' + suffix):
+            tenant = host[:-(len(suffix) + 1)]
+            # A nested label ("careers.acme.jobs.personio.de") is not a
+            # tenant id and is not guessed at.
+            if re.fullmatch(TENANT_ID, tenant):
+                return {'tenant': tenant, 'host': suffix, 'how': 'host_pattern'}
+    return None
+
+
+def _host_suffix(host):
+    for suffix in HOSTS:
+        if host == suffix or host.endswith('.' + suffix):
+            return suffix
+    return HOSTS[0]
 
 
 def _text(element):
     return (element.text or '').strip() if element is not None else ''
-
-
-def _html_to_text(fragment):
-    """A `jobDescription` value (CDATA HTML) as plain lines.
-
-    Reuses the repository's own HTML-to-text parser; see the docstring's
-    Reuse note on why `_collapse_lines` is called despite being private.
-    """
-    parser = intake.Posting()
-    parser.feed(fragment or '')
-    parser.close()
-    return intake._collapse_lines(parser.text)
 
 
 def parse_feed(xml):
@@ -288,12 +349,16 @@ def has_descriptions(positions):
                for block in position.get('jobDescriptions') or ())
 
 
+#: The contract's name for the same question.
+variant_carries_text = has_descriptions
+
+
 def description_text(blocks):
     """The spec's rule: concatenate the named blocks in order and keep
     the block names as headings."""
     parts = []
     for block in blocks or ():
-        lines = _html_to_text(block.get('value'))
+        lines = base.html_to_text(block.get('value'))
         name = (block.get('name') or '').strip()
         if name:
             parts.append(name)
@@ -303,132 +368,66 @@ def description_text(blocks):
     return '\n'.join(parts).strip()
 
 
-def _pensum(*texts):
-    """A workload range stated in the title or the text, or None.
-
-    The first match wins and a single figure is (n, n), per
-    workload.yaml's range rule. Anything outside 10-100 is ignored
-    rather than clamped: "150%" is not a Pensum and a clamped 100 would
-    invent one.
-    """
-    for text in texts:
-        for match in _PENSUM.finditer(text or ''):
-            low, high, single = match.groups()
-            pair = (int(low), int(high)) if low else (int(single), int(single))
-            if 10 <= pair[0] <= pair[1] <= 100:
-                return pair, match.group(0).strip()
-    return None, None
-
-
-def _step(value, *, up):
-    """A percentage onto the taxonomy's steps of ten. Rounds the way
-    workload.yaml says: a minimum rounds down and a maximum rounds up, so
-    the stored range never overstates what the posting asks for."""
-    step = ((value + 9) // 10 * 10) if up else (value // 10 * 10)
-    return str(max(10, min(100, step)))
-
-
 def _workload_records(schedule, title, text, *, guide_version):
-    """`workload_min` / `workload_max` value records, or None.
+    """`workload_min` / `workload_max` value records.
 
-    Two records over one dimension, because a value record holds one code
-    and a Pensum is a pair (workload.yaml's `range` block).
+    A Pensum stated in the title or the text beats Personio's own
+    `schedule` field, per the spec; the shared reader and the shared
+    rounding rule are `base.pensum` and `base.workload_records`, because
+    a Swiss percentage is written the same way in every provider's feed.
     """
-    pair, quote = _pensum(title, text)
+    pair, quote = base.pensum(title, text)
     if pair:
-        method, confidence = 'stated in the title or the posting text', 0.9
-        evidence = {'schedule': schedule or None, 'stated': quote, 'rule': method}
-    elif (schedule or '').casefold() in SCHEDULE_MAP:
-        (pair, confidence) = SCHEDULE_MAP[(schedule or '').casefold()]
-        evidence = {'schedule': schedule,
-                    'rule': "the spec's mapping of Personio's schedule field; no percentage "
-                            'is stated in the title or the text'}
-    else:
-        if schedule:
-            _logger.info('personio: schedule %r has no workload mapping; stored unknown', schedule)
-        evidence = {'schedule': schedule or None,
-                    'rule': 'the feed states no schedule this taxonomy can read as a Pensum'}
-        return {'workload_min': taxonomy.make_value_record(
-                    'workload', taxonomy.UNKNOWN, 'feed', evidence=evidence,
-                    guide_version=guide_version),
-                'workload_max': taxonomy.make_value_record(
-                    'workload', taxonomy.UNKNOWN, 'feed', evidence=evidence,
-                    guide_version=guide_version)}
-    return {'workload_min': taxonomy.make_value_record(
-                'workload', _step(pair[0], up=False), 'feed', confidence=confidence,
-                evidence=evidence, guide_version=guide_version),
-            'workload_max': taxonomy.make_value_record(
-                'workload', _step(pair[1], up=True), 'feed', confidence=confidence,
-                evidence=evidence, guide_version=guide_version)}
+        return base.workload_records(
+            pair, raw=schedule or None, confidence=0.9, guide_version=guide_version,
+            rule='stated in the title or the posting text')
+    if (schedule or '').casefold() in SCHEDULE_MAP:
+        pair, confidence = SCHEDULE_MAP[(schedule or '').casefold()]
+        return base.workload_records(
+            pair, raw=schedule, confidence=confidence, guide_version=guide_version,
+            rule=("the spec's mapping of Personio's schedule field; no percentage is stated "
+                  'in the title or the text'))
+    if schedule:
+        _logger.info('personio: schedule %r has no workload mapping; stored unknown', schedule)
+    return base.workload_records(
+        None, raw=schedule or None, guide_version=guide_version,
+        rule='the feed states no schedule this taxonomy can read as a Pensum')
 
 
 def _contract_record(employment_type, *, guide_version):
-    key = (employment_type or '').casefold().replace(' ', '-')
-    code = CONTRACT_MAP.get(key)
-    if code is None and employment_type:
-        _logger.info('personio: employmentType %r has no contract mapping; stored unknown',
-                     employment_type)
-    return taxonomy.make_value_record(
-        'contract', code or taxonomy.UNKNOWN, 'feed',
-        confidence=0.9 if code else None,
-        evidence={'employmentType': employment_type or None,
-                  'rule': "the spec's employmentType mapping" if code else
-                          ('the feed states no employment type' if not employment_type else
-                           'the feed states an employment type this mapping does not cover')},
-        guide_version=guide_version)
+    return base.coded_record(
+        'contract', employment_type, CONTRACT_MAP, provider=PROVIDER,
+        raw_field='employmentType', guide_version=guide_version,
+        rule="the spec's employmentType mapping",
+        missing_rule='the feed states no employment type',
+        unmapped_rule='the feed states an employment type this mapping does not cover')
 
 
 def _seniority_record(hint, *, guide_version):
-    key = (hint or '').casefold()
-    code = SENIORITY_MAP.get(key)
-    if hint and key not in SENIORITY_MAP:
-        _logger.info('personio: seniority %r is not in the mapping; stored unknown', hint)
-    rule = ('CAREER-58 D6, which this module follows over the spec table for entry-level; '
-            'see the module docstring'
-            if code else
-            "the spec leaves this hint to the classifier, so the value is unknown and the "
-            'feed word is kept in seniority_hint')
-    return taxonomy.make_value_record(
-        'seniority', code or taxonomy.UNKNOWN, 'feed',
-        confidence=0.8 if code else None,
-        evidence={'seniority': hint or None, 'rule': rule},
-        guide_version=guide_version)
+    """Personio's `seniority` word onto the D6 scale.
 
-
-def _language_record(language, *, guide_version):
-    """The feed variant this posting was read from, as a language record.
-
-    Honest about what it is: the language the TENANT publishes this feed
-    variant in, which is a real fact, and not a detection of the text.
-    A tenant that publishes a German feed containing an English posting
-    exists, so the confidence is not 1.0.
+    `base.optional_code_record` rather than `base.coded_record`, because
+    this table has a third case: a word that IS in the table and
+    deliberately maps to no code ("experienced" is "s1 or s2" in the
+    spec, and a value record holds one code). That is a different fact
+    from a word the table has never seen, and the rule text says which.
     """
-    return taxonomy.make_value_record(
-        'language', language if taxonomy.valid_code('language', language) else taxonomy.UNKNOWN,
-        'feed', confidence=0.9,
-        evidence={'feed_language': language,
-                  'rule': 'the language parameter of the feed variant this posting came from, '
-                          'which is the language the tenant publishes it in rather than a '
-                          'detection of the text'},
-        guide_version=guide_version)
+    return base.optional_code_record(
+        'seniority', hint, SENIORITY_MAP, provider=PROVIDER, raw_field='seniority',
+        guide_version=guide_version,
+        rule_mapped='CAREER-58 D6, which this module follows over the spec table for '
+                    'entry-level; see the module docstring',
+        rule_ambiguous="the spec leaves this hint to the classifier, so the value is unknown "
+                       'and the feed word is kept in seniority_hint')
 
 
 def content_hash(mapped):
-    """The posting's content hash: sha256 over the feed's own statement
-    of it, canonicalised.
-
-    Only `HASHED_FIELDS`, so a re-fetch of an unchanged posting hashes
-    the same and the store writes no second snapshot. Value records are
-    deliberately NOT hashed: they carry a `classified_at` timestamp and a
-    taxonomy version, so hashing them would make every snapshot new after
-    a taxonomy bump even though the posting had not changed.
-    """
-    payload = {field: mapped.get(field) for field in HASHED_FIELDS}
-    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
-    return hashlib.sha256(canonical.encode()).hexdigest()
+    """The posting's content hash over `HASHED_FIELDS`. See
+    `base.content_hash` for why value records are not in it."""
+    return base.content_hash(mapped, HASHED_FIELDS)
 
 
-def map_posting(raw, *, tenant, language, host=HOSTS[0], guide_version=None):
+def map_posting(raw, *, tenant, variant=None, language=None, host=None, guide_version=None):
     """One raw position -> the CareerOS record, per the spec's table.
 
     The record has three layers, kept apart on purpose:
@@ -441,11 +440,18 @@ def map_posting(raw, *, tenant, language, host=HOSTS[0], guide_version=None):
         actually state (contract, workload min/max, seniority, language).
         The location records are added by the caller, which is the only
         part that needs the geocoder.
-      * `content_hash`, over the first layer only. See `content_hash`.
+      * `key`, `content_hash` and `provenance`, all three from
+        `base.finalize`, so no adapter can forget any of them.
+
+    `variant` is the contract's way of saying which feed this came from;
+    `language` and `host` are CAREER-53's and still work, because a
+    Personio posting is named by both.
 
     Absent is absent: a field the feed does not carry is None or an empty
     list, never a guess (PROJECT.md: no fabricated data anywhere).
     """
+    language = language or (variant.language if variant else None) or DEFAULT_LANGUAGES[0]
+    host = host or (variant.host if variant else None) or HOSTS[0]
     posting_id = raw.get('id')
     if not posting_id:
         raise ValueError('a position with no id cannot be keyed')
@@ -456,7 +462,6 @@ def map_posting(raw, *, tenant, language, host=HOSTS[0], guide_version=None):
     title = raw.get('name') or ''
     text = description_text(blocks)
     mapped = {
-        'key': posting_key(tenant, posting_id),
         'provider': PROVIDER,
         'tenant': tenant,
         'posting_id': posting_id,
@@ -477,26 +482,23 @@ def map_posting(raw, *, tenant, language, host=HOSTS[0], guide_version=None):
         'keywords': keywords,
         'published_at': raw.get('createdAt'),
         'description_blocks': [{'name': block.get('name'), 'text': '\n'.join(
-            _html_to_text(block.get('value')))} for block in blocks],
+            base.html_to_text(block.get('value')))} for block in blocks],
         'description': text,
         'has_description': bool(text),
     }
     mapped['values'] = {
         'contract': _contract_record(mapped['employment_type_raw'], guide_version=guide_version),
         'seniority': _seniority_record(mapped['seniority_hint'], guide_version=guide_version),
-        'language': _language_record(language, guide_version=guide_version),
+        'language': base.language_record(
+            language, raw_field='feed_language', guide_version=guide_version,
+            rule='the language parameter of the feed variant this posting came from, which is '
+                 'the language the tenant publishes it in rather than a detection of the text'),
         **_workload_records(mapped['schedule_raw'], title, text, guide_version=guide_version),
     }
-    mapped['content_hash'] = content_hash(mapped)
-    return mapped
+    return base.finalize(mapped, adapter=sys.modules[__name__])
 
 
-def compress(text):
-    """A raw feed body as the bytes a snapshot file holds. gzip with
-    mtime=0, so two identical bodies compress to identical bytes and a
-    byte comparison of two snapshots means what it looks like."""
-    return gzip.compress(text.encode(), mtime=0)
-
-
-def decompress(blob):
-    return gzip.decompress(blob).decode()
+#: The snapshot codec, shared with every other adapter. Kept as names of
+#: this module because the fetcher asks the adapter for them.
+compress = base.compress
+decompress = base.decompress

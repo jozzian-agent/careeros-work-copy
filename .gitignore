@@ -30,5 +30,15 @@ data/seeds/
 # explicitly below.
 data/personio/*
 !data/personio/TRIAL_REPORT.md
+
+# CAREER-54 staging output, the same rule for the five more adapters:
+# one store per provider under data/ats/<provider>/, the saved Common
+# Crawl index lines, the multi-provider pool export and the FULL
+# platform map (every tenant a crawl index named, which is megabytes).
+# TRIAL_REPORT.md is tracked, and so are the small platform map and its
+# report, which live at data/ats_platform_map* rather than in here --
+# the owner reads those two.
+data/ats/*
+!data/ats/TRIAL_REPORT.md
 tmp-plan-vision-to-mvp.md
 tmp-vision-and-mvp.md

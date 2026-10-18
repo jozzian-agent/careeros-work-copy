@@ -21,16 +21,26 @@ def store(tmp_path):
 
 
 def posting(tenant='acme', posting_id='1', *, title='Engineer', offices=('CH - Zürich',),
-            hash_salt=None):
-    """A mapped posting in the shape `fetch.locate` produces, built from
-    the mapper so the shape cannot drift from the real one."""
-    from careeros.feeds import fetch as fetch_module
+            hash_salt=None, run='r1'):
+    """A mapped posting in the shape a fetch hands the store, built from
+    the mapper so the shape cannot drift from the real one.
+
+    The fetch-time half of the provenance block is attached here the way
+    `fetch._absorb` attaches it, because CAREER-54's store refuses a
+    posting that cannot name the request it came from.
+    """
+    from careeros.feeds import base, fetch as fetch_module
     raw = {'id': posting_id, 'name': title, 'office': offices[0],
            'additionalOffices': list(offices[1:]), 'employmentType': 'permanent',
            'schedule': 'full-time'}
     if hash_salt:
         raw['department'] = hash_salt
-    return fetch_module.locate(personio.map_posting(raw, tenant=tenant, language='de'))
+    mapped = personio.map_posting(raw, tenant=tenant, language='de')
+    variant = personio.feed_variants(tenant, languages=('de',))[0]
+    base.attach_fetch_provenance(mapped, variant=variant, run=run,
+                                 feed_snapshot=f'snapshots/feeds/{tenant}/{run}-de.xml.gz',
+                                 at='2026-10-17T06:00:00+00:00')
+    return fetch_module.locate(mapped)
 
 
 def run(store, *, run_id, postings, tenant='acme', fetch_status='ok', error=None, at=None):
@@ -297,6 +307,9 @@ def test_the_geocode_lives_on_the_state_entry_so_a_better_geocoder_can_fix_it(st
     moved = posting(offices=('DE - Berlin',))
     moved['content_hash'] = entry['content_hash']
     moved['key'] = entry['key']
+    # The provenance block states the hash too, and the store checks that
+    # the two agree, so a hand-built posting has to be consistent.
+    moved['provenance']['content_hash'] = entry['content_hash']
     run(store, run_id='20261002', postings=[moved])
     entry = store.load_state('acme')['postings']['personio:acme:1']
     assert entry['area_status'] == geocode.OUT_OF_AREA

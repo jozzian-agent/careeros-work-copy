@@ -128,6 +128,44 @@ _NON_PLACES = frozenset({
 })
 
 
+#: Switzerland as the five providers' location blocks spell it: an
+#: ISO-3166 alpha-2 or alpha-3 code, or the country's name in one of its
+#: own languages. CAREER-54 added this because four of the six adapters
+#: state a country field beside the place -- Lever's `country`,
+#: SmartRecruiters' `location.country`, Recruitee's `country_code`,
+#: Ashby's `address.postalAddress.addressCountry` -- and that field is
+#: the one thing CAREER-53's geocoder was missing.
+#:
+#: It is a Swiss list and not a country table ON PURPOSE. To rule a
+#: foreign office out, this module does not need to know WHICH country
+#: was named, only that it is not this one, so no table of the world's
+#: countries is invented (the module docstring's own refusal). A stated
+#: Swiss country corroborates a bare municipality name; a stated anything
+#: else makes the office out of area, which is what finally answers the
+#: "Lindau is in canton Zurich and on the German side of the Bodensee"
+#: false positive the trial run found.
+_SWISS_COUNTRY = frozenset({'ch', 'che', 'switzerland', 'schweiz', 'suisse', 'svizzera',
+                            'svizra', 'swiss confederation', 'confoederatio helvetica'})
+
+#: The other side of the same question, and the one place this module
+#: names a foreign country. It is NOT a table of the world: it is the
+#: four neighbours whose own towns share a name with a Swiss
+#: municipality -- Lindau, Baden, Freiburg, Rheinfelden, Laufenburg and
+#: Wald all exist on both sides of a border -- plus the spellings the
+#: providers' location strings actually use. The rule it serves is
+#: narrow: a Swiss municipality NAME matched, the line names one of
+#: these countries, and nothing Swiss corroborates it, so the country
+#: wins. Any other country in an office line still resolves to nothing
+#: and needs no table, because a place that matches no Swiss
+#: municipality was never a candidate.
+_FOREIGN_COUNTRY = frozenset({
+    'germany', 'deutschland', 'allemagne', 'germania', 'de',
+    'austria', 'oesterreich', 'autriche', 'at',
+    'france', 'frankreich', 'francia', 'fr',
+    'italy', 'italien', 'italia', 'italie', 'it',
+})
+
+
 #: A short all-upper token is a site code, not a place. Found the hard
 #: way on the trial run: a German manufacturer's offices read "Eggstätt
 #: (EGG)" and "Regenstauf (ZNR)", and splitting on the parenthesis made
@@ -216,27 +254,42 @@ def _name_candidates(place):
     return [], 'no match'
 
 
-def geocode_office(text):
+def geocode_office(text, *, country=None):
     """One office line -> what can be said about where it is.
 
     Returns a dict, always the same keys:
 
-        {'raw', 'country_prefix', 'postal_code', 'place',
-         'municipality', 'canton', 'method', 'confidence',
+        {'raw', 'country_prefix', 'stated_country', 'postal_code',
+         'place', 'municipality', 'canton', 'method', 'confidence',
          'candidates', 'reason', 'status'}
 
     `municipality` and `canton` are codes or None. `status` is one of
     IN_AREA / OUT_OF_AREA / NEEDS_REVIEW. Nothing raises: an office line
     is whatever the tenant typed, and an unreadable one is an answer with
     a reason (PROJECT.md: failures are visible states, never silent).
+
+    `country` is the provider's own country field where it has one (see
+    `_SWISS_COUNTRY`). A stated non-Swiss country settles the office
+    before any name is matched, which is both cheaper and more honest
+    than matching "Lindau" against the Swiss register and then wondering.
     """
     raw = (text or '').strip()
-    answer = {'raw': raw, 'country_prefix': None, 'postal_code': None, 'place': None,
+    answer = {'raw': raw, 'country_prefix': None, 'stated_country': country or None,
+              'postal_code': None, 'place': None,
               'municipality': None, 'canton': None, 'method': 'none',
               'confidence': None, 'candidates': [], 'reason': 'empty office',
-              'status': NEEDS_REVIEW, 'swiss_evidence': False, 'corroborated': False}
+              'status': NEEDS_REVIEW, 'swiss_evidence': False, 'corroborated': False,
+              'swiss_country_stated': False}
     if not raw:
         return answer
+
+    if (country or '').strip():
+        answer['swiss_country_stated'] = _fold(country) in _SWISS_COUNTRY
+        if not answer['swiss_country_stated']:
+            answer.update({'place': raw, 'method': 'stated_country', 'confidence': 0.9,
+                           'reason': f'the feed states country {country}, not Switzerland',
+                           'status': OUT_OF_AREA})
+            return answer
 
     body = raw
     prefix = _PREFIX.match(raw)
@@ -266,7 +319,31 @@ def geocode_office(text):
             place = part.strip()
     answer['place'] = place or (body.strip() or None)
 
+    # The office line can say which country it is in, and several
+    # providers' tenants write it that way: "Zurich, Switzerland"
+    # (Greenhouse's own location field on the first Zurich postings this
+    # adapter found), "New York City, US; Zurich, CH; Budapest, HU",
+    # "Lindau, Germany". `written` is every separated part INCLUDING the
+    # short all-upper tokens `parts` drops as site codes, because `CH`
+    # is both.
+    written = [part for part in _SPLIT.split(body) if part.strip()]
+    if not answer['swiss_country_stated']:
+        answer['swiss_country_stated'] = any(_fold(part) in _SWISS_COUNTRY
+                                             for part in written)
+    answer['foreign_country_stated'] = next(
+        (part.strip() for part in written if _fold(part) in _FOREIGN_COUNTRY), None)
+
     by_postal = _INDEX['postal'].get(answer['postal_code'] or '', [])
+    if answer['foreign_country_stated'] and not by_postal \
+            and not answer['swiss_country_stated']:
+        # The line names a neighbouring country and nothing Swiss backs
+        # it. "Lindau, Germany" is the German town, not the Zurich
+        # village, and the office says so.
+        answer.update({'method': 'stated_country', 'confidence': 0.9, 'candidates': [],
+                       'reason': f"the office names {answer['foreign_country_stated']}, "
+                                 'not Switzerland',
+                       'status': OUT_OF_AREA})
+        return answer
     # Does this office say anything Swiss at all? A German tenant writing
     # "Berlin" resolves to nothing and needs no human; an office that
     # names CH, carries a Swiss postal code or matches a Swiss
@@ -276,6 +353,7 @@ def geocode_office(text):
     # nobody.
     answer['swiss_evidence'] = bool(
         by_postal or by_name
+        or answer['swiss_country_stated']
         or (answer['country_prefix'] or '').upper() == 'CH'
         or (answer['country_prefix'] or '').casefold() in _INDEX['canton_abbreviations'])
     return _settle(answer, by_postal, by_name, name_method)
@@ -367,11 +445,12 @@ def _settle(answer, by_postal, by_name, name_method):
         cantons = {prefix_canton}
         method = f'{method}+canton_prefix'
         confidence = round(min(0.95, (confidence or 0) + 0.05), 2)
-    elif prefix == 'CH':
-        # The office says Switzerland outright, which is exactly the
-        # corroboration a bare name lacks. It narrows nothing -- every
-        # candidate is already Swiss -- so it only raises the confidence.
-        method = f'{method}+country_prefix'
+    elif prefix == 'CH' or answer['swiss_country_stated']:
+        # The office says Switzerland outright -- in the line itself, or
+        # in the provider's own country field -- which is exactly the
+        # corroboration a bare name lacks. It narrows nothing: every
+        # candidate is already Swiss, so it only raises the confidence.
+        method = f'{method}+country_prefix' if prefix == 'CH' else f'{method}+stated_country'
         confidence = round(min(0.95, (confidence or 0) + 0.05), 2)
     elif prefix:
         answer.update({'method': 'country_prefix', 'confidence': 0.9,
@@ -383,7 +462,8 @@ def _settle(answer, by_postal, by_name, name_method):
     answer['method'] = method
     # See the module docstring: a name alone cannot tell a Swiss place
     # from a foreign one that shares its name, and this is what says so.
-    answer['corroborated'] = bool(answer['postal_code']) or 'prefix' in method
+    answer['corroborated'] = (bool(answer['postal_code']) or 'prefix' in method
+                              or answer['swiss_country_stated'])
     if len(answer['candidates']) == 1:
         answer['municipality'] = answer['candidates'][0]
         answer['canton'] = _INDEX['canton_of'][answer['municipality']]
@@ -422,8 +502,17 @@ def geocode_offices(offices):
     Zurich office is the one whose municipality the posting records.
     An out-of-area posting keeps its own best answer, so the pool can
     report what it excluded and why.
+
+    An office is a string, or a mapping `{'text', 'country'}` for the
+    four providers whose API states a country beside the place (see
+    `_SWISS_COUNTRY`). Mixing the two in one list is allowed, because a
+    posting can name one office with a country block and another as bare
+    text.
     """
-    results = [geocode_office(office) for office in offices if (office or '').strip()]
+    stated = [office if isinstance(office, dict) else {'text': office, 'country': None}
+              for office in offices or ()]
+    results = [geocode_office(office.get('text'), country=office.get('country'))
+               for office in stated if (office.get('text') or '').strip()]
     if not results:
         return results, {'status': NEEDS_REVIEW, 'municipality': None, 'canton': None,
                          'method': 'none', 'confidence': None, 'office': None,

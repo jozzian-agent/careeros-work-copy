@@ -1,0 +1,176 @@
+{
+ "offset": 0,
+ "limit": 100,
+ "totalFound": 492,
+ "content": [
+  {
+   "id": "744000156127779",
+   "name": "Officer, Graphics Automation",
+   "uuid": "efc709e0-a512-4075-8cad-73cc9708121e",
+   "jobAdId": "23e76ac3-fc89-4cb2-aa73-3a8d0ace2479",
+   "defaultJobAd": true,
+   "refNumber": "REF39207I",
+   "company": {
+    "identifier": "AveryDennison",
+    "name": "Avery Dennison"
+   },
+   "releasedDate": "2026-10-17T10:26:15.152Z",
+   "location": {
+    "city": "Dhaka",
+    "country": "bd",
+    "address": "167-169, DEPZ Extn. Area, Savar,",
+    "postalCode": "1349",
+    "remote": false,
+    "hybrid": false,
+    "fullLocation": "Dhaka, , Bangladesh"
+   },
+   "industry": {
+    "id": "packaging_and_containers",
+    "label": "Packaging And Containers"
+   },
+   "department": {
+    "id": "945615",
+    "label": "Engineering Services"
+   },
+   "function": {
+    "id": "production",
+    "label": "Production"
+   },
+   "typeOfEmployment": {
+    "id": "permanent",
+    "label": "Full-time"
+   },
+   "experienceLevel": {
+    "id": "entry_level",
+    "label": "Entry Level"
+   },
+   "customField": [
+    {
+     "fieldId": "58fe0acae4b08b59f571569e",
+     "fieldLabel": "Country of vacancy",
+     "valueId": "97a145c9-8901-4cf1-b95f-129f5c042928",
+     "valueLabel": "Bangladesh"
+    },
+    {
+     "fieldId": "58bd77aae4b06b39d0c85401",
+     "fieldLabel": "Department",
+     "valueId": "945615",
+     "valueLabel": "Engineering Services"
+    },
+    {
+     "fieldId": "58bd77aae4b06b39d0c85400",
+     "fieldLabel": "Brands",
+     "valueId": "default",
+     "valueLabel": "Avery Dennison"
+    },
+    {
+     "fieldId": "COUNTRY",
+     "fieldLabel": "Country/Region",
+     "valueId": "bd",
+     "valueLabel": "Bangladesh"
+    },
+    {
+     "fieldId": "58fe0442e4b08b59f5715696",
+     "fieldLabel": "Region",
+     "valueId": "f169ef9f-2c62-478f-8dbe-f7c1ae6270b9",
+     "valueLabel": "AP - Asia Pacific"
+    }
+   ],
+   "visibility": "PUBLIC",
+   "ref": "https://api.smartrecruiters.com/v1/companies/AveryDennison/postings/744000156127779",
+   "language": {
+    "code": "en",
+    "label": "English",
+    "labelNative": "English (US)"
+   }
+  },
+  {
+   "id": "744000156126569",
+   "name": "Operatore esperto addetto al taglio",
+   "uuid": "4cde93a3-a23e-4620-8016-ab7173c6e272",
+   "jobAdId": "ab6ba94e-db0c-4952-b1e5-9836f9487c54",
+   "defaultJobAd": true,
+   "refNumber": "REF39227K",
+   "company": {
+    "identifier": "AveryDennison",
+    "name": "Avery Dennison"
+   },
+   "releasedDate": "2026-10-17T09:20:52.980Z",
+   "location": {
+    "city": "Cadorago",
+    "region": "CO",
+    "country": "it",
+    "address": "Via Alessandro Volta 39",
+    "postalCode": "22071",
+    "remote": false,
+    "hybrid": false,
+    "fullLocation": "Cadorago, CO, Italy"
+   },
+   "industry": {
+    "id": "packaging_and_containers",
+    "label": "Packaging And Containers"
+   },
+   "department": {
+    "id": "945768",
+    "label": "Operations"
+   },
+   "function": {
+    "id": "production",
+    "label": "Production"
+   },
+   "typeOfEmployment": {
+    "id": "permanent",
+    "label": "Full-time"
+   },
+   "experienceLevel": {
+    "id": "mid_senior_level",
+    "label": "Mid-Senior Level"
+   },
+   "customField": [
+    {
+     "fieldId": "58fe0acae4b08b59f571569e",
+     "fieldLabel": "Country of vacancy",
+     "valueId": "480e62df-3df9-462f-aaa2-575958e9d04d",
+     "valueLabel": "Italy"
+    },
+    {
+     "fieldId": "58bd77aae4b06b39d0c85401",
+     "fieldLabel": "Department",
+     "valueId": "945768",
+     "valueLabel": "Operations"
+    },
+    {
+     "fieldId": "58bd77aae4b06b39d0c85400",
+     "fieldLabel": "Brands",
+     "valueId": "default",
+     "valueLabel": "Avery Dennison"
+    },
+    {
+     "fieldId": "COUNTRY",
+     "fieldLabel": "Country/Region",
+     "valueId": "it",
+     "valueLabel": "Italy"
+    },
+    {
+     "fieldId": "58fe0442e4b08b59f5715696",
+     "fieldLabel": "Region",
+     "valueId": "5a8371cc-3859-4c23-850b-b6ea01706dd5",
+     "valueLabel": "EU - Europe"
+    },
+    {
+     "fieldId": "680b6e78f7602c0c039ab1e3",
+     "fieldLabel": "Release job to agencies via RAMP Global",
+     "valueId": "ramp-release-option-no",
+     "valueLabel": "No"
+    }
+   ],
+   "visibility": "PUBLIC",
+   "ref": "https://api.smartrecruiters.com/v1/companies/AveryDennison/postings/744000156126569",
+   "language": {
+    "code": "it",
+    "label": "Italian",
+    "labelNative": "italiano"
+   }
+  }
+ ]
+}

@@ -1,0 +1,115 @@
+{
+ "id": "744000156127779",
+ "name": "Officer, Graphics Automation",
+ "uuid": "efc709e0-a512-4075-8cad-73cc9708121e",
+ "jobId": "50e75f6c-8a0f-4716-869c-3c9a6c06fc9f",
+ "jobAdId": "23e76ac3-fc89-4cb2-aa73-3a8d0ace2479",
+ "defaultJobAd": true,
+ "refNumber": "REF39207I",
+ "company": {
+  "name": "Avery Dennison",
+  "identifier": "AveryDennison"
+ },
+ "location": {
+  "city": "Dhaka",
+  "country": "bd",
+  "address": "167-169, DEPZ Extn. Area, Savar,",
+  "postalCode": "1349",
+  "remote": false,
+  "hybrid": false,
+  "fullLocation": "Dhaka, , Bangladesh"
+ },
+ "customField": [
+  {
+   "fieldId": "COUNTRY",
+   "fieldLabel": "Country/Region",
+   "valueId": "bd",
+   "valueLabel": "Bangladesh"
+  },
+  {
+   "fieldId": "58fe0acae4b08b59f571569e",
+   "fieldLabel": "Country of vacancy",
+   "valueId": "97a145c9-8901-4cf1-b95f-129f5c042928",
+   "valueLabel": "Bangladesh"
+  },
+  {
+   "fieldId": "58bd77aae4b06b39d0c85401",
+   "fieldLabel": "Department",
+   "valueId": "945615",
+   "valueLabel": "Engineering Services"
+  },
+  {
+   "fieldId": "58bd77aae4b06b39d0c85400",
+   "fieldLabel": "Brands",
+   "valueId": "default",
+   "valueLabel": "Avery Dennison"
+  },
+  {
+   "fieldId": "58fe0442e4b08b59f5715696",
+   "fieldLabel": "Region",
+   "valueId": "f169ef9f-2c62-478f-8dbe-f7c1ae6270b9",
+   "valueLabel": "AP - Asia Pacific"
+  }
+ ],
+ "releasedDate": "2026-10-17T10:26:15.152Z",
+ "creator": {
+  "name": "",
+  "avatarUrl": ""
+ },
+ "postingUrl": "https://jobs.smartrecruiters.com/AveryDennison/744000156127779-officer-graphics-automation",
+ "applyUrl": "https://jobs.smartrecruiters.com/AveryDennison/744000156127779-officer-graphics-automation?oga=true",
+ "referralUrl": "https://jobs.smartrecruiters.com/external-referrals/company/AveryDennison/publication/efc709e0-a512-4075-8cad-73cc9708121e?dcr_ci=AveryDennison",
+ "jobAd": {
+  "sections": {
+   "companyDescription": {
+    "title": "Company Description",
+    "text": "<p><strong>About Avery Dennison</strong></p><p>Avery Dennison Corporation (NYSE: AVY) is a global materials science and digital identification solutions company. We are Making Possible™ products and solutions that help advance the industries we serve, providing branding and information solutions that optimize labor and supply chain efficiency, reduce waste and mitigate loss, advance sustainability, circularity and transparency and better connect brands and consumers. We design and develop labeling and functional materials, radio-frequency identification (RFID) inlays and tags, software applications that connect the physical and digital and offerings that enhance branded packaging and carry or display information that improves the customer experience. Serving industries worldwide — including home and personal care, apparel, general retail, e-commerce, logistics, food and grocery, pharmaceuticals and automotive — we employ approximately 35,000 employees in more than 50 countries. Our reported sales in 2025 were $8.9 billion. Learn more at <a href=\"https://www.google.com/search?q=https%3A%2F%2Fwww.averydennison.com\" rel=\"noopener noreferrer\" target=\"_blank\">www.averydennison.com</a>. AVERY DENNISON IS PROUD TO BE CERTIFIED GREAT PLACE TO WORK IN AUSTRALIA, BANGLADESH, CHINA, INDIA, INDONESIA, MALAYSIA, SINGAPORE, THAILAND AND VIETNAM, AND RECOGNIZED AS ONE OF THE BEST COMPANIES TO WORK FOR IN ASIA IN GREATER CHINA AND VIETNAM.</p>"
+   },
+   "jobDescription": {
+    "title": "Job Description",
+    "text": "<p>The Officer, Graphics Automation is responsible for supporting customer programs by setting up, testing, and maintaining graphics automation routines and routines across global production sites. This role ensures consistency, formatting standards, and timely resolution of operational or live production issues to support efficient, accurate manufacturing.</p><p><u><strong>Key Responsibilities:</strong></u></p><ul><li>Work with DSS, GPD, and operations teams to support new customer programs and ensure timely graphics automation routines in line with customer orders.</li><li>Ensure all customer programs adhere to existing graphics automation standards, including coding conventions, procedures, operational manuals, and formatting consistency.</li><li>Support the Internet Development team by assisting with the testing and review of new routines prior to deployment in a live environment.</li><li>Provide technical support for reported issues involving product setups, amended products, or errors within existing routines.</li><li>Resolve all issues in a timely manner and migrate verified fixes to all global production sites to guarantee accurate manufacturing.</li><li>Resolve live production automation routine issues within agreed timeframes (currently 24 hours).</li><li>Transfer current formats accurately to relevant overseas sites to maintain global consistency across all automation-maintained programs.</li><li>Review and monitor automation routines continuously to maximize performance and benefits across operational sites.</li><li>Maintain personal GPS, uphold clean workstation standards, and strictly adhere to all departmental health and safety procedures.</li><li>Perform any other duties as requested by the Manage</li></ul>"
+   },
+   "qualifications": {
+    "title": "Qualifications",
+    "text": "<ul><li>Background in Computer Science with knowledge of programming and graphics software.</li><li>High level of computer literacy.</li><li>Strong problem-solving skills and project management abilities.</li><li>Ability to work effectively under pressure, manage high workload volumes, and handle challenges professionally and calmly.</li><li>Excellent written and verbal communication skills.</li><li>Strong attention to detail and a flexible attitude toward work.</li><li>1–2 years of experience in a graphics studio environment is considered an added advantage.</li></ul>"
+   },
+   "additionalInformation": {
+    "title": "Additional Information",
+    "text": "<p>Avery Dennison is an equal opportunity employer. All qualified applicants will receive consideration for employment without regard to race, color, religion, sex, national origin, sexual orientation, gender identity, disability, protected veteran status, or any other protected status.</p>"
+   },
+   "videos": {
+    "title": "Videos To Watch",
+    "urls": [
+     "https://www.youtube.com/watch?v=y7VcQkbYZCA"
+    ]
+   }
+  }
+ },
+ "active": true,
+ "visibility": "PUBLIC",
+ "industry": {
+  "id": "packaging_and_containers",
+  "label": "Packaging And Containers"
+ },
+ "function": {
+  "id": "production",
+  "label": "Production"
+ },
+ "department": {
+  "id": 945615,
+  "label": "Engineering Services"
+ },
+ "experienceLevel": {
+  "id": "entry_level",
+  "label": "Entry Level"
+ },
+ "typeOfEmployment": {
+  "id": "permanent",
+  "label": "Full-time"
+ },
+ "language": {
+  "code": "en",
+  "label": "English",
+  "labelNative": "English (US)"
+ }
+}

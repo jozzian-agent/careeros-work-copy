@@ -1,14 +1,36 @@
 """The staging store: immutable snapshots, a run manifest, closure state.
 
 WHAT THE SPEC ASKS FOR, and where each part lives under the store root
-(`data/personio/`, gitignored because raw snapshots are large):
+(one root per provider -- `data/personio/` for CAREER-53's own and
+`data/ats/<provider>/` for the five CAREER-54 added, all gitignored
+because raw snapshots are large):
 
     tenants.yaml                              the discovered tenants
     runs.yaml                                 one entry per fetch run
     state/<tenant>.yaml                       posting state, per tenant
-    snapshots/feeds/<tenant>/<run>-<lang>.xml.gz     the raw responses
+    snapshots/feeds/<tenant>/<run>-<variant>.<ext>.gz  the raw responses
     snapshots/postings/<tenant>/<id>/<hash>.yaml     the frozen postings
     exports/golden_set_pool_<date>.yaml       the sampling pool
+
+ONE STORE CLASS, ONE ROOT PER PROVIDER. The layout above held one
+provider's postings in CAREER-53 and holds six now without changing
+shape: posting keys are already `{provider}:{tenant}:{id}` and the
+`provider` a store was opened for is written into every file it owns.
+A root per provider rather than a provider directory inside one root,
+because that keeps `data/personio/` exactly where CAREER-53 left it --
+no snapshot moved, no state file rewritten -- and because a tenant id is
+only unique within a provider anyway. The golden-set pool is the one
+thing that spans them: `export.build_pool` takes several stores and
+every row names its provider.
+
+PROVENANCE IS ENFORCED HERE (owner ruling 2026-10-17, priority a).
+`write_posting_snapshot` calls `base.require_provenance` before it
+writes anything, so a posting that cannot say where it came from -- its
+provider, tenant, posting id, canonical URL, feed URL, raw-feed
+snapshot, content hash, fetch time and run, plus D4 value records with
+`source='feed'` -- never reaches the store at all. It raises rather than
+counting the posting as a failure: a posting with no source chain is an
+adapter that skipped the contract, not a tenant with a bad feed.
 
 TWO KINDS OF SNAPSHOT, because the spec asks for both and they answer
 different questions. The RAW FEED snapshot is the evidence: "store every
@@ -53,13 +75,22 @@ well is an owner question recorded in the trial report.
 """
 import logging
 import os
+import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
+from careeros.feeds import base
+
 _logger = logging.getLogger(__name__)
+
+#: The provider a store belongs to when the caller does not say. It is
+#: `personio` because that is the store CAREER-53 built and the one the
+#: Personio runner still opens with one argument; every caller added
+#: since passes its own provider.
+DEFAULT_PROVIDER = 'personio'
 
 #: How many consecutive successful fetches of a tenant a posting has to
 #: be missing from before it is closed. The spec's [2].
@@ -113,8 +144,9 @@ def write_yaml(path, data):
 class Store:
     """The staging directory, as the one object that knows its layout."""
 
-    def __init__(self, root):
+    def __init__(self, root, provider=DEFAULT_PROVIDER):
         self.root = Path(root)
+        self.provider = provider
 
     # --- paths ---------------------------------------------------------
     @property
@@ -128,8 +160,17 @@ class Store:
     def state_file(self, tenant):
         return self.root / 'state' / f'{tenant}.yaml'
 
-    def feed_snapshot_path(self, tenant, run, language):
-        return self.root / 'snapshots' / 'feeds' / tenant / f'{run}-{language}.xml.gz'
+    def feed_snapshot_path(self, tenant, run, variant, suffix='xml'):
+        """Where one raw response is frozen.
+
+        `variant` is the adapter's own slug for the request (Personio's
+        language, Greenhouse's `jobs`, SmartRecruiters' `postings-100`),
+        and `suffix` is what the body is. A slug is used in a file name,
+        so anything that is not a filename character is replaced rather
+        than trusted.
+        """
+        slug = re.sub(r'[^A-Za-z0-9._-]+', '-', str(variant or 'feed'))
+        return self.root / 'snapshots' / 'feeds' / tenant / f'{run}-{slug}.{suffix}.gz'
 
     def posting_snapshot_path(self, tenant, posting_id, content_hash):
         return (self.root / 'snapshots' / 'postings' / tenant / str(posting_id)
@@ -160,8 +201,8 @@ class Store:
             handle.write(blob)
         return True
 
-    def write_feed_snapshot(self, tenant, run, language, compressed):
-        path = self.feed_snapshot_path(tenant, run, language)
+    def write_feed_snapshot(self, tenant, run, variant, compressed, suffix='xml'):
+        path = self.feed_snapshot_path(tenant, run, variant, suffix=suffix)
         created = self.write_snapshot(path, compressed)
         return path, created
 
@@ -172,7 +213,12 @@ class Store:
         the posting has not changed since a previous run, which is the
         spec's "re-fetching an unchanged posting creates no new
         snapshot".
+
+        Raises `base.ProvenanceError` for a posting with a broken source
+        chain, which is the one thing this store refuses outright (see
+        the module docstring).
         """
+        base.require_provenance(mapped)
         snapshot_id = f"{mapped['key']}@{mapped['content_hash']}"
         path = self.posting_snapshot_path(mapped['tenant'], mapped['posting_id'],
                                           mapped['content_hash'])
@@ -204,7 +250,7 @@ class Store:
         existing = read_yaml(self.tenants_file, {}) or {}
         payload = {key: value for key, value in existing.items()
                    if key not in ('tenants', 'count', 'updated_at')}
-        payload.update({'provider': 'personio', 'updated_at': now()})
+        payload.update({'provider': self.provider, 'updated_at': now()})
         payload.update(meta or {})
         payload['count'] = len(tenants)
         payload['tenants'] = [tenants[key] for key in sorted(tenants)]
@@ -213,7 +259,7 @@ class Store:
     # --- posting state -------------------------------------------------
     def load_state(self, tenant):
         return read_yaml(self.state_file(tenant),
-                         {'tenant': tenant, 'provider': 'personio', 'postings': {}})
+                         {'tenant': tenant, 'provider': self.provider, 'postings': {}})
 
     def save_state(self, state):
         write_yaml(self.state_file(state['tenant']), state)
@@ -231,7 +277,7 @@ class Store:
         runs = self.load_runs()
         runs = [run for run in runs if run.get('run_id') != entry['run_id']] + [entry]
         runs.sort(key=lambda run: run['run_id'])
-        write_yaml(self.runs_file, {'provider': 'personio', 'updated_at': now(),
+        write_yaml(self.runs_file, {'provider': self.provider, 'updated_at': now(),
                                     'count': len(runs), 'runs': runs})
         return entry
 
@@ -320,8 +366,9 @@ def _record_tenant(store, tenant, result, *, run, at):
                  'gap': gap}]
             if entry['status'] == CLOSED:
                 changes['reopened'].append(key)
-                _logger.info('personio: %s reopened after %s missed fetches (last seen %s)',
-                             key, entry.get('misses', 0), entry['last_seen_run'])
+                _logger.info('%s: %s reopened after %s missed fetches (last seen %s)',
+                             store.provider, key, entry.get('misses', 0),
+                             entry['last_seen_run'])
             entry['closed_after_run'] = None
             entry['closed_at'] = None
         entry['status'] = OPEN
@@ -341,7 +388,8 @@ def _record_tenant(store, tenant, result, *, run, at):
             # The hash matched but no snapshot file existed: the store
             # was pruned or this is a state file from an earlier layout.
             # Writing it is right and reporting it as a change is not.
-            _logger.info('personio: re-froze %s, whose snapshot file was missing', key)
+            _logger.info('%s: re-froze %s, whose snapshot file was missing',
+                         store.provider, key)
 
     for key, entry in postings.items():
         if key in seen_keys or entry.get('status') == CLOSED:
@@ -378,6 +426,13 @@ def _derived(mapped):
     the earlier reading as history.
     """
     return {
+        # The source chain of the LATEST sighting. Refreshed rather than
+        # appended to, because every earlier chain is already on the
+        # `snapshots` list beside its own content hash -- and because a
+        # pool row has to be able to cite the posting's source without
+        # opening a snapshot file (owner ruling 2026-10-17: "keep the
+        # source of the job").
+        'provenance': mapped.get('provenance'),
         'area_status': mapped.get('area_status'),
         'municipality': mapped.get('municipality'),
         'municipality_label': mapped.get('municipality_label'),

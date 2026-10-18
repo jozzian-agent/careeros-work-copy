@@ -175,8 +175,11 @@ def test_a_body_that_hit_our_own_cap_is_truncated_and_not_a_parse_failure(store)
     parse-success rate a measurement of Personio's feeds."""
     cut = body('isolutions_de_trimmed')[:2048]
     server = FakePersonio(bodies={('big', 'de'): cut})
+    # CAREER-54: one request is a `base.Variant` rather than a host and a
+    # language, because five more providers do not have a language.
+    variant = personio.feed_variants('big', languages=('de',), hosts=(personio.HOSTS[0],))[0]
     attempt = fetch_module._fetch_one(
-        'big', personio.HOSTS[0], 'de', mapper=personio, fetch=server, limiter=None,
+        'big', variant, adapter=personio, fetch=server, limiter=None,
         store=store, run='r1', known={}, sleep=lambda seconds: None,
         max_body=len(cut.encode()))
     assert attempt['status'] == fetch_module.FETCH_TRUNCATED
@@ -186,7 +189,7 @@ def test_a_body_that_hit_our_own_cap_is_truncated_and_not_a_parse_failure(store)
     # The same body under a cap it does not reach is a genuine parse
     # failure, which is the case the rate is supposed to count.
     attempt = fetch_module._fetch_one(
-        'big', personio.HOSTS[0], 'de', mapper=personio, fetch=server, limiter=None,
+        'big', variant, adapter=personio, fetch=server, limiter=None,
         store=store, run='r1', known={}, sleep=lambda seconds: None,
         max_body=fetch_module.FEED_MAX_BODY)
     assert attempt['status'] == fetch_module.FETCH_PARSE_ERROR
