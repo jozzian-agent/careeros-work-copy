@@ -421,6 +421,111 @@ What the capped live trial measured, in full, is
 `data/ats/TRIAL_REPORT.md`, and the platform map's own report is
 `data/ats_platform_map_2026-10-17.md`. PLACEHOLDER_TRIAL_NUMBERS
 
+2026-10-18: every job in the universe is classified against the
+taxonomy (CAREER-57, owner-approved three-layer architecture of the same
+day). CAREER-55 shipped the code lists and said in its own module
+docstring that nothing classified anything yet; `careeros/classify/` is
+what does. Three layers, in the order they run.
+
+- **Rules** (`classify/rules.py`), deterministic and free. Keyword
+  tables and formulas over the title, the department and the posting
+  text settle occupation (job family plus its four-digit ISCO unit
+  group), language, workload, contract, work model, seniority, employer
+  type and location. The job-family table is not a new one: it is the
+  keywords `esco_occupations.yaml` already ships for the extraction
+  prompt, matched longest-phrase-first, which is the BFS
+  title-assignment idea. Every value is a `make_value_record(…, 'rule')`
+  carrying the phrase that triggered it.
+- **Local model** (`classify/llm.py`), on the owner's own Ollama host
+  over its OpenAI-compatible API, reusing `careeros/llm_client.py`
+  rather than growing a second HTTP client. It is asked ONLY about the
+  fields the rules could not settle, because `llm` is last in the
+  precedence order and an answer about a settled field could not win
+  anyway. Host, key, model and temperature are all environment
+  variables, so comparing two models is a config change and nothing else
+  (CAREER-18 M1-4), and every call returns its latency and its token
+  counts (M1-3), read from either endpoint's own names. **No live batch
+  was run against that host in this build**: its availability is
+  unconfirmed, so the layer is fixture-tested only and
+  `scripts/run_classification.py --layer all` is the owner's own command
+  for later.
+- **Escalation**, which is a queue rather than a layer. A model answer
+  that will not parse, names a code the taxonomy does not have, or falls
+  under the confidence floor becomes `unknown` carrying `needs_review`
+  and the reason — never a guess and never a gap. A cheap hosted
+  fallback plugs into `llm.classify`'s signature later and is
+  deliberately not built now.
+
+Four things reach beyond the ticket's own package.
+
+- **A job record gains two fields and loses none.** `values` (field name
+  → D4 value record) and `salary` (the normalised pay block, or null)
+  are new on the job schema ([schemas](docs/schemas.md)), and
+  `scripts/migrate_job_value_records.py` fills them for a stored vault —
+  dry run by default, `--apply` owner-gated, not run as part of this
+  build ([runbook](docs/runbooks/migrate-job-value-records.md)). The
+  free-text fields coded values are meant to replace (`seniority`,
+  `employment_type`, `location`, `salary_note`) are **left exactly as
+  they are**, because a field cannot be retired before its readers move
+  and those readers are the React job page, the extraction popup, the
+  intake path and the enrichment rollup. That second step is listed with
+  its full reader inventory in the runbook rather than half-done here.
+  `field_provenance` keeps its `dict[str, str]` shape for the same
+  reason, and because a value record carries its own source, confidence
+  and evidence and has no business inside a mapping of field name to one
+  word.
+- **Precedence gained one reading it did not state.** `admin > user >
+  feed > rule > llm` says a stored value is never replaced by a weaker
+  source. The case the order does not cover is a stronger source's
+  `unknown`: an ATS that carries no contract field stores "the feed
+  states no contract", which says the feed was asked and had nothing,
+  not that the question is closed. So **a weaker source may fill a
+  stronger source's `unknown` and may never contradict its value**, and
+  a value that does records `filled_unknown_from` in its evidence. Open
+  for the owner to confirm; refusing it would make the pipeline a no-op
+  on the 40 pool postings whose feed states no contract.
+- **Salary normalisation is the first reader of `salary_rules.yaml`.**
+  A reading becomes an annual gross in CHF at 100% Pensum with every
+  assumption visible: `x13_default` raises the `assumed_13` flag,
+  `hourly_to_annual` uses the file's 40-hour 52-week convention, and
+  `pensum_scaling` scales a monthly or annual figure by the stated
+  Pensum — but **never an hourly rate**, which is already a full-time
+  equivalent, a bug the first pool run surfaced on a 55% barista
+  posting. The four pay-scale tables are still placeholders, so a public
+  posting naming a wage class is still no figure rather than an estimate.
+- **Three rule tables were cut by measurement, not by taste.** Running
+  layer 1 over the 204-posting pool and comparing it with what the ATS
+  feeds themselves state showed `EFZ`/`EBA` (qualification codes, not
+  contract types), `Einsatz von` (ordinary German) and a bare `Mandat`
+  turning nine postings into apprenticeships, temporary assignments and
+  freelance mandates they are not. They are gone, and the general lesson
+  is now a rule: **a value whose only evidence is the description is
+  stored and flagged `weak_evidence`**, because a word in 20 000
+  characters of prose is usually about something else — the same lesson
+  `base.pensum` learned from "…grew 30%…".
+
+What the run measured, in full, is
+`data/classification_accuracy_2026-10-18.md`, generated by
+`scripts/classification_report.py` and not typed by hand. The short
+version, and it is not good news: **gate 1 is not met.** Occupation at
+four digits is 37.9% over the confident golden rows against a threshold
+of 85%. Almost all of the miss is the layer refusing to guess rather
+than guessing wrong — 14 of the 19 misses are `unknown`, and the single
+biggest group is the postings whose title carries `product manager`,
+which anchors both the ICT reading (1330) and the research-and-
+development one (1223) because the seed deliberately gives neither id
+sole ownership of it. That is precisely the ambiguous remainder layer 2
+exists for, and layer 2 has not been run. **The language and workload
+thresholds are not graded at all**: golden set v1 carries 42 rows with
+one labelled dimension, the job function and its ISCO group, and no
+column for either. The report says so in those words rather than
+reporting something else under their name. What it can report instead is
+agreement with what the feeds state — 97.1% on language over 173
+comparable postings, and a note that four of the five disagreements are
+German texts the feed labels `fr` or `en`, which is `base.language_record`
+being honest that it measures the language a tenant publishes a variant
+in rather than a reading of the text.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -679,8 +784,10 @@ The code lists CareerOS classifies against live in
 `careeros/data/taxonomy/`, one YAML file per dimension, and
 `careeros/taxonomy.py` is the only module that reads them. Settled by
 owner decisions D1, D2, D3, D4, D6, D7 and the dimension rulings on
-decision sheet CAREER-58, 2026-10-17 (CAREER-55 ships the files and the
-schema; no pipeline writes a classified value yet).
+decision sheet CAREER-58, 2026-10-17. CAREER-55 shipped the files and the
+schema; since CAREER-57 (2026-10-18) `careeros/classify/` is the pipeline
+that writes classified values against them, and `careeros/feeds/base.py`
+writes the ones an ATS states outright.
 
 **Where a list lives.** One dimension, one name, one file. A file may
 carry more than one list (`languages.yaml` carries `language` and
@@ -858,6 +965,23 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
 - How often the job-status checker runs, which sets the check cycle in M6.
 - Whether the single YAML vault holds up for five users. Untested beyond about 24 jobs.
 - Privacy approach, see the Frame table.
+- **Gate 1 cannot be graded on language or workload** until golden set
+  v2 carries a column for each. v1 labels one dimension (the job
+  function and its ISCO group) over 42 rows. Whether v2 is a new
+  labelling pass over the same 42 or a fresh draw from the 204-posting
+  pool is the owner's call (CAREER-57, 2026-10-18).
+- **Does a weaker source get to fill a stronger source's `unknown`?**
+  The pipeline says yes and records `filled_unknown_from` when it does;
+  see the 2026-10-18 entry for why. Confirm or reverse it.
+- **Is a 37.9% four-digit occupation accuracy the rules layer's
+  ceiling, or the ambiguity's?** The answer is one live run of layer 2
+  over the 12 ambiguous golden rows, which needs the Ollama host to be
+  up. Nothing else about the pipeline is waiting on it.
+- Two things the taxonomy has that the pipeline does not write:
+  `work_model`'s optional `detail` block (D4 fixes the value record's
+  fields, so the posting's own words go in the evidence instead) and the
+  `seniority_flag` dimension (`people_lead`, `budget_owner`). Both are
+  small additions once something reads them.
 - Schemas doc update: `docs/schemas.md` predates the Journey-1 job fields
   (normalized_url, in_pipeline, origin, source_id, ingest_state, ingest_error,
   ats_provider, tenant, posting_id). Owner ruled 2026-10-11: update deferred

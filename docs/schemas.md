@@ -152,6 +152,60 @@ the sample workflow. Back up the destination vault before a future import.
 | ai_error | The sentence a failed reading leaves behind, in words the owner can read. Null in every other status: whatever moves the status on takes the reason with it. Never an exception message, since a transport failure names the host it was talking to |
 | ai_started | Timestamp the reading began, or null. A finished reading keeps it, so a record still says when it started |
 | ai_finished | Timestamp the reading ended, done or failed, or null while one is owed |
+| values | Mapping of field name to one D4 value record, written by the classification pipeline (CAREER-57). See below |
+| salary | The normalised pay block, or null. See below |
+
+### The coded half: `values` and `salary` (CAREER-57)
+
+`values` maps a FIELD name to one value record built by
+`careeros.taxonomy.make_value_record`. The field name is not always a
+dimension name: `workload_min` and `workload_max` are two fields over
+the one `workload` dimension, and `isco_unit_group` is derived from
+`occupation_family` rather than read from the posting. The fields the
+pipeline writes are `careeros.classify.rules.FIELDS`:
+`occupation_family`, `isco_unit_group`, `language`, `workload_min`,
+`workload_max`, `contract`, `work_model`, `seniority`, `employer_type`,
+`municipality`, `canton`.
+
+| Field | Type / meaning |
+| --- | --- |
+| values.<field>.value | A code from that dimension's list, or `unknown`. `unknown` is a real value: it says the posting was read and came up empty, which is not the same fact as no record at all |
+| values.<field>.source | One of `admin`, `user`, `feed`, `rule`, `llm` (`value_record.yaml`). Precedence runs in that order; a stored value is replaced only by a strictly stronger source, or by any source when it holds `unknown` |
+| values.<field>.confidence | 0..1, or null when the source does not express one (an owner edit does not score itself) |
+| values.<field>.evidence | Text or a mapping. The pipeline writes a mapping carrying `rule` (why), `phrase` (what matched), `found_in` (title, department or text) and, when a human is owed, `needs_review` with the reason |
+| values.<field>.taxonomy_version / standard_version | The version of the dimension's own file this value was classified under, so a re-classification sweep can find everything older than a given version |
+| values.<field>.classified_at | ISO-8601 timestamp |
+| values.<field>.flags / guide_version | The labelling-guide flags (`value_record.yaml`) and the guide revision they were chosen under. `via_agency` on a contract, `assumed_13` on a salary |
+
+A record whose `evidence.needs_review` is set is the escalation queue:
+`ambiguous` (two codes claim the same phrase), `weak_evidence` (the only
+evidence is the description), `llm_invalid_code`, `llm_below_floor`,
+`llm_unparseable`, `llm_failed`, `llm_did_not_answer`.
+
+`salary` is not a value record, because there is no salary dimension: a
+code list cannot hold an amount. It carries `salary_rules.yaml`'s own
+field list plus the normalised figure and the evidence.
+
+| Field | Type / meaning |
+| --- | --- |
+| salary.min / max | The amounts as the posting wrote them. A range stays a range; nothing picks a midpoint |
+| salary.currency | `CHF`, `EUR` or `USD`. Only CHF is normalised; anything else carries `needs_review` and a null figure, because no exchange rate is recorded anywhere |
+| salary.period_stated | `hour`, `month` or `year`, read from the posting. A figure with no stated period is not read at all |
+| salary.months_assumed | 13 by default for a monthly figure (`x13_default`), or the count the posting states. Null for an hourly or annual one |
+| salary.pensum_stated | The `[min, max]` Pensum the figure was stated for, or null |
+| salary.annual_gross_chf_min / max | The comparable figure: annual gross in CHF at 100% Pensum |
+| salary.rules | Which rules of `salary_rules.yaml` were applied: `x13_default`, `hourly_to_annual`, `pensum_scaling` |
+| salary.quote | The posting's own sentence the figure was read from |
+| salary.flags | `assumed_13` when the thirteenth salary was assumed rather than stated |
+
+These two fields are additive. The free-text fields they are meant to
+replace (`seniority`, `employment_type`, `location`, `salary_note`) are
+untouched and still read by every surface that read them before, and
+`field_provenance` keeps its `dict[str, str]` shape and its meaning: who
+last wrote a free-text field. Retiring the free-text half needs every
+reader to move in the same change, and
+[the migration runbook](runbooks/migrate-job-value-records.md) carries
+the reader inventory.
 
 Requirements are stored twice over, on purpose. `description_structured`
 holds the flat shape every job written before package 2 has

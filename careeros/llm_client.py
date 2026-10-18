@@ -76,7 +76,26 @@ class LLMClient:
         else:
             content = data['choices'][0]['message']['content']
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
-            content=content))])
+            content=content))], usage=usage(data))
+
+
+def usage(data):
+    """Token counts from either endpoint, under one set of names.
+
+    CAREER-57 M1-3 measures tokens and latency per call, and the two
+    endpoints report the same three numbers under different keys:
+    OpenAI-compat says `usage.prompt_tokens`, Ollama's native `/api/chat`
+    says `prompt_eval_count`. A response that reports neither yields
+    None per field rather than a zero, because "the server did not say"
+    and "no tokens" are different facts.
+    """
+    reported = data.get('usage') or {}
+    prompt = reported.get('prompt_tokens', data.get('prompt_eval_count'))
+    completion = reported.get('completion_tokens', data.get('eval_count'))
+    total = reported.get('total_tokens')
+    if total is None and prompt is not None and completion is not None:
+        total = prompt + completion
+    return {'prompt_tokens': prompt, 'completion_tokens': completion, 'total_tokens': total}
 
 
 def get_llm_client():

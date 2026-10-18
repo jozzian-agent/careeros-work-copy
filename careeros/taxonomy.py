@@ -11,8 +11,11 @@ The code lists now live in `careeros/data/taxonomy/`, one YAML file per
 dimension with a version on it, and this module is the only thing that
 reads them.
 
-It deliberately does NOT classify anything. CAREER-55 ships the data
-files and the schema; no pipeline writes a value record yet.
+It deliberately does NOT classify anything itself. CAREER-55 shipped the
+data files and the schema; since CAREER-57 the thing that classifies is
+`careeros.classify`, which calls `make_value_record` below for every
+value it settles, and `careeros.feeds.base`, which calls it for every
+value an ATS states outright.
 
 THE FILE FORMAT every file in that directory follows:
 

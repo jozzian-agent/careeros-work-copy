@@ -808,6 +808,76 @@ def validate_requirement_groups(groups):
     return list(seen.values())
 
 
+#: The keys `taxonomy.make_value_record` puts on every value record. A
+#: stored value is checked against this rather than re-validated field by
+#: field, because the factory is the one place the shape is decided and a
+#: second opinion here could only drift from it.
+VALUE_RECORD_KEYS = frozenset(('value', 'source', 'confidence', 'evidence',
+                               'taxonomy_version', 'standard_version', 'classified_at',
+                               'flags', 'guide_version'))
+
+
+def validate_value_records(values):
+    """`values` as the classification pipeline writes it, or a raise.
+
+    A mapping of FIELD name to one D4 value record. The field name is not
+    always a dimension name -- `workload_min` and `workload_max` are two
+    fields over the one `workload` dimension -- so the key is checked for
+    being text and the record for being a record, and the dimension is
+    the writer's business.
+    """
+    if values is None:
+        return {}
+    if not isinstance(values, dict):
+        raise ValueError('values must be an object mapping field names to value records.')
+    checked = {}
+    for field, record in values.items():
+        if not isinstance(field, str) or not field.strip():
+            raise ValueError('values keys must be field names.')
+        if not isinstance(record, dict):
+            raise ValueError(f'values[{field}] must be a value record object.')
+        missing = sorted(VALUE_RECORD_KEYS - set(record))
+        if missing:
+            raise ValueError(f'values[{field}] is missing {", ".join(missing)}; build one with '
+                             'careeros.taxonomy.make_value_record.')
+        if record['source'] not in taxonomy.SOURCES:
+            raise ValueError(f'values[{field}].source must be one of '
+                             + ', '.join(taxonomy.SOURCES) + '.')
+        if not isinstance(record['value'], str) or not record['value'].strip():
+            raise ValueError(f'values[{field}].value must be a code.')
+        checked[field] = dict(record)
+    return checked
+
+
+#: What a normalised salary block says. The first six are
+#: salary_rules.yaml's own `target.fields`; the rest are the evidence and
+#: the provenance every other classified value carries.
+SALARY_KEYS = frozenset(('min', 'max', 'currency', 'period_stated', 'months_assumed',
+                         'pensum_stated', 'annual_gross_chf_min', 'annual_gross_chf_max',
+                         'quote', 'rules', 'needs_review', 'source', 'confidence',
+                         'classified_at', 'flags'))
+
+
+def validate_salary(salary):
+    """The normalised pay block, or a raise. Null is the common case: a
+    Swiss posting usually states no salary, which is no block at all and
+    never a zero."""
+    if salary is None:
+        return None
+    if not isinstance(salary, dict):
+        raise ValueError('salary must be an object or null.')
+    missing = sorted(SALARY_KEYS - set(salary))
+    if missing:
+        raise ValueError(f'salary is missing {", ".join(missing)}; build one with '
+                         'careeros.classify.salary.normalise.')
+    if salary['source'] not in taxonomy.SOURCES:
+        raise ValueError('salary.source must be one of ' + ', '.join(taxonomy.SOURCES) + '.')
+    for key in ('annual_gross_chf_min', 'annual_gross_chf_max'):
+        if salary[key] is not None and not isinstance(salary[key], (int, float)):
+            raise ValueError(f'salary.{key} must be a number or null.')
+    return dict(salary)
+
+
 def _record_defaults(kind):
     """Every field a record of this kind stores, with its empty value.
 
@@ -833,6 +903,18 @@ def _record_defaults(kind):
                  employer_named_in_posting=None, company_review=None,
                  field_status={}, field_status_reason={}, posting_quality=None, description_structured=None,
                  requirement_groups=[],
+                 # CAREER-57: the coded half of the record. `values` is
+                 # {field name -> D4 value record} and `salary` is the
+                 # normalised pay block; both are written by the
+                 # classification pipeline and by the owner, never by a
+                 # feed directly. Additive on purpose: the free-text
+                 # fields they are meant to replace (seniority,
+                 # employment_type, location, salary_note) are untouched
+                 # here, and `field_provenance` keeps its dict[str, str]
+                 # shape, because a value record carries its own source
+                 # and has no business inside a mapping of field name to
+                 # one word. See docs/runbooks/migrate-job-value-records.md.
+                 values={}, salary=None,
                  # D7: the posting being gone is a fact about the posting,
                  # so it is this flag and never a status. closed_at is the
                  # day it was found gone, closed_reviewed_at the day the
@@ -969,6 +1051,8 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
         # not rewritten behind their back.
         if result['end_reason'] is not None and result['end_reason'] not in END_REASON_VALUES:
             raise ValueError('Invalid end_reason.')
+        result['values'] = validate_value_records(result['values'])
+        result['salary'] = validate_salary(result['salary'])
         if result['ingest_state'] not in INGEST_STATES:
             raise ValueError('Invalid ingest_state.')
         if result['origin'] not in ('manual', 'discovered'):
