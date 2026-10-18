@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Badge, Box, Button, Flex, Heading, Link, PageHeader, Text } from 'gestalt';
+import { Badge, Box, Button, Flex, Heading, Link, Text } from 'gestalt';
 import { fetchCompaniesPage } from '../api/companies.js';
 import FilterBar from '../components/FilterBar.jsx';
+import PageLayout from '../components/PageLayout.jsx';
 import { countBy, presentOptions, sortedOptions } from '../filters.js';
 
 const FILTERS_KEY = 'careerCompaniesFilters';
@@ -205,35 +206,37 @@ export default function CompaniesList() {
     needsAttention && !anyGroupFilterActive ? 'Nothing needs your input.' : 'No companies match these filters.';
   const needsAttentionCount = entries.filter((company) => company.needs_attention).length;
 
+  // Companies has no main action, so its header stack is the title row
+  // and the filter bar only (brief 2026-10-18, section 3).
+  const filterBar = isEmpty ? null : (
+    <FilterBar
+      groups={FILTER_GROUPS}
+      countNoun="companies"
+      optionsByGroup={optionsByGroup}
+      selected={filters}
+      onToggleValue={toggleFilterValue}
+      onClearGroup={clearFilterGroup}
+      onClearGroups={clearFilterGroups}
+      toggles={[
+        {
+          key: 'needs-attention',
+          label: 'Needs your input',
+          count: needsAttentionCount,
+          pressed: needsAttention,
+          onToggle: () => setNeedsAttention((current) => !current),
+        },
+      ]}
+      resultCount={filtered.length}
+      totalCount={entries.length}
+    />
+  );
+
   return (
-    <Box padding={6}>
-      <PageHeader title="Companies" />
+    <PageLayout title="Companies" header={filterBar}>
       {isEmpty ? (
         <Text color="subtle">{page.empty}</Text>
       ) : (
         <>
-          <Box marginTop={4}>
-            <FilterBar
-              groups={FILTER_GROUPS}
-              countNoun="companies"
-              optionsByGroup={optionsByGroup}
-              selected={filters}
-              onToggleValue={toggleFilterValue}
-              onClearGroup={clearFilterGroup}
-              onClearGroups={clearFilterGroups}
-              toggles={[
-                {
-                  key: 'needs-attention',
-                  label: 'Needs your input',
-                  count: needsAttentionCount,
-                  pressed: needsAttention,
-                  onToggle: () => setNeedsAttention((current) => !current),
-                },
-              ]}
-              resultCount={filtered.length}
-              totalCount={entries.length}
-            />
-          </Box>
           {noMatches ? (
             <Text color="subtle">{noMatchesMessage}</Text>
           ) : (
@@ -281,6 +284,6 @@ export default function CompaniesList() {
           )}
         </>
       )}
-    </Box>
+    </PageLayout>
   );
 }

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
-import { Box, Button, Flex, Popover, Tag, Text } from 'gestalt';
+import { Box, Button, Flex, Tag, Text } from 'gestalt';
 import FilterChip from './FilterChip.jsx';
+import FloatingPopover from './FloatingPopover.jsx';
 import FilterPopoverPanel from './FilterPopoverPanel.jsx';
 import MoreFiltersPanel from './MoreFiltersPanel.jsx';
 
@@ -61,8 +62,11 @@ export default function FilterBar({
     ? `${resultCount} of ${totalCount} ${countNoun}`
     : summaryText || `${totalCount} ${countNoun}`;
 
+  // No bottom margin of its own: the bar is one row of the page header
+  // stack, which spaces its rows (see components/PageLayout.jsx), so a
+  // margin here would add a second gap to the one the stack already has.
   return (
-    <Box marginBottom={4}>
+    <Box>
       <Flex gap={3} alignItems="center" wrap>
         {popoverGroups.map(({ key, label }) => (
           <FilterChip
@@ -153,7 +157,7 @@ export default function FilterBar({
       ) : null}
 
       {openPanel && openPanel !== 'more' ? (
-        <Popover anchor={anchors.current[openPanel]} onDismiss={() => setOpenPanel(null)} idealDirection="down" size="flexible">
+        <FloatingPopover anchor={anchors.current[openPanel]} onDismiss={() => setOpenPanel(null)} idealDirection="down" size="flexible">
           <FilterPopoverPanel
             groupKey={openPanel}
             label={popoverGroups.find((group) => group.key === openPanel).label}
@@ -163,7 +167,7 @@ export default function FilterBar({
             onClear={() => onClearGroup(openPanel)}
             onDone={() => setOpenPanel(null)}
           />
-        </Popover>
+        </FloatingPopover>
       ) : null}
 
       {openPanel === 'more' ? (

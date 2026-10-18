@@ -21,6 +21,7 @@ timestamp: 2026-10-15
 - [Learnings](learnings.md): Carry forward dated surprises from enrichment, intake and verification.
 - [Link styling convention](link-styling.md): Describe the Jinja theme treatments for internal and external links.
 - [Responsive breakpoint convention](responsive.md): Describe the Jinja theme breakpoint and responsive treatments.
+- [Take markup and internal codes out of a vault's stored text](runbooks/clean-stored-text.md): Back up a vault, dry-run the stored-text cleanup against it, apply it, verify it and roll it back.
 - [Give a vault's jobs their coded value records](runbooks/migrate-job-value-records.md): Back up a vault, run the CAREER-57 classification migration against it, verify it, roll it back, and know what the second step still owes.
 - [Move a vault onto the D7 status list](runbooks/migrate-board-d7.md): Back up a vault, run the one-time D7 status migration against it, verify it and roll it back.
 - [Seed the function facet in a vault](runbooks/seed-function-facet.md): Run the one-time function-facet seed against a live vault and verify it.

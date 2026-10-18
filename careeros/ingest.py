@@ -1,4 +1,5 @@
 """Extract structured job fields with an offline fallback."""
+import html
 import logging
 import math
 import json
@@ -93,6 +94,125 @@ def redact(value, dropped=None, path=''):
         return {key: redact(item, dropped, f'{path}.{key}' if path else str(key))
                 for key, item in value.items()}
     return value
+
+
+# --- markup out of stored text -------------------------------------------
+
+# An HTML tag, and nothing that merely looks like one. The name has to
+# start with a letter and the whole thing has to close on the same line of
+# text, so posting prose keeps "< 100k", "a > b" and "<3" while
+# "<br/>", "<p class="x">" and "</strong>" go.
+_TAG_RE = re.compile(r'</?[A-Za-z][^<>]*>')
+# Runs of spaces and tabs (and the non-breaking space entities unescape
+# into), collapsed per line so a description's own line breaks survive.
+_INLINE_SPACE_RE = re.compile(r'[^\S\r\n]+')
+_BLANK_LINES_RE = re.compile(r'\n{3,}')
+
+
+def plain_text(value):
+    """One extracted string as the plain text a record stores.
+
+    Postings put markup in places that are supposed to hold text. A
+    JSON-LD `title` arrives as "Lead Business & Technology Engineering
+    (w/m/d),<br/>80-100% Zürich / hybrid" (vault JOB-047) and a feed's
+    employer name arrives entity-escaped as "Smith &amp; Co". Neither is
+    rendered as HTML anywhere -- every surface shows a stored field as
+    text -- so markup in one is not formatting, it is a defect the owner
+    reads.
+
+    Tags become one space, so "a<br/>b" is two words and not one.
+    Entities are unescaped afterwards, and tags are swept once more, so
+    an escaped tag ("&lt;br&gt;") cannot survive as a tag-shaped string
+    in stored text either. Spaces and tabs then collapse per line, which
+    leaves a description's own line breaks alone (the lines are what
+    makes a posting readable) while removing the gaps the tags left.
+    """
+    if not isinstance(value, str) or not value:
+        return value
+    text = html.unescape(_TAG_RE.sub(' ', value))
+    text = _TAG_RE.sub(' ', text)
+    lines = [_INLINE_SPACE_RE.sub(' ', line).strip() for line in text.split('\n')]
+    return _BLANK_LINES_RE.sub('\n\n', '\n'.join(lines)).strip()
+
+
+def strip_markup(value):
+    """`plain_text` over a whole extracted payload, nested values and
+    all. The same shape as `redact`, so the two compose."""
+    if isinstance(value, str):
+        return plain_text(value)
+    if isinstance(value, list):
+        return [strip_markup(item) for item in value]
+    if isinstance(value, dict):
+        return {key: strip_markup(item) for key, item in value.items()}
+    return value
+
+
+def clean_extracted(value, dropped=None, path=''):
+    """The one storage boundary every extracted value crosses: markup
+    out, then redaction.
+
+    Markup first so a redaction pattern cannot be hidden behind a tag,
+    and so the reason a redaction reports is about the text the record
+    would have held.
+    """
+    return redact(strip_markup(value), dropped, path)
+
+
+# --- a page heading is not a job title -----------------------------------
+
+#: Headings that are the name of a careers page and never the name of a
+#: role (brief 2026-10-18, section 6). Matched as the WHOLE heading,
+#: case-insensitively: "Job Offers" is a page, "Job Offers Manager" is a
+#: job. Kept as an exact-match set rather than folded into
+#: `intake.GENERIC_TITLE_RE`, which matches a heading with a trailing
+#: "at <employer>" and so needs a pattern; these are the plain words the
+#: owner found on live postings, in the three languages the Swiss market
+#: writes them in.
+GENERIC_HEADINGS = frozenset({
+    'job offers', 'jobs', 'job', 'careers', 'career', 'careers and jobs',
+    'stellenangebote', "offres d'emploi",
+})
+
+#: Why a job carries a provisional title. Owner-facing: it says what
+#: happened and what to do, and never names a pattern or a selector.
+NO_TITLE_REASON = ('The posting\'s heading was the name of its careers page and not a role, '
+                   'so no title could be read from it. Edit the job to give it one.')
+
+
+def is_generic_heading(value):
+    """True when this text is a careers-page heading and not a role."""
+    return plain_text(str(value or '')).strip().casefold() in GENERIC_HEADINGS
+
+
+# --- an internal code is not part of a company name ----------------------
+
+#: A site or legal-entity code some employers prefix their own name with
+#: in a posting's `hiringOrganization.name`. Thomson Reuters publishes
+#: "CHE003 Thomson Reuters Enterprise Centre GmbH" on its Workday
+#: postings, where CHE003 is their internal Swiss site code (vault
+#: CO-054, brief 2026-10-18 section 6).
+#:
+#: Deliberately narrow: exactly three uppercase letters immediately
+#: followed by exactly three digits, then whitespace, then the rest of
+#: the name. That is the shape the live posting produced, and it cannot
+#: eat a real name -- an abbreviation is separated from a number by a
+#: space ("BMW 320"), a model name does not carry three digits after
+#: three letters with no separator, and the pattern only strips when
+#: something with a letter in it is left over.
+_ENTITY_CODE_RE = re.compile(r'^[A-Z]{3}\d{3}\s+(?=\S)')
+
+
+def company_name_text(value):
+    """An employer name as the vault stores it: no leading entity code.
+
+    Applied where a posting's employer name is read, so the code never
+    reaches a company record in the first place;
+    scripts/clean_stored_text.py is the same rule over records written
+    before it existed.
+    """
+    name = plain_text(str(value or '')).strip()
+    stripped = _ENTITY_CODE_RE.sub('', name)
+    return stripped if re.search(r'[A-Za-z]', stripped) else name
 
 
 def warn(error):
@@ -354,7 +474,7 @@ def parse_response(content):
         result['requirement_groups'] = groups
     if not result:
         raise ValueError('Extraction contained no recognized fields.')
-    result = redact(result)
+    result = clean_extracted(result)
     if 'contact_email' in result and not is_valid_contact_email(result['contact_email']):
         result['contact_email'] = ''
     return result
@@ -401,7 +521,7 @@ def heuristic_extract(description):
                 if re.search(r'\b' + re.escape(word) + r'\b', description, re.I)]
     sentences = [s for s in re.split(r'(?<=[.!?])\s+', ' '.join(lines)) if s.strip()]
     summary = ' '.join(_skip_boilerplate_sentences(sentences)[:2])
-    return redact(dict(title=title, company=company, location=location, remote_ok=remote,
+    return clean_extracted(dict(title=title, company=company, location=location, remote_ok=remote,
                 employment_type=employment.group(0).lower().replace(' ', '-') if employment else '',
                 seniority=seniority.group(0).lower() if seniority else '',
                 keywords=keywords, summary=summary,
@@ -474,7 +594,7 @@ def heuristic_structured_description(description):
     sentences = [s for s in re.split(r'(?<=[.!?])\s+', ' '.join(lines)) if s.strip()]
     summary = ' '.join(_skip_boilerplate_sentences(sentences)[:2])
     method = 'heuristic' if (requirements or nice_to_have or summary) else 'raw'
-    return redact({'summary': summary, 'requirements': requirements,
+    return clean_extracted({'summary': summary, 'requirements': requirements,
                   'nice_to_have': nice_to_have, 'method': method})
 
 

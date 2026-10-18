@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Box, Button, Flex, Link, PageHeader, Text } from 'gestalt';
+import { Box, Button, Flex, Link, Text } from 'gestalt';
 import { fetchNotes } from '../api/notes.js';
 import { DividerList, EmptyState } from '../components/SectionCard.jsx';
 import { localDate } from '../dates.js';
+import PageLayout from '../components/PageLayout.jsx';
 
 // Every note in the vault, with the job or company it belongs to. The
 // owner asked to see notes in one place and to see what each one is
@@ -50,8 +51,7 @@ export default function Notes() {
   const { notes, empty } = page;
 
   return (
-    <Box padding={6}>
-      <PageHeader title="Notes" />
+    <PageLayout title="Notes">
       <Flex direction="column" gap={4} maxWidth={720}>
         {notes.length ? (
           <DividerList
@@ -93,6 +93,6 @@ export default function Notes() {
           <EmptyState text={empty} />
         )}
       </Flex>
-    </Box>
+    </PageLayout>
   );
 }

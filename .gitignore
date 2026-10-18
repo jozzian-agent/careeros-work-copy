@@ -40,5 +40,9 @@ data/personio/*
 # the owner reads those two.
 data/ats/*
 !data/ats/TRIAL_REPORT.md
+
+# nightly pipeline logs and run outputs, written by
+# scripts/nightly_pipeline.sh; nothing in here is source
+data/nightly/
 tmp-plan-vision-to-mvp.md
 tmp-vision-and-mvp.md

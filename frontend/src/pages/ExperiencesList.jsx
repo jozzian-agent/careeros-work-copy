@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Box, Button, ButtonLink, Flex, Heading, Link, PageHeader, Text } from 'gestalt';
+import { Badge, Box, Button, ButtonLink, Flex, Heading, Link, Text } from 'gestalt';
+import PageLayout from '../components/PageLayout.jsx';
 import { fetchExperiencesPage } from '../api/experiences.js';
 import { tagLabel } from '../tags.js';
 
@@ -41,15 +42,15 @@ export default function ExperiencesList() {
   const { entries, empty, companies, labels, tag_labels: tagLabels } = page;
 
   return (
-    <Box padding={6}>
-      <PageHeader
-        title="Experiences"
-        primaryAction={{
-          component: <ButtonLink href="/experiences/new" text="Add position" color="red" target="self" />,
-          dropdownItems: [],
-        }}
-      />
-      <Box marginTop={4}>
+    <PageLayout
+      title="Experiences"
+      header={
+        <Flex gap={2} alignItems="center" wrap>
+          <ButtonLink href="/experiences/new" text="Add position" color="red" target="self" />
+        </Flex>
+      }
+    >
+      <Box>
         {entries.length === 0 ? (
           <Box rounding={4} borderStyle="sm" padding={6} color="default">
             <Flex direction="column" gap={3} alignItems="center">
@@ -108,6 +109,6 @@ export default function ExperiencesList() {
           </Flex>
         )}
       </Box>
-    </Box>
+    </PageLayout>
   );
 }

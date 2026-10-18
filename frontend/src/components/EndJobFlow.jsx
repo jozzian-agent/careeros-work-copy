@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { BannerSlim, Box, Button, Flex, Modal, Popover, RadioGroup, Text, TextArea } from 'gestalt';
+import { BannerSlim, Box, Button, Flex, Modal, RadioGroup, Text, TextArea } from 'gestalt';
+import FloatingPopover from './FloatingPopover.jsx';
 
 // The three popups that end a job (D7). They are one file because they are
 // one flow: the chooser asks how it ended, Won asks to be sure, and the
@@ -14,7 +15,7 @@ import { BannerSlim, Box, Button, Flex, Modal, Popover, RadioGroup, Text, TextAr
 // without a mouse through the status select's own ended options.
 export function EndingChooser({ anchor, jobTitle, endedStatuses, statusLabels, onPick, onDismiss }) {
   return (
-    <Popover
+    <FloatingPopover
       anchor={anchor}
       onDismiss={onDismiss}
       role="dialog"
@@ -37,7 +38,7 @@ export function EndingChooser({ anchor, jobTitle, endedStatuses, statusLabels, o
           ))}
         </Flex>
       </Box>
-    </Popover>
+    </FloatingPopover>
   );
 }
 

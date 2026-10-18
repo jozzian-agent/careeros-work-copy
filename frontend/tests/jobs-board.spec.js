@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { loadBoardFixture, mockBoard, mockMove, mockRetry, selectStatus } from './helpers.js';
+// The card renders the location and the date through these, so the spec
+// reads them from the same helpers rather than keeping a second copy of
+// the formatting rules.
+import { shortDate } from '../src/dates.js';
+import { displayLocation } from '../src/location.js';
 
 const fixture = loadBoardFixture();
 // D7: the columns are the open statuses only. The three that end a job
@@ -154,34 +159,34 @@ for (const entry of openEntries) {
       `/jobs/${entry.id}`,
     );
 
-    if (entry.company_link_state === 'needs_review') {
-      await expect(card.getByText('Needs your input')).toBeVisible();
-      await expect(card.getByText('Company: pending')).toHaveCount(0);
-      if (entry.company_name && entry.company_id) {
-        await expect(card.getByRole('link', { name: entry.company_name, exact: true })).toHaveAttribute(
-          'href',
-          `/companies/${entry.company_id}`,
-        );
-      }
-    } else if (entry.company_name && entry.company_id) {
+    // One "Needs your input" chip per card, in the top row, driven by
+    // the payload's own needs_attention -- the same flag the filter bar
+    // counts -- rather than by the company link state alone.
+    if (entry.needs_attention) {
+      await expect(card.getByTestId('needs-input-chip')).toBeVisible();
+    } else {
+      await expect(card.getByTestId('needs-input-chip')).toHaveCount(0);
+    }
+
+    if (entry.company_name && entry.company_id) {
       await expect(card.getByRole('link', { name: entry.company_name, exact: true })).toHaveAttribute(
         'href',
         `/companies/${entry.company_id}`,
       );
       await expect(card.getByText('Company: pending')).toHaveCount(0);
-      await expect(card.getByText('Needs your input')).toHaveCount(0);
     } else {
       await expect(card.getByText('Company: pending')).toBeVisible();
-      await expect(card.getByText('Needs your input')).toHaveCount(0);
     }
 
-    await expect(card.getByText(`added ${entry.added}`, { exact: false })).toBeVisible();
+    // One meta line: the location with a pin, then the day the job was
+    // added as "Added 14 Oct" (no year, since the fixture is this year).
+    await expect(card.getByText(`Added ${shortDate(entry.added)}`, { exact: true })).toBeVisible();
+    await expect(
+      card.getByText(displayLocation(entry.location) || 'Location unknown', { exact: true }),
+    ).toBeVisible();
 
-    if (entry.posted_date) {
-      await expect(card.getByText(`Posted ${entry.posted_date}`, { exact: true })).toBeVisible();
-    } else {
-      await expect(card.getByText(/^Posted /)).toHaveCount(0);
-    }
+    // No separate "Posted" line any more (brief 2026-10-18, section 5).
+    await expect(card.getByText(/^Posted /)).toHaveCount(0);
 
     // No source badge and no AI-generated badge on the card (design-
     // system.md "Badge usage"): the company name already identifies the
@@ -189,28 +194,21 @@ for (const entry of openEntries) {
     await expect(card.getByText(entry.source, { exact: true })).toHaveCount(0);
     await expect(card.getByText('AI-generated')).toHaveCount(0);
 
-    if (entry.salary_info) {
-      await expect(card.getByText('Salary disclosed')).toBeVisible();
-    } else {
-      await expect(card.getByText('Salary disclosed')).toHaveCount(0);
-    }
-
+    // The badge row is gone: four badges on a 320px card wrapped past
+    // its edge, and each of them is a filter above the board or a line
+    // on the detail page (brief 2026-10-18, section 5).
+    await expect(card.getByText('Salary disclosed')).toHaveCount(0);
+    await expect(card.getByText('Company details pending')).toHaveCount(0);
     if (entry.company_industry) {
-      await expect(card.getByText(entry.company_industry, { exact: true })).toBeVisible();
+      await expect(card.getByText(entry.company_industry, { exact: true })).toHaveCount(0);
     }
     if (entry.company_size_class) {
       const sizeLabel = entry.company_size_class.charAt(0).toUpperCase() + entry.company_size_class.slice(1);
-      await expect(card.getByText(sizeLabel, { exact: true })).toBeVisible();
+      await expect(card.getByText(sizeLabel, { exact: true })).toHaveCount(0);
     }
-    if (!entry.company_industry && !entry.company_size_class) {
-      await expect(card.getByText('Company details pending')).toBeVisible();
-    } else {
-      await expect(card.getByText('Company details pending')).toHaveCount(0);
-    }
-
     for (const [functionId, label] of fixture.function_options) {
       if (entry.function.includes(functionId)) {
-        await expect(card.getByText(label, { exact: true })).toBeVisible();
+        await expect(card.getByText(label, { exact: true })).toHaveCount(0);
       }
     }
 
@@ -254,7 +252,7 @@ test('a tentative company_name + company_id alongside needs_review renders both 
     'href',
     `/companies/${tentative.company_id}`,
   );
-  await expect(card.getByText('Needs your input')).toBeVisible();
+  await expect(card.getByTestId('needs-input-chip')).toBeVisible();
   await expect(card.getByText('Company: pending')).toHaveCount(0);
 });
 
@@ -555,3 +553,51 @@ test('load failure (including background refresh) shows the error with a Retry t
 // "eligible for promotion", Add anyway) moved to tests/add-job-popup.spec.js
 // with the JOZ-279 popup rebuild: the inline "Posting URL" field and the
 // unconditional duplicate dialog these tests drove no longer exist.
+
+// Brief 2026-10-18, section 1: Board and List are one pair, each with its
+// own aria-pressed, and the selected STYLE moves with the choice rather
+// than one of them looking like the page's main action.
+test('Board and List are one pressed pair and the selected style moves with the view', async ({
+  page,
+}) => {
+  await page.goto('/jobs');
+  const group = page.getByRole('group', { name: 'View', exact: true });
+  const board = group.getByRole('button', { name: 'Board', exact: true });
+  const list = group.getByRole('button', { name: 'List', exact: true });
+
+  const ground = (locator) => locator.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const WASH_BLUE = 'rgb(230, 244, 255)';
+  const NEUTRAL = 'rgb(233, 233, 233)';
+
+  await expect(board).toHaveAttribute('aria-pressed', 'true');
+  await expect(list).toHaveAttribute('aria-pressed', 'false');
+  expect(await ground(board)).toBe(WASH_BLUE);
+  expect(await ground(list)).toBe(NEUTRAL);
+
+  await list.click();
+  await expect(board).toHaveAttribute('aria-pressed', 'false');
+  await expect(list).toHaveAttribute('aria-pressed', 'true');
+  expect(await ground(board)).toBe(NEUTRAL);
+  expect(await ground(list)).toBe(WASH_BLUE);
+
+  // And a toggle that is on carries the same style as the chosen view.
+  const needsAttention = page.getByTestId('filter-chip-needs-attention');
+  expect(await ground(needsAttention)).toBe(NEUTRAL);
+  await needsAttention.click();
+  await expect(needsAttention).toHaveAttribute('aria-pressed', 'true');
+  expect(await ground(needsAttention)).toBe(WASH_BLUE);
+});
+
+// The pair is 16px to the right of "Add a job" (artboard 2026-10-18).
+test('the view pair sits 16px to the right of Add a job', async ({ page }) => {
+  await page.goto('/jobs');
+  await expect(page.getByRole('group', { name: 'View', exact: true })).toBeVisible();
+  const gap = await page.evaluate(() => {
+    const add = [...document.querySelectorAll('button')].find(
+      (el) => el.textContent.trim() === 'Add a job',
+    );
+    const group = document.querySelector('[role="group"][aria-label="View"]');
+    return Math.round(group.getBoundingClientRect().left - add.getBoundingClientRect().right);
+  });
+  expect(gap).toBe(16);
+});

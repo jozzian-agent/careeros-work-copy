@@ -33,8 +33,9 @@ test('the row scrolls horizontally instead of wrapping the columns', async ({ pa
     scrollWidth: el.scrollWidth,
     clientWidth: el.clientWidth,
   }));
-  // 5 columns at 320px plus gaps and the Ended strip is wider than the
-  // viewport, which is what makes the lane worth pinning.
+  // 5 columns at 320px plus gaps is wider than what the row is left
+  // once the Ended lane has taken its own width beside it, which is what
+  // makes the row scroll at all.
   expect(scrollWidth).toBeGreaterThan(clientWidth);
 });
 

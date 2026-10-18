@@ -2,13 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Button,
-  ButtonToggle,
   DeviceTypeProvider,
   Flex,
   Layer,
   Link,
   Modal,
-  PageHeader,
   SelectList,
   Table,
   Text,
@@ -21,6 +19,7 @@ import FloatingMessage from '../components/Message.jsx';
 import AddJobPopup from '../components/AddJobPopup.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import FilterChip from '../components/FilterChip.jsx';
+import PageLayout from '../components/PageLayout.jsx';
 import { EndingChooser, ReasonPopup, WonConfirm } from '../components/EndJobFlow.jsx';
 import { ClosedPostingsBanner, ClosedPostingsReview } from '../components/ClosedPostings.jsx';
 import { usePhoneLayout } from '../layout.js';
@@ -986,11 +985,6 @@ export default function JobsBoard() {
     submitIntake(url, { force: true });
   }
 
-  const functionLabels = useMemo(() => {
-    if (!board) return {};
-    return Object.fromEntries(board.function_options.map(([id, label]) => [id, label]));
-  }, [board]);
-
   const functionOptions = useMemo(() => {
     if (!board) return [];
     const counts = countBy(board.entries, (job) => job.function || []);
@@ -1113,7 +1107,6 @@ export default function JobsBoard() {
         statuses={board.statuses}
         statusLabels={board.status_labels || {}}
         endedStatuses={endedStatuses}
-        functionLabels={functionLabels}
         closedDays={closedDaysById[job.id]}
         compact={compact}
         canExplain={reasonSuggestions(job.status).length > 0}
@@ -1170,23 +1163,41 @@ export default function JobsBoard() {
   const columns = isPhone ? allColumns.filter((column) => column.status === phoneSelection) : allColumns;
   const laneProps = isPhone ? (phoneSelection === 'ended' ? lane : null) : lane;
 
-  const boardUi = (
-    <Box padding={6}>
-      <PageHeader title="My Jobs" />
-      {/* PageHeader's own items slot is `display: none` below the md
-          breakpoint (gestalt/src/PageHeader/components.tsx
-          PageHeaderItemsBlock), so Board/List lived there would be
-          unreachable on mobile and the mobile list-rows fix would be moot.
-          This row has no such hiding and stays visible at every width.
-          D7 makes "Add a job" the one primary button, in words rather than
-          the plus icon it used to be. */}
-      <Box marginTop={3} marginBottom={3}>
-        <Flex gap={2} alignItems="center">
+  // The page header stack, in the order the artboard draws it: the title
+  // (PageLayout's own H1), then "Add a job" with the Board/List pair,
+  // then the filter bar, then the closed-postings banner.
+  //
+  // Board and List are one FilterChip pair in a labelled group rather
+  // than two ButtonToggles (brief 2026-10-18, section 1): a selected view
+  // is a state, and ButtonToggle's selected state is a primary blue fill,
+  // which made the view look like the page's main action. "Add a job"
+  // stays the only blue fill above the board. The 16px between the button
+  // and the pair is the row's own 8px gap plus 8px on the button.
+  const headerRows = (
+    <>
+      <Flex gap={2} alignItems="center" wrap>
+        <Box marginEnd={2}>
           <Button text="Add a job" color="red" accessibilityHaspopup onClick={() => setAddPopupOpen(true)} />
-          <ButtonToggle text="Board" selected={view === 'board'} onClick={() => persistView('board')} />
-          <ButtonToggle text="List" selected={view === 'list'} onClick={() => persistView('list')} />
-        </Flex>
-      </Box>
+        </Box>
+        <div role="group" aria-label="View" style={{ display: 'inline-flex', gap: 4 }}>
+          <FilterChip
+            label="Board"
+            height={44}
+            dataTestId="view-chip-board"
+            selected={view === 'board'}
+            pressed={view === 'board'}
+            onClick={() => persistView('board')}
+          />
+          <FilterChip
+            label="List"
+            height={44}
+            dataTestId="view-chip-list"
+            selected={view === 'list'}
+            pressed={view === 'list'}
+            onClick={() => persistView('list')}
+          />
+        </div>
+      </Flex>
       <FilterBar
         groups={FILTER_GROUPS}
         countNoun="jobs"
@@ -1224,6 +1235,11 @@ export default function JobsBoard() {
           onNotNow={dismissClosedReview}
         />
       ) : null}
+    </>
+  );
+
+  const boardUi = (
+    <PageLayout title="My Jobs" header={headerRows}>
       {isPhone && view === 'board' && !isEmpty ? (
         <Box marginBottom={4} overflow="scrollX">
           <Flex gap={2} alignItems="center" wrap={false}>
@@ -1351,7 +1367,7 @@ export default function JobsBoard() {
           </Box>
         </Layer>
       ) : null}
-    </Box>
+    </PageLayout>
   );
 
   // Below the phone width every popup is a full-width sheet (D7). Gestalt

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Box, Button, Flex, Heading, PageHeader, Table, Text } from 'gestalt';
+import { Box, Button, Flex, Heading, Table, Text } from 'gestalt';
 import { fetchTaxonomy } from '../api/taxonomy.js';
+import PageLayout from '../components/PageLayout.jsx';
 
 function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
@@ -86,8 +87,7 @@ export default function Taxonomy() {
   const { skills, industries, sizes } = page;
 
   return (
-    <Box padding={6}>
-      <PageHeader title="Taxonomy" />
+    <PageLayout title="Taxonomy">
       <Flex direction="column" gap={6} maxWidth={720}>
         <Box>
           <Heading size="400">Skills</Heading>
@@ -133,6 +133,6 @@ export default function Taxonomy() {
           />
         </Box>
       </Flex>
-    </Box>
+    </PageLayout>
   );
 }

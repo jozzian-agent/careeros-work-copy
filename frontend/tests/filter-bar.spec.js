@@ -243,3 +243,90 @@ test('a Company size selection in More filters narrows the board by the company 
     await expect(page.getByText(entry.title, { exact: true })).toHaveCount(0);
   }
 });
+
+// --- popovers are opaque and on top (brief 2026-10-18, section 2) --------
+//
+// The panel was never transparent: Gestalt's Popover renders inline with
+// no z-index, and Gestalt's own <table> carries `isolation: isolate`,
+// which makes it a stacking context painted in the same pass, later in
+// tree order. So the table drew over the panel, which reads exactly like
+// seeing the table through it. Every overlay now mounts in a Gestalt
+// Layer (src/components/FloatingPopover.jsx), so the guard is the same
+// in both views and at both scroll positions: the element under the
+// panel's own centre is part of the panel.
+
+// What is actually painted at a point, named.
+async function topmostAt(page, locator) {
+  return locator.evaluate((node) => {
+    const rect = node.getBoundingClientRect();
+    const top = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return {
+      insidePanel: Boolean(top) && (node === top || node.contains(top)),
+      background: getComputedStyle(node).backgroundColor,
+      what: top ? `${top.tagName}.${String(top.className).slice(0, 30)}` : 'nothing',
+    };
+  });
+}
+
+for (const view of ['Board', 'List']) {
+  for (const scrolled of [false, true]) {
+    const where = scrolled ? 'scrolled down' : 'at the top';
+    test(`in ${view} view ${where}, every filter popover is opaque and on top`, async ({ page }) => {
+      await page.goto('/jobs');
+      await page.getByRole('button', { name: view, exact: true }).click();
+      if (scrolled) await page.mouse.wheel(0, 400);
+
+      for (const chip of ['function', 'location']) {
+        await page.getByTestId(`filter-chip-${chip}`).click();
+        const panel = page.getByRole('dialog');
+        await expect(panel).toBeVisible();
+        const result = await topmostAt(page, panel);
+        expect(result.background).toBe('rgb(255, 255, 255)'); // the card ground
+        expect(result).toMatchObject({ insidePanel: true });
+        await page.keyboard.press('Escape');
+      }
+
+      // The More filters panel is an OverlayPanel, which mounts in its
+      // own Layer; it is checked here because the owner saw the same bug
+      // on it.
+      await page.getByTestId('filter-chip-more').click();
+      const more = page.getByRole('dialog', { name: 'More filters' });
+      await expect(more).toBeVisible();
+      // Its own footer button is what to check rather than the dialog's
+      // centre: the dialog is the full-screen container and the sheet is
+      // only its right-hand side. The check is a real click, which
+      // Playwright refuses to land when another element would receive
+      // it -- which is exactly what the sticky lane used to do to this
+      // button.
+      const apply = more.getByRole('button', { name: /^Show \d+ jobs$/ });
+      await expect(apply).toBeVisible();
+      await apply.click({ timeout: 5000 });
+      await expect(more).toHaveCount(0);
+    });
+  }
+}
+
+// The two other layered controls the brief names.
+test("the card's status dropdown is opaque and on top of the board", async ({ page }) => {
+  await page.goto('/jobs');
+  const card = page.getByTestId(`job-card-${fixture.entries[0].id}`);
+  await card.getByTestId(`status-select-${fixture.entries[0].id}`).click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  expect(await topmostAt(page, menu)).toMatchObject({ insidePanel: true });
+});
+
+test('the "How did it end?" chooser is opaque and on top of the board', async ({ page }) => {
+  await page.goto('/jobs');
+  const open = fixture.entries.find((entry) => !fixture.ended_statuses.includes(entry.status));
+  const card = page.getByTestId(`job-card-${open.id}`);
+  const strip = page.getByTestId('ended-lane-collapsed');
+
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await card.dispatchEvent('dragstart', { dataTransfer });
+  await strip.dispatchEvent('drop', { dataTransfer });
+
+  const chooser = page.getByRole('dialog', { name: `How did ${open.title} end?` });
+  await expect(chooser).toBeVisible();
+  expect(await topmostAt(page, chooser)).toMatchObject({ insidePanel: true });
+});

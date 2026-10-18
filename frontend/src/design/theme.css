@@ -25,6 +25,32 @@
    * (#ffffff light, #191919 dark) instead of being hardcoded white. */
   --color-background-default: var(--color-background-card) !important;
 
+  /* Every floating surface is the card surface, and says so here rather
+   * than inheriting it by luck.
+   *
+   * Gestalt resolves a Popover's ground through
+   * --color-background-popover-primary, which its own stylesheet aliases
+   * to --color-background-default (so the line above would carry it) --
+   * but DesignTokensProvider re-emits every token as a RESOLVED literal
+   * on :root in <body>, which bypasses the alias: light mode got
+   * Gestalt's stock #ffffff, and dark mode its elevation-floating
+   * #2b2b2b, which is this system's secondary ground and not its card.
+   * Binding the three tokens directly makes a popover the card in both
+   * schemes whatever Gestalt emits. Recorded as an override in
+   * docs/decisions/design-system.md, per AGENTS.md.
+   *
+   * --color-border-popover-primary is Gestalt's name for the caret's
+   * fill, not a border, so it follows the ground. The floating shadow
+   * comes from --elevation-floating in tokens.css, which carries
+   * !important and therefore also holds in dark mode, where Gestalt's
+   * stock dark value is `none`.
+   *
+   * The popovers' stacking, which is what actually made them look
+   * see-through, is fixed in src/components/FloatingPopover.jsx. */
+  --color-background-popover-primary: var(--color-background-card) !important;
+  --color-border-popover-primary: var(--color-background-card) !important;
+  --color-background-elevation-floating: var(--color-background-card) !important;
+
   /* Primary action = brand blue, replacing Gestalt's Pinterest red. These
    * three also drive Button color="red", which is how the board's Add /
    * Retry / Add anyway buttons become brand blue with no markup change. */

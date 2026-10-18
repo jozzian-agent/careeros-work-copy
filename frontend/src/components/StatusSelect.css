@@ -1,6 +1,7 @@
-/* Gestalt's sm Button is a fixed 32px tall, below WCAG 2.5.5's 44px minimum
-   touch target. Button has no per-breakpoint size prop, so the control's own
-   button element is grown directly at phone widths. */
+/* The artboard's 32px control is below WCAG 2.5.5's 44px minimum touch
+   target, so it is grown at phone widths, where a finger is the pointer.
+   A media query rather than a prop: the height is a property of the
+   viewport and not of the card. */
 @media (max-width: 480px) {
   .status-select-control > button {
     min-height: 44px;

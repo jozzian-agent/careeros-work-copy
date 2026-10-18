@@ -8,6 +8,8 @@ const fixture = loadBoardFixture();
 // inject. Values come from src/design/tokens.css, which is the repo's single
 // source of truth and a verbatim port of the handoff's design-system/tokens.css.
 const BRAND_PRIMARY = 'rgb(0, 95, 203)'; // #005fcb, blue-skycicle 600
+const BRAND_WASH_BLUE = 'rgb(230, 244, 255)'; // #e6f4ff, the selected-toggle ground
+const SECONDARY_BASE = 'rgb(233, 233, 233)'; // #e9e9e9, the neutral chip ground
 const BRAND_PRIMARY_DARK = '#75bfff'; // blue-skycicle 300
 const TEXT_SUBTLE = '#5f5f5f'; // raised from Gestalt's #767676
 const BORDER_FOCUS = '#004ba9'; // solid, replacing Gestalt's 50% blue
@@ -81,15 +83,47 @@ function readPrimaryButton(page) {
   });
 }
 
-test('selected toggle and primary button both render the brand blue', async ({ page }) => {
+// Brief 2026-10-18, section 1: a selected toggle is a STATE, so it gets
+// the wash-blue ground and the blue border the Function filter always
+// had, never the brand FILL. The fill belongs to the one main action on
+// the screen, and "Add a job" is it.
+test('a selected toggle is wash blue with a blue border, and only the main action is filled', async ({
+  page,
+}) => {
   const boardButton = await openBoard(page);
 
-  // ButtonToggle's selected state reads --color-background-button-selected-default,
-  // which Gestalt 177 defaults to near-black rather than to its own red.
-  const selectedBackground = await boardButton.evaluate(
-    (el) => getComputedStyle(el.firstElementChild).backgroundColor,
-  );
-  expect(selectedBackground).toBe(BRAND_PRIMARY);
+  const selected = await boardButton.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { background: cs.backgroundColor, border: cs.borderTopColor, width: cs.borderTopWidth };
+  });
+  expect(selected.background).toBe(BRAND_WASH_BLUE);
+  expect(selected.border).toBe(BRAND_PRIMARY);
+  expect(selected.width).toBe('2px');
+
+  // The unselected half of the pair keeps the neutral chip ground, and
+  // its border is transparent so selecting one never reflows the row.
+  const unselected = await page
+    .getByRole('button', { name: 'List', exact: true })
+    .evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { background: cs.backgroundColor, border: cs.borderTopColor, width: cs.borderTopWidth };
+    });
+  expect(unselected.background).toBe(SECONDARY_BASE);
+  expect(unselected.border).toBe('rgba(0, 0, 0, 0)');
+  expect(unselected.width).toBe('2px');
+
+  // Nothing a person can act on above the board carries the brand fill
+  // except "Add a job". A chip's count pill is left out on purpose: it is
+  // aria-hidden decoration on the chip it sits in (FilterChip keeps each
+  // chip's accessible name to its label), not an action and not a state.
+  const filled = await page.evaluate((brand) => {
+    const header = document.querySelector('[data-testid="page-header"]');
+    return [...header.querySelectorAll('*')]
+      .filter((el) => !el.closest('[aria-hidden="true"]'))
+      .filter((el) => getComputedStyle(el).backgroundColor === brand)
+      .map((el) => el.closest('button')?.textContent.trim() ?? el.textContent.trim());
+  }, BRAND_PRIMARY);
+  expect([...new Set(filled)]).toEqual(['Add a job']);
 
   // The Add job button is Button color="red": the brand reaches it through
   // the --color-background-button-primary-* tokens, with no change to its
@@ -172,8 +206,9 @@ test('line heights pair with font size across the whole type scale', async ({ pa
   await openBoard(page);
 
   // The brief's 44/36/28/24/20, plus text-100's 16. Each line height belongs
-  // to a font *size*, not to a heading level: Gestalt's PageHeader renders its
-  // title as an h1 at 20px, which is why this is keyed on font-size.
+  // to a font *size* and not to a heading level, which is why this is keyed
+  // on font-size: a Gestalt Heading renders the same tag at two sizes
+  // depending on its `size`.
   const scale = await page.evaluate(() => {
     const host = document.createElement('div');
     document.querySelector('#root').appendChild(host);
@@ -198,8 +233,9 @@ test('line heights pair with font size across the whole type scale', async ({ pa
   });
 
   // And the board's own rendered Gestalt components, which must land on the
-  // same pairs. PageHeader's title is an h1 at 20px; a column title is
-  // Heading size 400, also 20px; card text is Text size 200 at 14px.
+  // same pairs. The page title is an h1 at 28px since the white band went
+  // (brief 2026-10-18, section 3: Heading size 600, 28/36); a column title
+  // is Heading size 400 at 20px; card text is Text size 200 at 14px.
   const rendered = await page.evaluate(() => {
     const read = (sel) => {
       const cs = getComputedStyle(document.querySelector(sel));
@@ -208,7 +244,7 @@ test('line heights pair with font size across the whole type scale', async ({ pa
     return { h1: read('h1'), h3: read('h3') };
   });
   // Only 400 and 700 exist in Atkinson Hyperlegible, so headings are bold.
-  expect(rendered.h1).toEqual({ fontSize: '20px', lineHeight: '28px', fontWeight: '700' });
+  expect(rendered.h1).toEqual({ fontSize: '28px', lineHeight: '36px', fontWeight: '700' });
   expect(rendered.h3).toEqual({ fontSize: '20px', lineHeight: '28px', fontWeight: '700' });
 });
 

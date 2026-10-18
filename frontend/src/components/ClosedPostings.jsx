@@ -21,7 +21,9 @@ export function ClosedPostingsBanner({ count, short, onReview, onNotNow }) {
     : `${countWord(count, 'job')} you have not applied to ${count === 1 ? 'has' : 'have'} had a closed posting for over a week.`;
 
   return (
-    <Box marginBottom={4} data-testid="closed-postings-banner">
+    // No bottom margin: the banner is a row of the page header stack,
+    // which spaces its own rows (components/PageLayout.jsx).
+    <Box data-testid="closed-postings-banner">
       <BannerSlim
         type="info"
         iconAccessibilityLabel="Information"

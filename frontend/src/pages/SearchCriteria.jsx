@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BannerSlim, Box, Button, Flex, PageHeader, Text, TextArea, TextField } from 'gestalt';
+import { BannerSlim, Box, Button, Flex, Text, TextArea, TextField } from 'gestalt';
+import PageLayout from '../components/PageLayout.jsx';
 import { fetchSearchPage, saveSearch } from '../api/search.js';
 import SectionCard, { DividerList } from '../components/SectionCard.jsx';
 
@@ -116,8 +117,7 @@ export default function SearchCriteria() {
 
   if (criteria === null) {
     return (
-      <Box padding={6}>
-        <PageHeader title="Search" />
+      <PageLayout title="Search">
         <Box rounding={4} borderStyle="sm" padding={6} color="default">
           <Flex direction="column" gap={3} alignItems="center">
             <Text align="center" color="subtle">
@@ -127,13 +127,12 @@ export default function SearchCriteria() {
             {error ? <BannerSlim type="error" message={error} onDismiss={() => setError(null)} /> : null}
           </Flex>
         </Box>
-      </Box>
+      </PageLayout>
     );
   }
 
   return (
-    <Box padding={6}>
-      <PageHeader title="Search" />
+    <PageLayout title="Search">
       <Flex direction="column" gap={5} maxWidth={880}>
         <Flex justifyContent="end" gap={2}>
           {editing ? (
@@ -216,6 +215,6 @@ export default function SearchCriteria() {
           )}
         </SectionCard>
       </Flex>
-    </Box>
+    </PageLayout>
   );
 }

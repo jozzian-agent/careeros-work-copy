@@ -1,4 +1,4 @@
-import { Box, Button, Checkbox, Fieldset, Flex, OverlayPanel, Text } from 'gestalt';
+import { Box, Button, Checkbox, Fieldset, Flex, Layer, OverlayPanel, Text } from 'gestalt';
 
 function GroupFieldset({ groupKey, legend, options, selected, onToggle }) {
   return (
@@ -46,30 +46,40 @@ export default function MoreFiltersPanel({
   resultCount,
   countNoun,
 }) {
+  // In a Layer, for the same reason every Popover is (see
+  // components/FloatingPopover.jsx): Gestalt renders OverlayPanel inline
+  // in the DOM of whatever opened it, as `position: fixed` with no
+  // z-index, and this one is opened from the filter bar -- earlier in
+  // the page than the board. The board's Ended lane is sticky, and
+  // therefore positioned, so it painted over this panel and swallowed
+  // its footer button. A Layer mounts after #root, so tree order puts
+  // the panel above everything the page draws.
   return (
-    <OverlayPanel
-      accessibilityLabel="More filters"
-      heading="More filters"
-      onDismiss={onDismiss}
-      footer={
-        <Flex justifyContent="between" alignItems="center">
-          <Button text="Clear all" color="transparent" onClick={onClearAll} />
-          <Button text={`Show ${resultCount} ${countNoun}`} color="red" onClick={onDismiss} />
+    <Layer>
+      <OverlayPanel
+        accessibilityLabel="More filters"
+        heading="More filters"
+        onDismiss={onDismiss}
+        footer={
+          <Flex justifyContent="between" alignItems="center">
+            <Button text="Clear all" color="transparent" onClick={onClearAll} />
+            <Button text={`Show ${resultCount} ${countNoun}`} color="red" onClick={onDismiss} />
+          </Flex>
+        }
+      >
+        <Flex direction="column" gap={4}>
+          {groups.map(({ key, label, legend }) => (
+            <GroupFieldset
+              key={key}
+              groupKey={key}
+              legend={legend || label}
+              options={optionsByGroup[key]}
+              selected={selected[key]}
+              onToggle={(value) => onToggle(key, value)}
+            />
+          ))}
         </Flex>
-      }
-    >
-      <Flex direction="column" gap={4}>
-        {groups.map(({ key, label, legend }) => (
-          <GroupFieldset
-            key={key}
-            groupKey={key}
-            legend={legend || label}
-            options={optionsByGroup[key]}
-            selected={selected[key]}
-            onToggle={(value) => onToggle(key, value)}
-          />
-        ))}
-      </Flex>
-    </OverlayPanel>
+      </OverlayPanel>
+    </Layer>
   );
 }

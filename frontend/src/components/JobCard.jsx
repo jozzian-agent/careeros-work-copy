@@ -4,12 +4,8 @@ import AiStatusChip from './AiStatusChip.jsx';
 import StatusSelect from './StatusSelect.jsx';
 import { aiStatus } from '../aiStatus.js';
 import { countWord } from '../counts.js';
-
-// Label text only, per the owner's 2026-10-13 decision (design-system.md
-// "Badge usage"): the board shows a size class, never a numeric range.
-// Since 2026-10-15 the board's own Company size filter reads the same
-// `company_size_class` this badge does, so the two cannot disagree.
-const SIZE_CLASS_LABELS = { micro: 'Micro', small: 'Small', medium: 'Medium', large: 'Large' };
+import { shortDate } from '../dates.js';
+import { displayLocation } from '../location.js';
 
 function jobHref(id) {
   return `/jobs/${encodeURIComponent(id)}`;
@@ -30,16 +26,21 @@ function companyHref(id) {
 // JobCard README's anatomy has no slot for company-match review state,
 // but dropping it would silently remove a working feature unrelated to
 // this ticket's fit/status rebuild.
-export function CompanyDisplay({ job }) {
+// `withReviewChip` is false on a board card since 2026-10-18: the card's
+// top row carries one "Needs your input" chip for every reason a job
+// needs the owner (see NeedsInputChip), so repeating it beside the
+// company link would say the same thing twice. The list view, which has
+// no such row, still shows it here.
+export function CompanyDisplay({ job, withReviewChip = true }) {
   const hasCandidate = job.company_name && job.company_id;
   const companyLink = hasCandidate ? (
     <Link href={companyHref(job.company_id)} display="inlineBlock">
-      <Text size="200" color="link">
+      <Text size="200" weight="bold" color="link">
         {job.company_name}
       </Text>
     </Link>
   ) : null;
-  if (job.company_link_state === 'needs_review') {
+  if (job.company_link_state === 'needs_review' && withReviewChip) {
     return (
       <Flex gap={2} alignItems="center" wrap>
         {companyLink}
@@ -51,6 +52,49 @@ export function CompanyDisplay({ job }) {
     return companyLink;
   }
   return <Badge type="neutral" text="Company: pending" />;
+}
+
+// The card's one "this job is waiting on you" chip, top left (artboard
+// 2026-10-18): the violet wash with a violet ring, not a filled badge, so
+// it informs without alarming (design-system.md "Badge usage").
+//
+// It reads the payload's own `needs_attention`, which is the same flag the
+// filter bar's "Needs attention" chip counts (careeros/web/pages/jobs.py
+// needs_attention): an unresolved company link, an ingest that got stuck,
+// or a posting whose title the reading could not find. One source, so the
+// chip and the filter can never disagree about which cards they mean.
+function NeedsInputChip({ job }) {
+  if (!job.needs_attention) return null;
+  return (
+    <span
+      data-testid="needs-input-chip"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        height: 24,
+        padding: '0 10px',
+        borderRadius: 999,
+        background: 'var(--color-brand-wash-violet)',
+        color: 'var(--color-text-default)',
+        fontSize: 12,
+        lineHeight: '16px',
+        fontWeight: 700,
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 8,
+          height: 8,
+          border: '2px solid var(--color-brand-violet)',
+          borderRadius: '50%',
+          flex: 'none',
+        }}
+      />
+      Needs your input
+    </span>
+  );
 }
 
 // Also kept from the pre-rebuild board for the same reason: ingest retry is
@@ -155,22 +199,30 @@ function EndedReason({ job, canExplain, onAddReason }) {
   );
 }
 
-// The card for one job on the board. Anatomy per the JobCard README,
-// minus the fit chip the README's top row had (owner decision 2026-10-15:
-// fit scoring is not built, nothing is written to `fit`, so every card
-// read "Needs your input" for a rating nobody can give. The chip comes
-// back with the scoring itself; the Job detail page keeps saying "Not
-// calculated yet", which is the honest answer to the same question):
-// 1. Top row: the status select, right-aligned.
-// 2. Title (bold, two lines max) and the company link, 4px apart.
-// 3. Location with a pin, then the dates, 6px apart.
+// The card for one job on the board, per the approved artboard
+// (2026-10-18):
+// 1. Top row, 32px tall: the "Needs your input" chip on the left when the
+//    job is waiting on the owner, the compact status select on the right.
+// 2. Title (16px bold, two lines max) and the company link (14px bold,
+//    link blue), 4px apart.
+// 3. One meta line: a pin and the location, then "Added 14 Oct".
 // 4. The closed posting, when there is one (D7, ClosedChip above).
-// The salary/industry/size/function badges and the ingest indicator are
-// kept below those groups; see CompanyDisplay/IngestIndicator above. No
-// source badge and no AI-generated badge here (design-system.md "Badge
-// usage"): the company name already identifies the posting, and
-// provenance badges are a detail-page-only signal, so JobDetail keeps its
-// own AI-generated badge untouched.
+//
+// What the artboard removed, and why. The sector, size, salary and
+// function badges are gone: four of them on one 320px card wrapped past
+// its edge, and every one of them is a filter above the board or a line
+// on the detail page, so the card was repeating what the owner already
+// has a way to ask for. "Posted" is gone for the same reason -- the card
+// says when the job entered the board, which is the date the owner reads
+// it by, and the posting's own date is on the detail page. The fit chip
+// went in 2026-10-15 (fit scoring is not built). No source badge and no
+// AI-generated badge either (design-system.md "Badge usage").
+//
+// The ingest indicator stays. It is not a badge: a failed read is a
+// visible state with a Try again beside it, and the board has no other
+// route to that retry (product rule: a failure is visible with a way to
+// retry). The location line is deduped for display only, by
+// src/location.js.
 //
 // `compact` is the Ended lane's own card (D7): title, company, and the
 // reason the job ended or the link that adds one. An ended job needs
@@ -182,7 +234,6 @@ export default function JobCard({
   statuses,
   statusLabels,
   endedStatuses,
-  functionLabels,
   closedDays,
   compact = false,
   canExplain = false,
@@ -193,6 +244,8 @@ export default function JobCard({
   isDragging,
 }) {
   const draggable = dragHandlers ? 'true' : 'false';
+  const location = displayLocation(job.location);
+  const added = shortDate(job.added);
 
   return (
     <div
@@ -203,51 +256,45 @@ export default function JobCard({
     >
       <Box color="default" borderStyle="sm" rounding={4} padding={compact ? 3 : 4} marginBottom={3}>
         <Flex direction="column" gap={compact ? 2 : 3}>
-          <Flex justifyContent="end" alignItems="center" gap={2}>
-            <StatusSelect
-              id={job.id}
-              jobTitle={job.title}
-              status={job.status}
-              statuses={statuses}
-              statusLabels={statusLabels}
-              endedStatuses={endedStatuses}
-              onChange={(status) => onMove(job.id, status)}
-            />
-          </Flex>
+          {/* The row keeps its 32px height with no chip in it, so the
+              status select sits on one line across a column of cards. */}
+          <Box minHeight={32} display="flex" alignItems="center">
+            <Flex flex="grow" justifyContent="between" alignItems="center" gap={2}>
+              <span>{compact ? null : <NeedsInputChip job={job} />}</span>
+              <StatusSelect
+                id={job.id}
+                jobTitle={job.title}
+                status={job.status}
+                statuses={statuses}
+                statusLabels={statusLabels}
+                endedStatuses={endedStatuses}
+                onChange={(status) => onMove(job.id, status)}
+              />
+            </Flex>
+          </Box>
           <Flex direction="column" gap={1}>
             <Link href={jobHref(job.id)} display="inlineBlock">
               <Heading size="300" lineClamp={2}>
                 {job.title}
               </Heading>
             </Link>
-            <CompanyDisplay job={job} />
+            <CompanyDisplay job={job} withReviewChip={compact} />
           </Flex>
           {compact ? <EndedReason job={job} canExplain={canExplain} onAddReason={onAddReason} /> : null}
           {compact ? null : (
             <>
-              <Flex direction="column" gap={1.5}>
+              <Flex gap={3} alignItems="center" wrap>
                 <Flex gap={1} alignItems="center">
                   <Icon icon="location" accessibilityLabel="" color="subtle" size={14} />
                   <Text size="200" color="subtle">
-                    {job.location || 'Location unknown'}, added {job.added}
+                    {location || 'Location unknown'}
                   </Text>
                 </Flex>
-                {job.posted_date ? (
+                {added ? (
                   <Text size="200" color="subtle">
-                    Posted {job.posted_date}
+                    {`Added ${added}`}
                   </Text>
                 ) : null}
-              </Flex>
-              <Flex gap={2} wrap>
-                {job.salary_info ? <Badge type="neutral" text="Salary disclosed" /> : null}
-                {job.company_industry ? <Badge type="neutral" text={job.company_industry} /> : null}
-                {job.company_size_class ? (
-                  <Badge type="neutral" text={SIZE_CLASS_LABELS[job.company_size_class] || job.company_size_class} />
-                ) : null}
-                {!job.company_industry && !job.company_size_class ? <QuietChip text="Company details pending" /> : null}
-                {job.function.map((functionId) => (
-                  <Badge key={functionId} type="neutral" text={functionLabels[functionId] || functionId} />
-                ))}
               </Flex>
               <IngestIndicator job={job} onRetry={onRetry} />
               <ClosedChip job={job} closedDays={closedDays} />

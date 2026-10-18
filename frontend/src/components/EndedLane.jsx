@@ -3,10 +3,31 @@ import { Badge, Box, Button, Flex, Heading, Text } from 'gestalt';
 import { jobCount } from '../counts.js';
 
 const LANE_WIDTH = 320;
-const STRIP_WIDTH = 72;
+// The collapsed lane's width, per the brief (2026-10-18, section 4). The
+// artboard draws 120px; the brief's 168px wins, and it is what the three
+// count rows need before "Rejected" and its number share a line.
+const STRIP_WIDTH = 168;
 
 // How many jobs a group shows before it offers the rest (D7).
 const GROUP_PREVIEW = 3;
+
+// What makes the lane the board's right-hand edge, in either state
+// (brief 2026-10-18, section 4).
+//
+// The lane is the LAST CELL of the board's outer flex row (KanbanBoard),
+// a sibling of the scrolling columns area: it reserves its own width,
+// the scroller gets what is left, and `align-self: stretch` gives it the
+// board's full height. Columns therefore END before the lane and never
+// slide under it — the brief's rule. An earlier sticky-inside-scroller
+// design passed the "full height" check but painted over the Interview
+// column at 1280px; a first sticky attempt (D7) had to be reverted
+// because it covered the More filters panel. Both problems are gone with
+// plain flex layout — no positioning, no z-index.
+const PINNED_STYLE = {
+  flex: 'none',
+  boxSizing: 'border-box',
+  alignSelf: 'stretch',
+};
 
 // The counts the lane heads with (D7). Every number is counted over
 // history in the backend, so an ended job still counts for the interview
@@ -125,11 +146,14 @@ function EndedGroup({ group, renderCard }) {
 // pursued. Remembering the choice is on the deferred list, so nothing is
 // stored and a reload always collapses it again.
 //
-// Collapsed it is a narrow strip that is still a drop target. It sits
-// beside the scrolling columns rather than inside them, so it keeps the
-// right edge and never scrolls out of reach. Expanded it is
-// one 320px column and not three: "Your search so far" on top, then Won,
-// Rejected and Stopped as groups.
+// Collapsed (2026-10-18) it is a grey strip the full height of the board:
+// the "Ended" heading on the column titles' own baseline under a grey
+// rule, one row per outcome with the label left and the number right, a
+// white Show button, and the line that says a card can be dropped on it.
+// It is still a drop target, and pinned to the right edge while the
+// columns scroll (PINNED_STYLE). Expanded it is one 320px column and not
+// three: "Your search so far" on top, then Won, Rejected and Stopped as
+// groups.
 //
 // `collapsible` is false in the phone layout, where the lane is reached
 // through the status chip row instead of a Show button, and where it is
@@ -149,9 +173,6 @@ export default function EndedLane({
   const label = `Ended, ${jobCount(total)}`;
 
   if (!open) {
-    const border = isOver
-      ? '2px dashed var(--color-brand-primary)'
-      : '2px solid var(--color-border-container)';
     return (
       <div
         data-testid="ended-lane-collapsed"
@@ -159,37 +180,79 @@ export default function EndedLane({
         aria-label={label}
         onDragOver={laneDragHandlers.onDragOver}
         onDrop={laneDragHandlers.onDrop}
+        style={{
+          ...PINNED_STYLE,
+          width: STRIP_WIDTH,
+          minWidth: STRIP_WIDTH,
+          borderRadius: 'var(--rounding-400)',
+          // No top padding: the lane's own header carries the same
+          // vertical padding a column header does, so the two titles and
+          // their rules land on one line.
+          padding: '0 var(--space-300) var(--space-400)',
+          // No border in either state: the ground is what the lane is
+          // drawn with, and the drag-over state swaps that ground and
+          // adds the dashed outline the columns use.
+          background: isOver ? 'var(--color-brand-wash-blue)' : 'var(--color-background-secondary-base)',
+          outline: isOver ? '2px dashed var(--color-brand-primary)' : 'none',
+          outlineOffset: '-2px',
+        }}
       >
-        <Box
-          width={STRIP_WIDTH}
-          minWidth={STRIP_WIDTH}
-          flex="none"
-          padding={2}
-          rounding={4}
-          dangerouslySetInlineStyle={{ __style: { border } }}
-        >
-          <Flex direction="column" gap={2} alignItems="center">
-            <Text weight="bold" size="200" align="center">
-              Ended
-            </Text>
-            <Badge type="neutral" text={String(total)} />
+        <Flex direction="column" gap={3}>
+          {/* Same wrapper as a column header in KanbanBoard, so "Ended"
+              and a column title share a baseline; the rule under it is
+              grey rather than the columns' blue, because the lane is not
+              one of the statuses being worked. */}
+          <Box
+            data-testid="ended-lane-header"
+            paddingY={2}
+            dangerouslySetInlineStyle={{
+              __style: { borderBottom: '2px solid var(--color-border-container)' },
+            }}
+          >
+            <Flex alignItems="center" gap={2}>
+              <Heading size="400">Ended</Heading>
+              <Badge type="neutral" text={String(total)} />
+            </Flex>
+          </Box>
+          <Flex direction="column" gap={1}>
             {groups.map((group) => (
-              <Text key={group.status} size="100" color="subtle" align="center">
-                {`${group.label} ${group.jobs.length}`}
-              </Text>
+              <Box key={group.status} data-testid={`ended-count-${group.status}`}>
+                <Flex justifyContent="between" alignItems="center" gap={2}>
+                  <Text size="200" color="subtle">
+                    {group.label}
+                  </Text>
+                  <Text size="200" weight="bold">
+                    {String(group.jobs.length)}
+                  </Text>
+                </Flex>
+              </Box>
             ))}
-            <Button size="sm" color="gray" text="Show" accessibilityLabel="Show ended jobs" onClick={onToggle} />
-            <Text size="100" color="subtle" align="center">
-              {isOver ? 'Drop to end it' : 'Drop a job here to end it'}
-            </Text>
           </Flex>
-        </Box>
+          <Button
+            size="sm"
+            color="white"
+            text="Show"
+            accessibilityLabel="Show ended jobs"
+            fullWidth
+            onClick={onToggle}
+          />
+          <Text size="100" color="subtle">
+            {isOver ? 'Drop to end' : 'Drop a job here to end it'}
+          </Text>
+        </Flex>
       </div>
     );
   }
 
   return (
-    <div data-testid="ended-lane" role="region" aria-label={label}>
+    <div
+      data-testid="ended-lane"
+      role="region"
+      aria-label={label}
+      // Pinned the same way as the collapsed strip, with the page ground
+      // behind it so a column scrolling past is not seen through it.
+      style={{ ...PINNED_STYLE, background: 'var(--color-background-page)' }}
+    >
       <Box width={LANE_WIDTH} minWidth={LANE_WIDTH} flex="none">
         <Box
           marginBottom={3}

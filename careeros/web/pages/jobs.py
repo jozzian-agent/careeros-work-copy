@@ -36,9 +36,23 @@ APPLIED_OR_LATER = tuple(vault.OPEN_STATUSES[vault.OPEN_STATUSES.index('applied'
 def needs_attention(job):
     """M1 audit batch B: a job needs owner action when the company link is
     unresolved or ingest got stuck, mirroring company_link_state/ingest_state
-    as already stored on the entry dict (no separate recompute in JS)."""
+    as already stored on the entry dict (no separate recompute in JS).
+
+    2026-10-18 adds the third case the owner found: a posting whose
+    heading was its careers page and not a role, so the job carries a
+    provisional title and nothing but the owner can give it the real one.
+    That is recorded as a `field_status_reason` for `title`, and the
+    vault keeps such a reason only while the field is still
+    not_evidenced, so the ask disappears by itself the moment anything
+    fills it (careeros/intake._extract, careeros/vault._save_record).
+
+    This is also what the board card's one "Needs your input" chip reads,
+    so the chip and the "Needs attention" filter cannot disagree about
+    which jobs they mean.
+    """
     return (job.get('company_link_state') == 'needs_review'
-            or job.get('ingest_state') in ('fetch_failed', 'extract_failed'))
+            or job.get('ingest_state') in ('fetch_failed', 'extract_failed')
+            or 'title' in (job.get('field_status_reason') or {}))
 
 def days_closed(job, today):
     """Whole days since this job posting was found gone, or None when the

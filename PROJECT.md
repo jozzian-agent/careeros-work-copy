@@ -794,7 +794,7 @@ open question.
 | Experience | A position the user held | none |
 | Preferences | The user's roles, must-haves, nice-to-haves and avoid lists. Tab is called Search today, rename proposed. | Search |
 | Board | The user's jobs grouped by status. Called My Jobs in the interface since M2, 2026-10-18 (decision D10). | none |
-| Needs attention | A filter showing every job with a reason, closed, changed or needs your input. Proposed merge of two existing ideas. | Needs your input as a separate indicator |
+| Needs attention | A filter showing every job with a reason, closed, changed or needs your input. Proposed merge of two existing ideas. Since 2026-10-18 the board card's one "Needs your input" chip reads the same flag, so the chip and the filter cannot mean different jobs (`careeros/web/pages/jobs.py` `needs_attention`): an unresolved company link, an ingest that got stuck, or a posting whose heading was its careers page rather than a role, leaving the job a provisional title. | Needs your input as a separate indicator |
 | Note | One thing the user wants to remember about one job or one company: a title and a body. A record holds any number of them. | The single notes field per record |
 | User | One person with an account: an email, a name, a role and a password nobody stores in the clear. Added M1, 2026-10-17. | none |
 | Session | Being logged in. One signed cookie holding one user id, re-checked against the record on every request. Added M1, 2026-10-17. | none |

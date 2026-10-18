@@ -270,13 +270,24 @@ def apply_field_status(job, filled_fields, unfilled='not_evidenced'):
     to come, 'not_evidenced' once no further attempt is coming and the
     text genuinely did not support it -- unless an earlier attempt
     already marked it done, which this never downgrades. A field whose
-    provenance is already 'user' is never touched (global rule 1)."""
+    provenance is already 'user' is never touched (global rule 1).
+
+    A field this write carries a `field_status_reason` for is
+    not_evidenced whatever value goes with it: the reason says the reader
+    covered the field and the record still holds nothing the owner can
+    use, and the value beside it is a placeholder (the provisional title
+    an intake stores when the posting's heading turned out to be its
+    careers page, careeros/intake._extract). Saying done there would
+    make the vault drop the reason, and with it the ask."""
     provenance = job.get('field_provenance', {})
     status = dict(job.get('field_status', {}))
+    unevidenced = set(filled_fields.get('field_status_reason') or ())
     for field in ingest.STATUS_FIELDS:
         if provenance.get(field) == 'user':
             continue
-        if filled_fields.get(field):
+        if field in unevidenced:
+            status[field] = 'not_evidenced'
+        elif filled_fields.get(field):
             status[field] = 'done'
         elif status.get(field) != 'done':
             status[field] = unfilled
@@ -293,13 +304,17 @@ def reread_field_status(job, filled_fields):
     same text, and the answer about that field has not changed. Only a
     field this attempt just filled, and a field nothing has settled yet,
     move. `apply_field_status` is the first reading's rule, where every
-    covered field is still open."""
+    covered field is still open. A field this write carries a reason for
+    is not_evidenced here too, for the same reason."""
     provenance = job.get('field_provenance', {})
     status = dict(job.get('field_status', {}))
+    unevidenced = set(filled_fields.get('field_status_reason') or ())
     for field in ingest.STATUS_FIELDS:
         if provenance.get(field) == 'user':
             continue
-        if filled_fields.get(field):
+        if field in unevidenced:
+            status[field] = 'not_evidenced'
+        elif filled_fields.get(field):
             status[field] = 'done'
         elif status.get(field) not in ('done', 'not_evidenced'):
             status[field] = 'pending'

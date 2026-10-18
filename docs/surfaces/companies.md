@@ -23,8 +23,11 @@ Nav → Companies. A card → Company detail.
 
 ## Minimal contents
 
-A page header (Companies) and, when the directory is not empty, the shared
-[FilterBar](jobs.md) above a card grid.
+The page title "Companies" as the page's H1, on the page ground, and, when
+the directory is not empty, the shared [FilterBar](jobs.md) under it, then
+a card grid. There is no white title band and no main action: the title,
+the filter bar and the grid share one left edge (brief 2026-10-18, section
+3; the shared frame is `frontend/src/components/PageLayout.jsx`).
 
 **Card.** One card per company, every card the same width and the same
 height (content that does not fit is clipped, never allowed to stretch one
@@ -57,6 +60,17 @@ page's own groups, count noun and toggle label:
 - Active-filter Tag chips with Clear all, and the result count
   ("N companies", "N of M companies" once anything is active), per
   FilterBar's existing behavior.
+
+A selected filter on this page carries the one selected-toggle style the
+whole app uses since 2026-10-18: the wash-blue ground with a blue border
+and the default text colour, never a blue fill. That covers Sector, Size,
+Open jobs and the "Needs your input" toggle. Each filter's popover draws
+the card ground with the floating shadow and sits above the grid, for the
+same reason and by the same fix as on the Jobs board (see
+[My Jobs](jobs.md), "Filter popovers").
+
+The Tiles and List pair is not on this page yet; it is item B4 of the
+2026-10-18 brief and waits for its own session.
 
 Filtering stays client-side over the one `?view=page` payload. Every filter
 choice, including the toggle, is remembered per browser in `localStorage`

@@ -8,32 +8,48 @@ import { jobCount } from '../counts.js';
 // Consumer provides: columns, cards per column, drag handlers (README).
 //
 // D7 (2026-10-15): the columns are the five open statuses, and the Ended
-// lane sits beside the scrolling box rather than inside it, so it stays at
-// the right edge while the columns scroll (see EndedLane). `canDrag` is
-// false in the phone layout, where cards move with the status select
-// instead, so the empty column stops inviting a gesture that is not there.
+// lane is the last item of the row. `canDrag` is false in the phone
+// layout, where cards move with the status select instead, so the empty
+// column stops inviting a gesture that is not there.
+//
+// 2026-10-18: the lane is a SIBLING of the scrolling row, not an item of
+// it. A sticky item inside the scroller paints over the columns it
+// passes (the Interview column at 1280px), which the brief forbids: the
+// columns end before the lane and never slide under it. As the last cell
+// of an outer flex row the lane reserves its own width, the scroller
+// takes what is left, and `align-self: stretch` still gives the lane the
+// board's full height -- the height the scroller's columns define.
+const BOARD_STYLE = {
+  display: 'flex',
+  flexDirection: 'row',
+  flexWrap: 'nowrap',
+  gap: 'var(--space-400)',
+  alignItems: 'stretch',
+  minWidth: 0,
+  padding: '4px 0',
+};
+const ROW_STYLE = {
+  display: 'flex',
+  flexDirection: 'row',
+  flexWrap: 'nowrap',
+  gap: 'var(--space-400)',
+  alignItems: 'flex-start',
+};
+
 export default function KanbanBoard({ columns, lane, canDrag = true }) {
   return (
-    <Box display="flex" alignItems="start">
-      {/* The columns scroll sideways; the Ended lane does not, because it
-          sits OUTSIDE the scrolling box rather than inside it. That is
-          what keeps it at the right edge and always a drop target. The
-          first attempt pinned it inside the row with position: sticky,
-          which worked, but a sticky element is a positioned one, and it
-          then painted over anything rendered in a Gestalt Layer that
-          carries no z-index of its own (the More filters panel),
-          swallowing that panel's own buttons. Staying out of the
-          scroller needs no stacking rules at all. */}
+    <div style={BOARD_STYLE}>
       <Box
         data-testid="board-row"
         overflow="scrollX"
-        marginStart={-6}
-        paddingX={6}
-        paddingY={1}
-        flex="grow"
         minWidth={0}
+        flex="grow"
       >
-        <Flex direction="row" wrap={false} gap={4} alignItems="start">
+        {/* A plain flex row, not Gestalt's Flex: Flex wraps every child in
+            a block div of its own to space them, and a wrapped child
+            cannot be stretched to the row's height. The artboard draws
+            the same thing. */}
+        <div style={ROW_STYLE}>
         {columns.map((column) => (
           <div
             key={column.status}
@@ -90,9 +106,9 @@ export default function KanbanBoard({ columns, lane, canDrag = true }) {
             </Box>
           </div>
         ))}
-        </Flex>
+        </div>
       </Box>
       {lane ? <EndedLane {...lane} /> : null}
-    </Box>
+    </div>
   );
 }

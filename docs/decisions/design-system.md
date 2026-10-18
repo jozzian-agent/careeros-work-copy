@@ -111,12 +111,17 @@ recommendation badge on a job's company link. The second is a
 provenance marker on a detail page, such as the "AI-generated" info
 badge on the job detail page.
 
-Board cards carry only neutral information tags, such as industry,
-size, function and salary, and quiet chips for machine-state notices,
-such as extraction failed, details filling in, and company details
-pending. A quiet chip must never alarm: it uses subtle text, a
-transparent or secondary-base background, and a container-level border
-at most, never a colored badge type.
+A quiet chip must never alarm: it uses subtle text, a transparent or
+secondary-base background, and a container-level border at most, never a
+colored badge type. It is what a machine-state notice uses, such as
+extraction failed or details filling in.
+
+Board cards carried neutral information tags for industry, size,
+function and salary until 2026-10-18. They do not any more: see "Jobs
+page, 2026-10-18" below. The rule the removal leaves is that a board
+card states what identifies the posting and what the owner has to act
+on, and nothing a filter above the board or the detail page already
+says.
 
 ## Detail-page updates
 
@@ -160,7 +165,7 @@ the same thing.
 | `KanbanBoard` column list | Five open columns, 320px each, in payload order | The columns are the open statuses, never the whole status list. Which statuses those are comes from the payload (`statuses` minus `ended_statuses`), so the board cannot disagree with the vault. |
 | `KanbanBoard` empty column | "No jobs here yet. Drag a job here." | Was "No jobs here yet". The invitation is dropped in the phone layout, where nothing is draggable. |
 | `KanbanBoard` labelled column | `role="group"` with "Status, N jobs", singular at one | A column is a region a screen reader can name, since the column IS the filter and the count is the information. |
-| Ended lane (`EndedLane.jsx`) | A collapsible lane beside the scrolling columns | Collapsed on every load. It sits outside the horizontally scrolling box rather than inside it, so it keeps the right edge while the columns scroll and is always a drop target, with no stacking rules of its own. Collapsed it is a 72px strip that is still a drop target; expanded it is ONE 320px column, not three, headed by "Your search so far". Nothing remembers the choice, by owner decision. |
+| Ended lane (`EndedLane.jsx`) | A collapsible lane pinned to the right edge of the board | Collapsed on every load, and nothing remembers the choice, by owner decision. Rebuilt 2026-10-18: see "Jobs page, 2026-10-18" below for the grey full-height lane that replaced the floating white card. |
 | `JobCard` closed row | "Posting closed" as the quiet chip, or a warning chip reading "Closed N days ago" | Which of the two shows is the payload's decision (`closed_review`), never the card's own date arithmetic, so the chip and the banner cannot disagree. |
 | `JobCard` compact variant | The Ended lane's card: status select, title, company, reason | An ended job needs nothing said about its posting or its enrichment. It keeps the status select, because moving it back must have a keyboard route. |
 | `JobCard` fit chip | Still hidden | Fit scoring is not built (owner decision M0-4, 2026-10-15). The chip returns with the scoring. |
@@ -177,6 +182,86 @@ the same thing.
 | The warning closed chip uses `--color-background-warning-weak` and an alert icon, against "Badge usage" above (a machine-state notice must never alarm) | The canvas asks for it, and it is the one closed-posting case that wants the owner's attention: a posting gone for over a week on a job they never applied to. Every other closed posting keeps the quiet chip. |
 | `StatusSelect.css` draws a rule above the Ended section of the status dropdown | `Dropdown.Section` adds space above itself and no divider, and the canvas asks for a divider. The selector is keyed to the dropdown's own id, so no other `Dropdown.Section` in the app is restyled. |
 
+
+## Jobs page, 2026-10-18
+
+Approved with the "Jobs board", "Page title A: no box", "Ended lane A:
+grey, full board height" and "Ended lane A while dragging" artboards on
+the board canvas (claude.ai artifact 7PBPPwtEXZEmQdeNXd4b8S). Every
+entry changes a component the app already has. Where the brief and the
+artboard disagreed, the brief won and the entry says so.
+
+### Buttons: the one filled blue element on a screen
+
+Primary blue is the fill of the one main action on a screen, and never
+of a selected state. A selected view, a selected filter and a selected
+toggle are states, not actions.
+
+On the Jobs page that one action is "Add a job". Board and List used to
+be `ButtonToggle`, whose selected state this theme binds to the brand
+fill (`--color-background-button-selected-default`), so choosing a view
+looked like the page's main action and there were three filled blue
+buttons above the board.
+
+An overlay with its own main action keeps one of its own: the Apply
+button of a filter popover and the "Show N jobs" button of the More
+filters panel are each the one main action of that panel. A chip's count
+pill is not an action and is not covered by the rule; it is aria-hidden
+decoration inside the chip it belongs to.
+
+### FilterBar: the one selected style
+
+| Entry | What it is | Rule |
+|---|---|---|
+| `FilterChip` selected | The wash-blue ground with a 2px brand-blue border and the default text colour | One style for every selected toggle in the app: the Board and List pair, Needs attention, Hide closed postings, the Sector, Size and Open jobs filters on Companies, and every later toggle. It is the style the Function filter already had when active. |
+| `FilterChip` unselected | The neutral chip: secondary-base ground, no visible border | The border is present and transparent in this state, so selecting a chip never changes its size and the row never reflows. |
+| Board and List pair | Two `FilterChip`s in a `role="group"` labelled "View", each carrying its own `aria-pressed`, 16px to the right of "Add a job" | One pair rather than two independent buttons, because exactly one of them is true. |
+
+### Page header: no white band
+
+| Entry | What it is | Rule |
+|---|---|---|
+| `PageLayout.jsx` | The frame every list page sits in: an H1 on the page ground, the header rows under it, then `main` | Replaces Gestalt's `PageHeader` on Jobs, Companies, Experiences, Notes, Taxonomy and Search. `PageHeader` draws a white band with its own horizontal padding, so the title sat in a box and further in from the left than the content under it. The left edge is a property of this one component, which is what keeps the title, the toolbar and the content sharing it. |
+| Header stack metrics | 24px top, 32px sides, 16px bottom, 16px between rows | From the artboard. `main` is 32px sides and 32px bottom with no top padding of its own, because the stack's bottom padding is the gap between them. |
+| Page title | `Heading size="600" accessibilityLevel={1}`: 28px bold, 36px line height | Gestalt maps size 600 to an h2 by default, and this is the page's one top-level heading. |
+
+### Overlays: every popover in a Layer
+
+| Entry | What it is | Rule |
+|---|---|---|
+| `FloatingPopover.jsx` | Gestalt's `Popover` inside a `Layer` | Every `Popover` in the app renders through here. Gestalt's `Popover` defaults to `disablePortal: true`, so a panel renders inline in the DOM of whatever opened it with no z-index of its own; `Layer` mounts it in a div appended after `#root`, so tree order puts it above everything the page draws. No explicit `zIndex`, so Layer-mounted overlays stack among themselves in mount order and nothing has to keep a scale of numbers in step. |
+| `MoreFiltersPanel` | `OverlayPanel` inside a `Layer`, for the same reason | Gestalt renders `OverlayPanel` inline too. This one is opened from the filter bar, earlier in the page than the board, so while the Ended lane was still a sticky item of the board it painted over the panel and swallowed its footer button. |
+| `Dropdown` | Unchanged | Gestalt already wraps `Dropdown` in a `Layer` itself, so the card's status select was never affected. |
+
+### Ended lane: grey, full board height
+
+| Entry | What it is | Rule |
+|---|---|---|
+| Collapsed lane | 168px wide, the secondary ground, no border, 16px rounding, the full height of the board | The brief's 168px, not the artboard's 120px: three count rows need it. No border, because the ground is what the lane is drawn with. |
+| Lane header | "Ended" and the count on the column titles' own baseline, under a 2px grey rule | The same wrapper a `KanbanBoard` column header uses, so the two titles and their rules land on one line. The rule is grey where a column's is brand blue, because the lane is not one of the statuses being worked. |
+| Lane counts | Won, Rejected and Stopped, one row each, label left and number right | They used to wrap onto two lines each in a 72px strip. |
+| Lane actions | A white `Show` button, then "Drop a job here to end it" in 12px subtle text | |
+| Lane position | The last cell of the board's outer flex row, a sibling of the scrolling columns area, with `align-self: stretch` | It reserves its own width and the scroller takes what is left, so the columns end before the lane and never slide under it, and `align-self: stretch` still gives the lane the board's full height, which is the height the scroller's columns define. A sticky item inside the scroller passed the height check but painted over the Interview column at 1280px, and an earlier sticky attempt covered the More filters panel; plain flex layout needs no positioning and no z-index. |
+| Lane drag-over | The wash-blue ground, a 2px dashed brand-blue outline, and "Drop to end" | The same dashed outline a column shows. |
+| `KanbanBoard` row | A plain flex row rather than Gestalt's `Flex`, inside a scrolling box that is itself one cell of the board's outer flex row | `Flex` wraps every child in a block div of its own to space them, and a wrapped child cannot be stretched to the row's height. The outer row holds two cells: the scrolling columns area, which grows, and the lane, which does not. |
+
+### Job card
+
+| Entry | What it is | Rule |
+|---|---|---|
+| `JobCard` top row | 32px tall: the "Needs your input" chip on the left when the job is waiting on the owner, the status select on the right | The row keeps its height with no chip in it, so the select sits on one line across a column of cards. |
+| "Needs your input" chip | Violet wash with a violet ring, 24px, 12px bold text | It reads the payload's own `needs_attention`, which is what the filter bar's "Needs attention" chip counts, so the chip and the filter cannot disagree. It replaces the violet `Badge` that used to sit beside the company link on a board card; the list view still shows that badge, having no top row. |
+| `StatusSelect` control | A native button: 112px wide, 32px high, 8px radius, a hairline border, a white ground, 12px bold text, and a chevron | Was a Gestalt `Button color="gray" size="sm"`, which drew a large grey pill with no room for a chevron and read as a filled chip rather than as a select. The dropdown it opens is unchanged. Grown to 44px at phone widths, where a finger is the pointer. |
+| `JobCard` company link | 14px bold in link blue | |
+| `JobCard` meta line | One line: a pin and the location, then "Added 14 Oct" | Day and short month, with the year only when it is not the current one (`src/dates.js` `shortDate`). The location shows each part once and leaves Switzerland out while anything else is left (`src/location.js` `displayLocation`); display only, the stored value is never touched. |
+| `JobCard` badge row | Removed | The sector, size, salary and function badges wrapped past the edge of a 320px card, and each of them is a filter above the board or a line on the detail page. The separate "Posted" line went with them: the card says when the job entered the board, which is the date the owner reads it by. |
+| `JobCard` ingest indicator | Kept | Not a badge: a failed read is a visible state with a Try again beside it, and the board has no other route to that retry. |
+
+### Recorded token overrides
+
+| Override | Reason |
+|---|---|
+| `--color-background-popover-primary`, `--color-border-popover-primary` and `--color-background-elevation-floating` are rebound to `--color-background-card` in `frontend/src/design/theme.css` | Gestalt aliases the popover ground to `--color-background-default`, which this theme already binds to the card, but `DesignTokensProvider` re-emits every token as a resolved literal on `:root`, which bypasses the alias: light mode got Gestalt's stock white and dark mode its elevation-floating grey, which is this system's secondary ground and not its card. Binding the three directly makes a popover the card surface in both schemes. `--color-border-popover-primary` is Gestalt's name for the caret's fill, not a border, so it follows the ground. |
 
 ## Log in and the logout affordance (M1)
 

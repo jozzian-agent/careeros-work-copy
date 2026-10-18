@@ -1,6 +1,8 @@
-// Protects the Ended lane (D7): that it starts collapsed on every load,
-// stays pinned at the right edge, heads with "Your search so far", and
-// groups Won, Rejected and Stopped with compact cards that carry a reason.
+// Protects the Ended lane (D7, rebuilt 2026-10-18): that it starts
+// collapsed on every load, is the grey full-height strip at the right
+// edge with one count row per outcome, heads with "Your search so far"
+// once opened, and groups Won, Rejected and Stopped with compact cards
+// that carry a reason.
 import { expect, test } from '@playwright/test';
 import { loadBoardFixture, mockBoard } from './helpers.js';
 
@@ -24,9 +26,14 @@ test('the lane is collapsed on load, shows the split, and no ended card is on th
   await expect(strip).toHaveAttribute('aria-label', `Ended, ${endedEntries.length} jobs`);
   await expect(strip.getByText('Ended', { exact: true })).toBeVisible();
   await expect(strip.getByText(String(endedEntries.length), { exact: true })).toBeVisible();
+  // One row per outcome, the label on the left and the number on the
+  // right, instead of the wrapped "Won 1" pairs the strip used to stack.
   for (const status of fixture.ended_statuses) {
-    await expect(strip.getByText(`${fixture.status_labels[status]} ${endedOf(status).length}`, { exact: true })).toBeVisible();
+    const row = strip.getByTestId(`ended-count-${status}`);
+    await expect(row.getByText(fixture.status_labels[status], { exact: true })).toBeVisible();
+    await expect(row.getByText(String(endedOf(status).length), { exact: true })).toBeVisible();
   }
+  await expect(strip.getByRole('button', { name: 'Show ended jobs' })).toBeVisible();
   await expect(strip.getByText('Drop a job here to end it')).toBeVisible();
 
   for (const entry of endedEntries) {
@@ -195,7 +202,8 @@ test('the lane keeps the right edge while the columns scroll sideways', async ({
   const before = (await strip.boundingBox()).x;
   const row = page.getByTestId('board-row');
 
-  // The columns scroll inside their own box; the lane is not in it.
+  // The lane is a sibling of the scrolling row, not an item of it, so
+  // scrolling the columns moves nothing about the lane.
   const scrolled = await row.evaluate((el) => {
     el.scrollBy(400, 0);
     return el.scrollLeft;
@@ -207,4 +215,99 @@ test('the lane keeps the right edge while the columns scroll sideways', async ({
   // And it is on screen, not past the right edge.
   const viewport = page.viewportSize();
   expect(after).toBeLessThan(viewport.width);
+
+  // The whole scrolling area ends before the lane begins, so no column
+  // can slide under it at any scroll position, not only at the end.
+  const rowRight = (await row.boundingBox()).x + (await row.boundingBox()).width;
+  expect(rowRight).toBeLessThanOrEqual(after + 1);
+});
+
+// Section 4 of the brief: grey, no border, the full height of the board,
+// 168px wide, with "Ended" on the column titles' baseline under a grey
+// rule rather than the columns' blue one.
+test('the collapsed lane is the grey full-height strip, 168px wide, aligned with the column headers', async ({
+  page,
+}) => {
+  await page.goto('/jobs');
+  const strip = page.getByTestId('ended-lane-collapsed');
+  await expect(strip).toBeVisible();
+
+  const style = await strip.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { background: cs.backgroundColor, border: cs.borderTopWidth, radius: cs.borderTopLeftRadius };
+  });
+  expect(style.background).toBe('rgb(233, 233, 233)'); // --color-background-secondary-base
+  expect(style.border).toBe('0px');
+  expect(style.radius).toBe('16px');
+
+  const box = await strip.boundingBox();
+  expect(Math.round(box.width)).toBe(168);
+
+  // The board's own height, not the strip's content height: the tallest
+  // column decides it.
+  const tallest = await page.evaluate(() => {
+    const columns = [...document.querySelectorAll('[data-testid^="board-column-"]')];
+    return Math.max(...columns.map((el) => el.getBoundingClientRect().height));
+  });
+  expect(box.height).toBeGreaterThanOrEqual(tallest);
+
+  // "Ended" shares a baseline with the column titles, and its rule is
+  // grey where theirs is blue.
+  const header = page.getByTestId('ended-lane-header');
+  const firstColumn = page.getByTestId(`column-header-${fixture.statuses[0]}`);
+  const headerBox = await header.boundingBox();
+  const columnBox = await firstColumn.boundingBox();
+  expect(Math.abs(headerBox.y - columnBox.y)).toBeLessThan(2);
+  expect(Math.abs(headerBox.height - columnBox.height)).toBeLessThan(2);
+  const rule = await header.evaluate((el) => getComputedStyle(el).borderBottomColor);
+  expect(rule).toBe('rgb(205, 205, 205)'); // --color-border-container
+  const columnRule = await firstColumn.evaluate((el) => getComputedStyle(el).borderBottomColor);
+  expect(columnRule).toBe('rgb(0, 95, 203)'); // --color-brand-primary
+});
+
+// At either width the owner works at, the lane covers no column once the
+// row is scrolled to its end (brief outcome 4).
+for (const width of [1280, 1920]) {
+  test(`at ${width}px the lane covers no column when the row is scrolled to the end`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/jobs');
+    const strip = page.getByTestId('ended-lane-collapsed');
+    await expect(strip).toBeVisible();
+    await page.getByTestId('board-row').evaluate((el) => el.scrollBy(el.scrollWidth, 0));
+
+    const laneLeft = (await strip.boundingBox()).x;
+    const rights = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid^="board-column-"]')].map(
+        (el) => el.getBoundingClientRect().right,
+      ),
+    );
+    expect(rights.length).toBeGreaterThan(0);
+    rights.forEach((right) => expect(right).toBeLessThanOrEqual(laneLeft + 1));
+  });
+}
+
+// Chromium does not start a native HTML5 drag from synthetic input the
+// way page.dragTo does, so the dragover state is exercised by
+// dispatching the same DOM events, as tests/drag-undo.spec.js does.
+test('dragging a card over the collapsed lane turns it blue and says Drop to end', async ({ page }) => {
+  await page.goto('/jobs');
+  const open = fixture.entries.find((entry) => !fixture.ended_statuses.includes(entry.status));
+  const card = page.getByTestId(`job-card-${open.id}`);
+  const strip = page.getByTestId('ended-lane-collapsed');
+
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await card.dispatchEvent('dragstart', { dataTransfer });
+  await strip.dispatchEvent('dragover', { dataTransfer });
+
+  await expect(strip.getByText('Drop to end', { exact: true })).toBeVisible();
+  const dragStyle = await strip.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { background: cs.backgroundColor, outline: cs.outlineStyle, outlineWidth: cs.outlineWidth };
+  });
+  expect(dragStyle.background).toBe('rgb(230, 244, 255)'); // --color-brand-wash-blue
+  expect(dragStyle.outline).toBe('dashed');
+  expect(dragStyle.outlineWidth).toBe('2px');
+
+  await card.dispatchEvent('dragend', { dataTransfer });
+  await expect(strip.getByText('Drop a job here to end it')).toBeVisible();
 });

@@ -397,6 +397,119 @@ column stops inviting a gesture that is not there. The banner shortens to
 "N closed postings to review". Popups open as full-width sheets, through
 Gestalt's own mobile adaptation.
 
+## The page as built, 2026-10-18
+
+Approved with the "Jobs board", "Page title A: no box", "Ended lane A:
+grey, full board height" and "Ended lane A while dragging" artboards.
+This section replaces "The board layout" above wherever the two
+disagree. The design-system entries are in
+`docs/decisions/design-system.md`, "Jobs page, 2026-10-18".
+
+### Top to bottom
+
+1. **"My Jobs"**, as the page's H1, on the page ground. There is no white
+   title band: the title, the toolbar and the board share one left edge.
+2. **"Add a job"**, the one filled blue button on the page, then the
+   Board and List pair 16px to its right. A selected view is a state, so
+   it carries the same wash-blue ground and blue border every selected
+   toggle in the app carries, never the blue fill.
+3. **The filter bar.** Function, Location, More filters, a divider, then
+   the "Needs attention" and "Hide closed postings" toggles, and the
+   count on the right. Unchanged from the D7 section above, except that a
+   toggle that is on now looks the same as the chosen view.
+4. **The closed-postings banner**, when it applies. Unchanged.
+5. **The board or the list.**
+
+A page with no main action, such as Companies, shows the title row and
+its filters only.
+
+### Filter popovers
+
+Every popover and dropdown on the page draws the card ground with the
+floating shadow and sits above the board, the table and anything sticky.
+In List view the Function, Location and More filters panels used to show
+the table through them and let the table's header draw over their search
+field. They were never transparent: Gestalt renders a popover inline with
+no z-index of its own, and Gestalt's own table element carries
+`isolation: isolate`, which makes it a stacking context painted in the
+same pass and later in tree order. Every overlay now mounts in a Gestalt
+Layer, which is appended after the application root, so tree order puts
+all of them above whatever the page draws. The card status dropdown and
+the "How did it end?" chooser follow the same rule.
+
+### The Ended lane
+
+Grey (the secondary ground), no border, 16px rounding, 168px wide, and
+the full height of the board. "Ended" and the total sit on the column
+titles' own baseline under a grey rule rather than the columns' blue one.
+Won, Rejected and Stopped are one row each, the label on the left and the
+number on the right. Then a white "Show" button, then "Drop a job here to
+end it".
+
+It is pinned to the right edge while the columns scroll, and the columns
+end before it: scrolled fully right, the last column clears it with the
+board's own gap. Dragging a card over it turns it wash blue with a dashed
+blue outline and the words "Drop to end".
+
+The expanded lane is unchanged and still out of scope.
+
+### The job card
+
+- **Top row.** "Needs your input" on the left when the job is waiting on
+  the owner, and the compact status select on the right: bordered, 32px
+  high, 112px wide, white, with a chevron.
+- **Then** the title (at most two lines), the company as a link, and one
+  line with a pin, the location, and "Added 14 Oct".
+- **Last row**, when it applies: the closed chip, neutral as "Posting
+  closed" or, for a New or Interested job whose posting has been gone
+  more than a week, the warning chip reading "Closed N days ago".
+- **No sector, size, salary or function tags**, and no separate "Posted"
+  line. Four tags on a 320px card ran past its edge, and each of them is
+  either a filter above the board or a line on the detail page.
+- **The location shows each part once**, and leaves Switzerland out while
+  anything else is left: a stored "Switzerland, Zug, Zug, Switzerland"
+  reads "Zug". Display only; the stored value is never touched.
+
+"Needs your input" on a card reads the payload's own `needs_attention`,
+which is the same flag the "Needs attention" filter counts, so the chip
+and the filter always mean the same jobs. Three things set it: an
+unresolved company link, an ingest that got stuck, and a posting whose
+heading was its careers page rather than a role, so the job has only a
+provisional title (see "Stored text" below).
+
+### Stored text
+
+Three defects the owner found by reading their own board, all fixed at
+the point extracted text is stored, with
+`scripts/clean_stored_text.py` as the same rules over records written
+before that:
+
+- **No stored field holds markup.** A posting that states its own title
+  with HTML in it ("...(w/m/d),&lt;br/&gt;80-100%...") or an entity escape
+  in it ("Smith &amp;amp; Co") is stored as the plain text it means.
+  Nothing renders a stored field as HTML, so markup in one is a defect
+  and not formatting.
+- **No company name holds an internal code.** Some employers prefix their
+  own `hiringOrganization.name` with a site code ("CHE003 Thomson Reuters
+  Enterprise Centre GmbH"). The code is dropped where a posting's
+  employer name is read, so it reaches neither the job nor a company
+  record created from it.
+- **A careers page's name is not a job title.** "Job Offers", "Careers
+  and jobs", "Stellenangebote" and the rest of that short list are page
+  names. A posting whose heading is one of them keeps a provisional
+  title, because a job in the vault has to have one, and the record says
+  the posting evidenced no title, which is what makes the board ask the
+  owner for it. The ask disappears by itself the moment anything fills
+  the field.
+
+### Not built, and why
+
+The artboard draws a "Search jobs" field as the first control of the
+filter bar. It is a static placeholder on the artboard, and no document
+says what it searches, how it combines with the facets or whether it
+applies to both views, so it is not built. It needs a sentence from the
+owner first.
+
 ## States
 
 Board/list, empty board and no attention matches follow the sketch above.

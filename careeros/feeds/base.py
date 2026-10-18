@@ -82,7 +82,7 @@ import logging
 import re
 from dataclasses import dataclass, field as dataclass_field
 
-from careeros import intake, taxonomy
+from careeros import ingest, intake, taxonomy
 
 _logger = logging.getLogger(__name__)
 
@@ -146,6 +146,15 @@ def compress(text):
 
 def decompress(blob):
     return gzip.decompress(blob).decode()
+
+
+#: The mapped fields that hold text a person reads, and therefore the
+#: ones `finalize` runs plain text over. Deliberately a list of names and
+#: not "every string in the posting": a provider id, a tenant, a URL, a
+#: posting id and a raw vocabulary word are data, not prose, and must
+#: reach the store exactly as the feed stated them.
+TEXT_FIELDS = ('title', 'employer_name', 'department', 'team',
+               'recruiting_category', 'location_raw', 'description')
 
 
 def html_to_text(fragment):
@@ -444,12 +453,23 @@ def posting_provenance(mapped, *, adapter):
 def finalize(mapped, *, adapter):
     """The last line of every adapter's `map_posting`.
 
-    Adds the three things no adapter should be able to forget: the
-    posting key, the content hash over the adapter's own `HASHED_FIELDS`,
-    and the mapping half of the provenance block. Raises for a posting
-    that cannot be keyed or that states no value record at all, because
-    both are adapter bugs and would otherwise surface as a store refusal
-    much later.
+    Adds the four things no adapter should be able to forget: plain text
+    in the fields that hold text, the posting key, the content hash over
+    the adapter's own `HASHED_FIELDS`, and the mapping half of the
+    provenance block. Raises for a posting that cannot be keyed or that
+    states no value record at all, because both are adapter bugs and
+    would otherwise surface as a store refusal much later.
+
+    The text pass is here rather than in each adapter for the same
+    reason the hash is: six adapters read a feed that states a title,
+    an employer name and an office as text, and a feed that puts markup
+    or an entity in one of them ("Smith &amp; Co") would otherwise put
+    it in the vault. `html_to_text` already covers the description
+    bodies the adapters parse out of HTML; this covers the short fields,
+    and the employer name loses a leading internal site code at the same
+    time (careeros.ingest.company_name_text). It runs BEFORE the hash,
+    so the hash is taken over what is actually stored and a re-fetch of
+    an unchanged posting still hashes the same.
     """
     for name in ('provider', 'tenant', 'posting_id', 'url'):
         if not mapped.get(name):
@@ -457,6 +477,10 @@ def finalize(mapped, *, adapter):
     if not mapped.get('values'):
         raise ProvenanceError(f'{adapter.PROVIDER}: a posting with no value records cannot be '
                               'stored; an absent field is an unknown record, not no record')
+    for name in TEXT_FIELDS:
+        if isinstance(mapped.get(name), str):
+            mapped[name] = (ingest.company_name_text(mapped[name]) if name == 'employer_name'
+                            else ingest.plain_text(mapped[name]))
     mapped['key'] = posting_key(mapped['provider'], mapped['tenant'], mapped['posting_id'])
     mapped['content_hash'] = content_hash(mapped, adapter.HASHED_FIELDS)
     mapped['provenance'] = posting_provenance(mapped, adapter=adapter)

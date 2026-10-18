@@ -355,8 +355,8 @@ def extract(url, html=''):
     parser = Posting()
     parser.feed(html)
     schema = job_schema(parser, url)
-    from careeros.ingest import redact
-    return redact(_extract(url, parser, schema))
+    from careeros.ingest import clean_extracted
+    return clean_extracted(_extract(url, parser, schema))
 
 
 # Trailing/leading-line chrome that slips past structural suppression (e.g. a
@@ -398,7 +398,14 @@ def _extract(url, parser, schema):
     if not isinstance(org, dict):
         org = {}
     meta_title = parser.meta.get('og:title') or parser.meta.get('twitter:title') or ''.join(parser.title)
-    company = str(org.get('name') or parser.meta.get('og:site_name') or '').strip()
+    from careeros.ingest import company_name_text, is_generic_heading, NO_TITLE_REASON
+    # Section 6 of the 2026-10-18 brief: an employer's own
+    # `hiringOrganization.name` sometimes carries their internal site
+    # code ("CHE003 Thomson Reuters Enterprise Centre GmbH" on Thomson
+    # Reuters' Workday postings). Stripped here, which is the one place a
+    # posting's employer name is read, so the code can reach neither the
+    # job's `company` text nor a company record created from it.
+    company = company_name_text(org.get('name') or parser.meta.get('og:site_name') or '')
     if company.casefold() in ('jobs.ch', platform.casefold()) or company.casefold() == domain(url) and platform:
         company = ''
     if platform == 'jobs.ch' and not company:
@@ -438,6 +445,19 @@ def _extract(url, parser, schema):
     if not schema.get('title') and GENERIC_TITLE_RE.match(title or ''):
         # <title>/og:title was careers-page chrome, not a posting title.
         title = fallback
+    # Section 6: the heading can be the careers page's own name even when
+    # the posting states it as its JSON-LD `title` ("Job Offers" on
+    # finders.ch, "Careers and jobs" on jobs.syngenta.com). That is no
+    # title, whichever field it came from, so the provisional one stands
+    # instead and the record says the posting evidenced none. The vault
+    # requires a job to have a title, so "no title" is recorded as the
+    # reason rather than as an empty string; the reason is what makes the
+    # board ask the owner for one (careeros/web/pages/jobs.py
+    # needs_attention), and the vault drops it again the moment anything
+    # fills the field.
+    no_title = is_generic_heading(title)
+    if no_title:
+        title = (company or 'Job') + ' opportunity'
     schema_description = Posting()
     schema_description.feed(str(schema.get('description') or ''))
     text = re.sub(r'\s+', ' ', ' '.join(schema_description.text + parser.text))
@@ -496,7 +516,8 @@ def _extract(url, parser, schema):
                 original_url=url if platform else None, salary_info=bool(salary), salary_note=salary,
                 location=', '.join(dict.fromkeys(locations)), remote_ok=remote, posted_date=posted,
                 employment_type=str(employment), valid_through=str(schema.get('validThrough') or ''),
-                employer_named_in_posting=employer_named_in_posting)
+                employer_named_in_posting=employer_named_in_posting,
+                **({'field_status_reason': {'title': NO_TITLE_REASON}} if no_title else {}))
 
 
 def _merge_extracted(data, fields, schema, parser):
@@ -509,6 +530,7 @@ def _merge_extracted(data, fields, schema, parser):
         'location': schema.get('jobLocation'),
         'employment_type': schema.get('employmentType'),
     }
+    from careeros.ingest import is_generic_heading
     for key, value in fields.items():
         if key in ('title', 'company', 'location', 'employment_type', 'remote_ok'):
             # Keep explicit posting metadata when the offline rules are used.
@@ -518,15 +540,16 @@ def _merge_extracted(data, fields, schema, parser):
                 continue
             # A model that echoes careers-page chrome ('Careers', 'Jobs',
             # 'Join us') has not found the role title; keep what we have.
-            if key == 'title' and GENERIC_TITLE_RE.match(str(value)) and data.get('title'):
+            if (key == 'title' and data.get('title')
+                    and (GENERIC_TITLE_RE.match(str(value)) or is_generic_heading(value))):
                 continue
         data[key] = value
         if key == 'company' and value and fields.get('ingest_source') == 'llm':
             data['employer_named_in_posting'] = value
             data['field_provenance'] = {**data.get('field_provenance', {}),
                                         'employer_named_in_posting': 'llm'}
-    from careeros.ingest import redact
-    return redact(data)
+    from careeros.ingest import clean_extracted
+    return clean_extracted(data)
 
 
 def heuristic_posting(url, html):
@@ -545,8 +568,8 @@ def heuristic_posting(url, html):
     mailto = find_mailto(html)
     if mailto:
         data['contact_email'] = mailto
-    from careeros.ingest import redact
-    return redact(data)
+    from careeros.ingest import clean_extracted
+    return clean_extracted(data)
 
 
 def ingest_posting(url, html, function_options=None):
@@ -561,8 +584,8 @@ def ingest_posting(url, html, function_options=None):
     mailto = find_mailto(html)
     if mailto:
         data['contact_email'] = mailto
-    from careeros.ingest import redact
-    return redact(data)
+    from careeros.ingest import clean_extracted
+    return clean_extracted(data)
 
 
 def posting_ats(url):

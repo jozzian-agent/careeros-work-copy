@@ -24,17 +24,38 @@ function Chevron() {
   );
 }
 
+// The 2px border is on both states, transparent while unselected, so
+// selecting a chip never changes its size and the row never reflows.
+// box-sizing keeps the height the stated 40px (or 44px) rather than
+// 40px plus two borders.
 const BASE_STYLE = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 8,
-  height: 40,
   padding: '0 12px',
-  border: 0,
+  borderWidth: 2,
+  borderStyle: 'solid',
   borderRadius: 999,
+  boxSizing: 'border-box',
   cursor: 'pointer',
   color: 'var(--color-text-default)',
   fontFamily: 'inherit',
+};
+
+// The one style a selected toggle has, anywhere in the app (brief
+// 2026-10-18, section 1): the wash-blue ground and the blue border the
+// Function filter already had when active, with the default text colour.
+// A primary blue FILL is reserved for the one main action on a screen and
+// is never a selected state, which is what Board/List used to look like.
+// Recorded in docs/decisions/design-system.md.
+const SELECTED_TOGGLE_STYLE = {
+  background: 'var(--color-brand-wash-blue)',
+  borderColor: 'var(--color-brand-primary)',
+};
+
+const UNSELECTED_TOGGLE_STYLE = {
+  background: 'var(--color-background-secondary-base)',
+  borderColor: 'transparent',
 };
 
 // The chip shared by every control in the filter bar - Fit, Function,
@@ -58,6 +79,10 @@ export default function FilterChip({
   onClick,
   dataTestId,
   anchorRef,
+  // 44px for the Board/List view pair, which stands beside the page's
+  // primary button and matches its height (artboard 2026-10-18); 40px
+  // for the filter row itself.
+  height = 40,
 }) {
   return (
     <button
@@ -70,8 +95,8 @@ export default function FilterChip({
       onClick={onClick}
       style={{
         ...BASE_STYLE,
-        background: selected ? 'var(--color-brand-wash-blue)' : 'var(--color-background-secondary-base)',
-        boxShadow: selected ? 'inset 0 0 0 2px var(--color-brand-primary)' : 'none',
+        height,
+        ...(selected ? SELECTED_TOGGLE_STYLE : UNSELECTED_TOGGLE_STYLE),
       }}
     >
       {icon ? <Icon icon={icon} accessibilityLabel="" color="default" size={16} /> : null}
