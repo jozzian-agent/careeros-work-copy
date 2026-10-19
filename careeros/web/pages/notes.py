@@ -20,6 +20,11 @@ def page_context(root, owner=None):
     # half stays shared, because a company note lives on a shared record
     # and only the admin can write one (D3); giving a note its own
     # privacy is CAREER-41 and not this change.
+    #
+    # `list_jobs` is the board read, so a universe-only pool posting is
+    # not walked here (CAREER-72/74). Nothing is lost by it: a note is
+    # written from a record's own page by a person, and nobody has
+    # written one on a posting the feed imported this morning.
     return notes_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner))
 
 

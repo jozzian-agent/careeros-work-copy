@@ -146,7 +146,10 @@ def cmd_probe_vault(args):
     """
     limiter = _limiter(args)
     companies = vault.list_companies(args.vault)
-    jobs = vault.list_jobs(args.vault)
+    # Every stored job, universe-only pool records included
+    # (list_owned_jobs unscoped): this asks what the vault knows about an
+    # ATS tenant and is not a surface anybody reads.
+    jobs = vault.list_owned_jobs(args.vault)
     found, report = _probe_websites(companies, limiter=limiter, cap=args.max,
                                      probe=not args.no_probe)
     recorded = {}
@@ -261,7 +264,8 @@ def cmd_discover(args):
 
     if args.vault and args.provider in registry.PROVIDERS:
         companies = vault.list_companies(args.vault)
-        jobs = vault.list_jobs(args.vault)
+        # Unscoped and unfiltered, same reason as the probe above.
+        jobs = vault.list_owned_jobs(args.vault)
         route = discovery.tenants_from_vault(companies, jobs, adapter=adapter)
         routes['vault'] = {'tenants': len(route), 'companies_read': len(companies),
                            'jobs_read': len(jobs)}

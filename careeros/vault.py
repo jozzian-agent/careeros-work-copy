@@ -650,6 +650,33 @@ def is_open_job(job):
     no status at all counts as open: the default status is `new`."""
     return job.get('status') not in ENDED_STATUSES
 
+def on_board(job):
+    """Whether one job record is a BOARD entry rather than universe-only.
+
+    `in_pipeline: false` is the universe-only record
+    ([flow](../docs/flows/add-job-by-link.md)): a posting that exists
+    because something discovered it, not because a person added it. Until
+    the feed pool landed in a vault nothing wrote one, so every stored
+    record was a board entry and the distinction cost nothing. The pool
+    import (CAREER-72/74) writes 704 of them in one go, all ownerless,
+    and an ownerless record is the admin's by inheritance (`Owner`) -- so
+    without this reading the admin's own board would inherit the whole
+    pool and their real jobs would drown in it.
+
+    The default is True for a record that does not say, which is every
+    record written before the field and every record the vault writes
+    with its own default: only an explicit `false` means universe-only.
+
+    One function, so "is this on somebody's board" cannot be spelled two
+    ways, the same reason `is_open_job` above is the one reader of the
+    statuses that end a job.
+    """
+    return (job or {}).get('in_pipeline') is not False
+
+def board(records):
+    """The board entries among these records (`on_board`)."""
+    return [record for record in records if on_board(record)]
+
 def ai_status(record):
     """The AI reading state of one record, as a word (CAREER-36).
 
@@ -771,13 +798,56 @@ def _jobs_newest_first(root):
                   key=lambda d: str(d.get('added', '')), reverse=True)
 
 def list_jobs(root, owner=None):
+    """This reader's BOARD: the jobs they own that are on a board.
+
+    Two rules, both read through one function each: whose record it is
+    (`owned`, D3) and whether it is a board entry at all (`on_board`).
+    The second one is new with the pool import (CAREER-72/74) and is
+    what keeps 704 ownerless universe-only postings off every reader's
+    My Jobs -- the admin's included, since an ownerless record is theirs
+    by inheritance.
+
+    The filter lives HERE rather than in `jobs.page_context` because
+    almost every caller of this function is a board reader -- the board,
+    the Notes page, the company profile's own My Jobs section, the
+    watcher sweep, the duplicate-conflict count behind a company delete,
+    the company rollup, and the resolution ladder's reads of what this
+    user's postings say about an ATS tenant. The three callers that want
+    every record a reader owns, universe-only ones included, say so by
+    name: `list_owned_jobs` below.
+    """
+    return board(owned(_jobs_newest_first(root), owner))
+
+def list_owned_jobs(root, owner=None):
+    """Every job this reader owns, universe-only records included.
+
+    What `list_jobs` meant before the pool import gave `in_pipeline:
+    false` a reason to exist. Three callers want it and each wants it for
+    a stated reason:
+
+    * the hard duplicate check (`dedupe.find_duplicate`), whose whole
+      point is that a pasted link may match a universe record and be
+      offered for promotion rather than added twice;
+    * the "is any record at all still linked" question behind a company
+      delete, which decides tombstone against hard delete -- a deleted
+      company would leave every pool job pointing at nothing and
+      `save_job` would then refuse every later edit to them;
+    * the staging scripts, which ask what the vault knows about an ATS
+      tenant and are not a surface anybody reads.
+
+    Unscoped (`owner` None) answers every stored job, exactly like
+    `owned`.
+    """
     return owned(_jobs_newest_first(root), owner)
 
 def list_universe_jobs(root, owner=None):
     """Every job this reader may see on the All jobs tab (B2).
 
-    The same records and the same order `list_jobs` answers with, widened
-    by the ownerless half: see `Owner.sees_in_universe` for the rule.
+    The records `list_jobs` answers with, widened twice: by the ownerless
+    half (see `Owner.sees_in_universe`) and by the universe-only records
+    `list_jobs` leaves out (`on_board`). A posting the feed pool imported
+    belongs on this tab and on no board, which is the whole shape of the
+    universe/board split.
     """
     return in_universe(_jobs_newest_first(root), owner)
 
@@ -806,6 +876,14 @@ def visible_companies(root, owner=None):
     Unscoped (`owner` None) answers the whole vault, retired included,
     which is what the migration scripts and the cron watcher want: they
     run for the host and are not a surface anybody reads.
+
+    "My own record links it" is read off boards (`list_jobs`,
+    CAREER-72/74), so a retired company that only the feed pool's
+    universe-only postings link is gone for everybody. That is the right
+    answer: the admin asked for it to go, a pool posting is nobody's
+    record to break, and the link those postings already hold keeps
+    resolving and keeps saving either way (`linkable_company`
+    grandfathers a link that does not move).
     """
     companies = list_companies(root)
     if owner is None:
@@ -1715,7 +1793,17 @@ def save_job(root, data, identifier=None, *, correction_detail=None, history_eve
     # rollup. The job itself is already saved above either way: this gate
     # never refuses the owner's own record, only its side effects on the
     # shared half. See enrich.contributes_to_shared.
-    if not contributes_to_shared(root, result):
+    #
+    # A UNIVERSE-ONLY record writes nothing onto a shared company either
+    # (CAREER-72/74). `enrich.shared_jobs` reads boards, so a record that
+    # is on none contributes nothing to the rollup and saving one cannot
+    # change what the rollup derives -- running it would rewrite 89
+    # curated company records to the values they already hold, once per
+    # imported posting. The moment somebody adds the posting to their
+    # board the record becomes a board entry and its facts roll up
+    # normally, which is the evidence earning its way in rather than
+    # arriving with a bulk import nobody has looked at.
+    if not on_board(result) or not contributes_to_shared(root, result):
         return result
     from careeros.ingest import is_valid_contact_email
     # Unresolved employer corrections retain email on the job until review links it.

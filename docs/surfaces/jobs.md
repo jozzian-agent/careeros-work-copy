@@ -610,6 +610,42 @@ with a company error.
 A second click adds nothing: the adder's own duplicate check finds the
 record they already have and answers 200 with it.
 
+### The board filter: universe-only records (CAREER-72/74)
+
+My Jobs holds the signed-in user's own **board entries**. Since the ATS
+pool landed in a vault that is two readings and not one
+([schemas](../schemas.md), [runbook](../runbooks/import-pool.md)):
+
+* whose record it is (`vault.Owner.owns`, D3), and
+* whether it is on a board at all (`vault.on_board`: `in_pipeline` is
+  not explicitly `false`).
+
+`vault.list_jobs` applies both, so the board, the Notes page's job half
+and the company profile's My Jobs section all answer the same way
+without each deciding for itself. **The admin is not an exception.** An
+ownerless record is theirs by inheritance, so ownership alone would put
+all 704 imported postings on their personal board and their 44 real jobs
+would drown; the second reading is what keeps the board the list of
+things they are actually pursuing.
+
+All jobs keeps them, which is the whole point of the tab: the universe
+read is widened by the ownerless half AND by the board half
+(`vault.list_universe_jobs`). Three consequences on this page:
+
+* **Every pool posting offers "Add to my jobs", the admin included.**
+  `on_my_board` is ownership AND `on_board`, so a record the admin owns
+  by inheritance but has never added shows the action rather than a
+  status select that could not put it anywhere.
+* **The closed-postings banner and "Your search so far" count board
+  entries only**, in either payload. Both are about one person's own
+  search: a posting nobody added has no closed posting to ask about and
+  never applied to anything. The open/ended count beside the filters
+  still counts every entry on the tab, because that one is about the
+  postings in front of the reader.
+* **The filter bar, the cards and the facets are unchanged.**
+  `in_pipeline` already shipped in every job payload, so nothing in the
+  front end needed to learn the distinction.
+
 ## States
 
 Board/list, empty board and no attention matches follow the sketch above.
@@ -659,6 +695,20 @@ The recorded navigation follow-up and Jinja cutover await the later audit.
   (its payload carries no `ended_statuses`), so it can mark a job Won
   without the confirmation the board always asks for. Smallest fix is
   `ended_statuses` in the detail payload; left to the next backend chunk.
+- **A tester cannot open a card on All jobs that is not theirs.** The
+  card title has always linked to `/jobs/<id>`, and the detail route
+  reads `vault.load_job` (owner-scoped) rather than
+  `vault.load_universe_job`, so for a tester an ownerless posting
+  answers the same `Job not found.` another user's job gets. That gap
+  shipped with B2 and was invisible while the live vault held no
+  ownerless record; the pool import (CAREER-72/74) makes it the normal
+  case for a tester on 668 cards. It was NOT fixed in that change
+  because widening the detail read is an owner decision, not a bug fix:
+  a job record carries its owner's own notes and history, an ownerless
+  job's notes are the admin's (M2), and what a universe card should open
+  — the full detail page, a posting-only view, or the posting's own link
+  — is a design question nobody has answered. Decide it before the
+  friend test, or the tab reads as broken.
 
 ## JOZ-280: job card links now depend on the React flag
 

@@ -171,6 +171,18 @@ only let a request in, it decides what the request can see.
   `counts` on `GET /api/companies?view=page` are over the same set, so a
   company's number is the universe's open jobs and not the caller's board
   (B3).
+- **Every board read is also narrower than the caller's own records: it
+  is their BOARD** (CAREER-72/74, [schemas](../schemas.md)). A job
+  carrying `in_pipeline: false` is universe-only -- the ATS pool import
+  writes 704 of them, all ownerless -- so it is absent from
+  `GET /api/jobs`, from `GET /api/jobs?view=board` and from the company
+  profile's own job section, for every caller including the admin, who
+  owns an ownerless record by inheritance. It is present on
+  `GET /api/jobs?view=universe` with `on_my_board: false`, which is what
+  offers "Add to my jobs"; the `closed_review` and `search_so_far` keys
+  of either payload count board entries only, because both are about one
+  person's own search. `GET /api/jobs/<id>` is unchanged and still reads
+  the caller's own record whether or not it is on a board.
 - **`POST /api/jobs/<id>/promote` is "Add to my jobs".** For a posting
   the caller does not own it answers `201` with a NEW job record of
   theirs, copied from the posting, landing in `new` and stamped with

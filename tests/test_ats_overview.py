@@ -349,7 +349,7 @@ def test_a_run_with_no_probing_touches_no_network(script, tmp_path, monkeypatch)
     monkeypatch.setattr(script.vault, 'list_companies', lambda root: [
         {'id': 'CO-001', 'name': 'Acme AG', 'website': 'https://jobs.ashbyhq.com/acme/1',
          'size_class': 'large', 'locations': ['Zürich']}])
-    monkeypatch.setattr(script.vault, 'list_jobs', lambda root: [])
+    monkeypatch.setattr(script.vault, 'list_owned_jobs', lambda root: [])
     out = tmp_path / 'ats.md'
     assert script.main(['--vault', str(tmp_path), '--no-probe', '--out', str(out)]) == 0
     text = out.read_text()

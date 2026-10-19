@@ -141,6 +141,10 @@ def search_so_far(entries):
 
 
 def page_context(root, owner=None):
+    # list_jobs is the board read: this user's own records that are on a
+    # board. The universe-only half (the feed pool's `in_pipeline: false`
+    # records, CAREER-72/74) is excluded there rather than here, because
+    # every other board reader wants the same answer -- see vault.list_jobs.
     return board_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner),
                          vault.function_label_map(root))
 
@@ -164,7 +168,15 @@ def universe_context(root, owner=None):
                             vault.function_label_map(root))
     return context | {
         'empty': UNIVERSE_EMPTY_STATE,
-        'entries': [job | {'on_my_board': owner is None or owner.owns(job)}
+        # Both halves of the rule, and the second one is what the pool
+        # import added (CAREER-72/74): a record is on my board when I own
+        # it AND it is a board entry at all. An ownerless pool posting is
+        # the admin's by inheritance, so ownership alone would tell them
+        # a posting they have never added is already theirs -- and would
+        # offer them a status select in place of the one action that
+        # actually puts it on their board.
+        'entries': [job | {'on_my_board': (owner is None or owner.owns(job))
+                                          and vault.on_board(job)}
                     for job in context['entries']],
     }
 
@@ -174,6 +186,15 @@ def board_context(entries, companies, function_labels, today=None):
     function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
                               key=lambda pair: pair[1].casefold())
     entries = [job | {'needs_attention': needs_attention(job)} for job in entries]
+    # The two payload keys that are about one person's own search rather
+    # than about the postings in front of them. `entries` here may be the
+    # All jobs tab's, which carries universe-only records (the feed pool,
+    # CAREER-72/74): a posting nobody has added to a board has no closed
+    # posting to ask about and never applied to anything, so counting one
+    # would put 704 imported jobs into "Your search so far" and into the
+    # closed-postings banner. My Jobs passes board entries only, so there
+    # the filter changes nothing.
+    board_entries = vault.board(entries)
     return dict(
         entries=entries,
         companies={c['id']: c for c in companies if 'id' in c},
@@ -191,8 +212,8 @@ def board_context(entries, companies, function_labels, today=None):
         # the title the free text beside them is saved under as a note.
         end_reasons={status: list(reasons) for status, reasons in vault.END_REASONS.items()},
         end_note_title=vault.END_NOTE_TITLE,
-        closed_review=closed_review(entries, today),
-        search_so_far=search_so_far(entries),
+        closed_review=closed_review(board_entries, today),
+        search_so_far=search_so_far(board_entries),
         empty=EMPTY_STATE,
         function_options=function_options,
         # The one company-size scale, for the board's Company size facet.

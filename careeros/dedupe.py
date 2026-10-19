@@ -16,7 +16,11 @@ from careeros import vault
 
 def find_duplicate(root, normalized_url, ats_match, owner=None):
     """Return (existing_job, basis) or (None, None)."""
-    jobs = vault.list_jobs(root, owner)
+    # list_owned_jobs, not list_jobs: a universe-only record is exactly
+    # what this check has to be able to find. The payload below offers
+    # `promote` for one, and a pasted link that matched a pool posting
+    # and was told "no duplicate" would add the posting a second time.
+    jobs = vault.list_owned_jobs(root, owner)
     if normalized_url:
         match = next((job for job in jobs if job.get('normalized_url') == normalized_url), None)
         if match:

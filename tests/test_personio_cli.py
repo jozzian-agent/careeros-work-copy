@@ -55,7 +55,7 @@ def test_discover_reads_a_vault_without_writing_to_it(root, monkeypatch, capsys)
     monkeypatch.setattr(script.vault, 'list_companies', lambda path: [
         {'name': 'Bring Labs AG', 'website': 'https://www.bringlabs.com/',
          'identifiers': [{'type': 'ats_tenant', 'value': 'personio:bring-labs'}]}])
-    monkeypatch.setattr(script.vault, 'list_jobs', lambda path: [
+    monkeypatch.setattr(script.vault, 'list_owned_jobs', lambda path: [
         {'ats_provider': 'personio', 'ats_tenant': 'isolutions',
          'url': 'https://isolutions.jobs.personio.de/job/1'}])
     parsed = args('discover', root, vault='/some/vault', zefix_file='/nowhere.yaml')
@@ -89,7 +89,7 @@ def test_discover_replays_a_saved_index_file_with_no_live_call(root, capsys):
 
 def test_discover_twice_adds_nothing_the_second_time(root, monkeypatch, capsys):
     monkeypatch.setattr(script.vault, 'list_companies', lambda path: [])
-    monkeypatch.setattr(script.vault, 'list_jobs', lambda path: [
+    monkeypatch.setattr(script.vault, 'list_owned_jobs', lambda path: [
         {'ats_provider': 'personio', 'ats_tenant': 'acme', 'url': 'https://x/'}])
     parsed = args('discover', root, vault='/some/vault', zefix_file='/nowhere.yaml')
     script.cmd_discover(parsed)
@@ -102,7 +102,7 @@ def test_discover_records_a_name_only_zefix_candidate(root, monkeypatch, tmp_pat
     monkeypatch.setattr(script.vault, 'list_companies', lambda path: [
         {'name': 'Bring! Labs AG',
          'identifiers': [{'type': 'ats_tenant', 'value': 'personio:bring-labs'}]}])
-    monkeypatch.setattr(script.vault, 'list_jobs', lambda path: [])
+    monkeypatch.setattr(script.vault, 'list_owned_jobs', lambda path: [])
     seed = tmp_path / 'zefix.yaml'
     seed.write_text(yaml.safe_dump({'companies': [
         {'name': 'BRING LABS AG', 'uid': 'CHE-123.456.789', 'seat': 'Zürich'}]}))
@@ -349,7 +349,7 @@ def test_a_skipped_language_keeps_its_marker_across_runs(root, monkeypatch, caps
 
 def test_a_fetch_keeps_the_discovery_report_in_the_tenant_file(root, monkeypatch, capsys):
     monkeypatch.setattr(script.vault, 'list_companies', lambda path: [])
-    monkeypatch.setattr(script.vault, 'list_jobs', lambda path: [
+    monkeypatch.setattr(script.vault, 'list_owned_jobs', lambda path: [
         {'ats_provider': 'personio', 'ats_tenant': 'isolutions', 'url': 'https://x/'}])
     script.cmd_discover(args('discover', root, vault='/some/vault',
                              zefix_file='/nowhere.yaml'))

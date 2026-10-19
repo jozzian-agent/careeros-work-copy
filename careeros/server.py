@@ -108,6 +108,15 @@ def tenant_employer_names(root, url, owner=None):
     traded away on purpose; see enrich.record_owner_scope and the
     PROJECT.md open question. The same scoping applies to
     `find_company`'s own tenant sweep below.
+
+    It is the caller's BOARD (`vault.list_jobs`, CAREER-72/74), so a
+    universe-only pool posting never moves anybody's resolution. Two
+    reasons: an imported record carries no `employer_named_in_posting`
+    at all -- the pool states the feed's employer name and the import
+    links the company outright, rather than leaving a text for the
+    ladder to act on -- and the pool's own tenant evidence reaches the
+    ladder the right way round anyway, as the `ats_tenant` identifier
+    the import stamps on the companies it creates, which rung 1 reads.
     """
     match = ats.detect_ats(url)
     return [job.get('employer_named_in_posting') for job in storage.list_jobs(root, owner)
@@ -926,6 +935,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     or _lenient_website_tenant_match(website, ats_match)
                 ):
                     return company
+            # The caller's board, same rule and same reasoning as
+            # tenant_employer_names above (CAREER-72/74): an imported pool
+            # posting reaches rung 1 as the company's own ats_tenant
+            # identifier, so this legacy pre-identifiers fallback has no
+            # business deriving a link out of 704 of them.
             for job in storage.list_jobs(root, owner):
                 if not job.get('company_id'):
                     continue
@@ -2648,6 +2662,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 # users hold against a company -- a count is a leak like
                 # any other. Their own links are a conflict they can act
                 # on, so they still get the 409 and the numbers.
+                #
+                # Their BOARD (CAREER-72/74). A universe-only pool posting
+                # linking this company is not a conflict the admin can
+                # act on -- it is on no board of theirs and unlinking 20
+                # imported postings is not what the dialog is asking
+                # about -- so it does not raise the 409. The check below
+                # still sees it and tombstones instead of deleting, which
+                # is exactly the case the tombstone exists for.
                 job_count = sum(job.get('company_id') == identifier
                                 for job in storage.list_jobs(root, owner))
                 exp_count = sum(exp.get('company_id') == identifier
@@ -2675,8 +2697,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 # admin-facing surface and from the resolution ladder, so
                 # the admin's own next posting never resurrects it, while
                 # the user who links it reads it exactly as before.
+                # list_owned_jobs unscoped, not list_jobs: this question is
+                # "does ANY stored record still point here", and a pool
+                # posting on no board points here just as hard as a board
+                # entry does (CAREER-72/74). A hard delete would leave the
+                # pool's jobs pointing at nothing, which is the breakage
+                # the tombstone exists to prevent.
                 if any(record.get('company_id') == identifier
-                       for record in storage.list_jobs(root) + storage.list_experiences(root)):
+                       for record in storage.list_owned_jobs(root) + storage.list_experiences(root)):
                     storage.retire_company(root, identifier)
                 else:
                     storage.delete_company(root, identifier)

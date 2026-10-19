@@ -438,7 +438,9 @@ def main(argv=None):
         seeded = document.get('companies') or []
         seed_total = len(seeded)
 
-    jobs = vault.list_jobs(args.vault)
+    # Unscoped and unfiltered: this report counts the open jobs the vault
+    # holds against a company, pool records included.
+    jobs = vault.list_owned_jobs(args.vault)
     open_jobs = Counter(job.get('company_id') for job in jobs if vault.is_open_job(job))
 
     targets = probe_targets(records, seeded, limit=args.max)

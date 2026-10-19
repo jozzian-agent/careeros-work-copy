@@ -315,6 +315,58 @@ offers, and no read ever migrates a record. Languages have no field of
 their own; a language the posting asks for is an entry in the `languages`
 group.
 
+### Universe-only records: `in_pipeline: false` (CAREER-72/74)
+
+A job record says whether it is on a BOARD or only in the universe.
+`in_pipeline: false` means universe-only: the posting exists because
+something discovered it, not because a person added it. The flag has
+been on the schema since Journey 1
+([flow](flows/add-job-by-link.md)) and nothing wrote a `false` until the
+ATS pool import landed in a vault
+([runbook](runbooks/import-pool.md)), which writes 704 of them in one
+go, every one of them **ownerless**.
+
+Those two facts together are what decides where a record appears, and
+each is read through one function:
+
+| Reading | Function | What it answers |
+| --- | --- | --- |
+| Whose record is it | `vault.Owner.owns` / `sees_in_universe` | D3 privacy: nobody ever sees another user's job |
+| Is it on a board | `vault.on_board` | Only an explicit `false` is universe-only; a record that does not say is a board entry |
+
+So a universe-only record is **on every user's All jobs tab and on
+nobody's board** -- the admin's included. Ownerless alone would not get
+that: an ownerless record is the admin's by inheritance, so without the
+board reading the admin's own My Jobs would hold the whole pool and
+their real jobs would drown in it.
+
+What reads which, with every caller settled rather than left to drift
+(`tests/test_pool_import.py` pins each one):
+
+| Surface or caller | Reads | Universe-only records |
+| --- | --- | --- |
+| My Jobs board, the Notes page's job half, the company profile's My Jobs section | `vault.list_jobs` | out |
+| The watcher sweep, the own-link count behind a company delete, company resolution's reads of this user's postings | `vault.list_jobs` | out |
+| The closed-postings review and "Your search so far" in either payload | board entries only (`jobs.board_context`) | out |
+| All jobs, and a company card's open-jobs count | `vault.list_universe_jobs` | **in** |
+| The hard duplicate check, "is any record still linked" behind a company delete, the staging scripts | `vault.list_owned_jobs` | **in** |
+
+Two consequences worth stating because they look like bugs otherwise.
+A company card can read "12 open jobs" while the profile's My Jobs
+section is empty: the chip counts the universe and the section counts
+your board, which is what each one says. And a universe-only record
+**writes nothing onto a shared company**: `enrich.shared_jobs` reads
+boards, so the rollup derives no location, keyword, posting count or
+headcount evidence from one, and `vault.save_job` skips the
+regeneration it could not change. The moment somebody adds the posting
+to their board it is a board entry and rolls up like any other --
+evidence earning its way in, the same shape the M2 tester gate has.
+
+"Add to my jobs" is how a universe-only record reaches a board
+([surface](surfaces/jobs.md)): `POST /api/jobs/<id>/promote` flips the
+flag for a reader who already owns the record (the admin, by
+inheritance) and creates an owned copy for everybody else.
+
 GET `/api/jobs` lists jobs newest-added first. GET/PUT/DELETE
 `/api/jobs/<id>` reads, partially updates editable schema fields, or deletes a
 job. Missing records return 404; invalid status, type, URL, company link, or date

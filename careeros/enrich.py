@@ -198,6 +198,17 @@ def shared_jobs(root):
     location, its keywords, its seniority and the count of a company's
     postings onto a record every user reads. So it reads the shared half
     of the vault only, per `contributes_to_shared`.
+
+    `vault.list_jobs` is the board read, so a universe-only record
+    contributes nothing either (CAREER-72/74). The pool import writes 704
+    ownerless postings in one go and nobody has looked at one of them;
+    letting them rewrite the locations, keywords and posting counts of 89
+    curated shared companies is the M3 merge-queue question and not an
+    import's to settle. The moment a person adds one to their board it is
+    a board entry and rolls up like any other posting, which is the same
+    "evidence earns its way in" shape the tester gate above has.
+    `vault.save_job` reads this rule back, so saving a universe-only
+    record skips the regeneration it could not change.
     """
     from careeros import vault
 

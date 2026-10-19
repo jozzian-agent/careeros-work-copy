@@ -58,6 +58,13 @@ def scan(root, fetch=None, dry_run=False, *, job_id=None, lock=None, owner=None)
     neither read nor report another user's posting. The cron entry point
     (main) passes nothing and keeps sweeping the whole vault: it runs for
     the host and has no session to scope to.
+
+    It sweeps BOARDS, though (`vault.list_jobs`, CAREER-72/74): a
+    universe-only record is on nobody's board, so a watch event about it
+    has nobody to notify and the board flag it sets has no card to
+    appear on. The feed pipeline already tracks whether a pool posting is
+    still live, from the tenant's own feed, which is both cheaper and
+    better evidence than re-fetching 704 posting pages every night.
     """
     # Resolve dynamically so offline fixtures also cover the production fetch path.
     fetch = intake.fetch_url if fetch is None else fetch

@@ -56,6 +56,13 @@ snapshot only when a posting's content hash changed).
 Nothing in this pipeline writes to the vault. The vault is the owner's;
 staging output stays in this repo's `data/`.
 
+Putting a day's pool INTO a vault is a separate, owner-gated step and is
+not scheduled: `scripts/import_pool_to_vault.py`, which reads the two
+files above and writes the postings as universe jobs
+([runbook](import-pool.md)). It is deliberately not a cron line — it
+holds the vault write lock for the length of the import and the owner
+takes a vault backup before running it.
+
 ## Measured durations (2026-10-18, ideaai: Lenovo IdeaPad Pro 5, CPU-only)
 
 - One LLM classification call (realistic 395-token prompt, JSON out):

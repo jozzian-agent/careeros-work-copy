@@ -143,6 +143,12 @@ def detail_context(root, identifier, owner=None, can_edit_shared=True):
     company = vault.may_see_company(root, identifier, owner)
     if company is None:
         abort(404)
+    # list_jobs, not list_universe_jobs: the profile's job section says My
+    # Jobs and means it (B3), so it stays this reader's own board -- which
+    # since CAREER-72/74 also means a universe-only pool posting at this
+    # company is not listed here, while the directory card's open-jobs
+    # chip does count it. The two numbers answer two different questions
+    # and the directory note in this module's header says so.
     return company_context(company, vault.list_jobs(root, owner),
                            vault.list_experiences(root, owner),
                            sectors.load_isic_sections(), can_edit_shared)
