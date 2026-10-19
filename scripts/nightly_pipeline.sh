@@ -36,15 +36,26 @@ fails=""
     exit 1
   fi
 
+  # Per-provider fetch with retry+backoff: 2026-10-19 smartrecruiters died in
+  # 1s (transient endpoint blip) and cost the day 10 tenants' worth of postings.
+  # Fetches are idempotent (frozen snapshots), so a retry is always safe.
   for p in $PROVIDERS; do
     t0=$SECONDS
-    echo "-- fetch $p"
-    if .venv/bin/python scripts/run_ats_fetch.py --provider "$p" fetch; then
-      echo "-- fetch $p ok in $((SECONDS - t0))s"
-    else
-      echo "-- fetch $p FAILED in $((SECONDS - t0))s"
-      fails="$fails fetch:$p"
-    fi
+    attempt=1
+    ok=0
+    until .venv/bin/python scripts/run_ats_fetch.py --provider "$p" fetch; do
+      if (( attempt >= 3 )); then
+        echo "-- fetch $p FAILED after $attempt attempts in $((SECONDS - t0))s"
+        fails="$fails fetch:$p"
+        break
+      fi
+      backoff=$(( attempt * 60 ))
+      echo "-- fetch $p attempt $attempt failed; retrying in ${backoff}s"
+      sleep "$backoff"
+      attempt=$(( attempt + 1 ))
+    done
+    if [[ -z ${fails##*fetch:$p*} ]]; then :; else ok=1; fi
+    (( ok )) && echo "-- fetch $p ok (attempt $attempt) in $((SECONDS - t0))s"
   done
 
   echo "-- export pool (--all-providers)"
