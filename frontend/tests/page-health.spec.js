@@ -23,9 +23,10 @@ import {
   mockNotesPage,
   mockSearchPage,
   mockTaxonomy,
+  mockUniverse,
 } from './helpers.js';
 
-const ROUTES = ['/', '/jobs', '/jobs/JOB-001', '/companies', '/companies/CO-001',
+const ROUTES = ['/', '/jobs', '/all-jobs', '/jobs/JOB-001', '/companies', '/companies/CO-001',
                 '/experiences', '/experiences/EXP-001', '/notes', '/taxonomy', '/login'];
 
 // Every route shows the shared nav except the login page, which carries
@@ -38,6 +39,7 @@ function landmark(page, route) {
 
 test.beforeEach(async ({ page }) => {
   await mockBoard(page, loadBoardFixture());
+  await mockUniverse(page, loadFixture('all-jobs'));
   await mockSearchPage(page, loadFixture('search-criteria'));
   await mockJobPage(page, loadFixture('job-detail'));
   await mockCompaniesPage(page, loadFixture('companies-list'));

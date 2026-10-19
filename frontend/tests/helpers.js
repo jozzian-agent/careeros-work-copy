@@ -133,6 +133,17 @@ export async function mockBoard(page, body) {
   return calls;
 }
 
+// Mocks GET /api/jobs?view=universe (the All jobs tab's load, B2).
+// Returns a counter so a spec can prove the page reloaded after an add.
+export async function mockUniverse(page, body) {
+  const calls = { count: 0 };
+  await page.route('**/api/jobs?view=universe', (route) => {
+    calls.count += 1;
+    route.fulfill({ json: body });
+  });
+  return calls;
+}
+
 // Mocks PUT /api/jobs/<id> (the status-move mutation shared by the select
 // and drag-and-drop paths). Records each request's method and parsed
 // body so specs can assert the exact payload sent, not just the outcome.
@@ -221,8 +232,16 @@ export async function mockResolveReview(page, { status = 200, body = { ok: true 
 }
 
 // Mocks POST /api/jobs/<id>/promote.
+// Mocks POST /api/jobs/<id>/promote ("Add to my jobs", and the duplicate
+// dialog's promote). Records each call's URL so a spec can prove which
+// posting was added.
 export async function mockPromote(page, { status = 200, body = { ok: true } } = {}) {
-  await page.route('**/api/jobs/*/promote', (route) => route.fulfill({ status, json: body }));
+  const requests = [];
+  await page.route('**/api/jobs/*/promote', (route) => {
+    requests.push(route.request().url());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
 }
 
 // Mocks GET /api/notes (the Notes page's load).

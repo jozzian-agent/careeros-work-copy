@@ -9,13 +9,15 @@ timestamp: 2026-10-15
 
 Surface: `/companies` (React rewrite of `companies.html`).
 Status: implemented 2026-10-13 (JOZ-283), reworked 2026-10-15 against the
-owner's locked decisions below. Owner click-test pending.
+owner's locked decisions below, and again 2026-10-19 for B3/B4/B5
+(universe open-jobs counts, the Tiles and List pair, and no "Needs your
+input" anywhere on a company surface). Owner click-test pending.
 
 ## Purpose
 
-Scan every company in the shared directory in a straight grid, see at a
-glance which ones have open jobs, narrow the grid by sector, size, open
-jobs or a pending review, and reach any one of them.
+Scan every company in the shared directory -- as equal tiles or as a
+list -- see at a glance which ones have open jobs, narrow either view by
+sector, size or open jobs, and reach any one of them.
 
 ## Appears in
 
@@ -43,8 +45,38 @@ card past its neighbours):
 - bottom-pinned, one chip: a blue info Badge reading "N open job" or
   "N open jobs", or a neutral Badge reading "No open jobs"
 
+**List row.** The same companies as one row each, with the five
+owner-approved columns (B4, 2026-10-19):
+
+| Column | What it holds |
+|---|---|
+| Name | the full stored name, as a link to the profile (not the tile's 30-character cut: a row has the width for it) |
+| Sector | the same ISIC section labels the tile shows, "Sector unknown" with none |
+| Size | the size class, title-cased, "Size unknown" with none |
+| Location | the company's own stored locations, comma-joined, "Location unknown" with none |
+| Open jobs | the same chip as the tile, same words |
+
+**Name** and **Open jobs** sort, both ways; the other three do not, by
+owner decision. A name sorts through `localeCompare`, the count sorts
+numerically. `aria-sort` lands on the `<th>` through the shared
+`SortableHeaderCell`, which the Jobs list view uses too -- it moved out
+of `JobsBoard.jsx` into its own component in this round rather than being
+copied. There is **no column saying where a company came from**: the
+owner asked for none, and the list is the same universe whatever the
+source.
+
+**Tiles and List** are one `FilterChip` pair in a `role="group"` labelled
+"View", 44px, each carrying its own `aria-pressed`, in the one selected
+style every toggle in the app uses (A1: wash-blue ground, blue border,
+never a fill). They sit where Board and List sit on Jobs -- the first row
+under the title -- and Companies still has no main action, so there is no
+primary button beside them. The choice is remembered per browser in
+`localStorage` under `careerCompaniesView`.
+
 **Filters.** The same `FilterBar` component the Jobs board uses, with this
-page's own groups, count noun and toggle label:
+page's own groups and count noun. They apply to **both views**: one
+predicate over the one payload, so the two views can never disagree about
+which companies match.
 
 - **Sector**, multi-select: the ISIC section labels companies are actually
   classified under, most-used first. A company matches when ANY of its
@@ -54,9 +86,6 @@ page's own groups, count noun and toggle label:
   nothing is in.
 - **Open jobs**: "With open jobs" and "Without open jobs". Neither checked
   is "Any", which is also what Clear and Clear all leave behind.
-- **Needs your input**, a toggle chip with a count: companies that carry
-  any review flag. Deliberately broader than the Company detail page's
-  one-field `needs_input` ask.
 - Active-filter Tag chips with Clear all, and the result count
   ("N companies", "N of M companies" once anything is active), per
   FilterBar's existing behavior.
@@ -64,13 +93,10 @@ page's own groups, count noun and toggle label:
 A selected filter on this page carries the one selected-toggle style the
 whole app uses since 2026-10-18: the wash-blue ground with a blue border
 and the default text colour, never a blue fill. That covers Sector, Size,
-Open jobs and the "Needs your input" toggle. Each filter's popover draws
+Open jobs and the Tiles/List pair. Each filter's popover draws
 the card ground with the floating shadow and sits above the grid, for the
 same reason and by the same fix as on the Jobs board (see
 [My Jobs](jobs.md), "Filter popovers").
-
-The Tiles and List pair is not on this page yet; it is item B4 of the
-2026-10-18 brief and waits for its own session.
 
 Filtering stays client-side over the one `?view=page` payload. Every filter
 choice, including the toggle, is remembered per browser in `localStorage`
@@ -94,16 +120,67 @@ under `careerCompaniesFilters`; there is no URL state (owner decision).
 
 ## Data
 
-`GET /api/companies?view=page` ([contract](json-api.md)), unchanged in
-shape except that each entry now carries `needs_attention` (any review
-flag), derived server-side the same way the board derives it for a job.
-`counts` is the open-jobs count per company, over the one rule above,
-and since M2 (CAREER-39, decision D3) it counts the reading user's own
-jobs only: a count of somebody else's postings is a leak like any
-other. The company records themselves are shared universe and are sent
-to everybody; editing one is the admin's alone, so the profile page
-carries `can_edit_shared` and leaves out every control a tester's own
-write would refuse.
+`GET /api/companies?view=page` ([contract](json-api.md)). The entry no
+longer carries `needs_attention`: the mark and the filter that read it
+are gone with B5 below. The company records themselves are shared
+universe and are sent to everybody; editing one is the admin's alone, so
+the profile page carries `can_edit_shared` and leaves out every control a
+tester's own write would refuse.
+
+### B3: why API-added companies looked missing, confirmed
+
+The owner reported that companies added through the API do not appear in
+this list. Confirmed, and the report is half right in a way worth
+recording, because the fix is not where it was expected:
+
+1. **Nothing was filtering a company out of the read path.**
+   `vault.visible_companies` has always answered with every company
+   stored in the vault, whatever its source -- no origin, no `source`
+   field and no `kind` enters that decision. The only company it leaves
+   out is one the admin retired (M2 soft retire, below), and the live
+   vault holds none. Of its 54 companies, 12 are linked by no job at all
+   and were all on the page already.
+2. **What was missing was their open jobs.** The count was the reading
+   user's own board (M2, D3), so a company whose postings nobody on this
+   board holds read "No open jobs", which is what makes an API-added
+   company look like an empty stub -- and makes it vanish outright under
+   the "With open jobs" filter.
+3. **A company known only to the feed pool is in no list, because it is
+   in no vault.** `careeros/feeds/` stages its output under `data/ats/`
+   and `data/personio/` and writes no vault record; the merge is a
+   separate owner-gated step that does not exist yet (PROJECT.md,
+   2026-10-17). That is an upstream gap, not a read-path bug, and this
+   round does not close it.
+
+So the fix is the count. `counts` is now the **universe's** open jobs per
+company (owner rule 3, 2026-10-19): the ownerless records plus the
+reader's own, over the same `vault.is_open_job` as before
+(`companies.page_context` reads `vault.list_universe_jobs`). Another
+user's private posting is still not counted -- a count is a leak like any
+other (D3) -- so two users can still read different numbers, and neither
+number is ever evidence about the other's board. The company profile's
+own "My Jobs" section is unchanged and still lists the reader's own jobs
+only; it says My Jobs and means it.
+
+### B5: no company surface asks for "Needs your input"
+
+Owner decision 2026-10-19. Removed from this page: the "Needs your
+input" toggle chip, its count, and the `needs_attention` mark the payload
+derived for it. Removed from the profile: the header chip and the violet
+needs-input card, with the `needs_input` key that decided when to show
+them and the three helpers behind it (`field_state`, `field_flagged`,
+`signals_tried` in `careeros/web/pages/companies.py`). A missing sector
+or size now reads **Unknown** in the Classification section, beside the
+two things that answer it; see [Detail pages](detail-pages.md). The Jobs
+board keeps its own "Needs your input" chip, which is about a job.
+
+The superseded tests went in the same change rather than being left
+passing against nothing: nine `needs_input` cases in
+`tests/test_company_page_context.py`, three directory-mark cases in
+`tests/test_companies_directory.py`, and the toggle and card specs in
+`frontend/tests/companies-list.spec.js` and `company-detail.spec.js`.
+Each place gained an absence pin instead, over the record shape that used
+to raise the ask (a company carrying a review flag).
 
 ## Retired companies (M2 soft retire)
 
@@ -214,12 +291,12 @@ deletes this evidence the same way it deletes the nested
 ## States
 
 Loading and load-error states (plain text, a Retry on load failure). An
-empty directory shows the empty message with no filter controls — the
-deliberate improvement kept from the 2026-10-13 rework, since filters with
-nothing to filter serve no purpose. A filter combination that matches
-nothing now says so ("No companies match these filters.", or "Nothing
-needs your input." when the toggle alone is on), the same way the board
-does; before the rework it rendered a silently empty grid.
+empty directory shows the empty message with no filter controls and no
+view pair — the deliberate improvement kept from the 2026-10-13 rework,
+since filters with nothing to filter serve no purpose. A filter
+combination that matches nothing says so ("No companies match these
+filters.") in either view; before the rework it rendered a silently empty
+grid. The "Nothing needs your input." variant went with the toggle (B5).
 
 ## Routing
 
@@ -230,6 +307,13 @@ view removed rather than kept as a flag-off fallback
 (`tests/test_react_ui_flag.py`).
 
 ## Verification
+
+2026-10-19 (B3/B4/B5): `.venv/bin/python -m pytest tests -q` and
+`cd frontend && npx playwright test`; counts in the round's own report.
+New tests: the universe count and "every company whatever its source" in
+`tests/test_companies_directory.py`, the five columns, the two sorts, the
+filters over both views and the B5 absence pins in
+`frontend/tests/companies-list.spec.js`.
 
 - `.venv/bin/python -m pytest tests -q` (1161 passed, was 1138, 2026-10-15:
   9 tests for the open-jobs rule and the review-flag mark in
@@ -245,6 +329,11 @@ view removed rather than kept as a flag-off fallback
 
 ## Open questions
 
+- **A company known only to the feed pool is still in no list.** The
+  adapters write no vault record, so the merge step is what would put
+  those companies in this directory; it does not exist yet. See B3 above.
+- Sorting is the list view's own and is not remembered between visits,
+  unlike the filters and the view choice. Nothing asked for it to be.
 - Does the Company detail page's size value follow the same
   classes-win rule? It still prefers the raw range it was given
   (`companies.field_value`), which only matters until `--apply` runs.

@@ -20,9 +20,6 @@ DIRECTORY_SHAPE = {'counts': {'CO-001': 'int'},
               'locations': ['str'],
               'name': 'str',
               'name_source': 'str',
-              # Derived for the directory's Needs-your-input filter: any
-              # review flag stands against the record.
-              'needs_attention': 'bool',
               'note_list': [],
               'notes': 'str',
               # M2 soft retire: the tombstone a company gains when the
@@ -190,7 +187,6 @@ DETAIL_SHAPE = {'can_edit_shared': 'bool',
  'isic_sections': [{'code': 'str', 'keywords': ['str'], 'label': 'str', 'label_de': 'str'}],
  'jobs': [{'id': 'str', 'status': 'str', 'title': 'str'}],
  'kinds': ['str'],
- 'needs_input': 'NoneType',
  # Same migrated-view shape, and the same null timestamps, as the
  # job detail contract's notes key.
  'notes': [{'body': 'str', 'created': 'NoneType', 'id': 'str',
@@ -209,7 +205,7 @@ def test_linked_records_and_raw_contract(api_client, assert_json_shape):
     route = '/api/companies/CO-001'
     data = api_client.get(route + '?view=page').get_json()
     assert [job['id'] for job in data['entries']] == ['JOB-001']
-    assert data['entries'][0]['needs_attention'] is True
+    assert data['entries'][0]['needs_attention'] is True  # the JOB's flag, not the company's
     assert [exp['id'] for exp in data['experiences']] == ['EXP-001']
     assert data['company']['notes'] == 'Owner notes'
     assert data['company']['review_flags'] == ['sector-ambiguous']

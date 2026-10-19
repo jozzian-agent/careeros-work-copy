@@ -496,6 +496,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
         react_index = lambda **_kwargs: send_from_directory(react_dist, 'index.html')
         app.add_url_rule('/', 'react_index', react_index)
         app.add_url_rule('/jobs', 'react_jobs', react_index)
+        # B2 (CAREER-89): the All jobs tab. Its own URL rather than a
+        # segment under /jobs, because /jobs/<identifier> is the job
+        # detail page and /jobs/all would be a job id to the router.
+        # React-only, like /taxonomy and /notes, so it has no Jinja route
+        # and no entry in theme.py's NAV_PAGES.
+        app.add_url_rule('/all-jobs', 'react_all_jobs', react_index)
         app.add_url_rule('/jobs/<identifier>', 'react_job_detail', react_index)
         app.add_url_rule('/experiences', 'react_experiences', react_index)
         app.add_url_rule('/experiences/<identifier>', 'react_experience_detail', react_index)
@@ -1846,13 +1852,48 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.post('/api/jobs/<identifier>/promote')
     def promote_job(identifier):
-        """Journey 2 constraint, wired now: flips in_pipeline true on a
-        universe record. Nothing creates in_pipeline false records yet."""
+        """"Add to my jobs": put one universe posting on my own board.
+
+        The user word for this is "Add to my jobs" (B2, CAREER-89); the
+        endpoint keeps the name it has had since the Journey 2
+        constraint, because it is the same action and renaming a URL
+        buys nothing.
+
+        Two cases, decided by whose record it is:
+
+        - **Mine already** (my own job, or an ownerless one the admin
+          inherits): nothing is created. `in_pipeline` is flipped true
+          for the Journey 2 record shape nothing writes yet, and a job
+          that is already on the board is answered as it stands.
+        - **Ownerless and I am not the admin**: a COPY of the posting,
+          owned by me, landing in New (`vault.add_job_to_board`). The
+          universe record is left exactly as it is. Re-stamping it would
+          move ownership, which D4 forbids and which would take a job
+          off the admin's own board; see that function for the full
+          reasoning.
+
+        A second click creates no second record: the adder's own
+        duplicate check answers with the record they already have, which
+        is the same answer intake gives for the same posting.
+        """
         root = app.config['VAULT_PATH']
+        owner = session_owner()
         with write_lock:
-            job = storage.load_job(root, identifier, session_owner())
+            job = storage.load_universe_job(root, identifier, owner)
             if job is None:
                 return jsonify(error='Job not found.'), 404
+            if owner is not None and not owner.owns(job):
+                # The same comparison intake makes, over the posting's own
+                # link: a record written straight through the vault
+                # carries no normalized_url of its own, so it is computed
+                # here rather than letting a missing one read as "no
+                # duplicate" and add the posting twice.
+                normalized = job.get('normalized_url') or normalize_url(job.get('url') or '')
+                existing, _basis = dedupe.find_duplicate(
+                    root, normalized, posting_ats(job.get('url') or ''), owner)
+                if existing:
+                    return jsonify(existing)
+                return jsonify(storage.add_job_to_board(root, job, owner.identifier)), 201
             if job.get('in_pipeline'):
                 return jsonify(job)
             return jsonify(storage.save_job(root, {'in_pipeline': True}, identifier,
@@ -2433,8 +2474,19 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.get('/api/jobs')
     def job_collection():
-        if request.args.get('view') == 'board':
-            context = jobs.page_context(app.config['VAULT_PATH'], session_owner())
+        # Two views over one payload shape (B2, CAREER-89): `board` is the
+        # reader's own jobs, `universe` is the All jobs tab -- every job
+        # that is not private to another user, each entry saying whether
+        # it is on this reader's board. Both are built and decorated here
+        # rather than by two endpoints, so the tab reuses the board's own
+        # cards and filter bar instead of a second contract that could
+        # drift from it. The visibility rule is `vault.Owner`'s, applied
+        # server-side in `jobs.universe_context`; nothing is filtered in
+        # the browser.
+        view = request.args.get('view')
+        if view in ('board', 'universe'):
+            build = jobs.page_context if view == 'board' else jobs.universe_context
+            context = build(app.config['VAULT_PATH'], session_owner())
             summaries = jobs.company_summaries(context['companies'], sectors.load_isic_sections())
             return jsonify(context | {
                 'companies': summaries,

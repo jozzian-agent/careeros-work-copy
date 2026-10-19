@@ -726,6 +726,76 @@ pointing at a deleted company is refused by `save_job` on every later
 edit). Visibility is "my own record links it", so a user with no link
 reads a retired company the same way the admin does: not found.
 
+2026-10-19: the universe becomes visible (B2 to B5 of the
+[jobs-page brief](docs/briefs/2026-10-18-jobs-page-fixes.md), owner
+decisions of the same day). Four changes, one of which is a new surface.
+
+- **A second jobs tab, All jobs** ([surface](docs/surfaces/jobs.md)).
+  It shows every job record that is NOT private to another user: the
+  records carrying no `owner_id` -- what the API adds, and what the feed
+  pool will add -- plus the reading user's own. A tester never sees
+  another tester's or the admin's owned jobs, and the admin never sees a
+  tester's: D3 is privacy and not hierarchy, and that does not change
+  here. The rule is one function (`vault.Owner.sees_in_universe`),
+  enforced server-side in `jobs.universe_context`, and a cross-user probe
+  answers the same not-found as everywhere else. The tab is the board's
+  own payload and the board's own parts -- one `GET /api/jobs?view=universe`
+  in the `view=board` shape, the same FilterBar over the same facets
+  (`frontend/src/jobFilters.js`, extracted from the board rather than
+  copied), the same JobCard -- rendered as one grid of cards, because a
+  column per status would be a column of empty promises for the postings
+  nobody has added yet. "Universe" stays a backend word: the tab is
+  called All jobs.
+- **"Add to my jobs" is a copy, and that is a reported conflict.** The
+  brief preferred that promote re-stamp an ownerless record with the
+  adding user's `owner_id`. M2 as written here says ownership is stamped
+  once and never moves (D4) and that an ownerless record is the admin's,
+  so a re-stamp would take a job off the admin's board and be the
+  ownership change both write paths strip out of their payloads. So
+  PROJECT.md won, as the brief instructed: `POST /api/jobs/<id>/promote`
+  creates a NEW job owned by the caller, landing in New, and leaves the
+  posting it copied exactly as it was. That is not an invented rule
+  either -- "the same posting added by two users is two private records"
+  is what the duplicate check already implements. The copy carries
+  everything the record says about the posting and nothing about anybody's
+  handling of it (`vault.BOARD_COPY_EXCLUDED`), gains a `normalized_url`
+  when the source had none so it is comparable to a later paste of the
+  same link, and a second click adds nothing because the caller's own
+  duplicate check answers with the record they already have.
+- **The open-jobs count on a company is the universe's** (B3,
+  [surface](docs/surfaces/companies.md)). The report was that API-added
+  companies are missing from the Companies list. Confirmed, and the cause
+  was not the read path: `vault.visible_companies` has always answered
+  with every company whatever its source, and on the live vault 12 of the
+  54 are linked by no job at all and were already on the page. What was
+  missing was their open jobs -- the count was the reader's own board, so
+  such a company read "No open jobs" and vanished under the "With open
+  jobs" filter. It counts the universe's open jobs now, still never
+  another user's private posting. The one thing that genuinely cannot
+  appear is a company known only to the feed pool: the adapters write no
+  vault record and the merge step does not exist yet, which is an
+  upstream gap this round did not close and an open question below.
+- **Companies get a list view beside the tiles** (B4): one row per
+  company with Name (a link), Sector, Size, Location and the tile's own
+  open-jobs chip, sortable by Name and by Open jobs, with the Tiles/List
+  pair in the one selected style and the filters applying to both views
+  over one predicate. `SortableHeaderCell` moved out of `JobsBoard.jsx`
+  into its own component so the second table reuses it instead of copying
+  the `aria-sort` workaround. No column says where a company came from.
+- **No company surface asks for "Needs your input"** (B5, owner
+  decision). The chip and the violet card are gone from the company
+  profile, the toggle and its count from the directory, and with them the
+  `needs_input` key, the `needs_attention` mark and the three helpers
+  that only existed to decide when to ask. A missing sector or size reads
+  **Unknown** in the Classification section beside the two things that
+  answer it: "Set it yourself" (the Edit classification popup) and a quiet
+  "Try again" (the existing retry), both admin-only because both write
+  the shared record. The Jobs board keeps its own chip, which is about a
+  job. This supersedes the "Company: a field needs input" artboard and
+  the company needs-input card in `careeros-detail-pages-brief.md`; the
+  superseded tests went in the same change, each replaced by an absence
+  pin over the record shape that used to raise the ask.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -800,6 +870,7 @@ open question.
 | Session | Being logged in. One signed cookie holding one user id, re-checked against the record on every request. Added M1, 2026-10-17. | none |
 | Owner of a record | Which user a job or an experience belongs to: the `owner_id` field holding a user record id (`vault.OWNER_FIELD`). Stamped by the path that creates the record and never moved. Added M2, 2026-10-18. | none |
 | Shared universe | The records every user reads and the admin alone changes: companies and the tag vocabulary. Added M2, 2026-10-18. | Universe (a backend word that never appears in the interface) |
+| All jobs | What a person reads the job half of that universe as: every job not private to another user. The tab's name, and the only user-facing word for it -- "universe" stays backend. Added B2, 2026-10-19. | none |
 
 ### Statuses
 
@@ -837,6 +908,7 @@ state survives a restart.
 | Surface | Flow step |
 |---|---|
 | My Jobs, as board and as list | Board. Holds the signed-in user's own postings only, M2 2026-10-18 ([surface](docs/surfaces/jobs.md)) |
+| All jobs | Bring jobs. Every job not private to another user: the ownerless records plus the reader's own, each either showing its status or offering "Add to my jobs". Added B2, 2026-10-19 ([surface](docs/surfaces/jobs.md)) |
 | Job | Reading a job, flags |
 | Companies | Company browse |
 | Company | Company browse |
@@ -848,7 +920,7 @@ state survives a restart.
 | Accounts command line | Creating, listing, resetting, disabling and enabling an account, since the first admin cannot sign in to create themselves. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [schemas](docs/schemas.md)) |
 | Health check | `GET /api/health`, the one unauthenticated read: is the process up. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md)) |
 
-Interviews is removed from the navigation until it exists. Tab order is My Jobs, Companies, Experiences, Preferences. Proposed.
+Interviews is removed from the navigation until it exists. Tab order is My Jobs, All jobs, Companies, Experiences, Preferences. Proposed. All jobs sits next to My Jobs by owner decision, 2026-10-19.
 
 ### Actions
 
@@ -858,6 +930,7 @@ Interviews is removed from the navigation until it exists. Tab order is My Jobs,
 | Change a job's status | One control on the card | Everyone |
 | Retry | On the card or company, visible after a failed or exhausted step | Owner |
 | Resolve a company match | The review card | Owner |
+| Add to my jobs | On a card of the All jobs tab that is not on my board; the existing promote action under the user's word. It creates my own copy of the posting in New and never moves the record it copied (B2, 2026-10-19) | Everyone |
 | Remove from my board | On the card | Everyone |
 | Edit preferences | One edit mode on Search (proposed name: Preferences); Edit criteria → Done / Cancel, batch D | Everyone |
 | Add an experience | Experiences | Everyone |
@@ -1235,9 +1308,30 @@ New fields, retry scheduling, changes to the fixed lists, restyling.
   still writes the variant. This is the merge-queue tension again, in
   its smallest form: the evidence is good, the writer is not trusted
   yet.
+- **The All jobs tab is identical to My Jobs for the admin today.** An
+  ownerless record is theirs by inheritance, so the tab differs from
+  their board only once records exist that no user owns -- and the owner
+  migration gave all 44 live jobs to the admin, so right now there are
+  none. The tab earns its place when the pool merge lands or the API
+  adds a record outside a session; until then it is the tester's view
+  that differs. Worth knowing before the owner click-test reads it as
+  broken (B2, 2026-10-19).
+- **A job the feed pool holds is in no vault, so it is on no surface.**
+  `careeros/feeds/` stages under `data/ats/` and writes no record, and
+  the merge into the vault is still the owner-gated step that does not
+  exist. Both B2 and B3 are built to show those records the moment
+  something writes them; nothing in this round writes them.
+- **Nothing un-copies an added job.** "Add to my jobs" makes my own
+  record; removing it is the ordinary job delete, and the posting it was
+  copied from stays in All jobs, so the tab will offer to add it again.
+  That is the correct behaviour for a copy and may still read oddly;
+  decide if the friend test surfaces it.
 - Which parts of M4 are done by hand, and how friends are told, if at all.
 - Whether fit and CV reading join the first test, see M5.
-- Merging Needs attention and Needs your input.
+- Merging Needs attention and Needs your input. Narrowed 2026-10-19: no
+  company surface uses either word any more (B5), so the question is now
+  only about the Jobs board's own chip and filter, which already read one
+  flag.
 - Rename the Search tab to Preferences.
 - Options per round, two or three.
 - Format of the fit score.

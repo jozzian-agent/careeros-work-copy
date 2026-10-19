@@ -23,6 +23,11 @@ Owner click-test: Passed 2026-10-11 on live LAN server with the real vault
 ("works all"). One gap found: navigation to the other pages is missing
 from the React Jobs page; tracked as M0 follow-up below.
 
+2026-10-19 (B2, CAREER-89): the section gained a second tab, **All
+jobs**, which is the same payload and the same components over every job
+that is not private to another user. See "All jobs, the second tab"
+below; My Jobs itself is unchanged.
+
 2026-10-12 (JOZ-278, design-brief rebuild): the board's card and status
 controls were rebuilt against the handoff brief, on top of the above. See
 "JOZ-278 rebuild" below for what changed; it supersedes the component
@@ -509,6 +514,101 @@ filter bar. It is a static placeholder on the artboard, and no document
 says what it searches, how it combines with the facets or whether it
 applies to both views, so it is not built. It needs a sentence from the
 owner first.
+
+## All jobs, the second tab (B2, 2026-10-19)
+
+Surface: `/all-jobs` (React only, like `/notes` and `/taxonomy`).
+Owner decisions of 2026-10-19: the tab is called **All jobs** and sits
+next to My Jobs in the nav; "universe" stays a backend word and appears
+nowhere a person reads (PROJECT.md, Frame).
+
+### What it holds
+
+Every job record that is **not private to another user**. Concretely:
+
+- every record with no `owner_id` — what the API adds and what the feed
+  pool will add, and what a record written before the M2 split carries;
+- plus the reading user's own records.
+
+Another user's job is absent, and absent for the admin too: D3 is privacy
+and not hierarchy, so a tester's postings are invisible here exactly as
+they are on the board. Every per-job route answers for one of them with
+the same not-found a job that never existed gets
+(`vault.load_universe_job`, `tests/test_record_privacy.py`). The rule is
+one function, `vault.Owner.sees_in_universe`, and it is applied
+**server-side**: nothing about visibility is decided in the browser.
+
+A consequence worth stating, because it is easy to read as a bug: for the
+admin the tab is their board plus nothing, since an ownerless record is
+already theirs by inheritance. It differs from My Jobs only once records
+exist that no user owns — which, on the live vault today, is none: the
+owner migration gave all 44 jobs to the admin.
+
+### What it shows
+
+The board's own parts, not a second set: the same payload
+(`GET /api/jobs?view=universe`, the `view=board` shape plus one key), the
+same `FilterBar` over the same facets (`frontend/src/jobFilters.js`), the
+same `JobCard`, the same `PageLayout` title row.
+
+- **One grid of cards**, not a kanban. A column per status would be a
+  column of empty promises for the postings nobody has added yet.
+- **A job on my board shows its status**, in the working status select,
+  so a move from here is the same move as on the board.
+- **A job that is not on my board offers "Add to my jobs"** in the place
+  the select would be.
+- **A card that is not mine says nothing about somebody else being
+  asked**: no "Needs your input" chip, no ingest state and no Try again,
+  because the retry is owner-scoped and would answer not-found. The
+  posting's own facts — title, company, location, closed chip — read
+  exactly as they do on the board.
+- **Filters**: Function, Location, More filters (Industry, Company size),
+  then "Hide closed postings", and the count on the right ("N open · M
+  ended", "N of M jobs" once a filter is on). There is no "Needs
+  attention" toggle here: the flag mostly describes records the reader
+  does not hold, so it would offer to narrow to somebody else's asks.
+- **No main action.** Pasting a link belongs on My Jobs, which is where
+  the job a person adds lands, so this page is the title row and its
+  filters (brief 2026-10-18, section 3).
+
+### "Add to my jobs" is a copy, not a hand-over
+
+`POST /api/jobs/<id>/promote`, the existing promote action under the
+user's own word. What it does depends on whose record it is:
+
+- **Already mine** (my own job, or an ownerless one the admin inherits):
+  nothing is created. `in_pipeline` is flipped true for the Journey 2
+  record shape nothing writes yet, and the record is answered as it
+  stands.
+- **Ownerless, and I am not the admin**: a new job record of my own,
+  copied from the posting and landing in **New**, stamped with my
+  `owner_id` (`vault.add_job_to_board`). 201 with my record.
+
+**The conflict, and how it was resolved.** The brief's preference was
+that promote re-stamp the ownerless record with the adding user's
+`owner_id`. That contradicts M2 as PROJECT.md states it — "ownership is
+stamped once and never moves" (D4), and "a record written before the
+split is the admin's" — so re-stamping would take a job off the admin's
+own board and would be exactly the ownership change both write paths
+strip out of their payloads. Per the brief's own instruction, PROJECT.md
+wins and the conflict is reported. The copy is not an invention either:
+"the same posting added by two users is two private records" is already
+the rule the duplicate check implements (D4), and this is that rule
+applied to a posting the pool holds.
+
+What travels onto the copy is everything the record says about the
+posting. What does not: the status (New), `in_pipeline`, `added`, the
+history, the notes (they belong to whoever wrote them), the AI reading
+state, `end_reason` and `closed_reviewed_at`
+(`vault.BOARD_COPY_EXCLUDED`). Two more rules ride along, both so the new
+record is well formed: it gains a `normalized_url` when the source had
+none, so it is comparable to any later paste of the same link; and a
+company link it may not make (a retired company) is dropped to `pending`
+with the employer name left as free text, rather than the add failing
+with a company error.
+
+A second click adds nothing: the adder's own duplicate check finds the
+record they already have and answers 200 with it.
 
 ## States
 

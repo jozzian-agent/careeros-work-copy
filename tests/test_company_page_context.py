@@ -1,8 +1,9 @@
-"""B5: the company detail page context.
+"""The company detail page context: where each classification value came
+from, which records are linked, and that no company surface asks for
+"Needs your input" any more.
 
 `company_context` is pure, so the cases below are record snapshots; the
-acceptance case (a classified company carrying a stale review flag) also
-runs through the pinned API fixture.
+absence pin also runs through the pinned API fixture.
 """
 from careeros.web.pages import companies
 
@@ -23,66 +24,24 @@ def events(field, *pairs):
                     'outcome': outcome} for signal, outcome in pairs]}}}}
 
 
-# --- needs_input ----------------------------------------------------------
+# --- B5: nothing on a company surface asks for input ----------------------
+#
+# Owner decision 2026-10-19: the chip, the card and the directory filter
+# are gone, and so is the `needs_input` ask that decided when to show
+# them, with the nine tests that pinned its precedence and its "tried"
+# list. A missing value is Unknown in the Classification section, beside
+# Edit classification and the existing retry.
 
-def test_needs_input_null_when_the_field_has_a_value_despite_a_stale_flag():
-    """Acceptance case: a company classified by an earlier run keeps a
-    review flag from the ambiguity that preceded it. The flag alone used
-    to raise the card, asking for a value already on the record."""
-    result = context({'sectors': ['J'], 'size_class': 'small',
-                      'review_flags': ['sector-ambiguous']})
-    assert result['needs_input'] is None
-
-
-def test_needs_input_null_when_the_field_was_never_tried():
-    """Nothing to report yet: the cascade has not run, so the page does
-    not ask the owner to do automation's job first."""
-    result = context({'enrichment': {'field_states': {
-        'sectors': {'state': 'never-tried', 'events': []}}}})
-    assert result['needs_input'] is None
-
-
-def test_needs_input_for_an_exhausted_empty_field():
-    result = context(events('size', ('jsonld', 'empty'), ('osm', 'fetch-error'))
-                     | {'sectors': ['J']})
-    assert result['needs_input'] == {'field': 'size', 'tried': ['jsonld', 'osm']}
-
-
-def test_needs_input_skips_signals_that_never_ran():
-    result = context(events('size', ('jsonld', 'empty'), ('llm', 'not-attempted'))
-                     | {'sectors': ['J']})
-    assert result['needs_input']['tried'] == ['jsonld']
-
-
-def test_needs_input_names_each_signal_once():
-    result = context(events('size', ('wikidata', 'ambiguous'), ('wikidata', 'empty'))
-                     | {'sectors': ['J']})
-    assert result['needs_input']['tried'] == ['wikidata']
-
-
-def test_needs_input_on_a_flag_only_when_the_field_is_empty():
-    """A flag against an empty field is a real ask: a signal found
-    something the record could not act on."""
-    result = context({'review_flags': ['sector-ambiguous'], 'size_class': 'small'})
-    assert result['needs_input'] == {'field': 'sector', 'tried': []}
-
-
-def test_needs_input_asks_for_sector_before_size():
-    result = context({'review_flags': ['sector-ambiguous', 'size-inconsistent']})
-    assert result['needs_input']['field'] == 'sector'
-
-
-def test_needs_input_counts_the_legacy_sector_text_as_a_value():
-    result = context({'sector': 'Logistics software', 'size_class': 'small',
-                      'review_flags': ['sector-ambiguous']})
-    assert result['needs_input'] is None
-
-
-def test_needs_input_counts_any_stored_size_as_a_value():
-    for key, value in (('size', '200-500'), ('size_range', '200-500'), ('size_class', 'small')):
-        result = context({'sectors': ['J'], key: value,
-                          'review_flags': ['size-inconsistent']})
-        assert result['needs_input'] is None, key
+def test_the_page_makes_no_needs_input_ask_at_all():
+    """An absence pin: the key is gone for every record shape that used
+    to raise it -- an exhausted empty field, and a review flag against
+    one."""
+    exhausted = context(events('size', ('jsonld', 'empty')) | {'sectors': ['J']})
+    flagged = context({'review_flags': ['sector-ambiguous', 'size-inconsistent']})
+    for result in (exhausted, flagged):
+        assert 'needs_input' not in result
+    assert flagged['classification'] == {'sector': {'value': None, 'source': None},
+                                         'size': {'value': None, 'source': None}}
 
 
 # --- classification -------------------------------------------------------
@@ -154,10 +113,11 @@ def test_existing_keys_survive():
     assert result['company']['notes'] == 'Owner notes'
 
 
-def test_fixture_company_with_values_and_a_stale_flag_asks_for_nothing(api_client):
-    """The same acceptance case over the real route."""
+def test_fixture_company_with_a_review_flag_asks_for_nothing(api_client):
+    """The same absence pin over the real route, on the record shape that
+    used to raise the ask: a company carrying a review flag."""
     page = api_client.get('/api/companies/CO-001?view=page').get_json()
     assert page['company']['review_flags'] == ['sector-ambiguous']
-    assert page['needs_input'] is None
+    assert 'needs_input' not in page
     assert page['classification']['sector']['value'] == 'Information and communication'
     assert page['jobs'] == [{'id': 'JOB-001', 'title': 'Contract Builder', 'status': 'new'}]

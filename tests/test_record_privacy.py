@@ -511,6 +511,120 @@ def test_the_same_posting_added_by_two_users_is_two_private_records(clients, peo
     assert again['existing']['id'] == second['job']['id']
 
 
+# --- B2: the All jobs tab (CAREER-89) -----------------------------------
+#
+# The tab shows every job that is NOT private to another user: the records
+# no user owns (what the API and the feed pool add) plus the reader's own.
+# So it widens what a read reaches by one category, and the D3 rule above
+# has to keep holding for everything else -- including for the admin,
+# whose own tab shows a tester nothing.
+
+POOL_TITLE = 'Pool Added Role'
+POOL_URL = 'https://example.test/pool/posting'
+POOL_NOTE_TITLE = 'Pool note'
+UNIVERSE = '/api/jobs?view=universe'
+
+
+@pytest.fixture
+def pool_job(root, people, company):
+    """A job no user owns, carrying a note, the way a record written
+    before the split or added outside a session does."""
+    return vault.save_job(root, {
+        'title': POOL_TITLE, 'url': POOL_URL, 'company_id': company['id'],
+        'status': 'interested', 'location': 'Zurich', 'description': 'Pool posting text.',
+        **vault.notes_payload([vault.new_note(POOL_NOTE_TITLE, 'Body.')]),
+    })
+
+
+def on_my_board(client):
+    return {entry['id']: entry['on_my_board']
+            for entry in client.get(UNIVERSE).get_json()['entries']}
+
+
+def test_all_jobs_holds_the_ownerless_half_plus_the_readers_own(clients, records, pool_job):
+    for key, client in clients.items():
+        titles = sorted(entry['title'] for entry in client.get(UNIVERSE).get_json()['entries'])
+        assert titles == sorted([POOL_TITLE, TITLES[key]])
+        # And no other user's title reaches the response in any shape,
+        # the same check the board itself gets above.
+        text = body(client.get(UNIVERSE))
+        for other, title in TITLES.items():
+            assert (title in text) is (other == key)
+
+
+def test_all_jobs_says_which_entries_are_on_my_board(clients, records, pool_job):
+    """An ownerless record is the admin's by inheritance, so for them it
+    is already on the board; for a tester it is the one entry that offers
+    "Add to my jobs"."""
+    assert on_my_board(clients['admin']) == {records['jobs']['admin']['id']: True,
+                                             pool_job['id']: True}
+    assert on_my_board(clients['one']) == {records['jobs']['one']['id']: True,
+                                           pool_job['id']: False}
+
+
+def test_add_to_my_jobs_copies_a_pool_posting_onto_my_own_board(clients, people, root, pool_job):
+    response = clients['one'].post(f"/api/jobs/{pool_job['id']}/promote")
+    assert response.status_code == 201
+    added = response.get_json()
+    assert added['id'] != pool_job['id']
+    assert added[vault.OWNER_FIELD] == people['one']['id']
+    assert added['status'] == 'new'
+    assert added['in_pipeline'] is True
+    # The posting travels; nobody's own handling of it does.
+    assert (added['url'], added['company_id'], added['description']) == (
+        pool_job['url'], pool_job['company_id'], pool_job['description'])
+    assert added['note_list'] == []
+    assert 'promoted' in [event['event'] for event in added['history']]
+    # The universe record is left exactly as it was, so it is still
+    # nobody's and still on every reader's tab (D4: ownership never moves).
+    assert vault.load_job(root, pool_job['id'])[vault.OWNER_FIELD] is None
+    assert on_my_board(clients['two'])[pool_job['id']] is False
+    # And the copy shows a status from here on, on both surfaces.
+    assert added['id'] in [entry['id'] for entry in
+                           clients['one'].get('/api/jobs?view=board').get_json()['entries']]
+    assert on_my_board(clients['one'])[added['id']] is True
+
+
+def test_a_second_add_creates_no_second_board_entry(clients, root, people, pool_job):
+    first = clients['one'].post(f"/api/jobs/{pool_job['id']}/promote")
+    second = clients['one'].post(f"/api/jobs/{pool_job['id']}/promote")
+    assert second.status_code == 200
+    assert second.get_json()['id'] == first.get_json()['id']
+    mine = vault.list_jobs(root, users.owner(people['one']))
+    assert [job['url'] for job in mine].count(POOL_URL) == 1
+
+
+def test_the_admin_adds_nothing_because_a_pool_posting_is_already_theirs(clients, root, pool_job):
+    before = len(vault.list_jobs(root))
+    response = clients['admin'].post(f"/api/jobs/{pool_job['id']}/promote")
+    assert response.status_code == 200
+    assert response.get_json()['id'] == pool_job['id']
+    assert len(vault.list_jobs(root)) == before
+
+
+def test_adding_another_users_job_answers_like_a_job_that_does_not_exist(clients, records, root):
+    theirs = records['jobs']['one']['id']
+    before = len(vault.list_jobs(root))
+    mine = clients['two'].post(f'/api/jobs/{theirs}/promote')
+    absent = clients['two'].post(f'/api/jobs/{ABSENT_JOB}/promote')
+    assert mine.status_code == absent.status_code == 404
+    assert mine.get_json() == absent.get_json()
+    assert len(vault.list_jobs(root)) == before
+
+
+def test_the_directory_count_is_the_universe_and_not_another_users_board(clients, records,
+                                                                        company, pool_job):
+    """B3 (CAREER-90): the open-jobs count on a company is the universe's
+    open jobs -- the ownerless ones plus my own -- so a company whose
+    postings came in through the API no longer reads "No open jobs" to
+    everybody. Another user's private posting is still not counted."""
+    for key, client in clients.items():
+        counts = client.get('/api/companies?view=page').get_json()['counts']
+        # Two: the pool posting and this reader's own. Three users hold
+        # one each at this company, and only one of them is the reader.
+        assert counts == {company['id']: 2}, key
+
+
 # --- The pages rendered without a React build follow the same rules ----
 
 def test_the_jinja_board_is_headed_my_jobs_and_holds_only_the_readers_own(clients, records):

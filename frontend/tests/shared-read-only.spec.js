@@ -27,9 +27,10 @@ const tagsRegistry = loadFixture('experience-tags-registry');
 
 const asTester = (fixture) => ({ ...fixture, can_edit_shared: false });
 
-// A company whose sector automation has run out of ideas on, which is
-// what raises the one ask the page makes. Only the admin can answer it.
-const needsSector = {
+// A company with no sector stored, which is what puts "Unknown" in the
+// Classification section (B5). Both ways to answer it write the shared
+// record, so only the admin is offered them.
+const unknownSector = {
   ...company,
   company: { ...company.company, sectors: [], sector: null },
   sector_labels: [],
@@ -37,7 +38,6 @@ const needsSector = {
     sector: { value: null, source: null },
     size: company.classification.size,
   },
-  needs_input: { field: 'sector', tried: ['jsonld', 'wikidata', 'llm'] },
 };
 
 // --- The company profile -------------------------------------------------
@@ -79,17 +79,19 @@ test('a tester still reads the whole company profile', async ({ page }) => {
   await expect(page.getByTestId('section-classification').getByText('Sector')).toBeVisible();
 });
 
-test('the company ask is raised for the admin and not for a tester', async ({ page }) => {
-  await mockCompanyPage(page, needsSector);
+test('an unknown classification is answerable by the admin and not by a tester', async ({ page }) => {
+  await mockCompanyPage(page, unknownSector);
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   await expect(page.getByRole('button', { name: 'Set it yourself' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 
-  // Both of its actions write the shared record, so for a tester the
-  // card would be an ask they cannot answer. The chip that jumps to it
-  // goes with it.
-  await mockCompanyPage(page, asTester(needsSector));
+  // Both actions write the shared record, so a tester reads the same
+  // Unknown and is offered neither (B5 keeps the M2 rule).
+  await mockCompanyPage(page, asTester(unknownSector));
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
+  await expect(page.getByTestId('section-classification').getByText('Unknown', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Set it yourself' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
   await expect(page.getByText('Needs your input', { exact: true })).toHaveCount(0);

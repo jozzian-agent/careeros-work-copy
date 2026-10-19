@@ -1,0 +1,433 @@
+{
+  "statuses": [
+    "new",
+    "interested",
+    "applied",
+    "interviewing",
+    "offer",
+    "won",
+    "rejected",
+    "stopped"
+  ],
+  "status_labels": {
+    "new": "New",
+    "interested": "Interested",
+    "applied": "Applied",
+    "interviewing": "Interviewing",
+    "offer": "Offer",
+    "won": "Won",
+    "rejected": "Rejected",
+    "stopped": "Stopped"
+  },
+  "ended_statuses": [
+    "won",
+    "rejected",
+    "stopped"
+  ],
+  "counts": {
+    "open": 3,
+    "ended": 1
+  },
+  "end_reasons": {
+    "stopped": [
+      "Not interested anymore",
+      "Salary or conditions",
+      "Location or commute",
+      "Took another offer",
+      "Withdrew application",
+      "Posting closed",
+      "No response"
+    ],
+    "rejected": [
+      "No reason given",
+      "After interview",
+      "Experience did not match",
+      "Position filled"
+    ]
+  },
+  "end_note_title": "Why this ended",
+  "closed_review": [],
+  "search_so_far": {
+    "applied_to": 5,
+    "interviews": 2,
+    "offers": 2,
+    "top_stopped_reason": {
+      "reason": "Salary or conditions",
+      "count": 1
+    }
+  },
+  "size_classes": [
+    "micro",
+    "small",
+    "medium",
+    "large"
+  ],
+  "empty": "No jobs here yet — add one by link on My Jobs.",
+  "function_options": [
+    [
+      "data",
+      "Data"
+    ],
+    [
+      "design",
+      "Design"
+    ],
+    [
+      "engineering",
+      "Engineering"
+    ],
+    [
+      "finance",
+      "Finance"
+    ],
+    [
+      "marketing",
+      "Marketing"
+    ],
+    [
+      "operations",
+      "Operations"
+    ]
+  ],
+  "companies": {
+    "CO-001": {
+      "name": "Northwind Systems",
+      "industry": "Software and IT",
+      "size_class": "medium"
+    },
+    "CO-002": {
+      "name": "Vector Analytics",
+      "industry": "Banking and finance",
+      "size_class": "large"
+    },
+    "CO-003": {
+      "name": "Helviva AG",
+      "industry": null,
+      "size_class": null
+    },
+    "CO-004": {
+      "name": "Studio Alpine",
+      "industry": "Design and creative",
+      "size_class": "micro"
+    },
+    "CO-005": {
+      "name": "Beacon Robotics",
+      "industry": "Industrial robotics",
+      "size_class": null
+    }
+  },
+  "entries": [
+    {
+      "id": "JOB-001",
+      "company_id": "CO-001",
+      "title": "Senior Platform Engineer",
+      "url": "https://northwind.example/careers/senior-platform-engineer",
+      "original_url": null,
+      "source": "careers-page",
+      "status": "interested",
+      "posted_date": "2026-08-28",
+      "added": "2026-09-01",
+      "salary_info": true,
+      "salary_note": "CHF 140k-160k",
+      "location": "Zurich, CH",
+      "remote_ok": null,
+      "notes": "",
+      "enriched": true,
+      "employment_type": "",
+      "valid_through": "",
+      "custom": {},
+      "description": "",
+      "company": "",
+      "seniority": "",
+      "keywords": [],
+      "summary": "",
+      "contact_email": "",
+      "ingest_source": "",
+      "sector": null,
+      "sectors": [],
+      "industry": null,
+      "industries": [
+        "Software and IT"
+      ],
+      "background": "",
+      "skills": [],
+      "certifications": [],
+      "responsibilities": [],
+      "summary_source": "",
+      "refresh": "skipped",
+      "employee_count": 120,
+      "function": [
+        "engineering"
+      ],
+      "tags": [],
+      "normalized_url": null,
+      "in_pipeline": true,
+      "origin": "manual",
+      "source_id": null,
+      "ingest_state": "complete",
+      "ingest_error": null,
+      "field_provenance": {},
+      "ats_provider": null,
+      "ats_tenant": null,
+      "ats_posting_id": null,
+      "company_link_state": "linked",
+      "company_link_reason": "name_exact",
+      "employer_named_in_posting": "Northwind Systems",
+      "company_review": null,
+      "needs_attention": true,
+      "company_name": "Northwind Systems",
+      "pending": false,
+      "fit": "excellent",
+      "history": [
+        {
+          "event": "created",
+          "note": "Added via posting URL.",
+          "at": "2026-09-01T08:00:00Z"
+        }
+      ],
+      "status_changed": "2026-09-01T08:00:00Z",
+      "company_industry": "Software and IT",
+      "company_size_class": "medium",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": null,
+      "on_my_board": true
+    },
+    {
+      "id": "JOB-007",
+      "company_id": "CO-004",
+      "title": "Finance Business Partner",
+      "url": "https://northwind.example/careers/senior-platform-engineer",
+      "original_url": null,
+      "source": "careers-page",
+      "status": "rejected",
+      "posted_date": "2026-08-28",
+      "added": "2026-09-01",
+      "salary_info": true,
+      "salary_note": "CHF 140k-160k",
+      "location": "Geneva, CH",
+      "remote_ok": null,
+      "notes": "",
+      "enriched": true,
+      "employment_type": "",
+      "valid_through": "",
+      "custom": {},
+      "description": "",
+      "company": "",
+      "seniority": "",
+      "keywords": [],
+      "summary": "",
+      "contact_email": "",
+      "ingest_source": "",
+      "sector": null,
+      "sectors": [],
+      "industry": null,
+      "industries": [
+        "Banking and finance"
+      ],
+      "background": "",
+      "skills": [],
+      "certifications": [],
+      "responsibilities": [],
+      "summary_source": "",
+      "refresh": "skipped",
+      "employee_count": 120,
+      "function": [
+        "finance"
+      ],
+      "tags": [],
+      "normalized_url": null,
+      "in_pipeline": true,
+      "origin": "manual",
+      "source_id": null,
+      "ingest_state": "complete",
+      "ingest_error": null,
+      "field_provenance": {},
+      "ats_provider": null,
+      "ats_tenant": null,
+      "ats_posting_id": null,
+      "company_link_state": "linked",
+      "company_link_reason": "name_exact",
+      "employer_named_in_posting": "Northwind Systems",
+      "company_review": null,
+      "needs_attention": false,
+      "company_name": "Vector Analytics",
+      "pending": false,
+      "fit": "excellent",
+      "history": [
+        {
+          "event": "created",
+          "note": "Added via posting URL.",
+          "at": "2026-09-01T08:00:00Z"
+        }
+      ],
+      "status_changed": "2026-09-01T08:00:00Z",
+      "company_industry": "Software and IT",
+      "company_size_class": "large",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": null,
+      "on_my_board": true
+    },
+    {
+      "id": "JOB-010",
+      "company_id": "CO-002",
+      "title": "Pool Platform Engineer",
+      "url": "https://northwind.example/careers/senior-platform-engineer",
+      "original_url": null,
+      "source": "careers-page",
+      "status": "new",
+      "posted_date": "2026-08-28",
+      "added": "2026-09-01",
+      "salary_info": true,
+      "salary_note": "CHF 140k-160k",
+      "location": "Zurich, CH",
+      "remote_ok": null,
+      "notes": "",
+      "enriched": false,
+      "employment_type": "",
+      "valid_through": "",
+      "custom": {},
+      "description": "",
+      "company": "",
+      "seniority": "",
+      "keywords": [],
+      "summary": "",
+      "contact_email": "",
+      "ingest_source": "",
+      "sector": null,
+      "sectors": [],
+      "industry": null,
+      "industries": [
+        "Software and IT"
+      ],
+      "background": "",
+      "skills": [],
+      "certifications": [],
+      "responsibilities": [],
+      "summary_source": "",
+      "refresh": "skipped",
+      "employee_count": 120,
+      "function": [
+        "engineering"
+      ],
+      "tags": [],
+      "normalized_url": null,
+      "in_pipeline": true,
+      "origin": "manual",
+      "source_id": null,
+      "ingest_state": "fetch_failed",
+      "ingest_error": {
+        "stage": "fetch",
+        "reason": "HTTPError",
+        "at": "2026-10-18T09:00:00+00:00"
+      },
+      "field_provenance": {},
+      "ats_provider": null,
+      "ats_tenant": null,
+      "ats_posting_id": null,
+      "company_link_state": "linked",
+      "company_link_reason": "name_exact",
+      "employer_named_in_posting": "Northwind Systems",
+      "company_review": null,
+      "needs_attention": true,
+      "company_name": "Beacon Robotics",
+      "pending": false,
+      "fit": "excellent",
+      "history": [
+        {
+          "event": "created",
+          "note": "Added via posting URL.",
+          "at": "2026-09-01T08:00:00Z"
+        }
+      ],
+      "status_changed": "2026-09-01T08:00:00Z",
+      "company_industry": "Software and IT",
+      "company_size_class": "medium",
+      "closed": false,
+      "closed_at": null,
+      "closed_reviewed_at": null,
+      "end_reason": null,
+      "owner_id": null,
+      "on_my_board": false
+    },
+    {
+      "id": "JOB-011",
+      "company_id": "CO-003",
+      "title": "Pool Operations Lead",
+      "url": "https://northwind.example/careers/senior-platform-engineer",
+      "original_url": null,
+      "source": "careers-page",
+      "status": "new",
+      "posted_date": "2026-08-28",
+      "added": "2026-09-01",
+      "salary_info": true,
+      "salary_note": "CHF 140k-160k",
+      "location": "Bern, CH",
+      "remote_ok": null,
+      "notes": "",
+      "enriched": true,
+      "employment_type": "",
+      "valid_through": "",
+      "custom": {},
+      "description": "",
+      "company": "",
+      "seniority": "",
+      "keywords": [],
+      "summary": "",
+      "contact_email": "",
+      "ingest_source": "",
+      "sector": null,
+      "sectors": [],
+      "industry": null,
+      "industries": [],
+      "background": "",
+      "skills": [],
+      "certifications": [],
+      "responsibilities": [],
+      "summary_source": "",
+      "refresh": "skipped",
+      "employee_count": 120,
+      "function": [
+        "operations"
+      ],
+      "tags": [],
+      "normalized_url": null,
+      "in_pipeline": true,
+      "origin": "manual",
+      "source_id": null,
+      "ingest_state": "complete",
+      "ingest_error": null,
+      "field_provenance": {},
+      "ats_provider": null,
+      "ats_tenant": null,
+      "ats_posting_id": null,
+      "company_link_state": "linked",
+      "company_link_reason": "name_exact",
+      "employer_named_in_posting": "Northwind Systems",
+      "company_review": null,
+      "needs_attention": false,
+      "company_name": "Helviva AG",
+      "pending": false,
+      "fit": "excellent",
+      "history": [
+        {
+          "event": "created",
+          "note": "Added via posting URL.",
+          "at": "2026-09-01T08:00:00Z"
+        }
+      ],
+      "status_changed": "2026-09-01T08:00:00Z",
+      "company_industry": "Software and IT",
+      "company_size_class": null,
+      "closed": true,
+      "closed_at": "2026-10-10",
+      "closed_reviewed_at": null,
+      "end_reason": null,
+      "owner_id": null,
+      "on_my_board": false
+    }
+  ]
+}

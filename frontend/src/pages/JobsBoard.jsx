@@ -22,10 +22,17 @@ import FilterChip from '../components/FilterChip.jsx';
 import PageLayout from '../components/PageLayout.jsx';
 import { EndingChooser, ReasonPopup, WonConfirm } from '../components/EndJobFlow.jsx';
 import { ClosedPostingsBanner, ClosedPostingsReview } from '../components/ClosedPostings.jsx';
+import SortableHeaderCell from '../components/SortableHeaderCell.jsx';
 import { usePhoneLayout } from '../layout.js';
 import { sessionEnded } from '../api/client.js';
 import { anyReading } from '../aiStatus.js';
-import { countBy, presentOptions, sortedOptions } from '../filters.js';
+import {
+  EMPTY_JOB_FILTERS,
+  JOB_FILTER_GROUPS,
+  filterJobs,
+  jobFilterOptions,
+  titleCase,
+} from '../jobFilters.js';
 
 const VIEW_KEY = 'careerJobsView';
 const NEEDS_ATTENTION_KEY = 'careerNeedsAttention';
@@ -43,15 +50,6 @@ const AI_POLL_MS = 5000;
 // them (owner decision, Message README).
 const TOAST_LIFETIME_MS = 4000;
 
-// No Fit facet: fit is not calculated, so the board offers no filter for
-// it (D7 removes the chip the JOZ-279 bar still had).
-const FILTER_GROUPS = [
-  { key: 'function', label: 'Function' },
-  { key: 'location', label: 'Location' },
-  { key: 'industry', label: 'Industry', legend: 'Industry (estimated)', inMore: true },
-  { key: 'companySize', label: 'Company size', legend: 'Company size (estimated)', inMore: true },
-];
-const EMPTY_FILTERS = { function: [], location: [], industry: [], companySize: [] };
 const COULD_NOT_READ_MESSAGE = "Could not read that posting. It's saved, so Try again only retries the read.";
 
 function looksLikeUrl(value) {
@@ -86,10 +84,6 @@ function readDismissedClosed() {
   } catch {
     return [];
   }
-}
-
-function titleCase(value) {
-  return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
 // The day the owner kept a closed posting, in the YYYY-MM-DD the vault
@@ -153,29 +147,6 @@ function sortEntries(entries, column, ascending) {
   const copy = [...entries];
   copy.sort((a, b) => getField(a).localeCompare(getField(b), undefined, { numeric: true }) * (ascending ? 1 : -1));
   return copy;
-}
-
-// Table.SortableHeaderCell never sets aria-sort on its <th> (still true in
-// gestalt@177.0.12: the string "aria-sort" appears nowhere in the bundle);
-// it only swaps the visible sort icon. This adapter sets the attribute
-// directly on the ancestor <th> after render, which is the minimal fix
-// since Table.HeaderCell does not accept extra DOM attributes either.
-function SortableHeaderCell({ label, status, sortOrder, onSortChange }) {
-  const markerRef = useRef(null);
-
-  useEffect(() => {
-    const th = markerRef.current?.closest('th');
-    if (!th) return;
-    th.setAttribute('aria-sort', status === 'active' ? (sortOrder === 'desc' ? 'descending' : 'ascending') : 'none');
-  }, [status, sortOrder]);
-
-  return (
-    <Table.SortableHeaderCell status={status} sortOrder={sortOrder} onSortChange={onSortChange}>
-      <span ref={markerRef} style={{ display: 'contents' }}>
-        <Text weight="bold">{label}</Text>
-      </span>
-    </Table.SortableHeaderCell>
-  );
 }
 
 // List view is untouched by the board rebuilds (JOZ-278 and D7 are both
@@ -304,7 +275,7 @@ export default function JobsBoard() {
   // lane is on the brief's own deferred list.
   const [hideClosed, setHideClosed] = useState(false);
   const [laneExpanded, setLaneExpanded] = useState(false);
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filters, setFilters] = useState(EMPTY_JOB_FILTERS);
   const [toasts, setToasts] = useState([]);
   const [intakeUrl, setIntakeUrl] = useState('');
   const [intakeBusy, setIntakeBusy] = useState(false);
@@ -985,65 +956,12 @@ export default function JobsBoard() {
     submitIntake(url, { force: true });
   }
 
-  const functionOptions = useMemo(() => {
-    if (!board) return [];
-    const counts = countBy(board.entries, (job) => job.function || []);
-    return board.function_options.map(([value, label]) => ({ value, label, count: counts.get(value) || 0 }));
-  }, [board]);
+  const optionsByGroup = useMemo(() => jobFilterOptions(board), [board]);
 
-  const locationOptions = useMemo(() => {
-    if (!board) return [];
-    return sortedOptions(countBy(board.entries, (job) => [job.location]));
-  }, [board]);
-
-  const industryOptions = useMemo(() => {
-    if (!board) return [];
-    return sortedOptions(countBy(board.entries, (job) => job.industries || []));
-  }, [board]);
-
-  // One size scale across both pages (owner decision 2026-10-15): the
-  // facet reads the linked company's stored size_class, over the class
-  // vocabulary the backend sends (`size_classes`), exactly as the
-  // Companies directory's Size filter does. It used to bucket each job's
-  // own raw employee_count client-side, which disagreed with the card's
-  // own size badge whenever a posting carried no headcount but its
-  // company was classified anyway.
-  const companySizeOptions = useMemo(() => {
-    if (!board) return [];
-    return presentOptions(
-      // Defaulted, not assumed: `size_classes` is a new payload key, and a
-      // bundle loaded against a server that predates it must lose the
-      // facet's options, not the whole board.
-      board.size_classes || [],
-      countBy(board.entries, (job) => [job.company_size_class]),
-      titleCase,
-    );
-  }, [board]);
-
-  const optionsByGroup = useMemo(
-    () => ({
-      function: functionOptions,
-      location: locationOptions,
-      industry: industryOptions,
-      companySize: companySizeOptions,
-    }),
-    [functionOptions, locationOptions, industryOptions, companySizeOptions],
+  const filteredEntries = useMemo(
+    () => (board ? filterJobs(board.entries, filters, { needsAttention, hideClosed }) : []),
+    [board, filters, needsAttention, hideClosed],
   );
-
-  const filteredEntries = useMemo(() => {
-    if (!board) return [];
-    return board.entries.filter((job) => {
-      const functionOk = filters.function.length === 0 || (job.function || []).some((f) => filters.function.includes(f));
-      const locationOk = filters.location.length === 0 || filters.location.includes(job.location);
-      const industryOk = filters.industry.length === 0 || (job.industries || []).some((v) => filters.industry.includes(v));
-      const sizeOk = filters.companySize.length === 0 || filters.companySize.includes(job.company_size_class);
-      const needsOk = !needsAttention || job.needs_attention;
-      // "Hide closed postings" hides the flagged job in every column, open
-      // or ended: the filter is about the posting, not about the status.
-      const closedOk = !hideClosed || !job.closed;
-      return functionOk && locationOk && industryOk && sizeOk && needsOk && closedOk;
-    });
-  }, [board, filters, needsAttention, hideClosed]);
 
   if (loadError) {
     return (
@@ -1199,7 +1117,7 @@ export default function JobsBoard() {
         </div>
       </Flex>
       <FilterBar
-        groups={FILTER_GROUPS}
+        groups={JOB_FILTER_GROUPS}
         countNoun="jobs"
         optionsByGroup={optionsByGroup}
         selected={filters}

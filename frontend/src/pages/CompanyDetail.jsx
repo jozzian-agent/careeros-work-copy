@@ -8,7 +8,15 @@ import NotesSection from '../components/NotesSection.jsx';
 import EditCompanyPopup from '../components/EditCompanyPopup.jsx';
 import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
-import { NEEDS_INPUT_ANCHOR, NEEDS_INPUT_TITLE, NeedsInputChip } from '../components/NeedsInputCard.jsx';
+
+// B5 (CAREER-92, owner decision 2026-10-19): this page asks for nothing
+// under the name "Needs your input" any more -- no chip, no violet card,
+// and no `needs_input` key in its payload. A sector or a size the record
+// does not have reads "Unknown" in the Classification section, where the
+// two things that fix it already live: Edit classification ("Set it
+// yourself") and the existing enrichment retry ("Try again"). The Job
+// page keeps its own ask, which is about a job.
+const UNKNOWN_VALUE = 'Unknown';
 
 function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
@@ -33,22 +41,9 @@ const SOURCE_LABELS = {
 };
 const FALLBACK_SOURCE_LABEL = 'Found by the rules';
 
-// The same sources, named as things that were tried rather than things
-// that found something, for the needs-input card.
-const TRIED_LABELS = {
-  llm: 'AI',
-  jsonld: "the company's website",
-  wikidata: 'Wikidata',
-  osm: 'OpenStreetMap',
-};
-
 function sourceLabel(source) {
   if (!source) return null;
   return SOURCE_LABELS[source] || FALLBACK_SOURCE_LABEL;
-}
-
-function triedLabel(source) {
-  return TRIED_LABELS[source] || source;
 }
 
 // Mirrors the Jinja company_detail.html retry script's result messaging:
@@ -108,6 +103,9 @@ function LinkedRows({ rows, hrefPrefix }) {
   );
 }
 
+// One classification row. A value the record does not have reads
+// "Unknown" (B5) rather than "Not known yet", which read like a promise
+// that something was still coming.
 function ClassificationRow({ label, field }) {
   const source = sourceLabel(field?.source);
   return (
@@ -115,7 +113,7 @@ function ClassificationRow({ label, field }) {
       <Text size="200" color="subtle">
         {label}
       </Text>
-      <Text>{field?.value || 'Not known yet'}</Text>
+      <Text>{field?.value || UNKNOWN_VALUE}</Text>
       {source ? (
         <Text size="200" color="subtle">
           {source}
@@ -211,7 +209,7 @@ export default function CompanyDetail() {
   }
 
   const {
-    company, jobs = [], experiences = [], classification = {}, needs_input: needsInput, notes = [],
+    company, jobs = [], experiences = [], classification = {}, notes = [],
     isic_sections: sectorOptions = [], size_classes: sizeOptions = [],
     // M2 (CAREER-39, decision D3): a company is shared universe, so
     // everybody reads this page and the admin alone changes it. Every
@@ -222,7 +220,9 @@ export default function CompanyDetail() {
   const locations = (company.locations || []).join(', ');
   const sectorText = classification.sector?.value || 'Sector unknown';
   const sizeText = classification.size?.value || 'Size unknown';
-  const tried = needsInput?.tried || [];
+  // Whether anything in the Classification section reads Unknown, which
+  // is what the two actions beside it are for.
+  const anyUnknown = !classification.sector?.value || !classification.size?.value;
 
   return (
     <Box padding={6}>
@@ -231,7 +231,6 @@ export default function CompanyDetail() {
           type="COMPANY"
           backHref="/companies"
           backLabel="Companies"
-          chip={needsInput && canEditShared ? <NeedsInputChip /> : null}
           title={company.name}
           subtitle={`${sectorText} · ${sizeText}`}
           location={locations || null}
@@ -245,43 +244,6 @@ export default function CompanyDetail() {
           onDelete={() => setDeleteOpen(true)}
           showActions={canEditShared}
         />
-        {/* The one ask, and only when automation has genuinely run out of
-            ideas: the backend decides that (companies.py
-            company_needs_input), so a stale review flag on a field that
-            does have a value can no longer keep the card up.
-
-            M2: and only for the admin. Both of its actions write the
-            shared company record, so for everybody else the card would
-            be an ask they cannot answer. */}
-        {needsInput && canEditShared ? (
-          <SectionCard
-            title={NEEDS_INPUT_TITLE}
-            variant="needs-input"
-            anchorId={NEEDS_INPUT_ANCHOR}
-            actions={[
-              <Button
-                key="set"
-                text="Set it yourself"
-                color="red"
-                onClick={() => setClassificationOpen(true)}
-              />,
-              <Button key="retry" text="Try again" color="gray" disabled={retryBusy} onClick={handleRetry} />,
-            ]}
-          >
-            <Flex direction="column" gap={2}>
-              <Text>
-                {needsInput.field === 'sector'
-                  ? 'This company has no sector yet.'
-                  : 'This company has no size yet.'}
-              </Text>
-              <Text color="subtle">
-                {tried.length
-                  ? `Tried: ${tried.map(triedLabel).join(', ')}.`
-                  : 'No source has been tried yet.'}
-              </Text>
-            </Flex>
-          </SectionCard>
-        ) : null}
         {retryFeedback ? (
           <BannerSlim
             type={retryFeedback.type}
@@ -302,18 +264,48 @@ export default function CompanyDetail() {
         {/* Collapsed by default, in the same accordion the Job page's own
             Classification uses: the sector and the size are settled facts
             the owner checks occasionally, not something the page has to
-            hold open. */}
+            hold open. The header already says "Sector unknown · Size
+            unknown", so a gap is visible without opening it.
+
+            B5: when something reads Unknown, this section carries the
+            two ways to answer it -- "Set it yourself", which opens the
+            same Edit classification popup, and a quiet "Try again",
+            which is the existing enrichment retry. Both write the shared
+            company record, so a tester reads Unknown and is offered
+            neither (M2, D3), rather than being given a control that
+            answers 403. */}
         <SectionCard
           title="Classification"
           collapsible
-          actions={canEditShared ? (
-            <Button
-              text="Edit classification"
-              color="gray"
-              size="sm"
-              onClick={() => setClassificationOpen(true)}
-            />
-          ) : null}
+          actions={canEditShared ? [
+            anyUnknown ? (
+              <Button
+                key="set"
+                text="Set it yourself"
+                color="gray"
+                size="sm"
+                onClick={() => setClassificationOpen(true)}
+              />
+            ) : (
+              <Button
+                key="edit"
+                text="Edit classification"
+                color="gray"
+                size="sm"
+                onClick={() => setClassificationOpen(true)}
+              />
+            ),
+            anyUnknown ? (
+              <Button
+                key="retry"
+                text="Try again"
+                color="transparent"
+                size="sm"
+                disabled={retryBusy}
+                onClick={handleRetry}
+              />
+            ) : null,
+          ].filter(Boolean) : null}
         >
           <Flex direction="column" gap={3}>
             <ClassificationRow label="Sector" field={classification.sector} />

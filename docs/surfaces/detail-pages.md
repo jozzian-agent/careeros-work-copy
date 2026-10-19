@@ -157,25 +157,54 @@ Notes are not one of its fields: as of the owner round a note is its own
 record with its own window, so Edit job and Edit company both lost their
 notes field and the `focus` prop that only existed to land on it.
 
-The Company page is rebuilt in the same round:
+The Company page is rebuilt in the same round, and its items 1, 2 and 5
+were superseded on 2026-10-19 by B5 (see below). As it stands now:
 
-1. `DetailHeader`: back link, the COMPANY label with the same "Needs your
-   input" chip, title, "sector · size", then the locations and the
-   website as an external link on one line. Edit company and Delete are
-   both gray secondary.
-2. The one needs-input card, when the backend's `needs_input` says the
-   sector or the size is empty and automation has run out of ideas: it
-   names the field and the sources that were tried, "Set it yourself"
-   opens Edit classification and "Try again" calls
-   `POST /api/companies/<id>/retry`, whose outcome renders below it.
-3. My Jobs: each of the reader's own linked jobs, its title as a link,
+1. `DetailHeader`: back link, the COMPANY label, title, "sector · size"
+   (which reads "Sector unknown · Size unknown" when it has neither), then
+   the locations and the website as an external link on one line. Edit
+   company and Delete are both gray secondary. **No chip**: this page
+   makes no "Needs your input" ask (B5).
+2. My Jobs: each of the reader's own linked jobs, its title as a link,
    with its status. Scoped to the reader since M2 (CAREER-39, decision
    D3) and headed with the same word the board carries (D10).
-4. Experiences: the same row, with present or past.
-5. Classification, collapsed: the sector and the size, each with where
+3. Experiences: the same row, with present or past.
+4. Classification, collapsed: the sector and the size, each with where
    the value came from ("Set by you", "Found by AI", "Found on Wikidata",
-   and so on), and "Edit classification" inside it.
-6. Notes, the same section as the Job page's.
+   and so on). A value the record does not have reads **Unknown**. The
+   section's own actions are the two ways to answer that: "Set it
+   yourself", which opens the Edit classification popup, and a quiet
+   "Try again", which calls `POST /api/companies/<id>/retry` and renders
+   its outcome in the banner above. While both values are known the
+   section carries one action instead, the plain "Edit classification" it
+   always had -- one button for one act, rather than two labels for the
+   same popup.
+5. Notes, the same section as the Job page's.
+
+### B5: no "Needs your input" on a company (2026-10-19)
+
+Owner decision. The chip in the header and the violet needs-input card
+are gone from this page, and so is the `needs_input` key that decided
+when to show them -- the backend no longer judges whether a gap is worth
+asking about, because an unknown sector is an unknown sector whether or
+not a signal has been tried (`careeros/web/pages/companies.py`). The
+company tiles and the company list rows lost the same concept in the same
+change, filter included; see [Companies list](companies.md). Both
+actions write the shared company record, so the admin alone is offered
+them and a tester reads Unknown with nothing to press (M2, D3).
+
+This **supersedes** the "Company: a field needs input" artboard on the
+canvas and the company needs-input card in
+`careeros-detail-pages-brief.md`. The **Job page keeps its own ask** and
+its chip, which is about a job and not about a company.
+
+Two consequences, stated rather than hidden. The Classification section
+is collapsed on every load, so the two actions are one click away; the
+header's "Sector unknown · Size unknown" is what makes the gap visible
+without opening it. And nothing on any company surface now counts how
+many companies are missing a classification: the directory's count went
+with its toggle, and `scripts/flag_size_review.py` is where that
+question is answered in bulk.
 
 The Company page has no History section: a company record stores no
 history, so the owner round's "collapse History on both pages" applies
@@ -201,8 +230,9 @@ detail → Edit classification → Company Classification.
 ## Minimal contents
 
 - `DetailHeader`: back link to the list, a small-caps type label (JOB /
-  EXPERIENCE / COMPANY, with the "Needs your input" chip inline when that
-  page has one ask), title, subtitle, location and dates, Edit and Delete
+  EXPERIENCE / COMPANY, with the "Needs your input" chip inline on the
+  Job page when it has one ask -- the Company page carries no chip since
+  B5, 2026-10-19), title, subtitle, location and dates, Edit and Delete
   actions, both gray secondary.
 - `SectionCard`s, each page rendering only the sections it has data for.
   The Job and Company pages follow the 2026-10-14 orders above; the
@@ -253,6 +283,15 @@ inline in the delete `ModalAlert` rather than closing it. Empty related-item
 lists (a company with no jobs or experiences) show the dashed empty state.
 
 ## Verification
+
+2026-10-19 (B5): `.venv/bin/python -m pytest tests -q` and
+`cd frontend && npx playwright test`, counts in the round's own report.
+`tests/test_company_page_context.py` lost its nine `needs_input` cases
+and gained one absence pin; `frontend/tests/company-detail.spec.js` lost
+its four needs-input cases and gained five, for the absence, the Unknown
+row with its two actions, the both-known case and the tester's read-only
+one. `cd frontend && npm run build`, dist rebuilt. Owner click-test on
+the live instance: pending.
 
 2026-10-15 (F-NEW-1, what the Edit job window's save carries, after the
 review round):

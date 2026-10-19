@@ -3,6 +3,7 @@ import ThemeProvider from './design/ThemeProvider.jsx';
 import Nav from './Nav.jsx';
 import SearchCriteria from './pages/SearchCriteria.jsx';
 import JobsBoard from './pages/JobsBoard.jsx';
+import AllJobs from './pages/AllJobs.jsx';
 import JobDetail from './pages/JobDetail.jsx';
 import ExperiencesList from './pages/ExperiencesList.jsx';
 import ExperienceDetail from './pages/ExperienceDetail.jsx';
@@ -36,6 +37,9 @@ function App() {
         <Route path="/" element={<Page currentPage="search"><SearchCriteria /></Page>} />
         <Route path="/jobs" element={<Page currentPage="jobs"><JobsBoard /></Page>} />
         <Route path="/jobs/:id" element={<Page currentPage="jobs"><JobDetail /></Page>} />
+        {/* B2: the All jobs tab. Its own path, because /jobs/:id above
+            would read /jobs/all as a job id. */}
+        <Route path="/all-jobs" element={<Page currentPage="all-jobs"><AllJobs /></Page>} />
         <Route path="/experiences" element={<Page currentPage="experiences"><ExperiencesList /></Page>} />
         <Route path="/experiences/:id" element={<Page currentPage="experiences"><ExperienceDetail /></Page>} />
         <Route path="/companies" element={<Page currentPage="companies"><CompaniesList /></Page>} />

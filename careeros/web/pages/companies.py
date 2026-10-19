@@ -14,10 +14,30 @@ from careeros.web.pages.jobs import needs_attention, sector_display
 
 EMPTY_STATE = 'No companies yet — add a job to start your directory.'
 
+# B3 (CAREER-90): why an API-added company was reported missing, recorded
+# here because this is the read path it was said to be missing from.
+# `vault.visible_companies` has always answered with every company in the
+# vault whatever its source, so nothing was filtering one out. What was
+# missing was its open jobs: the count below was the reading user's own
+# board, so a company whose postings nobody on this board holds read "No
+# open jobs" and the tile looked like an empty stub. The count is the
+# universe's open jobs now (rule 3), and `docs/surfaces/companies.md`
+# carries the confirmation in full.
+
 # enrichment.field_states keys for the two owner-facing classification
 # fields. Sector state is recorded under the plural ISIC field name, so
 # the page cannot just reuse its own field names here.
 FIELD_STATE_KEYS = {'sector': 'sectors', 'size': 'size'}
+
+# B5 (CAREER-92, owner decision 2026-10-19): no company surface asks for
+# "Needs your input" any more. The directory's own `needs_attention` mark
+# and the profile's one-field `needs_input` ask are gone with the chip,
+# the card and the filter that read them, and with them the three helpers
+# that only existed to decide when to ask (`field_state`, `field_flagged`,
+# `signals_tried`). A missing sector or size reads "Unknown" in the
+# Classification section, beside the two things that fix it: Edit
+# classification and the existing retry. The Jobs board keeps its own
+# chip, which is about a job and not about a company.
 
 # A classification field is owner-set when any of the stored keys behind
 # it is: size lives in three (the legacy string plus the derived EU pair),
@@ -28,23 +48,25 @@ FIELD_PROVENANCE_KEYS = {'sector': ('sector', 'sectors'),
 # Enrichment outcomes that mean the signal actually produced the value.
 FILLED_OUTCOMES = ('matched', 'filled')
 
-# An outcome meaning the signal never ran, so it is not a source the card
-# can claim to have tried.
-NOT_ATTEMPTED = 'not-attempted'
-
 def page_context(root, owner=None):
     # visible_companies, not list_companies: a company the admin retired
     # is gone from their directory, and still on the card list of a user
     # whose own record links it (M2 soft retire).
-    return directory_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner),
+    #
+    # list_universe_jobs, not list_jobs: the open-jobs count is the
+    # universe's (B3, see the note at the top of this module).
+    return directory_context(vault.list_universe_jobs(root, owner),
+                             vault.visible_companies(root, owner),
                              sectors.load_isic_sections())
 
 def directory_context(jobs, entries, isic_sections):
     # Open-jobs count per company, over vault.is_open_job: the one place
     # that says which statuses still count as open, shared with every
-    # filter built on this number. M2: `jobs` is the reading user's own
-    # jobs, so the count is "my open jobs here" and never a count of
-    # somebody else's (D3).
+    # filter built on this number. B3 (CAREER-90): `jobs` is every job
+    # this reader may see in the universe -- their own plus the ownerless
+    # ones -- so the number is "open jobs here", not "open jobs here that
+    # I happen to hold". Another user's private posting is not counted,
+    # because a count is a leak like any other (D3).
     counts = {c.get('id'): sum(j.get('company_id') == c.get('id') and vault.is_open_job(j) for j in jobs)
               for c in entries}
     isic_labels = {section['code']: section['label'] for section in isic_sections}
@@ -53,13 +75,6 @@ def directory_context(jobs, entries, isic_sections):
     # on the record (Section 3's display requirement).
     sector_labels = {c.get('id'): [isic_labels.get(code, code) for code in c.get('sectors', [])]
                      for c in entries}
-    # needs_attention on a company is "any review flag stands against this
-    # record", which is what the directory's Needs-your-input filter asks
-    # for. Derived here rather than in JS, the same way the board derives
-    # it for a job (jobs.needs_attention). It is deliberately broader than
-    # the detail page's `needs_input`, which asks only about a field
-    # automation has run out of ideas on.
-    entries = [c | {'needs_attention': bool(c.get('review_flags'))} for c in entries]
     # No can_edit_shared here, unlike the profile below: the directory
     # offers no company write at all, so there is nothing on it to hide
     # from a tester and no reason to send the flag.
@@ -77,32 +92,6 @@ def field_events(company, field):
     states = (company.get('enrichment') or {}).get('field_states') or {}
     state = states.get(FIELD_STATE_KEYS[field]) or {}
     return [event for event in state.get('events') or [] if isinstance(event, dict)]
-
-
-def field_state(company, field):
-    """The stored enrichment lifecycle state for one field, or None when
-    the cascade has never recorded one."""
-    states = (company.get('enrichment') or {}).get('field_states') or {}
-    return (states.get(FIELD_STATE_KEYS[field]) or {}).get('state')
-
-
-def signals_tried(company, field):
-    """Source names that actually ran for one field, in the order they
-    ran, each named once. A signal recorded as not-attempted did not run,
-    so the card must not claim it as tried."""
-    names = []
-    for event in field_events(company, field):
-        name = event.get('signal')
-        if name and event.get('outcome') != NOT_ATTEMPTED and name not in names:
-            names.append(name)
-    return names
-
-
-def field_flagged(company, field):
-    """Whether a review flag stands against this field. Every flag in the
-    enrichment vocabulary is named '<field>-<problem>'."""
-    return any(isinstance(flag, str) and flag.startswith(f'{field}-')
-               for flag in company.get('review_flags') or [])
 
 
 def field_value(company, field, isic_labels):
@@ -134,24 +123,6 @@ def field_source(company, field):
     filled = [event.get('signal') for event in field_events(company, field)
               if event.get('outcome') in FILLED_OUTCOMES and event.get('signal')]
     return filled[-1] if filled else None
-
-
-def company_needs_input(company, isic_labels):
-    """The ONE classification field the page asks the owner for, or None.
-
-    Asking is only honest once automation has run out of ideas: the field
-    is empty AND either every signal was tried and found nothing
-    (exhausted) or a signal found something the record cannot act on (a
-    review flag). A flag alone used to be enough, which asked the owner to
-    re-enter a value the record already had -- a stale flag left behind by
-    an earlier ambiguity kept the card up forever.
-    """
-    for field in ('sector', 'size'):
-        if field_value(company, field, isic_labels):
-            continue
-        if field_state(company, field) == 'exhausted' or field_flagged(company, field):
-            return {'field': field, 'tried': signals_tried(company, field)}
-    return None
 
 
 def linked_jobs(jobs, identifier):
@@ -198,10 +169,14 @@ def company_context(company, jobs, experiences, isic_sections, can_edit_shared=T
         # The owner's notes, in the same shape and from the same reader
         # the Job page uses: one notes surface, not two.
         notes=vault.notes_view(company),
+        # B5: a field with no value sends null and the page reads it as
+        # "Unknown" beside the two things that fix it. There is no
+        # `needs_input` key any more, and no judgement here about whether
+        # the gap is worth asking about: an unknown sector is an unknown
+        # sector whether or not a signal has been tried.
         classification={field: {'value': field_value(company, field, isic_labels),
                                 'source': field_source(company, field)}
                         for field in ('sector', 'size')},
-        needs_input=company_needs_input(company, isic_labels),
         companies={identifier: company},
         isic_sections=isic_sections,
         size_classes=vault.SIZE_CLASSES,

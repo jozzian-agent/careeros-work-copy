@@ -216,6 +216,8 @@ decoration inside the chip it belongs to.
 | `FilterChip` selected | The wash-blue ground with a 2px brand-blue border and the default text colour | One style for every selected toggle in the app: the Board and List pair, Needs attention, Hide closed postings, the Sector, Size and Open jobs filters on Companies, and every later toggle. It is the style the Function filter already had when active. |
 | `FilterChip` unselected | The neutral chip: secondary-base ground, no visible border | The border is present and transparent in this state, so selecting a chip never changes its size and the row never reflows. |
 | Board and List pair | Two `FilterChip`s in a `role="group"` labelled "View", each carrying its own `aria-pressed`, 16px to the right of "Add a job" | One pair rather than two independent buttons, because exactly one of them is true. |
+| Tiles and List pair (Companies, 2026-10-19) | The same pair, same group label, same 44px height, as the first row under the title | Companies has no main action, so the pair is the whole of that row; it still never carries the primary fill, because a chosen view is a state (B4). |
+| Filter bar divider | Rendered only when the bar has at least one toggle | Companies' bar has none since B5, and the All jobs tab has one; a rule with nothing after it is a line that means nothing. |
 
 ### Page header: no white band
 
@@ -262,6 +264,20 @@ decoration inside the chip it belongs to.
 | Override | Reason |
 |---|---|
 | `--color-background-popover-primary`, `--color-border-popover-primary` and `--color-background-elevation-floating` are rebound to `--color-background-card` in `frontend/src/design/theme.css` | Gestalt aliases the popover ground to `--color-background-default`, which this theme already binds to the card, but `DesignTokensProvider` re-emits every token as a resolved literal on `:root`, which bypasses the alias: light mode got Gestalt's stock white and dark mode its elevation-floating grey, which is this system's secondary ground and not its card. Binding the three directly makes a popover the card surface in both schemes. `--color-border-popover-primary` is Gestalt's name for the caret's fill, not a border, so it follows the ground. |
+
+## All jobs and the company Unknown state, 2026-10-19
+
+B2 and B5. No new component: both entries are an existing one used
+somewhere new, or one removed.
+
+| Entry | What it is | Rule |
+|---|---|---|
+| All jobs grid | The board's own `JobCard` in `repeat(auto-fill, minmax(320px, 1fr))`, 16px gap, inside the shared `PageLayout` | 320px is the board column's own width, so a card reads the same in either place. Not a `KanbanBoard`: a column per status would be a column of empty promises for the postings nobody has added yet. |
+| `JobCard` add action | `Button size="sm" color="gray"` reading "Add to my jobs", in the slot the status select holds on a card of the reader's own | Gray, not the primary fill: the page has no main action, and adding one posting is not the page's purpose (A1). The accessible name carries the job title, so a grid of them is distinguishable. |
+| `JobCard` off-board card | No "Needs your input" chip, no ingest indicator, no drag | Each of those is about a record this reader does not hold; the retry behind the indicator is owner-scoped and would answer not-found. |
+| Company needs-input card | **Removed** | The violet `SectionCard variant="needs-input"` is no longer rendered on a company (B5). The variant itself stays: the Job page's one ask is still the card it was made for. |
+| Company "Needs your input" chip | **Removed** | The header chip and its `#needs-your-input` anchor go with the card. `NeedsInputChip` keeps its one caller, the Job page. |
+| Classification actions | "Set it yourself" (`color="gray" size="sm"`) and "Try again" (`color="transparent" size="sm"`), inside the collapsed Classification section, shown only while something reads Unknown | Transparent is the quiet the brief asks for: a retry is an offer, not the thing the owner came for. While both values are known the section shows the plain "Edit classification" instead -- two labels for one popup would be one element too many. |
 
 ## Log in and the logout affordance (M1)
 

@@ -32,7 +32,8 @@ Company size facet reads the same vocabulary the Companies page already
 reads instead of bucketing employee counts in JS. Each company in the
 Companies collection gains `needs_attention`, true when any review flag
 stands against the record, derived server-side the way the board derives
-it for a job.
+it for a job. (Removed again 2026-10-19 by B5, with the filter that read
+it; see the M2 section below.)
 
 2026-10-14 (detail-pages realignment, backend round B1 to B6): the Job
 detail and Company detail `view=page` contracts gained the canvas keys
@@ -86,7 +87,8 @@ record endpoints cannot supply their choices and derived labels alone.
 
 | Method | Path | Page | Change |
 |---|---|---|---|
-| GET | `/api/jobs?view=board` | Jobs and job cards | Extended collection |
+| GET | `/api/jobs?view=board` | My Jobs, board and list | Extended collection |
+| GET | `/api/jobs?view=universe` | All jobs | The board shape, over the universe (B2) |
 | GET | `/api/jobs/<id>?view=page` | Job detail | Extended detail |
 | GET | `/api/search?view=page` | Search | Extended with page metadata |
 | GET, POST | `/api/search` | Search criteria | Already covered |
@@ -157,6 +159,32 @@ only let a request in, it decides what the request can see.
 - **`owner_id` is never accepted from a client.** The job PUT and both
   experience write paths strip it, so a record's owner is set once by
   the path that creates it and never moves.
+- **One read is wider than the owner's own records: the All jobs tab**
+  (B2, 2026-10-19). `GET /api/jobs?view=universe` answers with every job
+  that is not private to another user -- the records carrying no
+  `owner_id` plus the caller's own -- in the `view=board` shape, each
+  entry carrying `on_my_board`. Another user's job is absent, for the
+  admin too, and every per-job route answers for one of them exactly as
+  it answers for a job that never existed; `POST /api/jobs/<id>/promote`
+  reads through the same scope
+  (`vault.load_universe_job` / `Owner.sees_in_universe`). The open-jobs
+  `counts` on `GET /api/companies?view=page` are over the same set, so a
+  company's number is the universe's open jobs and not the caller's board
+  (B3).
+- **`POST /api/jobs/<id>/promote` is "Add to my jobs".** For a posting
+  the caller does not own it answers `201` with a NEW job record of
+  theirs, copied from the posting, landing in `new` and stamped with
+  their `owner_id`; the posting it came from is left exactly as it was,
+  so ownership never moves (D4). For a record that is already theirs it
+  answers `200` with the record, flipping `in_pipeline` when that is
+  false. A second call therefore adds nothing: the caller's own
+  duplicate check finds the record they already have. The companion
+  decision and what the copy carries are in [My Jobs](jobs.md).
+- **`GET /api/companies/<id>?view=page` lost a key.** `needs_input` is
+  gone (B5, 2026-10-19), and the directory entry's `needs_attention`
+  with it: no company surface asks for "Needs your input" any more. A
+  classification field with no value sends `{"value": null, "source":
+  null}` and the page reads it as Unknown.
 - **A private record's save writes nothing shared.** A job belonging to
   a tester does not promote its contact address onto the company, does
   not enter the company's rollup, and does not fill the company's
@@ -266,7 +294,8 @@ converts template tuples to arrays and rendered Markdown to strings.
   each job's history, plus `top_stopped_reason` as `{reason, count}`,
   which is absent while no stopped job carries a reason.
   Entries retain record fields and add `needs_attention`, `company_name`,
-  `company_industry`, `company_size_class` and `pending`. Companies maps IDs
+  `company_industry`, `company_size_class` and `pending`, plus
+  `on_my_board` on the `view=universe` answer only (B2). Companies maps IDs
   to `{name, industry, size_class}`: `industry` is the company's first ISIC
   sector, human-labeled (`None` with no sectors or an unknown code);
   `size_class` is the raw micro/small/medium/large/xl value (`None` when unset).

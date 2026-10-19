@@ -95,7 +95,12 @@ export default function FilterBar({
             dataTestId="filter-chip-more"
           />
         ) : null}
-        <Box width={1} height={24} dangerouslySetInlineStyle={{ __style: { background: 'var(--color-border-container)' } }} />
+        {/* The divider separates the facet chips from the toggles, so a
+            bar with no toggle (the All jobs tab shows one, Companies'
+            list view none) draws no rule with nothing after it. */}
+        {toggles.length > 0 ? (
+          <Box width={1} height={24} dangerouslySetInlineStyle={{ __style: { background: 'var(--color-border-container)' } }} />
+        ) : null}
         {toggles.map((toggle) => (
           <FilterChip
             key={toggle.key}

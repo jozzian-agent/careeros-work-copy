@@ -9,10 +9,16 @@
 // now holds the signed-in user's own postings and nobody else's. The
 // slug stays "jobs": it is the route and the data attribute, not a word
 // anybody reads.
+// B2 (CAREER-89, owner decision 2026-10-19): "All jobs" sits next to My
+// Jobs. It is the user word for what the backend calls the universe,
+// which never appears in the interface (PROJECT.md, Frame). Its slug is
+// its own URL segment rather than something under /jobs, because
+// /jobs/<id> is the job detail page.
 export const NAV_PAGES = [
   ['search', 'Search'],
   ['experiences', 'Experiences'],
   ['jobs', 'My Jobs'],
+  ['all-jobs', 'All jobs'],
   ['companies', 'Companies'],
   ['notes', 'Notes'],
   ['taxonomy', 'Taxonomy'],

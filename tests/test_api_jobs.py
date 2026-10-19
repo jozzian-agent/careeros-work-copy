@@ -105,6 +105,25 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
  # which is this fixture.
  'search_so_far': {'applied_to': 'int', 'interviews': 'int', 'offers': 'int'}}
 
+# B2 (CAREER-89): the All jobs tab reads the board's own payload, so the
+# contract is that shape plus one key per entry -- whether the job is on
+# this reader's board, which decides whether the card shows its status or
+# offers "Add to my jobs".
+UNIVERSE_SHAPE = BOARD_SHAPE | {
+    'entries': [BOARD_SHAPE['entries'][0] | {'on_my_board': 'bool'}]}
+
+
+def test_universe_contract_is_the_board_shape_plus_on_my_board(api_client, assert_json_shape):
+    response = api_client.get('/api/jobs?view=universe')
+    assert response.status_code == 200
+    assert_json_shape(response.get_json(), UNIVERSE_SHAPE)
+    payload = response.get_json()
+    # The fixture's records carry no owner and the suite user is the
+    # admin, who inherits them, so this job is on their board.
+    assert payload['entries'][0]['on_my_board'] is True
+    assert payload['empty'] == 'No jobs here yet — add one by link on My Jobs.'
+
+
 def test_board_contract(api_client, assert_json_shape):
     response = api_client.get('/api/jobs?view=board')
     assert response.status_code == 200

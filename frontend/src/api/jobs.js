@@ -11,6 +11,18 @@ export async function fetchBoard() {
   return response.json();
 }
 
+// The All jobs tab (B2, CAREER-89). The same payload the board reads,
+// over every job that is not private to another user, each entry carrying
+// `on_my_board`. The visibility rule is the server's
+// (careeros/web/pages/jobs.py universe_context); nothing here filters.
+export async function fetchUniverse() {
+  const response = await apiFetch('/api/jobs?view=universe');
+  if (!response.ok) {
+    throw new Error('Could not load all jobs.');
+  }
+  return response.json();
+}
+
 // A board move. `fields` rides along in the same PUT for the one case that
 // needs it: the closed-postings review stops a job AND gives it the reason
 // 'Posting closed' (D7), which is one owner decision and so one write, not
@@ -176,12 +188,18 @@ export async function intakeJob(url, { force = false, origin = 'manual' } = {}) 
   return data;
 }
 
+// POST /api/jobs/<id>/promote: "Add to my jobs" on the All jobs tab, and
+// the duplicate dialog's own promote action. For a posting the reader
+// does not own it answers 201 with their new record; for one that is
+// already theirs it answers 200 with the record as it stands, which is
+// what makes a second click add nothing (careeros/server.py promote_job).
 export async function promoteJob(id) {
   const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/promote`, {
     method: 'POST',
   });
+  const data = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error('Promote failed.');
+    throw new Error(data?.error || 'Could not add that job.');
   }
-  return response.json();
+  return data;
 }

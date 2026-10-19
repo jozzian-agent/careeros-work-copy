@@ -6,10 +6,14 @@ const searchFixture = loadFixture('search-criteria');
 // JOZ-283: the Search tab's own URL is "/", the one slug whose href does
 // not match its own name. M2 (CAREER-39, decision D10) renamed the Jobs
 // tab to My Jobs; its slug and href stay /jobs.
+// B2 (CAREER-89): "All jobs" sits next to My Jobs, at its own URL --
+// /jobs/<id> is the job detail page, so it could not be a segment under
+// /jobs.
 const NAV_PAGES = [
   ['search', 'Search', '/'],
   ['experiences', 'Experiences', '/experiences'],
   ['jobs', 'My Jobs', '/jobs'],
+  ['all-jobs', 'All jobs', '/all-jobs'],
   ['companies', 'Companies', '/companies'],
   ['notes', 'Notes', '/notes'],
   ['taxonomy', 'Taxonomy', '/taxonomy'],
@@ -41,7 +45,7 @@ test('Search is marked as the current page on /, others are not', async ({ page 
   await page.goto('/');
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav.getByRole('link', { name: 'Search', exact: true })).toHaveAttribute('aria-current', 'page');
-  for (const label of ['My Jobs', 'Experiences', 'Companies', 'Notes', 'Taxonomy']) {
+  for (const label of ['My Jobs', 'All jobs', 'Experiences', 'Companies', 'Notes', 'Taxonomy']) {
     await expect(nav.getByRole('link', { name: label, exact: true })).not.toHaveAttribute('aria-current');
   }
 });
@@ -50,7 +54,7 @@ test('My Jobs is marked as the current page on /jobs', async ({ page }) => {
   await page.goto('/jobs');
   const nav = page.getByRole('navigation', { name: 'Main' });
   await expect(nav.getByRole('link', { name: 'My Jobs', exact: true })).toHaveAttribute('aria-current', 'page');
-  for (const label of ['Search', 'Experiences', 'Companies', 'Notes', 'Taxonomy']) {
+  for (const label of ['Search', 'All jobs', 'Experiences', 'Companies', 'Notes', 'Taxonomy']) {
     await expect(nav.getByRole('link', { name: label, exact: true })).not.toHaveAttribute('aria-current');
   }
 });

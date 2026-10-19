@@ -1,15 +1,21 @@
-// Protects the Company detail page's layout and actions: the one ask it
-// makes of its owner (and the three cases that raise it), where each
-// classification value came from, the linked records and the editing
-// paths.
+// Protects the Company detail page's layout and actions: where each
+// classification value came from, what an unknown sector or size reads as
+// and offers (B5), the linked records and the editing paths.
+//
+// B5 (owner decision 2026-10-19): this page makes no "Needs your input"
+// ask. The chip, the violet card and the payload's `needs_input` key are
+// gone; a value the record does not have reads "Unknown" in the
+// Classification section, beside "Set it yourself" and a quiet "Try
+// again". The absence pins below are the point of the section, not a
+// side note: the elements have to stay gone.
 import { expect, test } from '@playwright/test';
 import { loadFixture, mockCompanyPage, mockNoteWrites, mockUpdate, mockDelete } from './helpers.js';
 
 const fixture = loadFixture('company-detail');
 
-// The ask: a classification field that is empty and that automation has
-// run out of ideas on.
-const needsSector = {
+// A company with no sector stored, however many signals have been tried:
+// what the page now shows as "Unknown".
+const unknownSector = {
   ...fixture,
   company: { ...fixture.company, sectors: [], sector: null },
   sector_labels: [],
@@ -17,7 +23,6 @@ const needsSector = {
     sector: { value: null, source: null },
     size: fixture.classification.size,
   },
-  needs_input: { field: 'sector', tried: ['jsonld', 'wikidata', 'llm'] },
 };
 
 test.beforeEach(async ({ page }) => {
@@ -97,59 +102,63 @@ test('an owner-set field says so instead of crediting a source', async ({ page }
   await expect(classification.getByText('Found by AI')).toBeVisible();
 });
 
-// --- The one ask ---
+// --- B5: Unknown, and the two ways to answer it ---
 
-test('no needs-input chip or card when both fields are known', async ({ page }) => {
+test('no needs-input chip or card, whatever the record carries', async ({ page }) => {
   await page.goto('/companies/CO-001');
   await expect(page.getByRole('button', { name: 'Show the classification' })).toBeVisible();
   await expect(page.getByText('Needs your input')).toHaveCount(0);
+  await expect(page.locator('#needs-your-input')).toHaveCount(0);
 });
 
-test('an empty field automation gave up on raises the chip and the card it links to', async ({ page }) => {
-  await mockCompanyPage(page, needsSector);
-  await page.goto('/companies/CO-001');
-  const chip = page.getByRole('link', { name: 'Needs your input' });
-  await expect(chip).toBeVisible();
-  await expect(chip).toHaveAttribute('href', '#needs-your-input');
-  await expect(page.getByRole('heading', { name: 'Needs your input' })).toBeVisible();
-  await expect(page.getByText('This company has no sector yet.')).toBeVisible();
-  await expect(page.getByText("Tried: the company's website, Wikidata, AI.")).toBeVisible();
-});
-
-test('the size case names the size, not the sector', async ({ page }) => {
+test('a review flag against an empty field raises nothing either', async ({ page }) => {
+  // The record shape that used to raise the card by itself, and then the
+  // shape the second round narrowed it to: both are silent now.
   await mockCompanyPage(page, {
-    ...fixture,
-    classification: { sector: fixture.classification.sector, size: { value: null, source: null } },
-    needs_input: { field: 'size', tried: ['wikidata'] },
+    ...unknownSector,
+    company: { ...unknownSector.company, review_flags: ['sector-ambiguous'] },
   });
   await page.goto('/companies/CO-001');
-  await expect(page.getByText('This company has no size yet.')).toBeVisible();
-  await expect(page.getByText('Tried: Wikidata.')).toBeVisible();
-});
-
-test('a field nothing has been tried for says that, rather than naming no sources', async ({ page }) => {
-  await mockCompanyPage(page, { ...needsSector, needs_input: { field: 'sector', tried: [] } });
-  await page.goto('/companies/CO-001');
-  await expect(page.getByText('No source has been tried yet.')).toBeVisible();
-});
-
-// Bug 3: the card used to be raised by the page itself, from a review
-// flag alone, which kept asking for a value the record already had.
-test('a review flag on a field that has a value does not raise the card', async ({ page }) => {
-  await mockCompanyPage(page, {
-    ...fixture,
-    company: { ...fixture.company, review_flags: ['sector-ambiguous'] },
-  });
-  await page.goto('/companies/CO-001');
-  await expect(page.getByRole('button', { name: 'Show the classification' })).toBeVisible();
   await expect(page.getByText('Needs your input')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Needs your input' })).toHaveCount(0);
+});
+
+test('an unknown sector reads Unknown in Classification, with Set it yourself and Try again', async ({ page }) => {
+  await mockCompanyPage(page, unknownSector);
+  await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
+  const classification = page.getByTestId('section-classification');
+  await expect(classification.getByText('Unknown', { exact: true })).toBeVisible();
+  await expect(classification.getByRole('button', { name: 'Set it yourself' })).toBeVisible();
+  await expect(classification.getByRole('button', { name: 'Try again' })).toBeVisible();
+});
+
+test('a company that knows both reads neither Unknown nor Try again', async ({ page }) => {
+  await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
+  const classification = page.getByTestId('section-classification');
+  await expect(classification.getByText('Unknown', { exact: true })).toHaveCount(0);
+  await expect(classification.getByRole('button', { name: 'Try again' })).toHaveCount(0);
+  await expect(classification.getByRole('button', { name: 'Edit classification' })).toBeVisible();
+});
+
+test('a tester reads Unknown and is offered neither action', async ({ page }) => {
+  // Both actions write the shared company record, which is the admin's
+  // alone (M2, D3), so a tester is not given a control that answers 403.
+  await mockCompanyPage(page, { ...unknownSector, can_edit_shared: false });
+  await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
+  const classification = page.getByTestId('section-classification');
+  await expect(classification.getByText('Unknown', { exact: true })).toBeVisible();
+  await expect(classification.getByRole('button', { name: 'Set it yourself' })).toHaveCount(0);
+  await expect(classification.getByRole('button', { name: 'Try again' })).toHaveCount(0);
 });
 
 test('Set it yourself opens Edit classification and saves the sector and size', async ({ page }) => {
-  await mockCompanyPage(page, needsSector);
+  await mockCompanyPage(page, unknownSector);
   const requests = await mockUpdate(page, '**/api/companies/CO-001', { body: fixture.company });
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   await page.getByRole('button', { name: 'Set it yourself' }).click();
   const modal = page.getByRole('dialog', { name: 'Edit classification' });
   await expect(modal).toBeVisible();
@@ -161,7 +170,7 @@ test('Set it yourself opens Edit classification and saves the sector and size', 
 });
 
 test('Try again runs the enrichment retry and reports what it did', async ({ page }) => {
-  let current = needsSector;
+  let current = unknownSector;
   await page.route('**/api/companies/*?view=page', (route) => route.fulfill({ json: current }));
   await page.route('**/api/companies/*/retry', (route) => {
     current = fixture;
@@ -170,16 +179,18 @@ test('Try again runs the enrichment retry and reports what it did', async ({ pag
     });
   });
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('Retry updated the company. Sector: filled')).toBeVisible();
-  // The ask is answered, so the card and the chip go away on their own.
-  await expect(page.getByRole('heading', { name: 'Needs your input' })).toHaveCount(0);
+  // The gap is answered, so the ask and the Unknown row go with it.
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0);
 });
 
 test('Try again failure shows a visible error', async ({ page }) => {
-  await mockCompanyPage(page, needsSector);
+  await mockCompanyPage(page, unknownSector);
   await page.route('**/api/companies/*/retry', (route) => route.fulfill({ status: 500, json: { error: 'nope' } }));
   await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('Retry failed.')).toBeVisible();
 });

@@ -1,6 +1,8 @@
-// Protects the Companies directory: one equal-sized card per company
-// with a truthful open-jobs chip, the shared FilterBar's four filters over
-// it, and a grid that stays a grid at 1280px and 390px.
+// Protects the Companies directory: one equal-sized tile per company with
+// a truthful open-jobs chip, the list view beside it with the owner's five
+// columns and its two sorts (B4), the shared FilterBar's three filters over
+// both views, a grid that stays a grid at 1280px and 390px, and that no
+// company surface asks for "Needs your input" any more (B5).
 import { expect, test } from '@playwright/test';
 import { loadFixture, mockCompaniesPage } from './helpers.js';
 
@@ -160,38 +162,34 @@ test('checking both Open jobs boxes asks for both, which is Any', async ({ page 
   }
 });
 
-test('Needs your input counts the flagged companies and narrows to them, at 390px too', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+// B5 (owner decision 2026-10-19): an absence pin. The toggle, the chip
+// and the count are gone from this page, and the payload no longer
+// carries the `needs_attention` mark they read -- two of this fixture's
+// companies still hold a review flag, which is exactly the record shape
+// that used to raise them.
+test('no company surface asks for "Needs your input"', async ({ page }) => {
   await page.goto('/companies');
-  const flagged = fixture.entries.filter((entry) => entry.needs_attention);
-  const toggle = page.getByRole('button', { name: 'Needs your input', exact: true });
-
-  await expect(toggle).toHaveText(new RegExp(`${flagged.length}$`));
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-
-  for (const entry of flagged) {
-    await expect(card(page, entry.id)).toBeVisible();
-  }
-  await expect(card(page, 'CO-001')).toHaveCount(0);
-  await expect(page.getByText(`${flagged.length} of ${TOTAL} companies`, { exact: true })).toBeVisible();
+  expect(fixture.entries.some((entry) => (entry.review_flags || []).length > 0)).toBe(true);
+  await expect(page.getByText('Needs your input')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Needs/ })).toHaveCount(0);
+  await expect(page.getByTestId('filter-chip-needs-attention')).toHaveCount(0);
+  // Three facets and no fourth chip: Sector, Size, Open jobs.
+  await expect(page.locator('[data-testid^="filter-chip-"]')).toHaveCount(3);
 });
 
-test('Clear all drops every filter and the toggle together', async ({ page }) => {
+test('Clear all drops every filter together', async ({ page }) => {
   await page.goto('/companies');
-  await page.getByRole('button', { name: 'Needs your input', exact: true }).click();
   await page.getByTestId('filter-chip-size').click();
   await page.getByRole('checkbox', { name: 'Large' }).check();
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await page.getByTestId('filter-chip-openJobs').click();
+  await page.getByRole('checkbox', { name: 'With open jobs' }).check();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
   await expect(page.getByText('Active filters')).toBeVisible();
   await page.getByRole('button', { name: 'Clear all', exact: true }).click();
 
   await expect(page.getByText('Active filters')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Needs your input', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
   await expect(page.getByText(`${TOTAL} companies`, { exact: true })).toBeVisible();
 });
 
@@ -226,4 +224,131 @@ test('an empty directory shows the empty message with no filter controls', async
   await page.goto('/companies');
   await expect(page.getByText(fixture.empty)).toBeVisible();
   await expect(page.locator('[data-testid^="filter-chip-"]')).toHaveCount(0);
+});
+
+
+// --- B4: the list view beside the tiles ---------------------------------
+
+// Gestalt's Table.Row renders a plain <tr> and forwards no extra props,
+// so the row handle sits on the name cell's own span and the row is
+// addressed through it.
+function row(page, id) {
+  return page.locator('tbody tr', { has: page.getByTestId(`company-row-${id}`) });
+}
+
+async function showList(page) {
+  await page.getByTestId('view-chip-list').click();
+}
+
+test('the Tiles and List pair carries the selected style and nothing else does', async ({ page }) => {
+  await page.goto('/companies');
+  const tiles = page.getByTestId('view-chip-tiles');
+  const list = page.getByTestId('view-chip-list');
+  await expect(tiles).toHaveAttribute('aria-pressed', 'true');
+  await expect(list).toHaveAttribute('aria-pressed', 'false');
+  // One pair, one group, exactly one of them true.
+  await expect(page.getByRole('group', { name: 'View' })).toBeVisible();
+
+  await showList(page);
+  await expect(list).toHaveAttribute('aria-pressed', 'true');
+  await expect(tiles).toHaveAttribute('aria-pressed', 'false');
+  // Nothing on this page is a filled primary button: Companies has no
+  // main action (A1).
+  await expect(page.getByRole('button', { name: 'Add a company' })).toHaveCount(0);
+});
+
+test('a list row carries the five approved columns, the name as a link and the tile chip', async ({ page }) => {
+  await page.goto('/companies');
+  await showList(page);
+
+  const headers = await page.getByRole('columnheader').allInnerTexts();
+  expect(headers.map((text) => text.trim())).toEqual(['Name', 'Sector', 'Size', 'Location', 'Open jobs']);
+
+  await expect(row(page, 'CO-001').getByRole('link', { name: 'Harbor Labs' })).toHaveAttribute(
+    'href',
+    '/companies/CO-001',
+  );
+  await expect(row(page, 'CO-001')).toContainText('Information and communication');
+  await expect(row(page, 'CO-001')).toContainText('Small');
+  await expect(row(page, 'CO-001')).toContainText('Zurich, CH');
+  // The same chip the tile shows, in the same words.
+  await expect(row(page, 'CO-001').getByText('3 open jobs', { exact: true })).toBeVisible();
+  await expect(row(page, 'CO-002').getByText('1 open job', { exact: true })).toBeVisible();
+  await expect(row(page, 'CO-003').getByText('No open jobs', { exact: true })).toBeVisible();
+  // A record with nothing stored says so rather than leaving a blank cell.
+  await expect(row(page, 'CO-003')).toContainText('Location unknown');
+  await expect(row(page, 'CO-005')).toContainText('Sector unknown');
+  await expect(row(page, 'CO-005')).toContainText('Size unknown');
+  // The list is the full name, not the tile's 30-character cut.
+  await expect(row(page, 'CO-004').getByRole('link', { name: LONG_NAME })).toBeVisible();
+});
+
+test('only Name and Open jobs sort, and each sorts both ways', async ({ page }) => {
+  await page.goto('/companies');
+  await showList(page);
+
+  const sortable = page.getByRole('columnheader').filter({ has: page.getByRole('button') });
+  await expect(sortable).toHaveCount(2);
+  // Scoped to the table: "Open jobs" is also the name of a filter chip.
+  const sortBy = (label) => page.getByRole('table').getByRole('button', { name: label });
+
+  async function names() {
+    return (await page.locator('tbody tr td:first-child a').allInnerTexts()).map((t) => t.trim());
+  }
+  // The Open jobs cell of every row, as the number its chip states.
+  async function counts() {
+    const cells = await page.locator('tbody tr td:last-child').allInnerTexts();
+    return cells.map((text) => Number(text.replace('No open jobs', '0').replace(/[^0-9]/g, '') || 0));
+  }
+
+  await sortBy('Name').click();
+  const ascending = await names();
+  expect(ascending).toEqual([...ascending].sort((a, b) => a.localeCompare(b)));
+  await expect(page.getByRole('columnheader').first()).toHaveAttribute('aria-sort', 'ascending');
+
+  await sortBy('Name').click();
+  expect(await names()).toEqual([...ascending].reverse());
+  await expect(page.getByRole('columnheader').first()).toHaveAttribute('aria-sort', 'descending');
+
+  await sortBy('Open jobs').click();
+  const byCount = await counts();
+  expect(byCount).toEqual([...byCount].sort((a, b) => a - b));
+  await sortBy('Open jobs').click();
+  expect(await counts()).toEqual([...byCount].reverse());
+});
+
+test('the filters apply to both views, and the view choice survives a reload', async ({ page }) => {
+  await page.goto('/companies');
+  await page.getByTestId('filter-chip-size').click();
+  await page.getByRole('checkbox', { name: 'Large' }).check();
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+
+  // Tiles first: two companies are Large.
+  await expect(card(page, 'CO-002')).toBeVisible();
+  await expect(card(page, 'CO-001')).toHaveCount(0);
+
+  await showList(page);
+  await expect(row(page, 'CO-002')).toBeVisible();
+  await expect(row(page, 'CO-004')).toBeVisible();
+  await expect(row(page, 'CO-001')).toHaveCount(0);
+  await expect(page.getByText(`2 of ${TOTAL} companies`, { exact: true })).toBeVisible();
+
+  await page.reload();
+  expect(new URL(page.url()).search).toBe('');
+  await expect(page.getByTestId('view-chip-list')).toHaveAttribute('aria-pressed', 'true');
+  await expect(row(page, 'CO-002')).toBeVisible();
+  await expect(row(page, 'CO-001')).toHaveCount(0);
+});
+
+test('a filter that matches nothing says so in the list view too', async ({ page }) => {
+  await page.goto('/companies');
+  await showList(page);
+  await page.getByTestId('filter-chip-size').click();
+  await page.getByRole('checkbox', { name: 'Small' }).check();
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await page.getByTestId('filter-chip-sector').click();
+  await page.getByRole('checkbox', { name: 'Financial and insurance activities' }).check();
+
+  await expect(page.getByText('No companies match these filters.')).toBeVisible();
+  await expect(page.locator('tbody tr')).toHaveCount(0);
 });

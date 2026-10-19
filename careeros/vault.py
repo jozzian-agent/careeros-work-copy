@@ -111,10 +111,36 @@ class Owner(NamedTuple):
         stored = (record or {}).get(OWNER_FIELD)
         return stored == self.identifier or (not stored and self.inherits_ownerless)
 
+    def sees_in_universe(self, record):
+        """Whether this reader may see one record on a universe surface.
+
+        B2 (CAREER-89, owner rule of 2026-10-19): the All jobs tab shows
+        every job that is NOT private to another user, which is this
+        reader's own records plus every record no user owns -- the ones
+        the API and the feed pool add. A record somebody else owns stays
+        invisible here exactly as it is everywhere else, the admin
+        included (D3), so this widens what a read can reach by one
+        category and by nothing else.
+
+        `owns` is the first half rather than an id comparison, so the
+        admin's inheritance of the ownerless records is one rule in one
+        place and the two readings cannot drift.
+        """
+        return self.owns(record) or not (record or {}).get(OWNER_FIELD)
+
 
 def owned(records, owner):
     """The records this owner may see, or all of them when unscoped."""
     return records if owner is None else [r for r in records if owner.owns(r)]
+
+
+def in_universe(records, owner):
+    """The records this owner may see on a universe surface (B2).
+
+    Unscoped (`owner` None) answers all of them, like `owned`: the
+    migration scripts and the cron watcher have no session to scope to.
+    """
+    return records if owner is None else [r for r in records if owner.sees_in_universe(r)]
 
 
 def slugify(value):
@@ -737,9 +763,24 @@ def _records(root, kind):
                     data[key] = []
         yield path, data
 
+def _jobs_newest_first(root):
+    """Every stored job, newest first. The one read both job listings are
+    built on, so the private board and the universe tab can differ in who
+    may see a record and in nothing else."""
+    return sorted((d for _, d in _records(root, 'jobs')),
+                  key=lambda d: str(d.get('added', '')), reverse=True)
+
 def list_jobs(root, owner=None):
-    return owned(sorted((d for _, d in _records(root, 'jobs')),
-                        key=lambda d: str(d.get('added', '')), reverse=True), owner)
+    return owned(_jobs_newest_first(root), owner)
+
+def list_universe_jobs(root, owner=None):
+    """Every job this reader may see on the All jobs tab (B2).
+
+    The same records and the same order `list_jobs` answers with, widened
+    by the ownerless half: see `Owner.sees_in_universe` for the rule.
+    """
+    return in_universe(_jobs_newest_first(root), owner)
+
 
 def list_companies(root):
     return sorted((d for _, d in _records(root, 'companies')), key=lambda d: str(d.get('name', '')).casefold())
@@ -843,6 +884,16 @@ def load_job(root, identifier, owner=None):
     """
     record = _load(root, 'jobs', identifier)
     return record if record is not None and (owner is None or owner.owns(record)) else None
+
+def load_universe_job(root, identifier, owner=None):
+    """One job this reader may see on a universe surface, or None (B2).
+
+    Another user's job reads as None here too, so the All jobs tab and
+    its one action answer for it exactly as they answer for a job that
+    does not exist (D3).
+    """
+    record = _load(root, 'jobs', identifier)
+    return record if record is not None and (owner is None or owner.sees_in_universe(record)) else None
 
 def load_company(root, identifier):
     return _load(root, 'companies', identifier)
@@ -1681,6 +1732,62 @@ def save_job(root, data, identifier=None, *, correction_detail=None, history_eve
             # Derived data failure must not mask a persisted job save.
             pass
     return result
+
+#: What "Add to my jobs" does NOT carry from a universe posting onto the
+#: private record it creates (B2). Everything else a job stores is a fact
+#: about the posting and travels with it; these are facts about somebody's
+#: own handling of it, and the new record starts its own.
+#:
+#: `status` and `in_pipeline` are set explicitly below (the job lands in
+#: New on my board), `added` and the history are the new record's own,
+#: notes belong to whoever wrote them, the reading state describes the
+#: other record's own AI run, and `end_reason`/`closed_reviewed_at` are
+#: decisions the adding user has not taken.
+BOARD_COPY_EXCLUDED = frozenset({
+    'status', 'in_pipeline', 'added', 'notes', 'note_list',
+    'ai_status', 'ai_error', 'ai_started', 'ai_finished',
+    'end_reason', 'closed_reviewed_at', OWNER_FIELD,
+})
+
+
+def add_job_to_board(root, job, owner_id):
+    """This user's own record of one universe posting (B2, "Add to my jobs").
+
+    A COPY, not a re-stamp. An ownerless record is the admin's by
+    inheritance (`Owner`) and "ownership is stamped once and never
+    moves" (D4, PROJECT.md), so moving one onto the adding user would
+    take a job off the admin's board and hand a client the ownership
+    change both write paths strip out of their payloads. The same
+    posting held by two users is already two private records
+    (the duplicate check, D4), which is exactly what this makes: the
+    universe record stays where it is, ownerless and visible to
+    everybody, and the adder gets their own.
+
+    The caller holds the write lock and has already decided this reader
+    may see the record (`load_universe_job`) and does not own it.
+    """
+    payload = {key: value for key, value in (job or {}).items()
+               if key in job_field_names() and key not in BOARD_COPY_EXCLUDED}
+    payload.update({OWNER_FIELD: owner_id, 'status': 'new', 'in_pipeline': True})
+    # The copy carries the same dedupe identity as the posting it came
+    # from, computed when the source record has none: a record written
+    # straight through the vault (the feed pool, a migration) carries no
+    # normalized_url, because only intake has ever filled one. Without it
+    # the new record would escape the hard duplicate check -- its own
+    # second add, and any later paste of the same link -- which is the one
+    # thing this record has to be comparable on.
+    if not payload.get('normalized_url') and payload.get('url'):
+        payload['normalized_url'] = normalize_url(payload['url'])
+    # A link the new record may not make is dropped rather than refused:
+    # a retired company takes no new link from anybody (M2 soft retire),
+    # and a job whose employer is not in the vault keeping the name as
+    # free text is a state the product already has. Refusing instead
+    # would answer a universe posting's one action with a company error.
+    if payload.get('company_id') and not linkable_company(root, payload['company_id']):
+        payload.update(company_id=None, company_link_state='pending',
+                       company_link_reason=None, company_review=None)
+    return save_job(root, payload, history_event=('promoted', 'Added from All jobs.'))
+
 
 def _translate_legacy_company_fields(root, data, identifier=None):
     """Translate a legacy sector string into sectors on the raw incoming

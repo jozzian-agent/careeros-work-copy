@@ -107,10 +107,23 @@ test('the Jobs header stack is the title, the action row, the filter bar, then t
   expect(order).toEqual(['title', 'action row', 'filter bar', 'banner']);
 });
 
-// A page with no main action shows the title row and its filters only.
-test('Companies shows its filter bar under the title and no main action', async ({ page }) => {
+// A page with no main action shows the title row, its view pair and its
+// filters -- and no primary button. Companies gained the Tiles and List
+// pair in B4, placed where Board and List sit on Jobs, so its header
+// stack is the same three rows minus the action.
+test('Companies shows its view pair and filter bar under the title, with no main action', async ({ page }) => {
   await page.goto('/companies');
   const stack = page.getByTestId('page-header');
   await expect(stack.getByTestId('filter-chip-sector')).toBeVisible();
-  await expect(stack.getByRole('group', { name: 'View', exact: true })).toHaveCount(0);
+  await expect(stack.getByRole('group', { name: 'View', exact: true })).toBeVisible();
+  const order = await page.evaluate(() => {
+    const header = document.querySelector('[data-testid="page-header"]');
+    return [...header.children].map((row) => {
+      if (row.tagName === 'H1') return 'title';
+      if (row.querySelector('[role="group"][aria-label="View"]')) return 'view row';
+      if (row.querySelector('[data-testid^="filter-chip-"]')) return 'filter bar';
+      return row.tagName;
+    });
+  });
+  expect(order).toEqual(['title', 'view row', 'filter bar']);
 });

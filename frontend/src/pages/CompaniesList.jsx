@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Badge, Box, Button, Flex, Heading, Link, Text } from 'gestalt';
+import { Badge, Box, Flex, Heading, Link, Table, Text, Button } from 'gestalt';
 import { fetchCompaniesPage } from '../api/companies.js';
 import FilterBar from '../components/FilterBar.jsx';
+import FilterChip from '../components/FilterChip.jsx';
 import PageLayout from '../components/PageLayout.jsx';
+import SortableHeaderCell from '../components/SortableHeaderCell.jsx';
 import { countBy, presentOptions, sortedOptions } from '../filters.js';
 
 const FILTERS_KEY = 'careerCompaniesFilters';
+// B4 (CAREER-91): which of the two views this browser last chose,
+// remembered the way the Jobs board remembers Board/List.
+const VIEW_KEY = 'careerCompaniesView';
 const FILTER_GROUPS = [
   { key: 'sector', label: 'Sector' },
   { key: 'size', label: 'Size' },
@@ -35,6 +40,18 @@ const GRID_STYLE = {
   gap: '16px',
 };
 
+// The list view's columns, owner-approved (B4). Name and Open jobs sort;
+// the other three are what the tile already shows, in columns. There is
+// no column saying where a company came from: the owner asked for none,
+// and the list is the same universe whatever the source.
+const LIST_COLUMNS = [
+  { key: 'name', label: 'Name', sortable: true },
+  { key: 'sector', label: 'Sector' },
+  { key: 'size', label: 'Size' },
+  { key: 'location', label: 'Location' },
+  { key: 'openJobs', label: 'Open jobs', sortable: true },
+];
+
 function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
@@ -53,31 +70,45 @@ function openJobsChip(count) {
   return { text: `${count} open ${count === 1 ? 'job' : 'jobs'}`, type: 'info' };
 }
 
+function companyHref(id) {
+  return `/companies/${encodeURIComponent(id)}`;
+}
+
 // Filters live in localStorage, like the board's own view and toggle
 // (owner decision: no URL sync). A stored value is merged onto the empty
 // shape and sanitized to lists of strings, so a key left behind by an
-// older shape cannot break the page.
+// older shape cannot break the page -- which is what happens to the
+// `needsAttention` flag the removed "Needs your input" toggle wrote (B5):
+// it is simply not read any more.
 function readStoredFilters() {
   try {
     const stored = JSON.parse(window.localStorage.getItem(FILTERS_KEY) || '{}');
-    const groups = Object.fromEntries(
+    return Object.fromEntries(
       FILTER_GROUPS.map(({ key }) => [
         key,
         (Array.isArray(stored[key]) ? stored[key] : []).filter((value) => typeof value === 'string'),
       ]),
     );
-    return { filters: groups, needsAttention: stored.needsAttention === true };
   } catch {
-    return { filters: EMPTY_FILTERS, needsAttention: false };
+    return EMPTY_FILTERS;
+  }
+}
+
+function readStoredView() {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'tiles';
+  } catch {
+    return 'tiles';
   }
 }
 
 export default function CompaniesList() {
   const [page, setPage] = useState(null);
   const [loadError, setLoadError] = useState(null);
-  const [stored] = useState(readStoredFilters);
-  const [filters, setFilters] = useState(stored.filters);
-  const [needsAttention, setNeedsAttention] = useState(stored.needsAttention);
+  const [filters, setFilters] = useState(readStoredFilters);
+  const [view, setView] = useState(readStoredView);
+  const [sortColumn, setSortColumn] = useState(null);
+  const [ascending, setAscending] = useState(true);
 
   const load = useCallback(() => {
     fetchCompaniesPage()
@@ -94,11 +125,20 @@ export default function CompaniesList() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(FILTERS_KEY, JSON.stringify({ ...filters, needsAttention }));
+      window.localStorage.setItem(FILTERS_KEY, JSON.stringify(filters));
     } catch {
       // localStorage unavailable; the filter choice just will not persist.
     }
-  }, [filters, needsAttention]);
+  }, [filters]);
+
+  function persistView(nextView) {
+    setView(nextView);
+    try {
+      window.localStorage.setItem(VIEW_KEY, nextView);
+    } catch {
+      // localStorage unavailable; view choice just will not persist.
+    }
+  }
 
   function toggleFilterValue(group, value) {
     setFilters((current) => {
@@ -130,6 +170,12 @@ export default function CompaniesList() {
   const entries = useMemo(() => page?.entries || [], [page]);
   const counts = useMemo(() => page?.counts || {}, [page]);
   const openJobs = useCallback((company) => counts[company.id] || 0, [counts]);
+  const sectorLabels = useCallback(
+    // Defaulted like counts/isic_sections/size_classes, so a bundle
+    // served by a server that predates the key still renders.
+    (company) => ((page?.sector_labels || {})[company.id] || []).join(', ') || 'Sector unknown',
+    [page],
+  );
 
   const sectorOptions = useMemo(() => {
     const labels = Object.fromEntries((page?.isic_sections || []).map((section) => [section.code, section.label]));
@@ -165,8 +211,8 @@ export default function CompaniesList() {
 
   // A company matches a group when it carries ANY of that group's checked
   // values (sector, size class, has/has not open jobs); an unchecked group
-  // filters nothing. Needs-your-input narrows to records a review flag
-  // stands against, which the backend has already marked.
+  // filters nothing. One predicate for both views, so the filters mean the
+  // same records whichever one is showing (B4).
   const filtered = useMemo(
     () =>
       entries.filter((company) => {
@@ -175,11 +221,26 @@ export default function CompaniesList() {
         const sizeOk = filters.size.length === 0 || filters.size.includes(company.size_class);
         const openOk =
           filters.openJobs.length === 0 || filters.openJobs.includes(openJobs(company) > 0 ? 'with' : 'without');
-        const needsOk = !needsAttention || company.needs_attention;
-        return sectorOk && sizeOk && openOk && needsOk;
+        return sectorOk && sizeOk && openOk;
       }),
-    [entries, filters, needsAttention, openJobs],
+    [entries, filters, openJobs],
   );
+
+  // Sorting is the list view's own, over the filtered set: by name, or by
+  // the open-jobs number the chip shows. A name sorts case- and
+  // accent-insensitively through localeCompare; the count sorts
+  // numerically, because "10" before "2" is not an order anybody asked
+  // for.
+  const sorted = useMemo(() => {
+    if (sortColumn === null) return filtered;
+    const copy = [...filtered];
+    copy.sort((a, b) => {
+      const direction = ascending ? 1 : -1;
+      if (sortColumn === 'openJobs') return (openJobs(a) - openJobs(b)) * direction;
+      return String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true }) * direction;
+    });
+    return copy;
+  }, [filtered, sortColumn, ascending, openJobs]);
 
   if (loadError) {
     return (
@@ -200,89 +261,162 @@ export default function CompaniesList() {
   }
 
   const isEmpty = entries.length === 0;
-  const anyGroupFilterActive = Object.values(filters).some((values) => values.length > 0);
   const noMatches = !isEmpty && filtered.length === 0;
-  const noMatchesMessage =
-    needsAttention && !anyGroupFilterActive ? 'Nothing needs your input.' : 'No companies match these filters.';
-  const needsAttentionCount = entries.filter((company) => company.needs_attention).length;
 
-  // Companies has no main action, so its header stack is the title row
-  // and the filter bar only (brief 2026-10-18, section 3).
-  const filterBar = isEmpty ? null : (
-    <FilterBar
-      groups={FILTER_GROUPS}
-      countNoun="companies"
-      optionsByGroup={optionsByGroup}
-      selected={filters}
-      onToggleValue={toggleFilterValue}
-      onClearGroup={clearFilterGroup}
-      onClearGroups={clearFilterGroups}
-      toggles={[
-        {
-          key: 'needs-attention',
-          label: 'Needs your input',
-          count: needsAttentionCount,
-          pressed: needsAttention,
-          onToggle: () => setNeedsAttention((current) => !current),
-        },
-      ]}
-      resultCount={filtered.length}
-      totalCount={entries.length}
-    />
+  // Companies has no main action, so its header stack is the view pair
+  // and the filter bar (brief 2026-10-18, section 3). The pair sits where
+  // Board and List sit on Jobs, in the same selected style (A1).
+  const header = isEmpty ? null : (
+    <>
+      <Flex gap={2} alignItems="center" wrap>
+        <div role="group" aria-label="View" style={{ display: 'inline-flex', gap: 4 }}>
+          <FilterChip
+            label="Tiles"
+            height={44}
+            dataTestId="view-chip-tiles"
+            selected={view === 'tiles'}
+            pressed={view === 'tiles'}
+            onClick={() => persistView('tiles')}
+          />
+          <FilterChip
+            label="List"
+            height={44}
+            dataTestId="view-chip-list"
+            selected={view === 'list'}
+            pressed={view === 'list'}
+            onClick={() => persistView('list')}
+          />
+        </div>
+      </Flex>
+      <FilterBar
+        groups={FILTER_GROUPS}
+        countNoun="companies"
+        optionsByGroup={optionsByGroup}
+        selected={filters}
+        onToggleValue={toggleFilterValue}
+        onClearGroup={clearFilterGroup}
+        onClearGroups={clearFilterGroups}
+        resultCount={filtered.length}
+        totalCount={entries.length}
+      />
+    </>
+  );
+
+  const tiles = (
+    <Box dangerouslySetInlineStyle={{ __style: GRID_STYLE }}>
+      {filtered.map((company) => {
+        const sizeText = company.size_class ? titleCase(company.size_class) : 'Size unknown';
+        const chip = openJobsChip(openJobs(company));
+        return (
+          <Link key={company.id} href={companyHref(company.id)} display="block">
+            <Box
+              rounding={4}
+              borderStyle="sm"
+              padding={4}
+              color="default"
+              height={CARD_HEIGHT}
+              display="flex"
+              direction="column"
+              overflow="hidden"
+              data-testid={`company-card-${company.id}`}
+            >
+              <Flex direction="column" gap={2}>
+                <Heading size="300" lineClamp={2}>
+                  {/* The tooltip is the full stored name; the heading itself
+                      shows at most NAME_LIMIT characters of it. */}
+                  <span title={company.name}>{displayName(company.name)}</span>
+                </Heading>
+                <Text color="subtle" size="200" lineClamp={2} title={sectorLabels(company)}>
+                  {sectorLabels(company)}
+                </Text>
+                <Text color="subtle" size="200">
+                  {sizeText}
+                </Text>
+              </Flex>
+              <Box marginTop="auto">
+                <Badge type={chip.type} text={chip.text} />
+              </Box>
+            </Box>
+          </Link>
+        );
+      })}
+    </Box>
+  );
+
+  const list = (
+    <Box overflow="auto">
+      <Table accessibilityLabel="Companies list">
+        <Table.Header>
+          <Table.Row>
+            {LIST_COLUMNS.map(({ key, label, sortable }) =>
+              sortable ? (
+                <SortableHeaderCell
+                  key={key}
+                  label={label}
+                  status={sortColumn === key ? 'active' : 'inactive'}
+                  sortOrder={sortColumn === key && !ascending ? 'desc' : 'asc'}
+                  onSortChange={() => {
+                    setAscending(sortColumn === key ? !ascending : true);
+                    setSortColumn(key);
+                  }}
+                />
+              ) : (
+                <Table.HeaderCell key={key}>
+                  <Text weight="bold">{label}</Text>
+                </Table.HeaderCell>
+              ),
+            )}
+          </Table.Row>
+        </Table.Header>
+        <Table.Body>
+          {sorted.map((company) => {
+            const chip = openJobsChip(openJobs(company));
+            return (
+              <Table.Row key={company.id}>
+                <Table.Cell>
+                  {/* Gestalt's Table.Row renders a plain <tr> and
+                      forwards no extra props, so the row's own handle
+                      lives here, the way a card carries one. */}
+                  <span data-testid={`company-row-${company.id}`}>
+                    <Link href={companyHref(company.id)} display="inlineBlock">
+                      <Text color="link">{company.name}</Text>
+                    </Link>
+                  </span>
+                </Table.Cell>
+                <Table.Cell>
+                  <Text>{sectorLabels(company)}</Text>
+                </Table.Cell>
+                <Table.Cell>
+                  <Text>{company.size_class ? titleCase(company.size_class) : 'Size unknown'}</Text>
+                </Table.Cell>
+                <Table.Cell>
+                  {/* The company's own stored locations, the way the
+                      profile header joins them. "Location unknown"
+                      rather than a blank cell: a column that is
+                      sometimes empty says nothing about why. */}
+                  <Text>{(company.locations || []).join(', ') || 'Location unknown'}</Text>
+                </Table.Cell>
+                <Table.Cell>
+                  <Badge type={chip.type} text={chip.text} />
+                </Table.Cell>
+              </Table.Row>
+            );
+          })}
+        </Table.Body>
+      </Table>
+    </Box>
   );
 
   return (
-    <PageLayout title="Companies" header={filterBar}>
+    <PageLayout title="Companies" header={header}>
       {isEmpty ? (
         <Text color="subtle">{page.empty}</Text>
+      ) : noMatches ? (
+        <Text color="subtle">No companies match these filters.</Text>
+      ) : view === 'list' ? (
+        list
       ) : (
-        <>
-          {noMatches ? (
-            <Text color="subtle">{noMatchesMessage}</Text>
-          ) : (
-            <Box dangerouslySetInlineStyle={{ __style: GRID_STYLE }}>
-              {filtered.map((company) => {
-                // Defaulted like counts/isic_sections/size_classes above, so a
-                // bundle served by a server that predates the key still renders.
-                const sectorText = ((page.sector_labels || {})[company.id] || []).join(', ') || 'Sector unknown';
-                const sizeText = company.size_class ? titleCase(company.size_class) : 'Size unknown';
-                const chip = openJobsChip(openJobs(company));
-                return (
-                  <Link key={company.id} href={`/companies/${encodeURIComponent(company.id)}`} display="block">
-                    <Box
-                      rounding={4}
-                      borderStyle="sm"
-                      padding={4}
-                      color="default"
-                      height={CARD_HEIGHT}
-                      display="flex"
-                      direction="column"
-                      overflow="hidden"
-                      data-testid={`company-card-${company.id}`}
-                    >
-                      <Flex direction="column" gap={2}>
-                        <Heading size="300" lineClamp={2}>
-                          {/* The tooltip is the full stored name; the heading itself
-                              shows at most NAME_LIMIT characters of it. */}
-                          <span title={company.name}>{displayName(company.name)}</span>
-                        </Heading>
-                        <Text color="subtle" size="200" lineClamp={2} title={sectorText}>
-                          {sectorText}
-                        </Text>
-                        <Text color="subtle" size="200">
-                          {sizeText}
-                        </Text>
-                      </Flex>
-                      <Box marginTop="auto">
-                        <Badge type={chip.type} text={chip.text} />
-                      </Box>
-                    </Box>
-                  </Link>
-                );
-              })}
-            </Box>
-          )}
-        </>
+        tiles
       )}
     </PageLayout>
   );

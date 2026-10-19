@@ -4,38 +4,57 @@
     {
       "id": "CO-001",
       "name": "Harbor Labs",
-      "sectors": ["J"],
+      "sectors": [
+        "J"
+      ],
       "size_class": "small",
       "size_range": null,
       "review_flags": [],
-      "needs_attention": false
+      "locations": [
+        "Zurich",
+        "CH"
+      ]
     },
     {
       "id": "CO-002",
       "name": "Fern Robotics",
-      "sectors": ["C"],
+      "sectors": [
+        "C"
+      ],
       "size_class": "large",
       "size_range": null,
-      "review_flags": ["size-inconsistent"],
-      "needs_attention": true
+      "review_flags": [
+        "size-inconsistent"
+      ],
+      "locations": [
+        "Basel"
+      ]
     },
     {
       "id": "CO-003",
       "name": "Lantern Peak",
-      "sectors": ["J", "C"],
+      "sectors": [
+        "J",
+        "C"
+      ],
       "size_class": "medium",
       "size_range": "51-250",
       "review_flags": [],
-      "needs_attention": false
+      "locations": []
     },
     {
       "id": "CO-004",
       "name": "Übersee Kantonalbank und ihre Nebengesellschaften",
-      "sectors": ["K", "O"],
+      "sectors": [
+        "K",
+        "O"
+      ],
       "size_class": "large",
       "size_range": "1000+",
       "review_flags": [],
-      "needs_attention": false
+      "locations": [
+        "Geneva"
+      ]
     },
     {
       "id": "CO-005",
@@ -43,8 +62,12 @@
       "sectors": [],
       "size_class": null,
       "size_range": null,
-      "review_flags": ["sector-ambiguous"],
-      "needs_attention": true
+      "review_flags": [
+        "sector-ambiguous"
+      ],
+      "locations": [
+        "Zug"
+      ]
     },
     {
       "id": "CO-006",
@@ -53,23 +76,59 @@
       "size_class": null,
       "size_range": "51-250",
       "review_flags": [],
-      "needs_attention": false
+      "locations": [
+        "Bern"
+      ]
     }
   ],
-  "counts": { "CO-001": 3, "CO-002": 1, "CO-003": 0, "CO-004": 0, "CO-005": 2, "CO-006": 0 },
+  "counts": {
+    "CO-001": 3,
+    "CO-002": 1,
+    "CO-003": 0,
+    "CO-004": 0,
+    "CO-005": 2,
+    "CO-006": 0
+  },
   "isic_sections": [
-    { "code": "C", "label": "Manufacturing" },
-    { "code": "J", "label": "Information and communication" },
-    { "code": "K", "label": "Financial and insurance activities" },
-    { "code": "O", "label": "Public administration and defence; compulsory social security" }
+    {
+      "code": "C",
+      "label": "Manufacturing"
+    },
+    {
+      "code": "J",
+      "label": "Information and communication"
+    },
+    {
+      "code": "K",
+      "label": "Financial and insurance activities"
+    },
+    {
+      "code": "O",
+      "label": "Public administration and defence; compulsory social security"
+    }
   ],
   "sector_labels": {
-    "CO-001": ["Information and communication"],
-    "CO-002": ["Manufacturing"],
-    "CO-003": ["Information and communication", "Manufacturing"],
-    "CO-004": ["Financial and insurance activities", "Public administration and defence; compulsory social security"],
+    "CO-001": [
+      "Information and communication"
+    ],
+    "CO-002": [
+      "Manufacturing"
+    ],
+    "CO-003": [
+      "Information and communication",
+      "Manufacturing"
+    ],
+    "CO-004": [
+      "Financial and insurance activities",
+      "Public administration and defence; compulsory social security"
+    ],
     "CO-005": [],
     "CO-006": []
   },
-  "size_classes": ["micro", "small", "medium", "large"]
+  "size_classes": [
+    "micro",
+    "small",
+    "medium",
+    "large"
+  ]
 }

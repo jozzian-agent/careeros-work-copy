@@ -18,6 +18,11 @@ from careeros.web.ui import page
 # owner now reads as theirs.
 EMPTY_STATE = 'My Jobs is empty — paste a posting link to get started.'
 
+# B2 (CAREER-89): the All jobs tab's own empty state. It names where a
+# job comes from rather than telling the reader to paste one, because the
+# tab holds the records the API and the feeds add as well as their own.
+UNIVERSE_EMPTY_STATE = 'No jobs here yet — add one by link on My Jobs.'
+
 # How long a closed posting sits on a job the owner has not applied to
 # before the board asks about it (D7).
 CLOSED_REVIEW_DAYS = 7
@@ -138,6 +143,30 @@ def search_so_far(entries):
 def page_context(root, owner=None):
     return board_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner),
                          vault.function_label_map(root))
+
+
+def universe_context(root, owner=None):
+    """The All jobs payload (B2, CAREER-89).
+
+    The same shape the board reads, over every job that is not private to
+    another user (`vault.list_universe_jobs`), plus the one key that tab
+    needs: `on_my_board`, which decides whether a card shows its status
+    or offers "Add to my jobs". One payload shape, so the tab reuses the
+    board's own filter bar and cards instead of a second contract.
+
+    `on_my_board` is the same ownership rule the board itself is scoped
+    by, read here rather than in the browser: a client cannot be trusted
+    to work out whose record it is holding, and the answer decides which
+    action it offers.
+    """
+    entries = vault.list_universe_jobs(root, owner)
+    context = board_context(entries, vault.visible_companies(root, owner),
+                            vault.function_label_map(root))
+    return context | {
+        'empty': UNIVERSE_EMPTY_STATE,
+        'entries': [job | {'on_my_board': owner is None or owner.owns(job)}
+                    for job in context['entries']],
+    }
 
 def board_context(entries, companies, function_labels, today=None):
     """Build the board context without I/O or mutating input records."""

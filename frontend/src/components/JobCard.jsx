@@ -229,6 +229,15 @@ function EndedReason({ job, canExplain, onAddReason }) {
 // nothing said about its posting or its enrichment, but it keeps the
 // status select, because dragging it back into an open column has to have
 // a keyboard route too.
+//
+// `onMyBoard` false is the All jobs tab's own card (B2, CAREER-89): a
+// posting the reader has not added yet, so the top row offers "Add to my
+// jobs" where a card of theirs shows its status. Three things go with the
+// status, because each of them is about a record this reader does not
+// hold: the "Needs your input" chip (somebody else is being asked), the
+// ingest indicator and its Try again (the retry is owner-scoped and would
+// answer not-found), and any drag (there is no column to drop it in). The
+// posting itself reads exactly as it does on the board.
 export default function JobCard({
   job,
   statuses,
@@ -237,6 +246,9 @@ export default function JobCard({
   closedDays,
   compact = false,
   canExplain = false,
+  onMyBoard = true,
+  onAdd,
+  addBusy = false,
   onMove,
   onRetry,
   onAddReason,
@@ -260,16 +272,27 @@ export default function JobCard({
               status select sits on one line across a column of cards. */}
           <Box minHeight={32} display="flex" alignItems="center">
             <Flex flex="grow" justifyContent="between" alignItems="center" gap={2}>
-              <span>{compact ? null : <NeedsInputChip job={job} />}</span>
-              <StatusSelect
-                id={job.id}
-                jobTitle={job.title}
-                status={job.status}
-                statuses={statuses}
-                statusLabels={statusLabels}
-                endedStatuses={endedStatuses}
-                onChange={(status) => onMove(job.id, status)}
-              />
+              <span>{compact || !onMyBoard ? null : <NeedsInputChip job={job} />}</span>
+              {onMyBoard ? (
+                <StatusSelect
+                  id={job.id}
+                  jobTitle={job.title}
+                  status={job.status}
+                  statuses={statuses}
+                  statusLabels={statusLabels}
+                  endedStatuses={endedStatuses}
+                  onChange={(status) => onMove(job.id, status)}
+                />
+              ) : (
+                <Button
+                  size="sm"
+                  color="gray"
+                  text="Add to my jobs"
+                  accessibilityLabel={`Add ${job.title} to my jobs`}
+                  disabled={addBusy}
+                  onClick={() => onAdd(job)}
+                />
+              )}
             </Flex>
           </Box>
           <Flex direction="column" gap={1}>
@@ -296,7 +319,7 @@ export default function JobCard({
                   </Text>
                 ) : null}
               </Flex>
-              <IngestIndicator job={job} onRetry={onRetry} />
+              {onMyBoard ? <IngestIndicator job={job} onRetry={onRetry} /> : null}
               <ClosedChip job={job} closedDays={closedDays} />
             </>
           )}
