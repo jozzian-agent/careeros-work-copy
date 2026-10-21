@@ -3,7 +3,8 @@
 The one place that says what runs every night, when, how long it takes,
 where the outputs land, and how to run any of it by hand. Added for
 CAREER-57's follow-up (owner decision 2026-10-18: "B now, A as the
-scheduled next step").
+scheduled next step"). Hardened 2026-10-21 after two nights of OOM
+kills; what changed is in "Memory, disk and the log" below.
 
 ## The schedule
 
@@ -20,20 +21,33 @@ free).
 
 ## What the script does, in order
 
-1. **Preflight:** pings the local LLM host (`http://192.168.1.10:11434`,
-   the "ideaai" box, model `qwen3:30b-a3b`). If it is down the whole run
-   aborts **before** fetching — a fetch with no classification half-done
-   is worse than nothing done.
-2. **Fetch**, one provider at a time: personio, greenhouse, lever, ashby,
+1. **Open the day's log** (`data/nightly/nightly_<date>.log`) and write
+   the header into it, before anything that can fail. A run that dies in
+   its first second still leaves the day's file saying so.
+2. **Check the disk** on the data filesystem. Under 3 G free it prints a
+   loud `WARNING` and **continues** — a full disk is the owner's call,
+   and a night skipped over a warning is a night of postings lost.
+3. **Compress** the posting snapshots nothing has touched for 30 days:
+   `run_ats_fetch.py --provider personio compress --all-providers
+   --older-than 30 --apply`. First because it frees the disk the rest of
+   the night writes to, and it runs even on a night that then aborts.
+   Lossless and verified per file; see "Memory, disk and the log".
+4. **Preflight:** pings the local LLM host (`http://192.168.1.10:11434`,
+   the "ideaai" box, model `qwen3:30b-a3b`). If it is down, the fetch,
+   the export and the classification are **all three skipped** — a fetch
+   with no classification half-done is worse than nothing done — and the
+   run still writes its log and its Telegram line.
+5. **Fetch**, one provider at a time: personio, greenhouse, lever, ashby,
    recruitee, smartrecruiters — each through
-   `scripts/run_ats_fetch.py --provider <p> fetch`. One global rate
-   limit of one request a second and robots.txt respected (both are
-   built into the runner). A provider failing does not stop the others;
-   failures are collected and reported.
-3. **Export** the multi-provider golden-set pool for the day:
+   `scripts/run_ats_fetch.py --provider <p> fetch`, up to 3 attempts with
+   60/120 s backoff. One global rate limit of one request a second and
+   robots.txt respected (both are built into the runner). A provider
+   failing does not stop the others, the export or the classification;
+   failures are collected into the one `fails:` line.
+6. **Export** the multi-provider golden-set pool for the day:
    `run_ats_fetch.py --provider personio export --all-providers --day <date>`
    → `data/ats/exports/golden_set_pool_<date>.yaml`.
-4. **Classify** the pool through the local LLM layer:
+7. **Classify** the pool through the local LLM layer:
    `run_classification.py --pool <today's pool> --layer llm --out data/classification/run_<date>.yaml`.
    The rules layer runs first inside the same command (it is free and
    deterministic); the LLM only answers the fields rules left open.
@@ -44,11 +58,88 @@ Every step is idempotent: re-running any of them the same day overwrites
 only derived files, never immutable snapshots (fetch writes a new
 snapshot only when a posting's content hash changed).
 
+## Memory, disk and the log (CAREER-93, 2026-10-21)
+
+The 2026-10-20 run was killed mid-fetch and took the owner's Telegram bot
+with it: this VM has 3 GiB, `hermes-gateway` holds ~1.3 GiB of it, and
+the kernel's OOM killer picks the biggest process in the slice rather
+than the one that is growing. Three things answer that, and the first is
+the only real fix.
+
+1. **The fetch loop is flat in memory.** It used to hold every tenant's
+   mapped postings until the last tenant was done, so memory grew with
+   the tenant count — greenhouse (2 319 tenants) and ashby (3 019) were
+   holding hours of postings. Each tenant is now folded into the store
+   the moment it is fetched and only its numbers are kept
+   (`scripts/run_ats_fetch.py`, `_tenant_summary`). Measured over a
+   synthetic Personio feed, 40 postings a tenant: **44.6 MiB peak RSS at
+   25 tenants, 45.7 MiB at 400** (before the change: 49 MiB and
+   242.7 MiB — linear).
+   One consequence worth knowing: a run that dies half way has now
+   folded the tenants it got through, instead of nothing. That is safe
+   and idempotent — the retry fetches them again under a new run id,
+   snapshots are content-addressed, and a posting that was seen again
+   cannot close — but a killed run is no longer all-or-nothing.
+   **What sets the peak now is the biggest single tenant, not the run.**
+   The real lever fetch (83 tenants, 10 130 postings, on a copy of the
+   store) peaked at **779 MiB**, against **915 MiB** for the same fetch
+   on the old loop — a small gap, because lever has only 83 tenants and
+   its peak is one tenant's state file rather than the accumulation; the
+   accumulation is what grew with greenhouse's 2 319 and ashby's 3 019.
+   ~640 MiB of the 779 is one file:
+   loading `state/boxlunch.yaml` (15.7 MB, 4 674 postings) through
+   PyYAML costs that much on its own. The biggest state file per
+   provider today is lever 15.7 MB, greenhouse 8.5 MB, smartrecruiters
+   3.2 MB, ashby 2.9 MB, recruitee 1.1 MB. That fits under the cap and
+   not by a wide margin; the open questions below say what would buy
+   room.
+2. **Every python leg runs in its own systemd scope with a memory cap**
+   (`MemoryMax=1200M`, `MemoryHigh=900M`, `MemorySwapMax=0`). A runaway
+   leg is dealt with inside its own scope and can never be answered by
+   killing the gateway. If `systemd-run` cannot give a scope (a
+   container, a test), the leg runs plainly and the log says
+   `WARNING: systemd-run gave no scope` rather than looking capped.
+   **Caveat, measured 2026-10-21:** `MemoryHigh` is throttling, not a
+   limit. A leg held at `MemoryHigh` with no swap *stalls* rather than
+   dying — over 3 minutes and still going, where `MemoryMax` alone kills
+   it in under a second. It is kept because the point of the cap is that
+   the host survives, and a throttled leg cannot push the gateway out of
+   memory. Run with `NIGHTLY_MEMORY_HIGH=` (empty) to leave it off and
+   have a runaway leg die at `MemoryMax` instead. Nothing yet puts a
+   wall-clock limit on a stalled leg; that is an open question below.
+3. **The snapshots stop growing without bound.** Nothing prunes
+   `data/ats` by design — the snapshots are the golden set's evidence —
+   so step 3 compresses instead of deleting. `compress` is a dry run
+   unless given `--apply`, it replaces a file only after reading its
+   `.zst` copy back byte for byte, and every reader goes through
+   `store.stored_path`, so a packed snapshot and a plain one are the same
+   snapshot to the pool export, the classification and the next fetch.
+   Measured 2026-10-21 on one lever tenant's 58 snapshots: 1.2 MB →
+   0.3 MB (4.1x). The whole of `data/ats` plus `data/personio` is
+   236 507 posting snapshots and 3.76 GB, so the first night that packs
+   month-old files will free most of it.
+
+### Environment overrides
+
+The defaults are what cron runs; each of these is read at the top of the
+script and is there for a by-hand run or a test.
+
+| Variable | Default | What for |
+|---|---|---|
+| `NIGHTLY_PYTHON` | `.venv/bin/python` | the interpreter every leg runs under |
+| `NIGHTLY_DATA` | `data` | where the log, the pool and the classification land |
+| `NIGHTLY_PROVIDERS` | the six | run one provider's fetch only |
+| `NIGHTLY_OLLAMA` | `http://192.168.1.10:11434` | the LLM host the preflight pings |
+| `NIGHTLY_ATTEMPTS` / `NIGHTLY_BACKOFF` | `3` / `60` | fetch retries and the backoff step in seconds |
+| `NIGHTLY_MEMORY_MAX` / `NIGHTLY_MEMORY_HIGH` / `NIGHTLY_MEMORY_SWAP_MAX` | `1200M` / `900M` / `0` | the per-leg cap; `MEMORY_HIGH=` empty leaves it off |
+| `NIGHTLY_DISK_FLOOR_MB` | `3072` | the free-space watermark that warns |
+| `NIGHTLY_COMPRESS_AFTER` | `30` | days before a posting snapshot is packed |
+
 ## Outputs
 
 | File | What it is |
 |---|---|
-| `data/nightly/nightly_<date>.log` | full verbose log of every step |
+| `data/nightly/nightly_<date>.log` | full verbose log of every step, created before the first one |
 | `data/ats/exports/golden_set_pool_<date>.yaml` | the day's sampling pool |
 | `data/classification/run_<date>.yaml` | every posting's classification, per-field evidence, confidence, and per-call latency/token metrics |
 | Telegram (this owner) | one summary line + the model-calls/review stats |
@@ -86,6 +177,10 @@ Re-measure after any model or prompt change:
 ```bash
 cd /root/work/careeros-dashboard
 scripts/nightly_pipeline.sh            # the whole thing, same as cron
+NIGHTLY_PROVIDERS=lever scripts/nightly_pipeline.sh   # one provider's fetch
+# what the snapshots would compress to, writing nothing:
+.venv/bin/python scripts/run_ats_fetch.py --provider personio compress \
+    --all-providers --older-than 30
 # or just one leg:
 CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
     --pool data/ats/exports/golden_set_pool_$(date +%F).yaml \
@@ -96,7 +191,9 @@ CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `ABORTED - ideaai unreachable` | the local LLM box is off/asleep | start Ollama on 192.168.1.10; re-run the script by hand |
+| `FAILED: llm-unreachable` | the local LLM box is off/asleep | start Ollama on 192.168.1.10; re-run the script by hand |
+| `Killed` in the log, or a leg that never returns | a leg hit its memory cap (see above) | read the run's own last tenant line; a stall rather than a kill means `MemoryHigh` throttling, so re-run that leg with `NIGHTLY_MEMORY_HIGH=` |
+| `WARNING: only <N>M free` | `data/ats` is filling the root disk | run the compression step by hand with a smaller `--older-than`; it is lossless |
 | `fetch <provider> FAILED` | provider API changed or tenant list stale | check `data/nightly/nightly_<date>.log`; a weekly `discover` pass may be needed (not scheduled yet — see below) |
 | classify run shows `model calls: N (M failed)` | Ollama timeout or malformed answers | the run still completes; failed fields land in `needs_review` rather than silently missing. Check `local-llm-optimisation.md` |
 | Telegram summary says FAILED but log looks fine | partial: one leg failed | re-run only that leg by hand; everything is idempotent |
@@ -112,6 +209,31 @@ CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
   daily fact.
 - Any cron on the vault itself: out of scope, the vault is written only
   by the dashboard's own flows.
+
+## Open questions
+
+- **A stalled leg has no wall-clock limit.** `MemoryHigh` throttling can
+  hold a leg alive and making almost no progress (measured above), and
+  nothing kills it. A `timeout` around each leg, or dropping
+  `MemoryHigh` so `MemoryMax` ends it, are the two answers; the owner
+  picks one. Until then a stalled night is visible only as a log that
+  stops growing.
+- **The next memory bottleneck is PyYAML, and it is cheap to fix.**
+  One tenant's state file dominates the peak (see above), and this venv
+  already has libyaml: loading `state/boxlunch.yaml` with
+  `yaml.CSafeLoader` takes **4.5 s and 436 MiB** against **20.6 s and
+  630 MiB** for the pure-python loader. Switching `store.read_yaml` /
+  `store.write_yaml` to the C loader and dumper is a two-line change
+  that would cut both the peak and the run time, and it was outside this
+  brief, so it is the owner's to accept. Sharding posting state below
+  the tenant is the bigger, later answer.
+- **Nothing packs the raw FEED snapshots.** They are already gzipped,
+  which is why the compression step leaves them alone, but zstd would
+  still beat gzip on them. Worth measuring only if the disk gets tight
+  again after the first month of packing.
+- **Whether 30 days is the right cutoff** is a guess, not a measurement:
+  nothing has needed to read a snapshot older than the day's own run
+  yet. Shorten it if the disk needs it; the step is lossless either way.
 
 ## The cron job (record)
 

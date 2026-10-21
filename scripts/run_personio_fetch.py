@@ -35,7 +35,7 @@ from run_ats_fetch import *  # noqa: E402,F401,F403  (the subcommands and their 
 from run_ats_fetch import (_common_crawl, _fetch_queue, _from_probe_file,  # noqa: E402,F401
                            _limiter, _load_zefix, _print_run, _probe_websites, _robots_gate,
                            _root, _run_entry, _store, _tally, _taxonomy_versions,
-                           _update_tenant, _variant_options)
+                           _tenant_summary, _total, _update_tenant, _variant_options)
 from careeros.feeds import personio  # noqa: E402
 
 DEFAULT_ROOT = Path('data/personio')

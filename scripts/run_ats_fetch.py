@@ -14,6 +14,8 @@ own command line still works.
   fetch        fetch each tenant's feed, freeze snapshots, update closure
                state, and write a run entry to runs.yaml
   export       write the golden-set pool, over one provider or all of them
+  compress     zstd-pack the posting snapshots nothing has touched for a
+               month, over one provider or all of them (dry run by default)
   report       print the daily run report for the last (or a named) run
   map          build the ATS platform map and its report
 
@@ -22,6 +24,8 @@ rather than replaces and never downgrades a confirmed tenant. `fetch`
 writes a new snapshot only when a posting's content hash changed. A
 second `export` or `map` on the same day overwrites that day's file,
 which is derived and the only thing here that is not immutable.
+`compress` changes how a snapshot is stored and never what it says, and
+needs `--apply` to change anything at all.
 
 ## One store per provider
 
@@ -399,7 +403,7 @@ def cmd_fetch(args):
     print(f'run {run}: fetching {len(queue)} of {len(tenants)} {args.provider} tenant(s)')
 
     options = _variant_options(args, adapter)
-    results, parse_failures, posting_failures = {}, [], []
+    summaries, parse_failures, posting_failures = {}, [], []
     requests_made, robots = 0, None
     for index, tenant in enumerate(queue, 1):
         record = tenants[tenant]
@@ -425,19 +429,29 @@ def cmd_fetch(args):
                       'host': None, 'languages': {}, 'postings': [], 'publishes': {},
                       'parse_failures': [], 'posting_failures': [], 'requests': 0,
                       'etags': {}, 'details': {'requested': 0, 'ok': 0, 'failed': 0}}
-        results[tenant] = result
         parse_failures.extend(result['parse_failures'])
         posting_failures.extend(result['posting_failures'])
         requests_made += result['requests']
         zurich = [posting for posting in result['postings']
                   if posting['area_status'] == geocode.IN_AREA]
         _update_tenant(record, result, run=run, at=at, zurich=zurich)
+        # FOLD THIS TENANT NOW, so its postings can be released before
+        # the next one is fetched (CAREER-93). Keeping every tenant's
+        # result for the whole run grew with the tenant count: the
+        # 2026-10-20 greenhouse run died at tenant 2294 of 2319 and the
+        # kernel killed the owner's Telegram bot rather than the script.
+        # `record_run` already folds one tenant at a time and touches
+        # only that tenant's own state file, so a run folded per tenant
+        # writes exactly what a run folded at the end wrote.
+        changes = store_module.record_run(store, run=run, at=at,
+                                          tenant_results={tenant: result})[tenant]
+        summaries[tenant] = _tenant_summary(result, changes, zurich=len(zurich))
         print(f"  [{index:>4}/{len(queue)}] {tenant:<42} {result['fetch_status']:<12} "
               f"{len(result['postings']):>4} posting(s), {len(zurich):>3} in ZH"
               + (f" -- {result['error']}" if result['error'] else ''))
+        del result, zurich, changes
 
-    changes = store_module.record_run(store, run=run, at=at, tenant_results=results)
-    entry = _run_entry(run, at, queue, results, changes, parse_failures,
+    entry = _run_entry(run, at, queue, summaries, parse_failures,
                        posting_failures=posting_failures, requests_made=requests_made,
                        limiter=limiter, args=args, adapter=adapter, robots=robots)
     store.append_run(entry)
@@ -556,23 +570,69 @@ def _update_tenant(record, result, *, run, at, zurich):
                                    'the feed parsed and is empty, so it states no office')
 
 
-def _run_entry(run, at, queue, results, changes, parse_failures, *, posting_failures,
+def _tenant_summary(result, changes, *, zurich):
+    """Everything the run entry needs about ONE tenant, in numbers.
+
+    This is what makes the fetch loop flat in memory: the postings are
+    counted here and then released, so nothing in the run holds a mapped
+    posting after its own tenant was folded into the store. Every value
+    is a scalar or a short list of keys -- never a posting.
+    """
+    postings = result['postings'] or ()
+    review_swiss = [posting for posting in postings
+                    if posting['area_status'] == geocode.NEEDS_REVIEW
+                    and posting.get('swiss_evidence')]
+    return {
+        'fetch_status': result['fetch_status'],
+        'error': result['error'],
+        'postings': len(postings),
+        'requests': result['requests'],
+        'publishes': result['publishes'],
+        'zurich': zurich,
+        'zurich_geocoded': sum(1 for posting in postings
+                               if posting['area_status'] == geocode.IN_AREA
+                               and posting['municipality']),
+        'zurich_corroborated': sum(1 for posting in postings
+                                   if posting['area_status'] == geocode.IN_AREA
+                                   and posting.get('corroborated')),
+        'offices_unresolved': sum(1 for posting in postings
+                                  if posting['area_status'] == geocode.NEEDS_REVIEW),
+        'offices_needing_review': len(review_swiss),
+        # The 20 alphabetically first office names this tenant could not
+        # resolve. The run's own first 20 are among the union of its
+        # tenants' first 20, so the entry carries exactly what it carried
+        # when the whole run was held in memory.
+        'office_examples': sorted({(posting.get('location') or {}).get('office') or ''
+                                   for posting in review_swiss})[:20],
+        'feeds_read': sum(1 for report in result['languages'].values()
+                          if isinstance(report, dict) and report.get('positions') is not None),
+        'details': {key: (result.get('details') or {}).get(key, 0)
+                    for key in ('requested', 'ok', 'failed')},
+        'new': len(changes['new']),
+        'changed': len(changes['changed']),
+        'closed': len(changes['closed']),
+        'suspected': len(changes['suspected']),
+        'reopened': len(changes['reopened']),
+        'closed_keys': list(changes['closed']),
+        'reopened_keys': list(changes['reopened']),
+    }
+
+
+def _total(summaries, key):
+    return sum(summary[key] for summary in summaries.values())
+
+
+def _run_entry(run, at, queue, summaries, parse_failures, *, posting_failures,
                requests_made, limiter, args, adapter=personio, robots=None):
-    ok = [tenant for tenant, result in results.items()
-          if result['fetch_status'] == fetch_module.FETCH_OK]
-    postings = sum(len(result['postings']) for result in results.values())
-    zurich = sum(1 for result in results.values() for posting in result['postings']
-                 if posting['area_status'] == geocode.IN_AREA)
-    review = [posting for result in results.values() for posting in result['postings']
-              if posting['area_status'] == geocode.NEEDS_REVIEW]
-    review_swiss = [posting for posting in review if posting.get('swiss_evidence')]
-    geocoded = sum(1 for result in results.values() for posting in result['postings']
-                   if posting['area_status'] == geocode.IN_AREA and posting['municipality'])
-    feeds_read = sum(1 for result in results.values()
-                     for report in result['languages'].values()
-                     if isinstance(report, dict) and report.get('positions') is not None)
-    details = {key: sum(result.get('details', {}).get(key, 0) for result in results.values())
-               for key in ('requested', 'ok', 'failed')}
+    """The run's own entry in runs.yaml, added up from the per-tenant
+    summaries alone (see `_tenant_summary`): same keys, same numbers and
+    the same `_print_run` output as when it was added up from every
+    tenant's retained postings."""
+    ok = [tenant for tenant, summary in summaries.items()
+          if summary['fetch_status'] == fetch_module.FETCH_OK]
+    examples = set()
+    for summary in summaries.values():
+        examples = set(sorted(examples | set(summary['office_examples']))[:20])
     return {
         'run_id': run,
         'at': at,
@@ -583,33 +643,32 @@ def _run_entry(run, at, queue, results, changes, parse_failures, *, posting_fail
         'tenants_queued': len(queue),
         'tenants_ok': len(ok),
         'tenants_failed': len(queue) - len(ok),
-        'failures': {tenant: {'status': result['fetch_status'], 'error': result['error']}
-                     for tenant, result in sorted(results.items())
-                     if result['fetch_status'] != fetch_module.FETCH_OK},
-        'failure_kinds': _tally_values([result['fetch_status'] for result in results.values()]),
-        'feeds_read': feeds_read,
+        'failures': {tenant: {'status': summary['fetch_status'], 'error': summary['error']}
+                     for tenant, summary in sorted(summaries.items())
+                     if summary['fetch_status'] != fetch_module.FETCH_OK},
+        'failure_kinds': _tally_values([summary['fetch_status']
+                                        for summary in summaries.values()]),
+        'feeds_read': _total(summaries, 'feeds_read'),
         'parse_failures': parse_failures,
         'posting_failures': posting_failures,
-        'postings_seen': postings,
-        'details': details,
-        'zurich_postings': zurich,
-        'zurich_geocoded_to_municipality': geocoded,
-        'zurich_corroborated': sum(1 for result in results.values()
-                                   for posting in result['postings']
-                                   if posting['area_status'] == geocode.IN_AREA
-                                   and posting.get('corroborated')),
-        'offices_unresolved': len(review),
-        'offices_needing_review': len(review_swiss),
-        'offices_needing_review_examples': sorted({
-            (posting.get('location') or {}).get('office') or ''
-            for posting in review_swiss})[:20],
-        'new_postings': sum(len(change['new']) for change in changes.values()),
-        'changed_postings': sum(len(change['changed']) for change in changes.values()),
-        'closed_postings': sum(len(change['closed']) for change in changes.values()),
-        'suspected_closing': sum(len(change['suspected']) for change in changes.values()),
-        'reopened_postings': sum(len(change['reopened']) for change in changes.values()),
-        'closed_keys': sorted(key for change in changes.values() for key in change['closed']),
-        'reopened_keys': sorted(key for change in changes.values() for key in change['reopened']),
+        'postings_seen': _total(summaries, 'postings'),
+        'details': {key: sum(summary['details'][key] for summary in summaries.values())
+                    for key in ('requested', 'ok', 'failed')},
+        'zurich_postings': _total(summaries, 'zurich'),
+        'zurich_geocoded_to_municipality': _total(summaries, 'zurich_geocoded'),
+        'zurich_corroborated': _total(summaries, 'zurich_corroborated'),
+        'offices_unresolved': _total(summaries, 'offices_unresolved'),
+        'offices_needing_review': _total(summaries, 'offices_needing_review'),
+        'offices_needing_review_examples': sorted(examples),
+        'new_postings': _total(summaries, 'new'),
+        'changed_postings': _total(summaries, 'changed'),
+        'closed_postings': _total(summaries, 'closed'),
+        'suspected_closing': _total(summaries, 'suspected'),
+        'reopened_postings': _total(summaries, 'reopened'),
+        'closed_keys': sorted(key for summary in summaries.values()
+                              for key in summary['closed_keys']),
+        'reopened_keys': sorted(key for summary in summaries.values()
+                                for key in summary['reopened_keys']),
         # Feed requests only. The robots.txt read is counted beside it
         # rather than in it, because `requests` is what the parse and
         # dead-rate numbers are divided by and one robots read per run
@@ -623,14 +682,14 @@ def _run_entry(run, at, queue, results, changes, parse_failures, *, posting_fail
         'languages': list(getattr(args, 'languages', []) or []),
         'sample': {'size': args.sample, 'seed': args.seed} if getattr(args, 'sample', None)
                   else None,
-        'per_tenant': {tenant: {'fetch_status': result['fetch_status'],
-                                'postings': len(result['postings']),
-                                'requests': result['requests'],
-                                'publishes': result['publishes'],
-                                'new': len(changes[tenant]['new']),
-                                'changed': len(changes[tenant]['changed']),
-                                'closed': len(changes[tenant]['closed'])}
-                       for tenant, result in sorted(results.items())},
+        'per_tenant': {tenant: {'fetch_status': summary['fetch_status'],
+                                'postings': summary['postings'],
+                                'requests': summary['requests'],
+                                'publishes': summary['publishes'],
+                                'new': summary['new'],
+                                'changed': summary['changed'],
+                                'closed': summary['closed']}
+                       for tenant, summary in sorted(summaries.items())},
     }
 
 
@@ -705,6 +764,53 @@ def _taxonomy_versions():
     return {dimension: taxonomy.dimension_meta(dimension)['taxonomy_version']
             for dimension in ('municipality', 'canton', 'contract', 'workload', 'seniority',
                               'language', 'work_model')}
+
+
+# --- compress ---------------------------------------------------------------
+
+def cmd_compress(args):
+    """Pack the posting snapshots that are older than `--older-than`.
+
+    A DRY RUN unless `--apply`, like `scripts/migrate_*.py`: it prints
+    which files it would pack and how much they weigh, and writes
+    nothing. The snapshots are the bulk of this repo's disk use (6.1G
+    under `data/ats` on a 26G root) and nothing prunes them, by design --
+    they are the golden set's evidence -- so compression is the only
+    lever that does not throw evidence away.
+    """
+    stores = [_store(args, provider) for provider in _providers(args)
+              if provider in registry.PROVIDERS]
+    totals = {'candidates': 0, 'bytes_before': 0, 'bytes_after': 0, 'compressed': 0,
+              'failures': 0}
+    for store in stores:
+        report = store_module.compress_posting_snapshots(
+            store, older_than_days=args.older_than, apply=args.apply)
+        for key in ('bytes_before', 'bytes_after', 'compressed'):
+            totals[key] += report[key]
+        totals['candidates'] += len(report['candidates'])
+        totals['failures'] += len(report['failures'])
+        print(f"{store.provider:<16} {len(report['candidates']):>7} snapshot(s) older than "
+              f"{args.older_than} day(s), {_mb(report['bytes_before'])} in {store.root}")
+        for path in report['candidates'][:args.show]:
+            print(f'    {path}')
+        if len(report['candidates']) > args.show:
+            print(f"    ... and {len(report['candidates']) - args.show} more")
+        for failure in report['failures'][:10]:
+            print(f"    FAILED {failure['path']}: {failure['reason']}")
+    if not args.apply:
+        print(f"\ndry run: {totals['candidates']} snapshot(s), {_mb(totals['bytes_before'])} "
+              'would be packed. Pass --apply to do it.')
+        return 0
+    saved = totals['bytes_before'] - totals['bytes_after']
+    print(f"\npacked {totals['compressed']} snapshot(s): {_mb(totals['bytes_before'])} -> "
+          f"{_mb(totals['bytes_after'])}, {_mb(saved)} freed")
+    if totals['failures']:
+        print(f"{totals['failures']} snapshot(s) could not be packed and were left alone")
+    return 1 if totals['failures'] else 0
+
+
+def _mb(count):
+    return f'{count / 1024 / 1024:.1f} MB'
 
 
 # --- report -----------------------------------------------------------------
@@ -848,6 +954,19 @@ def build_parser(default_root=None, providers=ALL_PROVIDERS, default_provider=No
     export_parser.add_argument('--include-out-of-area', action='store_true',
                                help='also export postings outside canton Zurich')
     export_parser.set_defaults(handler=cmd_export)
+
+    compress = subparsers.add_parser(
+        'compress', help='zstd-pack posting snapshots older than a month (dry run by default)')
+    compress.add_argument('--older-than', type=int, metavar='DAYS',
+                          default=store_module.COMPRESS_AFTER_DAYS,
+                          help='pack snapshots untouched for this long (default 30)')
+    compress.add_argument('--all-providers', action='store_true',
+                          help='every provider that has a store')
+    compress.add_argument('--apply', action='store_true',
+                          help='actually pack them; the default is a dry run')
+    compress.add_argument('--show', type=int, default=10, metavar='N',
+                          help='how many candidate paths to list per provider (default 10)')
+    compress.set_defaults(handler=cmd_compress)
 
     report = subparsers.add_parser('report', help='print a run report')
     report.add_argument('--run', default=None, help='a run id (default: the last one)')

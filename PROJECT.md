@@ -796,6 +796,42 @@ decisions of the same day). Four changes, one of which is a new surface.
   superseded tests went in the same change, each replaced by an absence
   pin over the record shape that used to raise the ask.
 
+2026-10-21: the nightly pipeline stops being able to take the host down
+with it (CAREER-93, [brief](docs/briefs/nightly-oom-hardening.md),
+[runbook](docs/runbooks/nightly-pipeline.md)). On 2026-10-12 and
+2026-10-20 the greenhouse fetch ran the 3 GiB VM out of memory and the
+kernel answered by killing `hermes-gateway`, the owner's Telegram bot,
+because it was the biggest process in the slice rather than the one that
+was growing; the 20th's run died at tenant 2294 of 2319. Three changes,
+and the first is the only real fix. **The fetch loop is flat in memory**:
+it held every tenant's mapped postings until the last tenant was done,
+and now folds each tenant into the store the moment it is fetched
+(`store.record_run` already worked one tenant at a time) and keeps only
+that tenant's numbers, so the run entry is added up from small
+per-tenant summaries and says exactly what it said before. Measured over
+a synthetic feed at 40 postings a tenant: 44.6 MiB peak RSS at 25
+tenants and 45.7 MiB at 400, against 49 and 242.7 MiB before. One
+behaviour did change and is recorded here because it is about what the
+product keeps: a run that dies half way has now folded the tenants it
+got through rather than nothing, which is safe (a retry re-fetches them
+under a new run id, snapshots are content-addressed, a posting seen
+again cannot close) but is no longer all-or-nothing. **Every python leg
+runs in its own systemd scope** with `MemoryMax=1200M`,
+`MemoryHigh=900M` and `MemorySwapMax=0`, so a runaway is dealt with
+inside its own scope; where `systemd-run` can give no scope the leg runs
+plainly and says so. **The snapshots stop growing without bound**:
+nothing prunes `data/ats` by design, so `run_ats_fetch.py compress`
+zstd-packs the posting snapshots nothing has touched for 30 days — a dry
+run unless given `--apply`, replacing a file only after reading its
+`.zst` back byte for byte — and `store.stored_path` makes a packed
+snapshot and a plain one the same snapshot to every reader (the pool
+export, the classification, the next fetch's "already frozen?" check).
+That adds the repo's one new dependency of the round, `zstandard`.
+The pipeline also keeps the day's log from the first line, warns (and
+never aborts) under 3 G free, and no longer swallows its own abort: an
+unreachable LLM host still skips fetch, export and classify as one, but
+the owner now hears about it on Telegram instead of only in the log.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.

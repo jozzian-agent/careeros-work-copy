@@ -9,7 +9,7 @@ because raw snapshots are large):
     runs.yaml                                 one entry per fetch run
     state/<tenant>.yaml                       posting state, per tenant
     snapshots/feeds/<tenant>/<run>-<variant>.<ext>.gz  the raw responses
-    snapshots/postings/<tenant>/<id>/<hash>.yaml     the frozen postings
+    snapshots/postings/<tenant>/<id>/<hash>.yaml[.zst] the frozen postings
     exports/golden_set_pool_<date>.yaml       the sampling pool
 
 ONE STORE CLASS, ONE ROOT PER PROVIDER. The layout above held one
@@ -38,6 +38,15 @@ raw response, compressed, with fetch timestamp and HTTP status. Raw data
 is the evidence if a parser changes later." The POSTING snapshot is what
 the golden set references: "the golden set always references a snapshot
 id, never the live posting."
+
+COMPRESSED, NEVER DELETED. `compress_posting_snapshots` packs posting
+snapshots nothing has touched for a month (CAREER-93: 6.1G of snapshots
+on a 26G disk, and the nightly pipeline has no pruning step by design).
+It is a dry run unless asked to apply, it replaces a file only after
+reading its compressed copy back byte for byte, and the content is
+unchanged -- `stored_path` and `read_stored_bytes` make a `.zst`
+snapshot and a plain one the same snapshot to every reader, including
+the immutability check below.
 
 IMMUTABLE MEANS IMMUTABLE. `write_snapshot` refuses to change a file that
 exists: writing identical bytes is a no-op and writing different bytes
@@ -115,15 +124,82 @@ def run_id(at=None):
     return moment.strftime('%Y%m%dT%H%M%SZ')
 
 
+#: The suffix a compressed snapshot carries. A snapshot is frozen
+#: evidence, so compressing one must not change what it is: every read
+#: in this module goes through `stored_path`, which answers with the
+#: plain file or its compressed sibling, so `abc.yaml` and
+#: `abc.yaml.zst` are the same snapshot to every caller.
+ZSTD_SUFFIX = '.zst'
+
+#: How long a posting snapshot is left alone before the nightly
+#: compression step packs it. A month, because that is well past the
+#: window in which a snapshot is read back -- the pool export and the
+#: classification read the day's own run.
+COMPRESS_AFTER_DAYS = 30
+
+#: The zstd level the compression step uses. Measured 2026-10-21 over one
+#: lever tenant's 58 posting snapshots: 1.2 MB -> 0.3 MB, ~4x.
+COMPRESS_LEVEL = 10
+
+
+def packed_path(path):
+    """Where `path` lives once it is compressed."""
+    path = Path(path)
+    return path.parent / f'{path.name}{ZSTD_SUFFIX}'
+
+
+def stored_path(path):
+    """The file that holds `path`'s content: `path`, its compressed
+    sibling, or None when neither is there.
+
+    One place answers both questions a caller has -- "is this snapshot
+    already frozen?" and "where do I read it from?" -- so compression
+    cannot make an existing snapshot look missing, which would re-freeze
+    it beside its own compressed copy.
+    """
+    path = Path(path)
+    if path.exists():
+        return path
+    packed = packed_path(path)
+    return packed if packed.exists() else None
+
+
+def _zstd():
+    """The codec, imported where it is used rather than at module load.
+
+    Only the compression step and reading an already-compressed snapshot
+    need it, so a checkout whose venv predates the dependency keeps
+    working on plain snapshots instead of failing to import the store.
+    """
+    try:
+        import zstandard
+    except ModuleNotFoundError as error:
+        raise RuntimeError('a compressed snapshot needs the zstandard package: '
+                           'pip install -r requirements.txt') from error
+    return zstandard
+
+
+def read_stored_bytes(path):
+    """One stored file's bytes, decompressing a `.zst` on the way out."""
+    path = Path(path)
+    blob = path.read_bytes()
+    if path.name.endswith(ZSTD_SUFFIX):
+        return _zstd().ZstdDecompressor().decompress(blob)
+    return blob
+
+
 def read_yaml(path, default=None):
     """A store file, or `default`. A corrupt file is a visible failure
     rather than a silent empty: unlike the vault, nothing here is being
     rendered to a user, and a store that quietly forgot a tenant's
-    posting history would close every one of its postings."""
-    path = Path(path)
-    if not path.exists():
+    posting history would close every one of its postings.
+
+    Reads a compressed file transparently, so a packed snapshot needs no
+    caller to know it was packed."""
+    stored = stored_path(path)
+    if stored is None:
         return default
-    data = yaml.safe_load(path.read_text())
+    data = yaml.safe_load(read_stored_bytes(stored).decode())
     return default if data is None else data
 
 
@@ -190,10 +266,12 @@ class Store:
         """
         path = Path(path)
         blob = payload if isinstance(payload, bytes) else payload.encode()
-        if path.exists():
-            if path.read_bytes() == blob:
+        existing = stored_path(path)
+        if existing is not None:
+            if read_stored_bytes(existing) == blob:
                 return False
-            raise RuntimeError(f'{path} exists with different content; snapshots are immutable')
+            raise RuntimeError(f'{existing} exists with different content; '
+                               'snapshots are immutable')
         path.parent.mkdir(parents=True, exist_ok=True)
         # Exclusive create, so two runs racing on the same path cannot
         # both believe they wrote it.
@@ -224,8 +302,11 @@ class Store:
                                           mapped['content_hash'])
         record = {'snapshot_id': snapshot_id, 'frozen_at': at or now(), 'first_seen_run': run,
                   'content_hash': mapped['content_hash'], 'posting': mapped}
-        if path.exists():
-            return snapshot_id, path, False
+        existing = stored_path(path)
+        if existing is not None:
+            # Compressed or not, this posting is already frozen: saying
+            # otherwise would re-freeze it beside its own `.zst`.
+            return snapshot_id, existing, False
         self.write_snapshot(path, yaml.safe_dump(record, sort_keys=False, allow_unicode=True))
         return snapshot_id, path, True
 
@@ -463,6 +544,70 @@ def counts(state):
     for entry in (state.get('postings') or {}).values():
         tally[entry.get('status', OPEN)] = tally.get(entry.get('status', OPEN), 0) + 1
     return tally
+
+
+def compress_posting_snapshots(store, *, older_than_days=COMPRESS_AFTER_DAYS, apply=False,
+                               now=None, level=COMPRESS_LEVEL):
+    """Pack this store's posting snapshots that nothing has touched for
+    `older_than_days`, and report what it did or would do.
+
+    A DRY RUN unless `apply`, which is the shape every script in this
+    repo that rewrites stored data has. A snapshot is replaced only
+    after its compressed copy has been read back and compared byte for
+    byte, so a codec or a disk going wrong leaves the plain file exactly
+    where it was. Nothing is deleted: the content stays, under one more
+    suffix.
+
+    Age is the file's own mtime rather than the run it was frozen in,
+    because the mtime is what the disk pressure is measured against and
+    it needs no file opened to read it.
+
+    Returns `{'root', 'candidates': [path, ...], 'bytes_before',
+    'bytes_after', 'compressed', 'failures', 'applied'}`.
+    """
+    moment = now or datetime.now(timezone.utc)
+    cutoff = moment.timestamp() - older_than_days * 86400
+    directory = store.root / 'snapshots' / 'postings'
+    report = {'root': str(store.root), 'candidates': [], 'bytes_before': 0, 'bytes_after': 0,
+              'compressed': 0, 'failures': [], 'applied': bool(apply)}
+    if not directory.exists():
+        return report
+    for path in sorted(directory.rglob('*.yaml')):
+        if path.stat().st_mtime > cutoff:
+            continue
+        report['candidates'].append(str(path))
+        report['bytes_before'] += path.stat().st_size
+        if not apply:
+            continue
+        try:
+            report['bytes_after'] += _pack(path, level=level)
+        except (OSError, RuntimeError) as error:
+            # One unreadable file must not end the pass: the step runs
+            # unattended every night over tens of thousands of files.
+            _logger.warning('%s: could not compress %s: %s', store.provider, path, error)
+            report['failures'].append({'path': str(path), 'reason': f'{error}'})
+            continue
+        report['compressed'] += 1
+    return report
+
+
+def _pack(path, *, level=COMPRESS_LEVEL):
+    """Replace one file with its compressed self, verified. Returns the
+    compressed size."""
+    blob = path.read_bytes()
+    target = packed_path(path)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        handle.write(_zstd().ZstdCompressor(level=level).compress(blob))
+    try:
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    if read_stored_bytes(target) != blob:
+        target.unlink(missing_ok=True)
+        raise RuntimeError(f'{target} did not read back identical; {path} is untouched')
+    path.unlink()
+    return target.stat().st_size
 
 
 def live_postings(store, tenant):

@@ -54,6 +54,37 @@ cleaned-text fallback; arbitrary site chrome remains a limitation of fallback.
 An ambient timeout override broke tests that expected the default budget.
 Outcome: keep runtime configuration separate from isolated verification settings.
 
+## 2026-10-21 — The nightly pipeline's OOM, and what the cap really does
+
+The kernel's OOM killer picks the biggest process in the slice, not the
+one that is growing, so a memory bug in an unattended script showed up as
+an unrelated service dying: two nights running, the ATS fetch exhausted
+the 3 GiB VM and `hermes-gateway` — the owner's Telegram bot, ~1.3 GiB
+resident — was killed instead of the script. Outcome: fixed the growth
+itself (the fetch loop folds each tenant into the store and keeps only
+its numbers) and put every python leg in its own `systemd-run --scope`
+with a memory cap, so the kernel's choice is made inside the scope. Do
+not read a service that died of `oom-kill` as a problem with that
+service.
+
+`MemoryHigh` is throttling and not a limit, and that is a different
+promise than it reads like. Measured on this host: a leg held at
+`MemoryHigh` with swap allowed is pushed into the host's 1 GiB of swap
+and crawls; with `MemorySwapMax=0` it still stalls rather than dying —
+over three minutes and still going, where `MemoryMax` alone ends it in
+under a second. Outcome: keep `MemoryHigh` (a throttled leg cannot push
+anything else out of memory, which is what the cap is for), keep
+`MemorySwapMax=0`, and record that nothing yet puts a wall-clock limit on
+a stalled leg. A cap is not a timeout.
+
+Accumulating per-item results to build one run summary at the end is the
+shape of this bug, and it is invisible in the output: every number the
+summary printed could be folded per tenant and came out identical. The
+only aggregate that needed thought was "the 20 first unresolved office
+names", which is the same answer taken from the union of each tenant's
+own first 20. Outcome: when a loop's summary is built from retained
+items, the summary is the thing to make small, not the loop.
+
 ## Open questions
 
 Entity disambiguation and full field provenance remain later work; no new
