@@ -2,22 +2,27 @@
 # The nightly pipeline: snapshot compression -> ATS fetch -> pool export ->
 # local-LLM classification.
 #
-# Runs at 19:00 local (Swiss) time via the Hermes cron job that wraps this
-# script (~/.hermes/scripts/careeros_nightly.sh). Every step is idempotent
-# and safe to re-run; details, decisions and measured durations live in
-# docs/runbooks/nightly-pipeline.md.
+# Runs at 19:00 Swiss time via the Hermes cron job that wraps this script
+# (~/.hermes/scripts/careeros_nightly.sh). Since 2026-10-22 the Hermes cron
+# timezone is explicitly Europe/Zurich and the schedule is "0 19 * * *", so
+# DST shifts the UTC fire time, not the Swiss wall time. Every step is
+# idempotent and safe to re-run; details, decisions and measured durations
+# live in docs/runbooks/nightly-pipeline.md.
 #
 # Contract: verbose progress goes to the log file, ONLY a short summary goes
 # to stdout, because stdout is delivered verbatim to Telegram by the cron
 # runner. Empty stdout would mean silent.
 #
-# NOTHING HERE MAY TAKE THE HOST DOWN WITH IT (CAREER-93). This VM has 3 GiB
-# and hermes-gateway holds ~1.3 GiB of it, so on 2026-10-12 and 2026-10-20 the
-# kernel answered a runaway fetch by killing the owner's Telegram bot, which
-# was the biggest process in the slice. Every python leg therefore runs in its
-# own systemd scope with a memory cap, so a leg that runs away is dealt with
-# inside its own scope and nothing else on the host is touched (read the
-# MemoryHigh caveat on the caps below: it holds a leg rather than killing it).
+# NOTHING HERE MAY TAKE THE HOST DOWN WITH IT (CAREER-93). On 2026-10-12 and
+# 2026-10-20 the kernel answered a runaway fetch by killing the owner's
+# Telegram bot, which was the biggest process in the slice (the VM had 3 GiB
+# then; it was upgraded to 8 GiB on 2026-10-22 and the caps were re-sized:
+# worst measured leg 779 MiB, so MemoryMax=2G keeps a runaway leg contained
+# while leaving generous headroom, and MemoryHigh was dropped -- it stalled
+# legs rather than ending them, an open question the runbook carried).
+# Every python leg therefore runs in its own systemd scope with a memory cap,
+# so a leg that runs away is dealt with inside its own scope and nothing else
+# on the host is touched.
 # The cap is the second line of defence; the first is that the fetch loop no
 # longer grows with the tenant count (scripts/run_ats_fetch.py,
 # `_tenant_summary`).
@@ -34,15 +39,16 @@ PROVIDERS="${NIGHTLY_PROVIDERS:-personio greenhouse lever ashby recruitee smartr
 OLLAMA="${NIGHTLY_OLLAMA:-http://192.168.1.10:11434}"
 ATTEMPTS="${NIGHTLY_ATTEMPTS:-3}"
 BACKOFF="${NIGHTLY_BACKOFF:-60}"          # seconds, times the attempt number
-# Hard: the kernel ends the leg here, inside its own scope.
-MEM_MAX="${NIGHTLY_MEMORY_MAX:-1200M}"
-# Soft, and throttling rather than a limit. Measured 2026-10-21: a leg held at
+# Hard: the kernel ends the leg here, inside its own scope. Sized 2026-10-22
+# for the 8 GiB VM (worst measured leg: 779 MiB, lever).
+MEM_MAX="${NIGHTLY_MEMORY_MAX:-2000M}"
+# Soft cap OFF by default since 2026-10-22: measured 2026-10-21, a leg held at
 # MemoryHigh STALLS rather than dying (over 3 minutes and still going, where
-# MemoryMax alone ends it in under a second). It is kept because the point of
-# the cap is that the HOST survives, and a throttled leg cannot push anything
-# else out of memory. Set NIGHTLY_MEMORY_HIGH= (empty) to leave it off and have
-# a runaway leg die at MemoryMax instead; see the runbook's open questions.
-MEM_HIGH="${NIGHTLY_MEMORY_HIGH:-900M}"
+# MemoryMax alone ends it in under a second). With 8 GiB on the host there is
+# no longer a reason to trade a stalled leg for host safety -- a runaway leg
+# now simply dies at MemoryMax. Set NIGHTLY_MEMORY_HIGH=900M (or any value)
+# to re-enable the old behaviour.
+MEM_HIGH="${NIGHTLY_MEMORY_HIGH:-}"
 # No swap for a capped leg: with swap allowed, a leg over MemoryHigh is pushed
 # into the host's 1 GiB of swap and crawls, which starves everything else on
 # the box -- the opposite of what the cap is for.

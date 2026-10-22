@@ -154,6 +154,6 @@ def test_every_python_leg_runs_in_its_own_capped_scope(pipeline, tmp_path):
         assert scopes == [mine] * len(scopes), \
             'with no scope to be had it says so rather than looking capped'
     else:
-        assert 'memory cap per python leg: MemoryMax=1200M MemoryHigh=900M' in log
+        assert 'memory cap per python leg: MemoryMax=2000M MemoryHigh=off' in log
         assert all(scope.endswith('.scope') and scope != mine for scope in scopes), scopes
     assert '-- fetch lever ok' in log, 'either way the pipeline runs'

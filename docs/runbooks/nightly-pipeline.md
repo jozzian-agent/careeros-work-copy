@@ -94,19 +94,20 @@ the only real fix.
    not by a wide margin; the open questions below say what would buy
    room.
 2. **Every python leg runs in its own systemd scope with a memory cap**
-   (`MemoryMax=1200M`, `MemoryHigh=900M`, `MemorySwapMax=0`). A runaway
+   (`MemoryMax=2000M`, `MemoryHigh` off, `MemorySwapMax=0`). A runaway
    leg is dealt with inside its own scope and can never be answered by
    killing the gateway. If `systemd-run` cannot give a scope (a
    container, a test), the leg runs plainly and the log says
    `WARNING: systemd-run gave no scope` rather than looking capped.
-   **Caveat, measured 2026-10-21:** `MemoryHigh` is throttling, not a
-   limit. A leg held at `MemoryHigh` with no swap *stalls* rather than
-   dying — over 3 minutes and still going, where `MemoryMax` alone kills
-   it in under a second. It is kept because the point of the cap is that
-   the host survives, and a throttled leg cannot push the gateway out of
-   memory. Run with `NIGHTLY_MEMORY_HIGH=` (empty) to leave it off and
-   have a runaway leg die at `MemoryMax` instead. Nothing yet puts a
-   wall-clock limit on a stalled leg; that is an open question below.
+   **History:** the caps were sized 2026-10-12 for a 3 GiB VM
+   (`MemoryMax=1200M`, `MemoryHigh=900M`). Measured 2026-10-21,
+   `MemoryHigh` is throttling, not a limit: a leg held there with no
+   swap *stalls* rather than dying (over 3 minutes and still going,
+   where `MemoryMax` alone kills it in under a second). The VM was
+   upgraded to 8 GiB on 2026-10-22 (worst measured leg: 779 MiB), so
+   `MemoryHigh` was dropped — a runaway leg now dies at `MemoryMax`
+   instead of stalling — and the hard cap gained headroom. Set
+   `NIGHTLY_MEMORY_HIGH=900M` to restore the old throttling behaviour.
 3. **The snapshots stop growing without bound.** Nothing prunes
    `data/ats` by design — the snapshots are the golden set's evidence —
    so step 3 compresses instead of deleting. `compress` is a dry run
@@ -131,7 +132,7 @@ script and is there for a by-hand run or a test.
 | `NIGHTLY_PROVIDERS` | the six | run one provider's fetch only |
 | `NIGHTLY_OLLAMA` | `http://192.168.1.10:11434` | the LLM host the preflight pings |
 | `NIGHTLY_ATTEMPTS` / `NIGHTLY_BACKOFF` | `3` / `60` | fetch retries and the backoff step in seconds |
-| `NIGHTLY_MEMORY_MAX` / `NIGHTLY_MEMORY_HIGH` / `NIGHTLY_MEMORY_SWAP_MAX` | `1200M` / `900M` / `0` | the per-leg cap; `MEMORY_HIGH=` empty leaves it off |
+| `NIGHTLY_MEMORY_MAX` / `NIGHTLY_MEMORY_HIGH` / `NIGHTLY_MEMORY_SWAP_MAX` | `2000M` / off / `0` | the per-leg cap; set `MEMORY_HIGH=900M` to re-enable throttling |
 | `NIGHTLY_DISK_FLOOR_MB` | `3072` | the free-space watermark that warns |
 | `NIGHTLY_COMPRESS_AFTER` | `30` | days before a posting snapshot is packed |
 
@@ -192,7 +193,7 @@ CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
 | Symptom | Cause | Fix |
 |---|---|---|
 | `FAILED: llm-unreachable` | the local LLM box is off/asleep | start Ollama on 192.168.1.10; re-run the script by hand |
-| `Killed` in the log, or a leg that never returns | a leg hit its memory cap (see above) | read the run's own last tenant line; a stall rather than a kill means `MemoryHigh` throttling, so re-run that leg with `NIGHTLY_MEMORY_HIGH=` |
+| `Killed` in the log, or a leg that never returns | a leg hit its memory cap (see above) | read the run's own last tenant line; since 2026-10-22 `MemoryHigh` is off by default so a runaway leg dies rather than stalls — if you set `NIGHTLY_MEMORY_HIGH` and see a stall, unset it |
 | `WARNING: only <N>M free` | `data/ats` is filling the root disk | run the compression step by hand with a smaller `--older-than`; it is lossless |
 | `fetch <provider> FAILED` | provider API changed or tenant list stale | check `data/nightly/nightly_<date>.log`; a weekly `discover` pass may be needed (not scheduled yet — see below) |
 | classify run shows `model calls: N (M failed)` | Ollama timeout or malformed answers | the run still completes; failed fields land in `needs_review` rather than silently missing. Check `local-llm-optimisation.md` |
@@ -212,12 +213,12 @@ CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
 
 ## Open questions
 
-- **A stalled leg has no wall-clock limit.** `MemoryHigh` throttling can
-  hold a leg alive and making almost no progress (measured above), and
-  nothing kills it. A `timeout` around each leg, or dropping
-  `MemoryHigh` so `MemoryMax` ends it, are the two answers; the owner
-  picks one. Until then a stalled night is visible only as a log that
-  stops growing.
+- ~~**A stalled leg has no wall-clock limit.**~~ **Answered 2026-10-22:**
+  `MemoryHigh` was dropped (the host gained RAM: 3 → 8 GiB), so a
+  runaway leg now dies at `MemoryMax=2000M` instead of throttling into
+  a stall. A `timeout` around each leg remains unadded — with the stall
+  mode gone the only way a leg lingers is by legitimately working, and
+  killing that would be worse.
 - **The next memory bottleneck is PyYAML, and it is cheap to fix.**
   One tenant's state file dominates the peak (see above), and this venv
   already has libyaml: loading `state/boxlunch.yaml` with
@@ -242,10 +243,12 @@ Hermes cron job **`careeros-nightly-pipeline`, id `488ba0fa1330`**,
 one-line wrapper that execs `scripts/nightly_pipeline.sh`), schedule
 `0 17 * * *`, delivery to the owner's Telegram. Created 2026-10-18.
 
-**DST caveat (action needed twice a year):** the host clock is UTC and
-the schedule is fixed UTC, so `0 17 * * *` = 19:00 CEST in summer but
-**18:00 CET in winter** — one hour early after the clocks go back (late
-October) until they go forward again (late March). The classification
-finishes overnight either way, so this is cosmetic, not breaking. To hold
-19:00 Swiss year-round, change the cron expr at each DST transition:
-`0 17 * * *` (CEST, Mar-Oct) / `0 18 * * *` (CET, Oct-Mar).
+**DST — fixed 2026-10-22.** The Hermes cron timezone is now explicitly
+`Europe/Zurich` (`hermes config set timezone Europe/Zurich`) and the
+schedule is `0 19 * * *`, so the pipeline fires at 19:00 Swiss
+wall-clock year-round; croniter computes the next run from a
+Zurich-anchored `now()` and DST shifts the UTC fire time instead of the
+local one. Note the gateway caches the timezone at startup — the config
+change only takes effect after a gateway restart. Historical caveat
+(now obsolete): before the fix, a fixed-UTC `0 17 * * *` fired one hour
+early in winter (CET), which was judged cosmetic.
