@@ -133,9 +133,27 @@ stage() {    # stage <name> <cmd...>: one capped step, timed, failure recorded
     for p in $PROVIDERS; do
       t0=$SECONDS
       attempt=1
+      # Owner granted the robots.txt exception for smartrecruiters on 2026-10-22
+      # (their robots.txt allows only LinkedIn's crawler on the path their own
+      # docs publish as public and unauthenticated; reasoning in
+      # data/ats/TRIAL_REPORT.md). Without it the provider fails every night
+      # and burns three pointless retries -- a policy block does not change
+      # in 60s.
+      fetch_extra=()
+      if [[ "$p" == "smartrecruiters" ]]; then
+        fetch_extra=(--robots-exception smartrecruiters)
+      fi
       while true; do
-        if capped "$PY" scripts/run_ats_fetch.py --provider "$p" fetch; then
+        capped "$PY" scripts/run_ats_fetch.py --provider "$p" fetch "${fetch_extra[@]}"
+        rc=$?
+        if (( rc == 0 )); then
           echo "-- fetch $p ok (attempt $attempt) in $((SECONDS - t0))s"
+          break
+        fi
+        if (( rc == 2 )); then
+          # robots.txt policy refusal: retrying cannot change the answer.
+          echo "-- fetch $p REFUSED by robots.txt (exit 2) - not retryable"
+          fails="$fails fetch:$p"
           break
         fi
         if (( attempt >= ATTEMPTS )); then
