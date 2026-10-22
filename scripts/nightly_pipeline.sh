@@ -1,6 +1,10 @@
 #!/bin/bash
 # The nightly pipeline: snapshot compression -> ATS fetch -> pool export ->
-# local-LLM classification.
+# local-LLM classification -> (optional) prod sync.
+#
+# The last leg is off unless SYNC_TO_PROD=1: it pushes the night's
+# pipeline-owned output to the prod VPS (deploy/sync_vault_to_prod.sh,
+# docs/runbooks/deploy-runbook.md). A LAN-only install never runs it.
 #
 # Runs at 19:00 Swiss time via the Hermes cron job that wraps this script
 # (~/.hermes/scripts/careeros_nightly.sh). Since 2026-10-22 the Hermes cron
@@ -12,6 +16,12 @@
 # Contract: verbose progress goes to the log file, ONLY a short summary goes
 # to stdout, because stdout is delivered verbatim to Telegram by the cron
 # runner. Empty stdout would mean silent.
+#
+# ONE RUN AT A TIME. The script takes an exclusive flock on
+# `$DATA/nightly/.pipeline.lock` and refuses (never queues) if another run
+# holds it: two runs would fetch into the same snapshots and export over the
+# same day's pool. deploy/sync_vault_to_prod.sh takes that same lock SHARED
+# while it counts and stages, so a push can never read a half-written tree.
 #
 # NOTHING HERE MAY TAKE THE HOST DOWN WITH IT (CAREER-93). On 2026-10-12 and
 # 2026-10-20 the kernel answered a runaway fetch by killing the owner's
@@ -55,6 +65,14 @@ MEM_HIGH="${NIGHTLY_MEMORY_HIGH:-}"
 MEM_SWAP="${NIGHTLY_MEMORY_SWAP_MAX:-0}"
 DISK_FLOOR_MB="${NIGHTLY_DISK_FLOOR_MB:-3072}"   # warn (never abort) below this much free
 COMPRESS_AFTER="${NIGHTLY_COMPRESS_AFTER:-30}"   # days before a snapshot is packed
+# One run at a time, and one reader at a time. Held exclusive for the whole
+# pipeline; deploy/sync_vault_to_prod.sh takes the same file SHARED while it
+# counts and copies, so a sync can never read a tree this script is still
+# writing. Released before the sync leg below -- the pipeline is finished by
+# then, and a sync waiting on a lock its own parent holds would simply time
+# out. Default path is derived from $DATA, so a test or by-hand run that
+# points $DATA elsewhere gets its own lock, as does the sync.
+LOCK="${NIGHTLY_LOCK:-$DATA/nightly/.pipeline.lock}"
 
 LOG_DIR="$DATA/nightly"
 LOG="$LOG_DIR/nightly_$DAY.log"
@@ -65,6 +83,22 @@ mkdir -p "$LOG_DIR" "$DATA/classification"
 # no nightly_2026-10-21.log at all, which is how a dead pipeline looked
 # exactly like a pipeline that never ran.
 echo "== nightly pipeline $DAY (host $(hostname), pid $$) ==" >>"$LOG" 2>&1
+
+# Refuse, never queue: a second run while the first is still going would
+# fetch into the same snapshots and export over the same day's pool. The
+# log and the Telegram line both say so -- an empty stdout would read as
+# silence, which is the one thing this script must never be.
+if ! { : >>"$LOCK"; } 2>/dev/null; then
+  echo "== nightly ABORTED: cannot open the lock $LOCK ==" >>"$LOG" 2>&1
+  echo "CareerOS nightly $DAY: cannot open the lock $LOCK; nothing ran (log: $LOG)"
+  exit 1
+fi
+exec 7>>"$LOCK"
+if ! flock -n 7; then
+  echo "== nightly ABORTED: another run holds $LOCK ==" >>"$LOG" 2>&1
+  echo "CareerOS nightly $DAY: another run still holds $LOCK; this one did nothing (log: $LOG)"
+  exit 1
+fi
 
 # Required, not optional: Ollama's OpenAI-compat /v1 endpoint silently drops
 # think=False and qwen3:30b-a3b then spends ~100s "thinking" per posting.
@@ -191,6 +225,40 @@ stage() {    # stage <name> <cmd...>: one capped step, timed, failure recorded
   fi
 
   echo "== nightly finished, fails:${fails:- none} =="
+
+  # Amendment 1: chaining, not clock. The prod sync fires on pipeline
+  # completion with $DAY passed in, because the nightly can cross midnight
+  # UTC and a `date +%F` inside the sync would then push the wrong day.
+  # Off by default (SYNC_TO_PROD=1 in the cron wrapper's environment turns
+  # it on), so a LAN-only install is unaffected.
+  #
+  # It runs AFTER the finished line on purpose: that line, in this file, is
+  # the completion manifest the sync requires before it pushes anything,
+  # and a night with any failure pushes nothing -- prod keeps serving its
+  # last promoted generation, which is better than a partial one. A sync
+  # failure adds `sync` to the fails line the owner reads on stdout and to
+  # the exit code, and changes nothing this script wrote: the sync only
+  # reads `data/`, and promotion on the VPS is a separate step.
+  #
+  # The pipeline lock is dropped first, for two reasons: nothing below
+  # writes `data/`, and the sync takes that same lock shared to read it.
+  # Holding it here would make the sync wait SYNC_LOCK_TIMEOUT on its own
+  # parent and then alert.
+  exec 7>&-
+  if [[ ${SYNC_TO_PROD:-0} == 1 ]]; then
+    if [[ -n $fails ]]; then
+      echo "-- sync skipped: the night ended with fails:$fails"
+    else
+      t0=$SECONDS
+      # Not under `capped`: this is rsync and ssh, not a python leg.
+      if deploy/sync_vault_to_prod.sh "$DAY"; then
+        echo "-- sync ok in $((SECONDS - t0))s"
+      else
+        fails="$fails sync"
+        echo "== sync FAILED in $((SECONDS - t0))s, fails:$fails =="
+      fi
+    fi
+  fi
 } >>"$LOG" 2>&1
 
 # --- stdout: the Telegram summary, kept short -------------------------------

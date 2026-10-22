@@ -53,6 +53,13 @@ free).
    deterministic); the LLM only answers the fields rules left open.
    `CLASSIFY_LLM_NATIVE=1` is exported by the script and is **required** —
    see `local-llm-optimisation.md` for why (10x speed difference).
+8. **Sync to prod**, only with `SYNC_TO_PROD=1` and only after a night
+   with no failures: `deploy/sync_vault_to_prod.sh <date>`, which pushes
+   the pipeline-owned subset into an incoming generation on the VPS
+   ([deploy runbook](deploy-runbook.md)). Off by default, so a LAN-only
+   install never runs it. The day is passed as an argument because the
+   night can cross midnight UTC. A sync failure adds `sync` to the
+   `fails:` line and the exit code and changes nothing this script wrote.
 
 Every step is idempotent: re-running any of them the same day overwrites
 only derived files, never immutable snapshots (fetch writes a new
@@ -135,6 +142,7 @@ script and is there for a by-hand run or a test.
 | `NIGHTLY_MEMORY_MAX` / `NIGHTLY_MEMORY_HIGH` / `NIGHTLY_MEMORY_SWAP_MAX` | `2000M` / off / `0` | the per-leg cap; set `MEMORY_HIGH=900M` to re-enable throttling |
 | `NIGHTLY_DISK_FLOOR_MB` | `3072` | the free-space watermark that warns |
 | `NIGHTLY_COMPRESS_AFTER` | `30` | days before a posting snapshot is packed |
+| `SYNC_TO_PROD` | `0` | `1` chains the prod sync onto a clean night (step 8); the sync's own variables are in the [deploy runbook](deploy-runbook.md) |
 
 ## Outputs
 

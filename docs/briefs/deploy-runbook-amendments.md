@@ -10,7 +10,7 @@ Status: FINAL — splice-ready. Each amendment below replaces or extends the cor
 3. Backup encryption: **yes**, public-key scheme. The VPS holds only the encryption (public) key and can create but never open backups; the recovery (private) key is kept offline by the owner.
 4. Hosted LLM in prod: **launch disabled**. Prod is a read-only dashboard fed by locally classified data. No owner personal data leaves for an external model provider. Revisit later with a field-level privacy pass.
 5. Backup cadence: **Sunday full backup of the synced subset, keep 5 (~1 month)**, exactly as the owner proposed. Plus daily backups of the small owner-data slice, 30 days, once prod accepts owner edits. Pre-deploy backups retained (keep 14).
-6. Prod seed vault: **the test vault** (`/root/career-os-test`, holds the 704 imported universe jobs). The first owner-data import into prod is still ahead.
+6. Prod seed vault: **the test vault** (the `career-os-test` tree on the pipeline host, holds the 704 imported universe jobs). The first owner-data import into prod is still ahead.
 7. Nightly memory caps: raise `MemoryMax` 1200M → 2G, drop `MemoryHigh` (stall risk retired), fix the stale "3 GiB" header comment in `scripts/nightly_pipeline.sh`. (Hermes implements.)
 8. Prod dependency split (`requirements-prod.txt`): **deferred, recorded**. Do not split now; measure VPS disk on the rehearsal VM first; revisit only if disk is tight.
 
@@ -41,7 +41,7 @@ Split-authority sync, pushed from the LAN after each successful nightly. The VPS
 
 - **Sunday full backup** of the prod-synced subset, zstd-compressed and **public-key encrypted on the VPS before any copy leaves**, keep the last 5 (~1 month). At ~16 MB payload this is trivial.
 - **Daily owner-data backup** (applications, statuses, notes, CV — the prod-authoritative slice), encrypted, keep 30. Mandatory off-VPS copy: a LAN job **pulls** completed encrypted archives over a separate read-only SSH credential (VPS cannot reach in; LAN pulls). Versioned NAS snapshots that VPS/app credentials cannot delete are preferred over a second Proxmox disk (independent failure domain). The LAN vault remains single-copy master for pipeline data — the Sunday job also drops a copy off-VM.
-- **Pre-deploy backup** retained (different failure mode: bad release; also the safety net for the automatic additive migrations that run before the health check), timestamped, keep 14, same encrypted-subset scope. Stored at `/var/backups/careeros`. The empty, unused `/root/career-os/backups/` is deleted in the same change and nothing recreates it.
+- **Pre-deploy backup** retained (different failure mode: bad release; also the safety net for the automatic additive migrations that run before the health check), timestamped, keep 14, same encrypted-subset scope. Stored at `/var/backups/careeros`. The empty, unused `backups/` directory inside the owner's old vault tree is deleted in the same change and nothing recreates it.
 - **Retention as max-age, not just counts**: prune only after successful creation + verification + confirmed remote copy; handle missed runs; alert on stale backups; **test a full isolated restore including decryption, ownership, permissions, and app startup** at least once before go-live, then quarterly.
 
 ## Amendment 3 — Prod auth (replaces "public, or your own login")
