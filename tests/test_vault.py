@@ -92,7 +92,8 @@ def test_samples_and_sort(root, client):
 
 def test_file_only_salary(root, client):
     path = next((root/'experiences').glob('*.yaml'))
-    data = yaml.safe_load(path.read_text()); data['salary'] = '42 fictional credits'
+    data = yaml.safe_load(path.read_text())
+    data['salary'] = '42 fictional credits'
     path.write_text(yaml.safe_dump(data))
     # Salary is file-only and read-only (the React Edit position popup
     # shows it disabled, per frontend/wireframes/joz280/edit-position.html);

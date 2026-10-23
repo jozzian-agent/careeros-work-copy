@@ -122,7 +122,7 @@ def test_legacy_skill_to_tag_id_recognizes_known_tools():
 # --- overlap window, never silently treated as "no tags" ------------------
 
 def test_skills_only_payload_translates_into_tags_during_overlap(client, root):
-    company = vault.save_company(root, {'name': 'Fiction Co'})
+    vault.save_company(root, {'name': 'Fiction Co'})
     created = client.post('/api/experiences', json={'company': 'Fiction Co', 'title': 'Builder',
                                                      'start': '2020-01', 'end': 'present',
                                                      'skills': ['Python', 'Public speaking']}).json
@@ -135,7 +135,7 @@ def test_skills_only_payload_retranslates_even_when_tags_already_set(root):
     # first one. Gating it on "stored tags are empty" would let an owner who
     # already has tags set from the new UI silently desync them from a
     # later legacy skills-only edit.
-    company = vault.save_company(root, {'name': 'Fiction Co'})
+    vault.save_company(root, {'name': 'Fiction Co'})
     exp = vault.save_experience(root, {'company': 'Fiction Co', 'title': 'Builder', 'start': '2020-01',
                                         'end': 'present', 'tags': ['skill/capability:public-speaking'],
                                         'proposed_tags': ['skill/capability:public-speaking']})
@@ -145,7 +145,7 @@ def test_skills_only_payload_retranslates_even_when_tags_already_set(root):
 
 
 def test_absent_tags_key_leaves_existing_tags_untouched(root):
-    company = vault.save_company(root, {'name': 'Fiction Co'})
+    vault.save_company(root, {'name': 'Fiction Co'})
     exp = vault.save_experience(root, {'company': 'Fiction Co', 'title': 'Builder', 'start': '2020-01',
                                         'end': 'present', 'tags': ['tool:python'],
                                         'proposed_tags': ['tool:python']})

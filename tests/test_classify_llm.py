@@ -10,8 +10,6 @@ so the client here is a fake with the one method this layer uses.
 import json
 from types import SimpleNamespace
 
-import pytest
-
 from careeros import classify, llm_client, taxonomy
 from careeros.classify import llm, rules
 

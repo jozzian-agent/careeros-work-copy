@@ -243,7 +243,7 @@ def test_put_clearing_company_id_reverts_to_pending(client):
 def test_rerun_resolution_never_overwrites_owner_set_company_id(client, monkeypatch):
     root = client.application.config['VAULT_PATH']
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Acme'))
-    company = vault.save_company(root, {'name': 'Acme GmbH'})
+    vault.save_company(root, {'name': 'Acme GmbH'})
     data = client.post('/api/jobs/intake', json={'url': 'https://unrelated.example/owner-wins-role'}).json
     job_id = data['job']['id']
     assert data['job']['company_link_state'] == 'needs_review'

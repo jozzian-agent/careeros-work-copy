@@ -2153,8 +2153,8 @@ def delete_company(root, identifier):
 
 # Lock the existing vault directory: no lock-file writes during dry runs.
 # flock coordinates CLI/server processes; RLock coordinates server threads.
-from threading import RLock
-import fcntl
+from threading import RLock  # noqa: E402
+import fcntl  # noqa: E402
 _LOCK = RLock()
 
 class WriteLock:

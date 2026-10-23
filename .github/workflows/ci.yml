@@ -1,0 +1,124 @@
+# Career OS CI. One job, named `ci`, which is the name the deploy runbook
+# (Part 2) and the day-to-day flow (Part 6) refer to.
+#
+# NO SECRETS ANYWHERE IN THIS FILE OR IN WHAT IT RUNS. There is no
+# `secrets.` reference, no environment, and no LLM key: the suite runs
+# with LLM_MOCK=1, so every model call is answered from a canned reply
+# with no socket opened (careeros/llm_client.py). A key in CI would be a
+# key in a log, and this repo is where the agent works.
+#
+# Permissions are read-only for the same reason: nothing here needs to
+# write to the repository, so nothing here can.
+
+name: ci
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    env:
+      # NO LLM VARIABLE IS SET HERE, ON PURPOSE.
+      #
+      # The suite is already mocked at the seam: conftest.py's `offline`
+      # fixture makes `urllib.request.build_opener` raise, so a test that
+      # reached the network would fail rather than pass slowly, and every
+      # test that exercises a model call injects its own client. So no
+      # test needs a key, which is the requirement.
+      #
+      # Exporting LLM_MOCK=1 for the whole job would be worse than
+      # useless: it changes what "this environment has no LLM configured"
+      # means, and a dozen tests assert exactly that behaviour (the
+      # `not_configured` reason, test_configuration_required, the failed
+      # readings in test_async_ai). tests/test_deploy_config.py sets both
+      # switches per test, and clears any it inherits, which is where
+      # mock and disabled mode are actually covered.
+      #
+      # The product suite imports `org_intake` from the pinned capability
+      # submodule. A local install registers that path with a .pth file in
+      # the venv (README.md); in CI there is no venv to register it in, so
+      # PYTHONPATH is the same fact by the other route.
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/vendor/capa-repo
+
+    steps:
+      - name: Check out the repository and its capability submodule
+        uses: actions/checkout@v4
+        with:
+          # vendor/capa-repo holds org_intake, which careeros/server.py
+          # imports at module level. Without it nothing imports and the
+          # whole job is meaningless rather than merely red.
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the app and the checks
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install ruff pytest pip-audit
+
+      - name: ruff check
+        run: ruff check
+
+      - name: pytest
+        # The product suite only. vendor/capa-repo has its own tests and
+        # its own CI, and `tests/test_enrich.py` exists in both trees --
+        # pytest refuses to collect two modules of the same name in one
+        # run (README.md, "Environment limits").
+        run: python -m pytest tests/ -q
+
+      - name: shellcheck
+        # Installed from apt rather than pip so the job uses the same
+        # binary a developer gets from `apt install shellcheck`.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck deploy/*.sh tests/smoke.sh
+          # A syntax check as well, because shellcheck parses and sh runs:
+          # tests/smoke.sh is POSIX on purpose and must stay that way.
+          for script in deploy/*.sh; do bash -n "$script"; done
+          sh -n tests/smoke.sh
+
+      - name: gitleaks
+        # Pinned by tag. Runs on the checkout that is already here, with
+        # no GITLEAKS_LICENSE and no token: the free scan is what Part 1
+        # of the runbook relies on in place of GitHub's paid secret
+        # scanning for private repos.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+          GITLEAKS_ENABLE_SUMMARY: 'true'
+
+      - name: pip-audit
+        # Advisory, not a gate. A transitive advisory with no fix
+        # available would otherwise block every unrelated pull request,
+        # and a red X that everybody learns to ignore protects nothing.
+        # The annotation below is what makes it visible anyway.
+        id: audit
+        continue-on-error: true
+        run: pip-audit --strict -r requirements.txt
+
+      - name: Say so when pip-audit found something
+        if: steps.audit.outcome == 'failure'
+        run: |
+          echo "::warning title=pip-audit::pip-audit reported advisories against requirements.txt. Read the pip-audit step's log and decide: pin forward, or record why it does not apply."
+          {
+            echo '### pip-audit'
+            echo
+            echo 'pip-audit reported advisories against `requirements.txt`.'
+            echo 'This step does not fail the job; read the **pip-audit** step above'
+            echo 'and either pin forward or record why the advisory does not apply.'
+          } >>"$GITHUB_STEP_SUMMARY"

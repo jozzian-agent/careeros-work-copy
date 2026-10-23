@@ -1483,7 +1483,6 @@ def test_put_company_link_state_equal_to_baseline_takes_user_provenance(client, 
     value is identical to whatever automation already had -- otherwise a
     later automation run can silently re-decide it since nothing ever
     marked it as the owner's."""
-    root = client.application.config['VAULT_PATH']
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html(hiringOrganization={'name': 'Acme Robotics'}))
     data = client.post('/api/jobs/intake', json={
         'url': 'https://boards.greenhouse.io/m1equalbaseline/jobs/111'}).json
@@ -1638,9 +1637,9 @@ def test_duplicate_warning_payload_always_includes_add_anyway(client, monkeypatc
     assert 'add_anyway' in dup['actions']
 
     root = client.application.config['VAULT_PATH']
-    universe = vault.save_job(root, {'title': 'Universe role', 'url': 'https://m8-universe.example/role',
-                                     'normalized_url': 'https://m8-universe.example/role',
-                                     'in_pipeline': False, 'origin': 'discovered'})
+    vault.save_job(root, {'title': 'Universe role', 'url': 'https://m8-universe.example/role',
+                          'normalized_url': 'https://m8-universe.example/role',
+                          'in_pipeline': False, 'origin': 'discovered'})
     dup_universe = client.post('/api/jobs/intake', json={'url': 'https://m8-universe.example/role'}).json
     assert dup_universe['actions'] == ['promote', 'open_existing', 'add_anyway']
 

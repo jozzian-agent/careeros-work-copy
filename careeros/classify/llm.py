@@ -116,7 +116,20 @@ class Config:
         )
 
     def client(self):
-        """The shared OpenAI-compatible client, pointed at this host."""
+        """The shared OpenAI-compatible client, pointed at this host.
+
+        The two deploy switches are honored here as well as in
+        `llm_client.get_llm_client`, because this layer builds its own
+        client from CLASSIFY_LLM_* rather than going through that
+        factory: LLM_DISABLED=1 refuses before a socket is opened, and
+        LLM_MOCK=1 answers `unknown` for every field asked (see
+        MOCK_ANSWER), which is a real answer in this taxonomy (D4) and
+        so needs no pretend evidence.
+        """
+        if llm_client.disabled():
+            raise llm_client.LLMDisabled(llm_client.DISABLED_MESSAGE)
+        if llm_client.mocked():
+            return llm_client.MockLLMClient(mock_answer)
         return llm_client.LLMClient(self.base_url, self.api_key, native=self.native)
 
 
@@ -181,6 +194,30 @@ def prompt(subject, fields):
             'No other keys and no prose.\n\n'
             f'POSTING\n{posting}')
     return [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
+
+
+#: Which fields one request asked for, read back off the request itself.
+#: `prompt` above writes one "- <field>: ..." line per field, so the ask
+#: is recoverable from the payload without the mock being handed the
+#: field list separately.
+_ASKED = re.compile(r'^- (\w+):', re.MULTILINE)
+
+
+def mock_answer(payload):
+    """What LLM_MOCK=1 answers this request (see Config.client).
+
+    `unknown` for every field asked, at confidence 1.0, which the record
+    builder turns into D4's "the model read it and found nothing" rather
+    than a refusal or a failure. Deterministic by construction: the
+    answer is a function of the ask and of nothing else, so the same
+    posting mocks the same way on every run.
+    """
+    asked = []
+    for message in payload.get('messages') or []:
+        if isinstance(message, dict) and message.get('role') == 'user':
+            asked += _ASKED.findall(str(message.get('content') or ''))
+    return json.dumps({field: {'code': taxonomy.UNKNOWN, 'evidence': 'mock mode',
+                               'confidence': 1.0} for field in asked})
 
 
 # --- the call --------------------------------------------------------------

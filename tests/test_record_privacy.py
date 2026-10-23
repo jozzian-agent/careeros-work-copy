@@ -1722,8 +1722,9 @@ def test_a_hard_delete_never_frees_its_number_in_any_counter_state(tmp_path, sta
         remove, create = vault.delete_job, (
             lambda: vault.save_job(root, {'title': 'Three', 'url': 'https://example.test/3'}))
     else:
-        make = lambda n: vault.save_experience(root, {'title': n, 'company': 'X',
-                                                      'start': '2020-01', 'end': '2021-01'})
+        def make(n):
+            return vault.save_experience(root, {'title': n, 'company': 'X',
+                                                'start': '2020-01', 'end': '2021-01'})
         first, second = make('One')['id'], make('Two')['id']
         remove, create = vault.delete_experience, (lambda: make('Three'))
     assert [first, second] == [f'{prefix}001', f'{prefix}002']
@@ -1873,11 +1874,13 @@ def test_a_deleted_number_survives_counter_damage_for_every_kind(tmp_path, state
     root.mkdir(parents=True)
     prefix = vault.ID_PREFIXES[kind]
     if kind == 'jobs':
-        make = lambda n: vault.save_job(root, {'title': n, 'url': f'https://example.test/{n}'})
+        def make(n):
+            return vault.save_job(root, {'title': n, 'url': f'https://example.test/{n}'})
         remove = vault.delete_job
     else:
-        make = lambda n: vault.save_experience(root, {'title': n, 'company': 'X',
-                                                      'start': '2020-01', 'end': '2021-01'})
+        def make(n):
+            return vault.save_experience(root, {'title': n, 'company': 'X',
+                                                'start': '2020-01', 'end': '2021-01'})
         remove = vault.delete_experience
     first, second = make('One')['id'], make('Two')['id']
     assert [first, second] == [f'{prefix}001', f'{prefix}002']

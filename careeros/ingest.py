@@ -11,7 +11,8 @@ from queue import Empty, Queue
 from threading import Event, Lock, Thread
 
 from careeros.extraction_worker import extraction_queue
-from careeros.llm_client import TIMEOUT, get_llm_client, get_llm_model
+from careeros.llm_client import (DISABLED_MESSAGE, TIMEOUT, LLMDisabled, disabled as llm_disabled,
+                                 get_llm_client, get_llm_model)
 from careeros.vault import REQUIREMENT_GROUPS, REQUIREMENT_LEVELS, validate_requirement_groups
 
 MAX_DESCRIPTION_CHARS = 32_000
@@ -620,8 +621,15 @@ def _call_llm(description, client, model, timeout=None, function_options=None):
     'unusable_output' (a response came back but parsed to nothing usable).
     Never persist exception messages, URLs, or hosts: only the exception
     class name is logged, so infra details cannot leak into logs or the vault.
+
+    LLM_DISABLED=1 lands here as 'not_configured' too, checked before the
+    injected `client` is looked at rather than only inside
+    get_llm_client: an off host must make no call, including one through
+    a client somebody else built and handed in.
     """
     try:
+        if llm_disabled():
+            raise LLMDisabled(DISABLED_MESSAGE)
         active = client if client is not None else get_llm_client()
         resolved_model = model if model is not None else get_llm_model()
     except Exception as error:

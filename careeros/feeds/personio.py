@@ -111,7 +111,6 @@ import sys
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
-from careeros import taxonomy
 from careeros.feeds import base
 
 from org_intake.ats import detect_ats

@@ -1,0 +1,28 @@
+# Production checks GitHub every five minutes, so a published tag is
+# live in about that long (deploy runbook Part 6, step 7).
+#
+# Slower than staging on purpose: a production run backs up the vault
+# before it does anything else, and there is no reason to spend that
+# every two minutes for a repo that gets a tag a few times a week.
+#
+# See careeros-deploy-stg.timer for why this is OnUnitActiveSec and not
+# a wall-clock schedule, and why Persistent=true.
+#
+# This timer still fires while a rollback is pinned; deploy.sh is what
+# reads /srv/careeros/prod/app/rollback.pin and stops, so the skip is
+# logged in the journal where the owner can see that the pin is still on
+# (deploy/README.md, "Rollback and unpinning").
+
+[Unit]
+Description=Career OS production deploy check (every 5 minutes)
+Documentation=file:///srv/careeros/deploy.sh
+
+[Timer]
+Unit=careeros-deploy@prod.service
+OnBootSec=5min
+OnUnitActiveSec=5min
+Persistent=true
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

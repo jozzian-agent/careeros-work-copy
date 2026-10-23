@@ -281,18 +281,28 @@ def regenerate_company(root, identifier):
     return vault.save_company(root, {'enrichment': block} | updates, identifier)
 
 
-from org_intake import enrich as org_enrich
-from org_intake import fetch as org_fetch
-from careeros.llm_client import TIMEOUT as LLM_TIMEOUT, get_llm_client, get_llm_model
-from types import SimpleNamespace
-import os
-from careeros import ingest
+from org_intake import enrich as org_enrich  # noqa: E402
+from org_intake import fetch as org_fetch  # noqa: E402
+from careeros import llm_client as llm_config  # noqa: E402
+from careeros.llm_client import TIMEOUT as LLM_TIMEOUT, get_llm_client, get_llm_model  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+import os  # noqa: E402
+from careeros import ingest  # noqa: E402
 
 
 def classification_options():
-    """Supply gated, lazy product model access and the product deadline."""
+    """Supply gated, lazy product model access and the product deadline.
+
+    LLM_DISABLED=1 withholds the client entirely rather than injecting
+    one that raises: the capability's cascade only appends its LLM
+    fallback signal when a client is passed (org_intake.enrich.
+    external_sectors, rule 9), so withholding it is how an off host
+    skips that signal instead of collecting one failure per record.
+    LLM_MOCK=1 needs nothing here -- `create` below resolves the client
+    at call time, so it gets the mock from the same one factory.
+    """
     options = dict(deadline=LLM_TIMEOUT, warn=ingest.warn)
-    if os.environ.get('BACKFILL_USE_LLM') == '1':
+    if os.environ.get('BACKFILL_USE_LLM') == '1' and not llm_config.disabled():
         def create(**kwargs):
             return get_llm_client().chat.completions.create(
                 **{**kwargs, 'model': get_llm_model()}, think=False, timeout=LLM_TIMEOUT)

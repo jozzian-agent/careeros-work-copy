@@ -32,17 +32,18 @@ Still to do, agent side (Part 2 deliverables, as PRs into work-copy main):
 - [ ] PR 3 — tests and CI: pytest with LLM mocked, ruff, pip-audit, gitleaks,
       shellcheck on `deploy/*.sh`, `tests/smoke.sh <base_url>`,
       `.github/workflows/ci.yml` with the job named `ci`.
-- [ ] Rehearsal: end-to-end `setup-vps.sh` + `deploy.sh` on a throwaway
-      Proxmox Ubuntu VM, including a forced rollback failure. Needs the
-      owner to create the VM and hand over SSH (no secrets, no real data).
+- [ ] Rehearsal: SKIPPED by owner decision 2026-10-23. Consequence accepted:
+      setup-vps.sh, deploy.sh, rollback and the timers go to the real VPS
+      without ever having run anywhere. Mitigation: owner reads every
+      deploy/ file before running setup-vps.sh, takes an Infomaniak VPS
+      snapshot first, and runs the first staging deploy by hand with
+      journalctl open.
 
 Still to do, owner side:
 
-- [ ] Create the throwaway Proxmox VM, snapshot it, give the agent SSH to it
-      only. This gates the rehearsal and everything after it.
-- [ ] Parts 3–5 on the real VPS after the rehearsal transcript is read:
-      run `setup-vps.sh`, add deploy keys, DNS + Caddy, LLM keys with spend
-      limits.
+- [ ] Parts 3–5 on the real VPS once the PRs are merged and promoted:
+      snapshot the VPS, run `setup-vps.sh`, add deploy keys, DNS + Caddy,
+      LLM keys with spend limits.
 
 Carry-over note: six scripts from the old runbook still live in `deploy/`
 (`sync_vault_to_prod.sh`, `promote_incoming.sh`, `backup_prod.sh`,

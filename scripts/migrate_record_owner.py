@@ -233,7 +233,7 @@ def main(argv=None):
             return 0
         if counters:
             recorded = vault.initialize_id_counters(root)
-            print(f'recorded id high-water marks: '
+            print('recorded id high-water marks: '
                   + ', '.join(f'{kind}={number}' for kind, number in sorted(recorded.items())))
             if plan_id_counters(root):
                 raise SystemExit(f'{vault.ID_COUNTER_FILE} still does not record every '

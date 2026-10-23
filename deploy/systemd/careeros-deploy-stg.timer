@@ -1,0 +1,28 @@
+# Staging checks GitHub every two minutes, so a merge to main is live in
+# about that long (deploy runbook Part 6, step 4).
+#
+# OnUnitActiveSec measures from the END of the last run, not from a wall
+# clock, so a deploy that takes four minutes is followed by two quiet
+# minutes rather than by a queued backlog. OnBootSec gives the box time
+# to finish booting before the first check.
+#
+# Persistent=true so a VPS that was off over a reboot or a snapshot
+# restore catches up once rather than not at all.
+#
+# A run that finds nothing new exits in a second or two: deploy.sh
+# compares the ref it would deploy against the one `current` already
+# points at and stops there.
+
+[Unit]
+Description=Career OS staging deploy check (every 2 minutes)
+Documentation=file:///srv/careeros/deploy.sh
+
+[Timer]
+Unit=careeros-deploy@stg.service
+OnBootSec=3min
+OnUnitActiveSec=2min
+Persistent=true
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,24 @@
+# What `ruff check` means in this repo, so the CI job and a local run
+# agree and a new ruff release cannot change the verdict under us.
+#
+# The rule set is ruff's own default (pycodestyle E4/E7/E9 and Pyflakes
+# F) written out explicitly. Ruff applies that set when no configuration
+# is found, which is what the `# noqa: E402` and `# noqa: F401` comments
+# already scattered through careeros/, scripts/ and tests/ were written
+# against; naming it here is what keeps them accurate.
+#
+# Deliberately not widened. Running the full catalogue over this
+# codebase reports some 450 findings, nearly all of them style opinions
+# (import order, dict() over {}, blind except) that the code makes on
+# purpose. Picking those fights belongs in its own task with the owner,
+# not inside a CI job whose only purpose is to catch real breakage.
+target-version = "py311"
+
+# vendor/capa-repo is the pinned capability submodule: another
+# repository's code, with its own tests and its own lint, which this one
+# must never edit (AGENTS.md, Capabilities). It is checked out here, so
+# it has to be named to be skipped.
+extend-exclude = ["vendor"]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]

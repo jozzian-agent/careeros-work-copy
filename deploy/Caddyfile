@@ -1,0 +1,32 @@
+# Career OS reverse proxy, exactly as docs/runbooks/deploy-runbook.md
+# Part 4 specifies it. Caddy is the only thing on this box reachable from
+# the internet: both app processes bind 127.0.0.1 only (see
+# deploy/systemd/), so this file is the whole public surface.
+#
+# setup-vps.sh installs this to /etc/caddy/Caddyfile only when that file
+# is still the stock default, so it can never overwrite a hash the owner
+# pasted in or a hostname they changed.
+#
+# PASTE_HASH_HERE is a placeholder and must stay one in this repo. Make
+# the real hash on the server with `caddy hash-password`, which prompts
+# for the password and prints the hash, then `sudoedit /etc/caddy/Caddyfile`:
+# nothing about that password ever reaches a command line, this repo, or
+# a log. Then `caddy validate --config /etc/caddy/Caddyfile` and
+# `systemctl reload caddy`.
+#
+# Staging is behind basic auth because it is reachable by hostname and
+# holds a synthetic vault; production is not, because the app's own login
+# gate is in front of every route it serves.
+
+app.career-os.ch {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8001
+}
+
+staging.career-os.ch {
+    encode zstd gzip
+    basic_auth {
+        me PASTE_HASH_HERE
+    }
+    reverse_proxy 127.0.0.1:8002
+}

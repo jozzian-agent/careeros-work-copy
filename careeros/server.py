@@ -444,7 +444,7 @@ AFTER_LOGIN = '/jobs'
 # which routes exist by reading status codes. 'static' and 'react_assets'
 # are the asset routes; a login page that could not load its own assets
 # would be a door with no handle.
-PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets'})
+PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'healthz', 'static', 'react_assets'})
 
 
 def login_page(error: str | None = None) -> str:
@@ -502,7 +502,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # Search page's own URL is "/", not "/search"; the redundant second
     # URL the Jinja template answered to is retired, not carried over.
     if react_ui:
-        react_index = lambda **_kwargs: send_from_directory(react_dist, 'index.html')
+        def react_index(**_kwargs):
+            return send_from_directory(react_dist, 'index.html')
+
         app.add_url_rule('/', 'react_index', react_index)
         app.add_url_rule('/jobs', 'react_jobs', react_index)
         # B2 (CAREER-89): the All jobs tab. Its own URL rather than a
@@ -530,12 +532,20 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # M1 sessions. A signed cookie holding one user id: HttpOnly so no
     # script can read it, SameSite=Lax so another site cannot post with
     # it, and a 30-day life so closing the browser does not sign anybody
-    # out. Secure is deliberately not forced, because the instance is not
-    # always reached over HTTPS.
+    # out.
+    #
+    # Secure is the one of the four that depends on where the instance
+    # runs, so it is the one read from the environment
+    # (SESSION_COOKIE_SECURE=1, see `.env.example`). Off by default,
+    # because a local run and the LAN install are plain HTTP and a Secure
+    # cookie would never be sent back, which looks exactly like a broken
+    # login. On behind Caddy, where every request is HTTPS and the cookie
+    # must not be allowed to travel any other way -- which is why both
+    # the prod and the staging env files set it.
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
-        SESSION_COOKIE_SECURE=False,
+        SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE') == '1',
         PERMANENT_SESSION_LIFETIME=users.SESSION_MAX_AGE,
     )
     # The signing key is persisted in the vault, so sessions survive a
@@ -620,6 +630,24 @@ def create_app(vault: str | Path | None = None) -> Flask:
         read a record without logging in.
         """
         return jsonify(ok=True)
+
+    @app.get('/healthz')
+    def healthz():
+        """The same check under the name the deploy script polls.
+
+        `deploy.sh` and the systemd unit wait on this one path after a
+        restart and roll back if it does not answer 200, so its contract
+        is the status line and not a body shape: `{"status": "ok"}` once
+        the process can serve requests. A second route rather than a
+        rename, because `/api/health` is already a published surface
+        (docs/surfaces/json-api.md) and the deploy path must not depend
+        on a URL that an API version could move.
+
+        Unauthenticated, like `/api/health`, and it reads no record: the
+        answer is that this process built its app and is serving, which
+        is exactly the question a health poll asks.
+        """
+        return jsonify(status='ok')
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
@@ -1389,7 +1417,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
                                               history=('extract_failed', 'Extraction failed.'), locked=True)
                         set_ai_status(job_id, storage.ai_failed(
                             ai_failure_reason(reason)), locked=True)
-                if new_company_id is not None and shared:
+                # M2 (D3): the cascade writes the shared company record,
+                # so it runs only for a job whose reading may. `shared`
+                # here used to name nothing at all -- it is a local of
+                # apply_llm_update, not of this callback -- so creating a
+                # company through an extraction raised NameError, which
+                # the handler below turned into a job stuck at
+                # extract_failed. Read the same fact off the same record
+                # apply_llm_update read it off (enrich.contributes_to_shared
+                # on the job as loaded under this lock), which is the
+                # value the line was written to mean.
+                if new_company_id is not None and company_enrichment.contributes_to_shared(root, current):
                     schedule_company_cascade(root, new_company_id)
             except Exception as error:
                 # M3: applying a successful result (or recording its own
@@ -2999,9 +3037,19 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
 
 def main() -> None:
+    """The command line, with the environment as its defaults.
+
+    One rule for all three settings, the same one `--vault` already
+    followed (users.vault_root): an explicit flag wins, then the
+    environment, then the value a local run has always used. That is
+    what lets the systemd units configure a host and a port through
+    `/etc/careeros/<env>.env` -- 127.0.0.1 and 8001/8002, so only Caddy
+    is reachable from outside -- while `python -m careeros.server` with
+    no arguments still starts where it always did.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', default='0.0.0.0')
-    parser.add_argument('--port', type=int, default=8788)
+    parser.add_argument('--host', default=os.environ.get('CAREEROS_HOST') or '0.0.0.0')
+    parser.add_argument('--port', type=int, default=int(os.environ.get('CAREEROS_PORT') or 8788))
     parser.add_argument('--vault', type=Path, default=None)
     args = parser.parse_args()
     create_app(args.vault).run(host=args.host, port=args.port, debug=False)

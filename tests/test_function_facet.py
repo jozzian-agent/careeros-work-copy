@@ -12,7 +12,6 @@ import pytest
 import yaml
 
 from careeros import ingest, vault
-from org_intake import classify as sectors
 from careeros.server import create_app
 from tests.conftest import post_ai
 

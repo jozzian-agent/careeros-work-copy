@@ -10,7 +10,6 @@ import pytest
 
 from careeros import enrich as product_enrich, intake, vault
 from org_intake import enrich as company_lookup, classify as sectors
-from org_intake.fetch import default_fetch
 from careeros.server import create_app
 from tests.conftest import post_ai, write_legacy_size_range
 
@@ -1314,7 +1313,7 @@ def test_plan_backfill_accounting_disabled_by_default_has_no_cost(tmp_path):
 # BACKFILL_USE_LLM (never on in the test suite) and behind decision 20 in
 # code. Every real LLM call is mocked via client_for, matching the existing
 # ingest.py test pattern exactly -- no live network call anywhere here.
-from tests.test_ingest import client_for
+from tests.test_ingest import client_for  # noqa: E402
 
 
 def test_llm_signal_disabled_by_default_is_not_attempted(tmp_path, monkeypatch):

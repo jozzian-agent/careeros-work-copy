@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import migrate_job_value_records as migrate  # noqa: E402

@@ -1,0 +1,49 @@
+# Career OS, staging. Installed by deploy/setup-vps.sh to
+# /etc/systemd/system/careeros-stg.service.
+#
+# Same shape as careeros-prod.service, which carries the notes on how the
+# app is started and why the Environment= lines come after
+# EnvironmentFile=. Four things differ and nothing else: the user, the
+# paths, the port (8002, the one Caddy's staging host proxies to) and the
+# env file. Staging holds a synthetic vault and its own LLM key with a
+# small spend limit, so nothing here may ever read a production path.
+
+[Unit]
+Description=Career OS (staging)
+Documentation=file:///srv/careeros/stg/app/current/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=careeros-stg
+Group=careeros-stg
+WorkingDirectory=/srv/careeros/stg/app/current
+EnvironmentFile=/etc/careeros/stg.env
+Environment=CAREEROS_VAULT=/srv/careeros/stg/vault
+Environment=CAREEROS_HOST=127.0.0.1
+Environment=CAREEROS_PORT=8002
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/careeros/stg/app/current/.venv/bin/python -m careeros.server
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ReadWritePaths=/srv/careeros/stg/vault
+
+[Install]
+WantedBy=multi-user.target

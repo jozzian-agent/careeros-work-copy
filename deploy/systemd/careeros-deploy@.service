@@ -1,0 +1,44 @@
+# One deploy run. %i is the environment: `stg` or `prod`.
+#
+#   systemctl start careeros-deploy@stg
+#   journalctl -u careeros-deploy@stg -n 50 --no-pager
+#
+# ONE RUN AT A TIME, ACROSS BOTH ENVIRONMENTS. flock takes
+# /run/careeros/deploy.lock and `-n` means a run that cannot have it
+# exits rather than queueing: two overlapping runs would fight over the
+# same release tree, and a queued run would fire a stale deploy minutes
+# after the timer that asked for it. flock exits 1 when the lock is
+# held, which is why `-E 0` maps that one case to success -- "another
+# deploy is already running" is the timer working correctly, not a
+# failure worth an alert every two minutes.
+#
+# deploy.sh takes the same lock itself when it is run by hand, so a
+# manual run and a timer run cannot overlap either. CAREEROS_DEPLOY_LOCK_HELD
+# tells it the lock is already held on this path, so it does not try to
+# take a lock it is already inside of.
+#
+# Runs as root: it writes release trees under /srv/careeros, chowns them
+# to the service user, and restarts a system service.
+
+[Unit]
+Description=Career OS deploy run (%i)
+Documentation=file:///srv/careeros/deploy.sh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# Not RuntimeDirectory=careeros: systemd removes a RuntimeDirectory when
+# the unit stops, so the first run to finish would delete the lock file a
+# still-running second run is holding, and a third run would create a
+# fresh file at the same path and take the lock while that second run was
+# still going. `install -d` is idempotent and leaves the directory alone.
+ExecStartPre=/usr/bin/install -d -m 0700 -o root -g root /run/careeros
+Environment=CAREEROS_DEPLOY_LOCK_HELD=1
+ExecStart=/usr/bin/flock -n -E 0 /run/careeros/deploy.lock /srv/careeros/deploy.sh %i
+# Everything the run says goes to the journal, which is where the owner
+# reads it (deploy/README.md, "Where the logs are").
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30min
