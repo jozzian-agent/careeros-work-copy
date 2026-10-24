@@ -50,10 +50,15 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/vendor/capa-repo
 
     steps:
+      # Full history on purpose: gitleaks-action scans the range
+      # base^..head on pull_request events, and that range does not exist
+      # in a fetch-depth=1 clone (it dies with "unknown revision"). The
+      # repo is small enough that the extra fetch is a couple of seconds.
       - name: Check out the repository
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Set up Python 3.14
         uses: actions/setup-python@v5
