@@ -1871,7 +1871,10 @@ def nightly(tmp_path):
     stub = write_executable(tmp_path / 'python-stub', NIGHTLY_PYTHON_STUB)
     data = tmp_path / 'nightly-data'
     (data / 'nightly').mkdir(parents=True)
-    serving = subprocess.Popen(['python3', '-m', 'http.server', '0', '--bind', '127.0.0.1'],
+    # -u matters: the child's "Serving HTTP ... port N" banner is the only
+    # way to learn its port, but a pipe-attached stdout is block-buffered,
+    # so without -u the line never flushes and the read below hangs.
+    serving = subprocess.Popen(['python3', '-u', '-m', 'http.server', '0', '--bind', '127.0.0.1'],
                                cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True)
     port = None

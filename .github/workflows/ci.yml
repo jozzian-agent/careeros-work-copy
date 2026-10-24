@@ -1,0 +1,106 @@
+# Career OS CI. One job, named `ci`, which is the name the deploy runbook
+# refers to.
+#
+# NO STORED SECRETS ANYWHERE IN THIS FILE OR IN WHAT IT RUNS. No
+# repository/environment secrets, no LLM key: the suite needs none, and
+# a key in CI would be a key in a log. The single `secrets.GITHUB_TOKEN`
+# reference below is GitHub's own ephemeral per-workflow token — it is
+# minted for one run, scoped to this repo, and expires in an hour.
+#
+# NO SUBMODULES. `vendor/capa-repo` is a plain folder in this repo since
+# PR #2 (2026-10-24); the default checkout already has everything.
+#
+# Permissions are read-only: nothing here needs to write to the
+# repository, so nothing here can.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  # gitleaks-action needs this (read-only) to fetch the PR diff it scans
+  # on pull_request events; without it the action hard-fails since its
+  # October-2025 breaking update made GITHUB_TOKEN mandatory for PRs.
+  pull-requests: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # NO LLM VARIABLE IS SET HERE, ON PURPOSE.
+      #
+      # The suite is mocked at the seam: conftest.py's `offline` fixture
+      # makes `urllib.request.build_opener` raise, so a test that reached
+      # the network would fail rather than pass slowly, and every test
+      # that exercises a model call injects its own client. Exporting
+      # LLM_MOCK=1 for the whole job would be worse than useless: it
+      # changes what "this environment has no LLM configured" means, and
+      # a dozen tests assert exactly that behaviour.
+      #
+      # `org_intake` lives in vendor/capa-repo, a plain folder now. A
+      # local install registers that path with a .pth file in the venv
+      # (README.md); in CI there is no venv to register it in, so
+      # PYTHONPATH is the same fact by the other route.
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/vendor/capa-repo
+
+    steps:
+      # Full history on purpose: gitleaks-action scans the range
+      # base^..head on pull_request events, and that range does not exist
+      # in a fetch-depth=1 clone (it dies with "unknown revision"). The
+      # repo is small enough that the extra fetch is a couple of seconds.
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the app and the checks
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: pytest (product suite)
+        # --timeout: a hung test fails in 60s with a stack dump instead of
+        # eating the whole job. This is what caught the buffered-pipe hang
+        # that once sat in test_deploy_scripts' nightly fixture.
+        run: python -m pytest tests/ -q --timeout=60
+
+      - name: pytest (vendored org_intake suite)
+        # vendor/capa-repo is ordinary product code now (capa-repo the
+        # separate repository is retired), so its tests run here too.
+        # Separate invocation on purpose: `tests/test_enrich.py` exists
+        # in both trees and pytest refuses to collect two modules of the
+        # same name in one run.
+        run: python -m pytest vendor/capa-repo/tests/ -q --timeout=60
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck deploy/*.sh
+          for script in deploy/*.sh; do bash -n "$script"; done
+
+      - name: gitleaks
+        # Runs on the checkout that is already here, with no
+        # GITLEAKS_LICENSE: the free scan is what Part 1 of the deploy
+        # runbook relies on in place of GitHub's paid secret scanning for
+        # private repos. GITHUB_TOKEN is the ephemeral per-run token (see
+        # the header comment), required by the action for PR scans.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
+          GITLEAKS_ENABLE_SUMMARY: 'true'

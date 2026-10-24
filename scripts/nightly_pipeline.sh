@@ -37,7 +37,12 @@
 # longer grows with the tenant count (scripts/run_ats_fetch.py,
 # `_tenant_summary`).
 set -uo pipefail
-cd /root/work/careeros-dashboard || { echo "nightly: repo missing"; exit 1; }
+# Resolve the repo from this script's own location, not a hardcoded path.
+# A hardcoded `cd /root/work/careeros-dashboard` only works on the host that
+# literally keeps the repo there; CI runners and any other checkout fail
+# before a single stage runs. NIGHTLY_REPO overrides for odd layouts.
+REPO="${NIGHTLY_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+cd "$REPO" || { echo "nightly: repo missing"; exit 1; }
 
 DAY=$(date +%F)
 
