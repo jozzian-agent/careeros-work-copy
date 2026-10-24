@@ -1,3 +1,0 @@
-[submodule "vendor/capa-repo"]
-	path = vendor/capa-repo
-	url = https://github.com/jozzian/capa-repo.git
