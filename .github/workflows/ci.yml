@@ -1,9 +1,11 @@
 # Career OS CI. One job, named `ci`, which is the name the deploy runbook
 # refers to.
 #
-# NO SECRETS ANYWHERE IN THIS FILE OR IN WHAT IT RUNS. There is no
-# `secrets.` reference, no environment, and no LLM key: the suite needs
-# none. A key in CI would be a key in a log.
+# NO STORED SECRETS ANYWHERE IN THIS FILE OR IN WHAT IT RUNS. No
+# repository/environment secrets, no LLM key: the suite needs none, and
+# a key in CI would be a key in a log. The single `secrets.GITHUB_TOKEN`
+# reference below is GitHub's own ephemeral per-workflow token — it is
+# minted for one run, scoped to this repo, and expires in an hour.
 #
 # NO SUBMODULES. `vendor/capa-repo` is a plain folder in this repo since
 # PR #2 (2026-10-24); the default checkout already has everything.
@@ -20,6 +22,10 @@ on:
 
 permissions:
   contents: read
+  # gitleaks-action needs this (read-only) to fetch the PR diff it scans
+  # on pull_request events; without it the action hard-fails since its
+  # October-2025 breaking update made GITHUB_TOKEN mandatory for PRs.
+  pull-requests: read
 
 jobs:
   ci:
@@ -84,10 +90,12 @@ jobs:
 
       - name: gitleaks
         # Runs on the checkout that is already here, with no
-        # GITLEAKS_LICENSE and no token: the free scan is what Part 1 of
-        # the deploy runbook relies on in place of GitHub's paid secret
-        # scanning for private repos.
+        # GITLEAKS_LICENSE: the free scan is what Part 1 of the deploy
+        # runbook relies on in place of GitHub's paid secret scanning for
+        # private repos. GITHUB_TOKEN is the ephemeral per-run token (see
+        # the header comment), required by the action for PR scans.
         uses: gitleaks/gitleaks-action@v2
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
           GITLEAKS_ENABLE_SUMMARY: 'true'
