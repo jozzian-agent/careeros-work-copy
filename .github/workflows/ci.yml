@@ -15,7 +15,7 @@ name: ci
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 permissions:
@@ -24,6 +24,7 @@ permissions:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     env:
       # NO LLM VARIABLE IS SET HERE, ON PURPOSE.
@@ -61,7 +62,10 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: pytest (product suite)
-        run: python -m pytest tests/ -q
+        # --timeout: a hung test fails in 60s with a stack dump instead of
+        # eating the whole job. This is what caught the buffered-pipe hang
+        # that once sat in test_deploy_scripts' nightly fixture.
+        run: python -m pytest tests/ -q --timeout=60
 
       - name: pytest (vendored org_intake suite)
         # vendor/capa-repo is ordinary product code now (capa-repo the
@@ -69,7 +73,7 @@ jobs:
         # Separate invocation on purpose: `tests/test_enrich.py` exists
         # in both trees and pytest refuses to collect two modules of the
         # same name in one run.
-        run: python -m pytest vendor/capa-repo/tests/ -q
+        run: python -m pytest vendor/capa-repo/tests/ -q --timeout=60
 
       - name: shellcheck
         run: |

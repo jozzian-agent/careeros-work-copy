@@ -46,7 +46,10 @@ def pipeline(tmp_path):
     data = tmp_path / 'data'
     (data / 'nightly').mkdir(parents=True)
     pool = data / 'ats' / 'exports' / f"golden_set_pool_{date.today().isoformat()}.yaml"
-    serving = subprocess.Popen(['python3', '-m', 'http.server', '0', '--bind', '127.0.0.1'],
+    # -u matters: the child's "Serving HTTP ... port N" banner is the only
+    # way to learn its port, but a pipe-attached stdout is block-buffered,
+    # so without -u the line never flushes and the read below hangs.
+    serving = subprocess.Popen(['python3', '-u', '-m', 'http.server', '0', '--bind', '127.0.0.1'],
                                cwd=tmp_path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                text=True)
     port = None
