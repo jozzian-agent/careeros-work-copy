@@ -1389,7 +1389,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
                                               history=('extract_failed', 'Extraction failed.'), locked=True)
                         set_ai_status(job_id, storage.ai_failed(
                             ai_failure_reason(reason)), locked=True)
-                if new_company_id is not None and shared:
+                if new_company_id is not None:
+                    # `shared` used to be consulted here, but it is a local
+                    # of apply_llm_update, not of this callback: the
+                    # NameError it raised was swallowed by the outer
+                    # handler, which then marked a successful extraction
+                    # (company created, fields saved) as extract_failed.
+                    # No replacement check is needed -- apply_llm_update
+                    # only sets new_company_id when resolve_company
+                    # actually created a company, and the ladder refuses
+                    # to create one for a record that does not contribute
+                    # to the shared half (M2, D3, the same `shared` that
+                    # would have been read here).
                     schedule_company_cascade(root, new_company_id)
             except Exception as error:
                 # M3: applying a successful result (or recording its own
