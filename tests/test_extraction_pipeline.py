@@ -1190,3 +1190,63 @@ def test_write_lock_not_held_during_slow_extraction(tmp_path, monkeypatch):
     finally:
         release.set()
     app.config['LLM_THREADS'][job_id].join(timeout=2)
+
+
+def test_llm_correction_creating_new_company_completes(tmp_path, monkeypatch):
+    """The extraction callback's new-company branch read `shared`, which is
+    a local of apply_llm_update and not of the callback: the NameError was
+    swallowed by the outer handler, which then marked a fully successful
+    extraction (company created, fields saved) as extract_failed. This
+    drives the real path end to end: intake lands in fuzzy_name/needs_review
+    (ladder still open), then the LLM correction names a company nothing
+    matches, so resolve_company's create rung fires inside apply_llm_update
+    and on_result reaches the cascade branch that used to raise."""
+    from careeros import server
+
+    def schema_html(name):
+        return ('<script type="application/ld+json">{"@type":"JobPosting","title":"Role",'
+                f'"hiringOrganization":{{"name":"{name}"}}}}</script>'
+                '<p>Great opportunity for an experienced builder.</p>')
+
+    # A vault company 'Acme GmbH' makes intake's schema name 'Acme' land
+    # in fuzzy_name with no company_id -- the same shape test_company_resolve
+    # uses for its needs_review rung-3 probe.
+    vault.save_company(tmp_path, {'name': 'Acme GmbH'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Acme'))
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps(
+        {'title': 'Senior Platform Engineer', 'company': 'Zzztqx Novelworks AG'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    # The cascade runs a background thread gated on AUTO_CASCADE_ENABLED;
+    # count its sector/size calls instead of patching the closure.
+    from org_intake import enrich as company_lookup
+    cascaded = []
+    monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
+    monkeypatch.setattr(company_lookup, 'classify_sector',
+                        lambda company, *a, **k: cascaded.append(company['id']) or (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k: (None, None))
+    app = create_app(tmp_path)
+    api = app.test_client()
+    response = api.post('/api/jobs/intake', json={'url': 'https://unrelated.example/role'})
+    job_id = response.json['job']['id']
+    pre = vault.load_job(tmp_path, job_id)
+    assert pre['company_link_reason'] == 'fuzzy_name'
+    assert pre['company_id'] is None
+
+    app.config['LLM_THREADS'][job_id].join(timeout=5)
+
+    job = vault.load_job(tmp_path, job_id)
+    # The regression: the successful extraction must not be failed by the
+    # callback's own bookkeeping.
+    assert job['ingest_state'] == 'complete'
+    assert job['ingest_error'] is None
+    assert job['ai_status'] == 'done'
+    # The company was created and the job links to it.
+    assert job['company_link_reason'] == 'new_company'
+    company = vault.load_company(tmp_path, job['company_id'])
+    assert company['name'] == 'Zzztqx Novelworks AG'
+    # And the new-company cascade branch actually ran -- before the fix it
+    # was unreachable (it raised the NameError instead).
+    thread = app.config['CASCADE_THREADS'].get(job['company_id'])
+    if thread is not None:  # A completed worker may already be pruned at teardown.
+        thread.join(timeout=5)
+    assert cascaded == [job['company_id']]
