@@ -48,9 +48,10 @@
 #     the owner says so (deploy/RUNBOOK.md, "Production, the first time").
 #   * careeros-stg.service is installed and not started: there is no
 #     release yet to run.
-#   * careeros-deploy-stg.timer IS enabled and started, so the first
-#     staging deploy happens on its own within a few minutes. That is the
-#     click-test flow.
+#   * careeros-deploy-stg.timer is installed and NOT started here. It is
+#     a RUNBOOK step (step 7), turned on only after the env file is
+#     filled in and the first deploy has been watched by hand -- so a
+#     timer never fires before the config exists.
 #   The last thing this script prints is exactly that state, with the
 #   commands to change it.
 #
@@ -90,9 +91,13 @@ PYTHON_MIN='3.14'
 ENVIRONMENTS=(prod stg)
 UNITS=(careeros-prod.service careeros-stg.service careeros-deploy@.service)
 TIMERS=(careeros-deploy-stg.timer careeros-deploy-prod.timer)
-#: Enabled and started by this script. Everything else in UNITS and
-#: TIMERS is installed and left alone -- see "WHAT IT DOES NOT START".
-START_TIMERS=(careeros-deploy-stg.timer)
+#: Enabled and started by this script: NOTHING. Every unit and timer in
+#: UNITS and TIMERS is installed and left alone -- see "WHAT IT DOES NOT
+#: START". The staging deploy timer is a RUNBOOK step (deploy/RUNBOOK.md,
+#: step 7) taken only after the env file is filled in and the first
+#: deploy has been watched by hand, because a timer that fires before
+#: the config exists makes the first deploy something the owner reads
+#: about in a journal instead of watching happen.
 PORTS=(22 80 443)
 
 CHECK_ONLY=no
@@ -541,17 +546,11 @@ if [[ $installed_any == yes ]]; then
   run systemctl daemon-reload
 fi
 
-# Only the staging deploy timer is turned on. Everything else is a file
-# on disk and a line in the printout below: the app services have no
-# release to run yet, and production is the owner's to open.
-for timer in "${START_TIMERS[@]}"; do
-  if systemctl is-enabled --quiet "$timer" 2>/dev/null; then
-    skip "$timer is enabled"
-  else
-    note "enabling and starting $timer"
-    run systemctl enable --now "$timer"
-  fi
-done
+# Nothing is enabled or started by this script. Every unit and timer is
+# a file on disk and a line in the printout below: the app services have
+# no release to run yet, production is the owner's to open, and the
+# staging deploy timer waits until the env file exists and the first
+# deploy has been watched by hand (deploy/RUNBOOK.md, steps 5-7).
 
 # --- Caddy -----------------------------------------------------------------
 
@@ -668,18 +667,23 @@ else
   printf ' WHAT IS RUNNING NOW, EXACTLY\n'
 fi
 printf '%s\n' "$RULE"
-printf '   careeros-deploy-stg.timer     ENABLED and STARTED. It deploys the\n'
-printf '                                 latest main to staging within a few\n'
-printf '                                 minutes, on its own.\n'
+printf '   careeros-deploy-stg.timer     installed, NOT enabled, NOT started.\n'
+printf '                                 Step 7 of deploy/RUNBOOK.md turns it\n'
+printf '                                 on -- after the env file is filled in\n'
+printf '                                 and the first deploy has been watched\n'
+printf '                                 by hand.\n'
 printf '   careeros-stg.service          installed, NOT started (no release yet).\n'
 printf '   careeros-prod.service         installed, NOT enabled, NOT started.\n'
 printf '   careeros-deploy-prod.timer    installed, NOT enabled, NOT started.\n'
 printf '   careeros-deploy@.service      installed; the two timers call it.\n'
-printf '\n   Staging, by hand instead of waiting for the timer:\n'
+printf '\n   Staging, in order (deploy/RUNBOOK.md, steps 5-7). Editing an env\n'
+printf '   file later needs systemctl restart careeros-stg to take effect:\n'
+printf '     sudoedit /etc/careeros/stg.env\n'
 printf '     systemctl start careeros-deploy@stg\n'
 printf '     journalctl -u careeros-deploy@stg -n 50 --no-pager\n'
-printf '     systemctl start careeros-stg\n'
+printf '     systemctl enable --now careeros-stg\n'
 printf '     curl -s http://127.0.0.1:8002/api/health      # {"ok":true}\n'
+printf '     systemctl enable --now careeros-deploy-stg.timer\n'
 printf '\n   Production, once prod.env is filled in and a v* tag exists.\n'
 printf '   In this order: enable (so it survives a reboot) WITHOUT --now,\n'
 printf '   because a service with no release yet would only fail-loop; the\n'

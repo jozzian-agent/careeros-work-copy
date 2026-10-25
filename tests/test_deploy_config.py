@@ -247,18 +247,24 @@ def test_setup_installs_exactly_the_unit_files_that_exist():
     assert listed == {path.name for path in UNITS.iterdir()}
 
 
-def test_only_the_staging_timer_is_turned_on():
+def test_nothing_is_enabled_or_started_by_setup():
     """Production is installed and left alone: enabling it is a decision
-    about live data, and this script does not make it. Staging's timer
-    runs from minute one, which is what makes the first deploy something
-    the owner watches rather than performs."""
+    about live data, and this script does not make it. Neither does it
+    turn on staging's deploy timer -- that is a RUNBOOK step (step 6),
+    taken only after the env file exists and the first deploy has been
+    watched by hand, so a timer never fires before there is config to
+    fire against. Enabling ANY timer here would make the first deploy
+    something the owner reads about in a journal rather than watches."""
     text = SETUP.read_text()
-    started = re.search(r'^START_TIMERS=\((.*?)\)$', text, re.M).group(1).split()
-    assert started == ['careeros-deploy-stg.timer']
-    # The printed instructions DO name the two commands that turn
-    # production on; what must not exist is a line that runs one.
+    # The very idea of a start-list is gone: there is no START_TIMERS
+    # variable to populate, so enabling something means editing the
+    # script rather than editing a list in it.
+    assert 'START_TIMERS' not in text
+    # No line in the script runs a systemctl enable/start for any unit or
+    # timer. The printed instructions DO name the commands that turn each
+    # environment on; what must not exist is a line that runs one.
     ran = [line for line in code_lines(SETUP)
-           if 'systemctl' in line and 'prod' in line]
+           if 'systemctl' in line and ('enable' in line or 'start' in line)]
     assert ran == [], ran
 
 
@@ -399,13 +405,18 @@ def test_check_mode_says_what_it_would_do_and_what_the_owner_does_next(fake_root
     for expected in (
         'would run: install -d -m 700',                      # the vault
         'would run: ssh-keygen',                             # the deploy keys
-        'would run: systemctl enable --now careeros-deploy-stg.timer',
+        'careeros-deploy-stg.timer     installed, NOT enabled, NOT started.',
         'careeros-prod.service         installed, NOT enabled, NOT started.',
         'careeros-deploy-prod.timer    installed, NOT enabled, NOT started.',
+        'systemctl enable --now careeros-deploy-stg.timer',  # printed, not run
         'sudoedit',
         'deploy/RUNBOOK.md',
     ):
         assert expected in done.stdout, expected
+    # Printed is not the same as run: the enable commands exist only
+    # inside printf instructions.
+    assert 'would run: systemctl enable' not in done.stdout
+    assert 'would run: systemctl start' not in done.stdout
 
 
 def test_check_mode_reports_the_python_it_found(fake_root):

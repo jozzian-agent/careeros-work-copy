@@ -73,13 +73,13 @@ question and looks like a failure when nothing is wrong.
 | Port | 127.0.0.1:8002 | 127.0.0.1:8001 |
 | Service | `careeros-stg` | `careeros-prod` |
 | Vault | synthetic | live |
-| On after setup | deploy timer **on** | everything **off** |
+| On after setup | everything **off** | everything **off** |
 
 ---
 
 # First session, in order
 
-Six steps. Do them in this order; each one checks the last.
+Seven steps. Do them in this order; each one checks the last.
 
 ## 1. [Mac] Get `deploy/` onto the VPS
 
@@ -91,11 +91,17 @@ repository change; `scp` is better if you only want these files there.
 # normally: clone on the Mac, then option B)
 ssh ubuntu@app.career-os.ch 'git clone https://github.com/jozzian/careeros.git ~/careeros'
 
-# Option B, copy the folder from your clone
+# Option B, copy the folder from your clone -- deploy/ AND
+# requirements.txt next to it, because setup-vps.sh's python-3.14
+# dependency check pip-installs the requirements.txt it finds beside
+# deploy/ and skips itself (saying so) when there is none:
 scp -r deploy ubuntu@app.career-os.ch:~/deploy
+scp requirements.txt ubuntu@app.career-os.ch:~/requirements.txt
 ```
 
-**Expected:** `scp` prints one line per file and exits silently.
+**Expected:** `scp` prints one line per file and exits silently, and
+afterwards `ssh ubuntu@app.career-os.ch 'ls ~/deploy/setup-vps.sh ~/requirements.txt'`
+prints both paths.
 
 **Then read the scripts before running them.** They run as root, which
 makes a mistake or a hidden instruction in them the single biggest risk in
@@ -148,14 +154,15 @@ It installs python3-venv/pip, Caddy, ufw and unattended-upgrades; makes a
 2 GB swap file; creates the two `nologin` service users and the directory
 tree; creates the two env files with **placeholders only**; proves
 `requirements.txt` installs under python 3.14; generates the two deploy
-keys; records GitHub's host key; installs the units and timers; enables
-the **staging** deploy timer and nothing else; and opens 22, 80 and 443.
+keys; records GitHub's host key; installs the units and timers; and opens
+22, 80 and 443. It enables and starts **nothing** — the staging flow in
+steps 5–7 turns things on in order, after the env file exists.
 
 **Expected:** the same sections, now with `creating`/`installing` lines
 instead of `would run:`, and at the end:
 
 ```text
-   careeros-deploy-stg.timer     ENABLED and STARTED. ...
+   careeros-deploy-stg.timer     installed, NOT enabled, NOT started. ...
    careeros-stg.service          installed, NOT started (no release yet).
    careeros-prod.service         installed, NOT enabled, NOT started.
    careeros-deploy-prod.timer    installed, NOT enabled, NOT started.
@@ -230,6 +237,11 @@ There is no host or port line. The app takes both as command-line flags,
 which `careeros-stg.service` passes; a `CAREEROS_PORT=` line here would
 be read by nothing.
 
+> **Editing an env file later — any of them, either environment — needs a
+> service restart to take effect:** `sudo systemctl restart careeros-stg`
+> (or `careeros-prod`). systemd reads `EnvironmentFile` only when the
+> service starts, so a saved edit changes nothing on its own.
+
 **Expected:** afterwards
 
 ```bash
@@ -240,7 +252,7 @@ shows `-rw-r----- 1 root careeros-stg` for `stg.env`.
 
 ## 6. [VPS] The first staging deploy, and the click test
 
-The timer deploys within a couple of minutes on its own. To do it now:
+Nothing is running yet — this deploy is by hand, and you watch it:
 
 ```bash
 sudo systemctl start careeros-deploy@stg
@@ -254,14 +266,16 @@ journalctl -u careeros-deploy@stg -n 80 --no-pager
 ```
 
 The first run clones, builds a venv and installs requirements, so it
-takes a few minutes. Then start the service and ask the app itself:
+takes a few minutes. Then start the service — `enable --now`, so it also
+comes back after a reboot — and ask the app itself:
 
 ```bash
-sudo systemctl start careeros-stg
+sudo systemctl enable --now careeros-stg
 curl -s http://127.0.0.1:8002/api/health
 ```
 
-**Expected:** `{"ok":true}`
+**Expected:** `Created symlink .../multi-user.target.wants/careeros-stg.service ...`
+followed by `{"ok":true}`
 
 **If the deploy failed:** paste back
 
@@ -325,6 +339,20 @@ name in Caddy and not an account in the app.
 > Known gap: most pages are React-only and answer 404 until a release
 > carries a built front end. `/jobs` and the whole JSON API work either
 > way. See Known gaps, 1.
+
+## 7. [VPS] Turn the staging deploy timer on
+
+Only now — the env file exists, a release is deployed and watched, and
+the click test passed:
+
+```bash
+sudo systemctl enable --now careeros-deploy-stg.timer
+systemctl list-timers 'careeros-*'
+```
+
+**Expected:** `Created symlink .../timers.target.wants/careeros-deploy-stg.timer ...`
+and `careeros-deploy-stg.timer` listed with a next-run time about two
+minutes out. From here, every push to `main` lands on staging on its own.
 
 **Staging is now the place a release is proved. Stop here for today if
 you like — production needs nothing from you yet.**
@@ -655,7 +683,99 @@ BACKUP_RECEIPT_GROUP=$BACKUP_USER
 
 A restore is the only thing that proves a backup. Do one — decryption,
 ownership, permissions, app startup — once before go-live and quarterly
-after.
+after: **Restoring the vault from a backup**, below.
+
+## Restoring the vault from a backup
+
+There are two kinds of archive, and you pick by what you lost:
+
+| Lost | Restore from | Where it lives |
+| --- | --- | --- |
+| A bad edit, a migration gone wrong, "undo the last hour" | a plain `vault-<timestamp>.tar.gz` (taken by every production deploy, newest 14 kept) | **[VPS]** `/srv/careeros/prod/backups/` |
+| The box itself, or an archive you want to verify on your own machine | an encrypted `.tar.zst.age` archive | **[LAN]** where `pull_backups_lan.sh` pulled it |
+
+### Route A — on the VPS, from a deploy-time `tar.gz`
+
+**[VPS]** Stop the app first so the restore is not racing a live server:
+
+```bash
+sudo systemctl stop careeros-prod
+ls -lht /srv/careeros/prod/backups/ | head
+```
+
+**Expected:** the newest `vault-<timestamp>.tar.gz` files, one per production
+deploy. Pick the one from before the damage, and unpack it beside the
+current vault instead of over it, so you can look before you commit:
+
+```bash
+cd /srv/careeros/prod/backups
+sudo mkdir -p /tmp/restore
+sudo tar -xzf vault-<timestamp>.tar.gz -C /tmp/restore
+sudo diff -rq /tmp/restore/vault /srv/careeros/prod/vault | head -30
+```
+
+**Expected:** `diff` prints the differences (files only in one side,
+differing contents) and exits 1 — that is it doing its job, not a
+failure. Read them; they should be exactly the damage you expect to undo.
+Then swap:
+
+```bash
+sudo mv /srv/careeros/prod/vault /srv/careeros/prod/vault.broken
+sudo mv /tmp/restore/vault /srv/careeros/prod/vault
+sudo chown -R careeros-prod:careeros-prod /srv/careeros/prod/vault
+sudo systemctl start careeros-prod
+curl -s http://127.0.0.1:8001/api/health
+```
+
+**Expected:** `{"ok":true}`, and the app in the browser shows the restored
+records. Keep `vault.broken` until you are sure, then remove it.
+
+**If it fails:** paste back the `diff` output and
+`journalctl -u careeros-prod -n 100 --no-pager`.
+
+### Route B — from an encrypted archive (needs your private age key)
+
+The VPS cannot open these — it holds only the public recipients file.
+Decryption happens on **[LAN]** (or any machine holding your private key):
+
+```bash
+mkdir -p /tmp/restore
+age -d -i ~/.config/age/careeros-backup.txt \
+    <archive>.tar.zst.age | zstd -d | tar -x -C /tmp/restore
+find /tmp/restore -maxdepth 1 | head    # sanity: real files, not garbage
+```
+
+**Expected:** `age` and `zstd` exit silently; `/tmp/restore` now *is* the
+vault tree (the encrypted archives are tarred from inside the source, so
+no `vault/` subdirectory appears — unlike Route A). A wrong key prints
+`age: error: no matching identity found` and creates nothing. Verify
+before trusting: `sha256sum -c <archive>.tar.zst.age.sha256` prints `OK`.
+
+To get the vault back onto a (possibly freshly reset) VPS, re-run
+`setup-vps.sh` and the first deploy, then push the restored tree up as
+the `ubuntu` user — the VPS never reaches back to you, but you can always
+reach it:
+
+```bash
+scp -r /tmp/restore ubuntu@app.career-os.ch:/tmp/restore-vault
+ssh ubuntu@app.career-os.ch 'sudo systemctl stop careeros-prod &&
+  sudo mv /srv/careeros/prod/vault /srv/careeros/prod/vault.broken &&
+  sudo mv /tmp/restore-vault /srv/careeros/prod/vault &&
+  sudo chown -R careeros-prod:careeros-prod /srv/careeros/prod/vault &&
+  sudo systemctl start careeros-prod &&
+  curl -s http://127.0.0.1:8001/api/health'
+```
+
+**Expected:** `{"ok":true}`.
+
+> ### STOP AND CHECK
+> - Which archive did you restore, and does its timestamp precede the
+>   damage? Restoring a post-damage backup undoes nothing and looks like
+>   success.
+> - After a prod restore: sign in and check one record you know should
+>   exist, and one you know should NOT (the thing you were undoing).
+> - The restored vault is now the truth. The next deploy takes a fresh
+>   pre-deploy archive of it automatically.
 
 ## Why the app users hold no key
 
