@@ -1,0 +1,27 @@
+# The checks, on top of the app. One install command gets both:
+#
+#   .venv/bin/python -m pip install -r requirements-dev.txt
+#
+# Nothing here is installed on the VPS: deploy/deploy.sh builds each
+# release's venv from requirements.txt alone, so a release carries the
+# app's dependencies and not the test runner's.
+#
+# Every line below was checked against what actually imports it. pytest
+# and pytest-timeout are what `python -m pytest tests/` is; the four
+# under them are pytest's own dependencies and are imported by nothing in
+# careeros/ or scripts/. playwright is the Python binding, which no
+# Python file in this repo imports -- the browser suite is the npm
+# `@playwright/test` one (frontend/playwright.config.js, README.md) --
+# and greenlet, pyee and typing_extensions are its dependency chain.
+-r requirements.txt
+
+greenlet==3.5.6
+iniconfig==2.3.0
+packaging==26.3
+playwright==1.63.0
+pluggy==1.6.0
+pyee==13.0.1
+Pygments==2.21.0
+pytest==9.1.1
+pytest-timeout==2.4.0
+typing_extensions==4.16.0

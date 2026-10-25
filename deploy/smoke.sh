@@ -38,11 +38,11 @@
 #   SMOKE_TIMEOUT    seconds per request                            (20)
 #
 #   The env file is root-owned, mode 0640, group = the service's group
-#   (the same file Part 5 of the runbook already uses for the LLM key) and
+#   (the same file the LLM key lives in, deploy/RUNBOOK.md step 5) and
 #   must define:
 #
 #     SMOKE_BASE_URL=https://app.career-os.ch
-#     SMOKE_EMAIL=smoke@career-os.ch
+#     SMOKE_EMAIL=<the tester account you created>
 #     SMOKE_PASSWORD=...
 #
 #   The account is a dedicated tester created on the VPS. Create it -- and
@@ -57,13 +57,14 @@
 #
 #   So: GENERATE it into a root-owned 0600 file, and have python READ that
 #   file. Nothing is typed, nothing is pasted, nothing is on a command line
-#   (Part 3 of the deploy runbook has the same three steps as a checklist):
+#   (deploy/RUNBOOK.md, "The tester account", has the same steps as a
+#   checklist with the expected output of each):
 #
 #     sudo install -m 600 -o root -g root /dev/null /etc/careeros/smoke-password
 #     sudo sh -c 'openssl rand -base64 24 >/etc/careeros/smoke-password'
 #
 #     sudo CAREEROS_VAULT=/srv/careeros/prod/vault \
-#          /srv/careeros/prod/app/.venv/bin/python - <<'PYEOF'
+#          /srv/careeros/prod/app/current/.venv/bin/python - <<'PYEOF'
 #     from pathlib import Path
 #     from careeros import users, vault
 #     # Read, never typed. This is what main() in careeros/users.py does
@@ -73,7 +74,7 @@
 #     root = users.vault_root(None)
 #     root.mkdir(parents=True, exist_ok=True)
 #     with vault.WriteLock(root):
-#         user = users.create_user(root, email='smoke@career-os.ch',
+#         user = users.create_user(root, email='<the tester address>',
 #                                  name='Smoke test', role='tester',
 #                                  password=password)
 #     print('created', user['id'], user['role'], user['email'])

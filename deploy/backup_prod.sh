@@ -57,12 +57,14 @@
 #   app startup -- once before go-live and quarterly after.
 #
 # THE CONFIRMED OFF-VPS COPY
-#   The VPS cannot reach the LAN, so it cannot go and look for the second
-#   copy. What it can do is read a receipt the LAN leaves behind: after
+#   NOTHING ON THIS BOX CONNECTS OUT. The VPS holds no credential for the
+#   LAN and no address for it, so it cannot go and look for the second
+#   copy. What it can do is read a local file the LAN left behind: after
 #   deploy/pull_backups_lan.sh has pulled an archive and checked its
-#   sha256 on the LAN, it writes `<archive>.pulled` into
-#   BACKUP_RECEIPT_DIR over a write-confined key that can create nothing
-#   else. So retention here is:
+#   sha256 on the LAN, that script -- connecting IN, from the LAN, over a
+#   write-confined key that can create nothing else -- leaves
+#   `<archive>.pulled` in BACKUP_RECEIPT_DIR. By the time this script
+#   reads it, a receipt is an ordinary local file. So retention here is:
 #
 #     * count-based pruning deletes only RECEIPTED archives. An archive
 #       nobody has confirmed off this box is kept, however far down the
@@ -120,9 +122,15 @@
 #   BACKUP_STALE_OWNER_DAYS  --check-stale threshold for owner-data     (2)
 #   BACKUP_RECEIPT_DIR       where the LAN pull writes its receipts
 #                                              (`$BACKUP_DIR/.receipts`)
-#   BACKUP_RECEIPT_GROUP     the group the receipt push runs as, which this
-#                            script group-owns the receipts directory to
-#                            when it is root            (careeros-backup)
+#   BACKUP_RECEIPT_GROUP     the group of the restricted account the LAN
+#                            pull logs in as, which this script group-owns
+#                            the receipts directory to when it is root.
+#                            NO DEFAULT: that account is one the owner
+#                            created and named (deploy/RUNBOOK.md, "The
+#                            off-VPS copy"), and a guessed group name here
+#                            would chgrp to nothing and say it had. Unset
+#                            leaves the directory's group alone and says
+#                            so in one line.                     (unset)
 #   BACKUP_RECEIPT_ALERT_NEWEST  how many of the newest archives have to
 #                            be unreceipted before the unconfirmed-copy
 #                            alert fires                                (2)
@@ -137,7 +145,7 @@
 #   one only deliberately.
 #
 # FAILURE
-#   Non-zero exit and one `ALERT careeros-backup <namespace>:` line.
+#   Non-zero exit and one `ALERT careeros-prod-backup <namespace>:` line.
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/careeros}"
@@ -150,7 +158,7 @@ BACKUP_STALE_FULL_DAYS="${BACKUP_STALE_FULL_DAYS:-8}"
 BACKUP_STALE_OWNER_DAYS="${BACKUP_STALE_OWNER_DAYS:-2}"
 BACKUP_RECEIPT_DIR="${BACKUP_RECEIPT_DIR:-$BACKUP_DIR/.receipts}"
 BACKUP_RECEIPT_ALERT_NEWEST="${BACKUP_RECEIPT_ALERT_NEWEST:-2}"
-BACKUP_RECEIPT_GROUP="${BACKUP_RECEIPT_GROUP:-careeros-backup}"
+BACKUP_RECEIPT_GROUP="${BACKUP_RECEIPT_GROUP:-}"
 DEPLOY_DATA_LOCK="${DEPLOY_DATA_LOCK:-/run/careeros/careeros-data.lock}"
 
 MODE="${1:-}"
@@ -158,7 +166,7 @@ NS=""
 PARTIAL=""
 
 alert() {
-  echo "ALERT careeros-backup ${NS:-${MODE:-?}}: $*"
+  echo "ALERT careeros-prod-backup ${NS:-${MODE:-?}}: $*"
   exit 1
 }
 
@@ -181,13 +189,13 @@ if [[ $MODE == --check-stale ]]; then
     ns="${pair%%:*}"; limit="${pair##*:}"
     newest=$(newest_in "$ns")
     if [[ -z $newest ]]; then
-      echo "ALERT careeros-backup $ns: no backup at all in $BACKUP_DIR/$ns"
+      echo "ALERT careeros-prod-backup $ns: no backup at all in $BACKUP_DIR/$ns"
       stale=1
       continue
     fi
     days=$(( (now - $(stat -c '%Y' "$newest")) / 86400 ))
     if (( days > limit )); then
-      echo "ALERT careeros-backup $ns: newest backup is ${days}d old, over the ${limit}d limit ($(basename "$newest"))"
+      echo "ALERT careeros-prod-backup $ns: newest backup is ${days}d old, over the ${limit}d limit ($(basename "$newest"))"
       stale=1
     else
       echo "-- $ns: newest backup ${days}d old ($(basename "$newest"))"
@@ -260,23 +268,31 @@ chmod 750 "$BACKUP_DIR" "$DEST_DIR"
 # directory holding them costs nothing if that key is lost. Receipts for
 # every namespace share it; archive names are namespace-prefixed.
 #
-# Group-WRITABLE is only half of it: the group has to be the one the
-# receipt push runs as, or 0770 grants the write to nobody who wants it.
-# That needs root, so it happens here only when this script has it, and
-# says so when it does not rather than leaving the runbook to promise
-# something no code does. The setgid bit is what makes a receipt created
-# in here inherit the group instead of the pushing account's primary one.
+# Group-WRITABLE is only half of it: the group has to be the one the LAN
+# pull's inbound write arrives as, or 0770 grants the write to nobody who
+# wants it. That needs root, so it happens here only when this script has
+# it, and says so when it does not rather than leaving a document to
+# promise something no code does. The setgid bit is what makes a receipt
+# created in here inherit the group instead of that account's primary one.
+#
+# BACKUP_RECEIPT_GROUP has no default: the account is the owner's, with a
+# name only they know. Unset is not an error -- the archives are written
+# either way -- but it is said out loud, because until it is set the
+# receipts cannot arrive and count-pruning stays off.
 mkdir -p "$BACKUP_RECEIPT_DIR"
-if [[ $(id -u) == 0 ]]; then
+if [[ -z $BACKUP_RECEIPT_GROUP ]]; then
+  chmod 770 "$BACKUP_RECEIPT_DIR"
+  echo "-- BACKUP_RECEIPT_GROUP is not set, so $BACKUP_RECEIPT_DIR keeps group $(id -gn) and no setgid bit. Set it to the group of the restricted account the LAN pull logs in as, or the receipts cannot arrive and count-pruning stays off (deploy/RUNBOOK.md, 'The off-VPS copy')"
+elif [[ $(id -u) == 0 ]]; then
   if chgrp "$BACKUP_RECEIPT_GROUP" "$BACKUP_RECEIPT_DIR" 2>/dev/null; then
     chmod 2770 "$BACKUP_RECEIPT_DIR"
   else
     chmod 770 "$BACKUP_RECEIPT_DIR"
-    echo "ALERT careeros-backup $NS: cannot group-own $BACKUP_RECEIPT_DIR to '$BACKUP_RECEIPT_GROUP' -- does that group exist? The LAN receipt push will be refused and count-pruning will stop. Not fatal: this backup itself is unaffected"
+    echo "ALERT careeros-prod-backup $NS: cannot group-own $BACKUP_RECEIPT_DIR to '$BACKUP_RECEIPT_GROUP' -- does that group exist? The LAN's receipt write will be refused and count-pruning will stop. Not fatal: this backup itself is unaffected"
   fi
 else
   chmod 770 "$BACKUP_RECEIPT_DIR"
-  echo "-- not root, so $BACKUP_RECEIPT_DIR keeps group $(id -gn) and no setgid bit; the receipt push needs it group-owned by '$BACKUP_RECEIPT_GROUP' (owner work, or run this as root)"
+  echo "-- not root, so $BACKUP_RECEIPT_DIR keeps group $(id -gn) and no setgid bit; the LAN's receipt write needs it group-owned by '$BACKUP_RECEIPT_GROUP' (owner work, or run this as root)"
 fi
 
 # --- the snapshot selection ----------------------------------------------
@@ -366,7 +382,7 @@ for archive in "${archives[@]:0:BACKUP_RECEIPT_ALERT_NEWEST}"; do
   receipted "$archive" || unconfirmed=$(( unconfirmed + 1 ))
 done
 if (( ${#archives[@]} > 0 && unconfirmed >= BACKUP_RECEIPT_ALERT_NEWEST )); then
-  echo "ALERT careeros-backup $NS: none of the newest $unconfirmed archive(s) has a receipt in $BACKUP_RECEIPT_DIR -- the off-VPS copy is unconfirmed; check deploy/pull_backups_lan.sh on the LAN"
+  echo "ALERT careeros-prod-backup $NS: none of the newest $unconfirmed archive(s) has a receipt in $BACKUP_RECEIPT_DIR -- the off-VPS copy is unconfirmed; check deploy/pull_backups_lan.sh on the LAN"
 fi
 
 rank=0
@@ -414,7 +430,7 @@ for (( index = total - 1; index >= 0; index-- )); do
   elif newer_receipted "$index"; then
     drop "$archive" "${days}d old, over max-age=${max_age}d, unreceipted but a newer archive is confirmed off-VPS"
   else
-    echo "ALERT careeros-backup $NS: unreceipted archive $(basename "$archive") is past max-age=${max_age}d but nothing newer is confirmed off-VPS; keeping it -- fix the LAN pull (deploy/pull_backups_lan.sh)"
+    echo "ALERT careeros-prod-backup $NS: unreceipted archive $(basename "$archive") is past max-age=${max_age}d but nothing newer is confirmed off-VPS; keeping it -- fix the LAN pull (deploy/pull_backups_lan.sh)"
     continue
   fi
   survivors[index]=""

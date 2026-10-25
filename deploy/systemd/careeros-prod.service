@@ -1,0 +1,80 @@
+# Career OS, production. Installed by deploy/setup-vps.sh to
+# /etc/systemd/system/careeros-prod.service.
+#
+# INSTALLED, NOT ENABLED. setup-vps.sh places this file and reloads
+# systemd; enabling and starting production is an owner step, because the
+# first production start is the moment live data begins to exist
+# (deploy/RUNBOOK.md, "Production, the first time").
+#
+# HOW THE APP IS ACTUALLY STARTED
+#   `python -m careeros.server --host 127.0.0.1 --port 8001`. That is
+#   what careeros/server.py's main() implements: argparse flags, then
+#   Flask's own app.run(). The app reads NO variable for the host or the
+#   port, so the flags are the only way to say where it listens -- a
+#   `CAREEROS_PORT=` line in the env file would be read by nothing. It is
+#   not a uvicorn app -- there is no ASGI entry point in this codebase
+#   and no uvicorn or gunicorn in requirements.txt -- so this unit starts
+#   what exists rather than what a WSGI deployment would prefer. See
+#   deploy/RUNBOOK.md, "Known gaps", before putting real traffic on it.
+#   `python -m` puts the working directory on sys.path, which is how the
+#   release's own `careeros` package is the one that gets imported.
+#
+# WHY THE Environment= LINES COME AFTER EnvironmentFile=
+#   systemd applies these in file order, so the later ones win. The env
+#   file is the owner's (the LLM key, the model); the two below are facts
+#   about where this environment lives, fixed by the directory layout. An
+#   edit to the env file must not be able to point production at another
+#   vault, so the unit has the last word on that.
+#
+# THE MEMORY LIMITS
+#   This box has 1.9 GB and runs staging beside production. MemoryHigh is
+#   the point from which the kernel reclaims hard and the process is
+#   slowed down; MemoryMax is the point at which it is killed and
+#   Restart=on-failure brings it back. One process, single worker: there
+#   is nothing here to multiply.
+
+[Unit]
+Description=Career OS (production)
+Documentation=file:///srv/careeros/prod/app/current/deploy/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=careeros-prod
+Group=careeros-prod
+WorkingDirectory=/srv/careeros/prod/app/current
+EnvironmentFile=/etc/careeros/prod.env
+Environment=CAREEROS_VAULT=/srv/careeros/prod/vault
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/careeros/prod/app/current/.venv/bin/python -m careeros.server --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=5s
+MemoryHigh=512M
+MemoryMax=768M
+
+# Hardening. The app reads its release tree and writes exactly one
+# place: the vault, where every record, the id counters and the session
+# signing key live (careeros/vault.py and careeros/users.py write
+# through a temporary file in the same directory, so the vault is the
+# only writable path either of them needs). Temporary files anywhere
+# else go to the private /tmp below.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ReadWritePaths=/srv/careeros/prod/vault
+
+[Install]
+WantedBy=multi-user.target
