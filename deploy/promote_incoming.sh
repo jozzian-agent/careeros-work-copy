@@ -170,8 +170,8 @@ DEPLOY_LOCK="${DEPLOY_LOCK:-/run/careeros/deploy.lock}"
 DEPLOY_DATA_LOCK="${DEPLOY_DATA_LOCK:-/run/careeros/careeros-data.lock}"
 DEPLOY_DRAIN_SECONDS="${DEPLOY_DRAIN_SECONDS:-900}"
 #   An empty DEPLOY_OWNER (set, but empty) leaves ownership alone, which is
-#   what a rehearsal or a test run on a host with no careeros-prod account
-#   needs. Unset is the production default.
+#   what a test run on a host with no careeros-prod account needs. Unset
+#   is the production default.
 DEPLOY_OWNER="${DEPLOY_OWNER-careeros-prod}"
 PROMOTE_PYTHON="${PROMOTE_PYTHON:-python3}"
 PROMOTE_MIN_POOL_ROWS="${PROMOTE_MIN_POOL_ROWS:-50}"

@@ -35,13 +35,15 @@
 #   second.
 #
 #   INTENDED CALLER: a deploy script, immediately before it installs a new
-#   release. There is NO deploy.sh in this repo yet -- it is still a brief
-#   in the deploy runbook (Part 2) -- and this script does not invent one.
-#   When one is written, it calls this first and treats a non-zero exit as
-#   a reason not to deploy. It must call it BEFORE it takes DEPLOY_LOCK, or
-#   while holding only that lock: backup_prod.sh waits on
-#   DEPLOY_DATA_LOCK, never on the deploy lock, precisely so this call
-#   cannot deadlock the release it protects.
+#   release. deploy/deploy.sh does NOT call this: it takes its own plain
+#   tar.gz vault archive before a production release (deploy/RUNBOOK.md,
+#   "What a deploy run does"), which needs no age key on the box. This
+#   script is the encrypted-archive path, for a caller that wants both
+#   subsets, and nothing calls it on a timer yet.
+#   A caller treats a non-zero exit as a reason not to deploy, and calls
+#   it BEFORE it takes DEPLOY_LOCK, or while holding only that lock:
+#   backup_prod.sh waits on DEPLOY_DATA_LOCK, never on the deploy lock,
+#   precisely so this call cannot deadlock the release it protects.
 #
 #   Either call failing fails the whole thing, with backup_prod.sh's own
 #   ALERT line, and the second is not attempted after the first fails: a
@@ -61,17 +63,17 @@
 #   Everything backup_prod.sh reads. BACKUP_NAMESPACE is the prefix for
 #   both calls (default `pre-deploy`; the owner-data one appends
 #   `-owner-data`) and the retention is set here, both still overridable by
-#   the caller's environment, which is what the rehearsal VM does.
+#   the caller's environment.
 #
 # FAILURE
-#   Non-zero exit, and backup_prod.sh's own `ALERT careeros-backup
+#   Non-zero exit, and backup_prod.sh's own `ALERT careeros-prod-backup
 #   pre-deploy...:` line.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 if (( $# > 0 )); then
-  echo "ALERT careeros-backup pre-deploy: $(basename "$0") takes no arguments (got '$*')"
+  echo "ALERT careeros-prod-backup pre-deploy: $(basename "$0") takes no arguments (got '$*')"
   exit 1
 fi
 

@@ -12,7 +12,7 @@ fictional records; use it for development rather than personal data.
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -r requirements-dev.txt
 git submodule update --init
 .venv/bin/python - <<'PY'
 from pathlib import Path

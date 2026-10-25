@@ -176,10 +176,11 @@ exit 0
 """
 
 HOSTNAME = subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip()
-#: This account's primary group, which stands in for the VPS's
-#: `careeros-backup`: the receipts directory has to be group-owned by the
-#: group the LAN's receipt push arrives as, and a test can only check that
-#: against a group this host actually has.
+#: This account's primary group, which stands in for the group of the
+#: restricted account the owner created on the VPS: the receipts
+#: directory has to be group-owned by the group the LAN's inbound receipt
+#: write arrives as, and a test can only check that against a group this
+#: host actually has.
 GROUP = subprocess.run(['id', '-gn'], capture_output=True, text=True).stdout.strip()
 
 
@@ -281,6 +282,10 @@ def lan(tmp_path):
             'CAREEROS_VAULT': '',
             'SYNC_SSH_KEY': str(key),
             'SYNC_KNOWN_HOSTS': str(keys / 'known_hosts'),
+            # Both scripts refuse to invent the account name they log in
+            # as, so every run states one. The name is this fixture's
+            # own: nothing in the repo has a default.
+            'SYNC_USER': 'sync-account-under-test',
             **(env or {}),
         }
         return subprocess.run(['bash', str(DEPLOY / script), *args],
@@ -299,6 +304,7 @@ def pull_env(lan, dest, **extra):
     `authorized_keys` pair would be."""
     return {
         'PULL_DEST': str(dest),
+        'PULL_USER': 'pull-account-under-test',
         'PULL_SSH_KEY': str(lan.keys / 'id_ed25519'),
         'PULL_RECEIPT_SSH_KEY': str(lan.keys / 'receipt_ed25519'),
         'PULL_KNOWN_HOSTS': str(lan.keys / 'known_hosts'),
@@ -374,7 +380,7 @@ def test_sync_refuses_a_day_with_no_completion_manifest(lan):
     (lan.data / 'nightly' / f'nightly_{DAY}.log').unlink()
     done = lan('sync_vault_to_prod.sh', DAY)
     assert done.returncode != 0
-    assert 'ALERT careeros-sync 2026-10-22: no nightly completion manifest' in done.stdout
+    assert 'ALERT careeros-vault-sync 2026-10-22: no nightly completion manifest' in done.stdout
     assert not list(lan.incoming.iterdir()), 'nothing may be uploaded without one'
 
 
@@ -534,6 +540,27 @@ def test_sync_refuses_a_recomputed_day(lan):
     assert 'the nightly\'s day is an argument' in done.stdout
 
 
+def test_sync_names_the_variable_rather_than_guessing_an_account(lan):
+    """No default account name anywhere in these scripts. A guessed one
+    would turn "the owner has not told it who to log in as" into an ssh
+    failure against a user that does not exist -- the same outage,
+    reported as somebody else's problem."""
+    done = lan('sync_vault_to_prod.sh', DAY, env={'SYNC_USER': ''})
+    assert done.returncode != 0
+    assert 'SYNC_USER is not set' in done.stdout
+    assert 'name the restricted receiving account you created' in done.stdout
+
+
+def test_sync_target_set_whole_still_works_without_sync_user(lan):
+    # The override is the escape hatch for a host reached some other way,
+    # so it has to be enough on its own.
+    done = lan('sync_vault_to_prod.sh', DAY,
+               env={'SYNC_USER': '', 'SYNC_TARGET': 'someone@elsewhere.example'})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'SYNC_USER is not set' not in done.stdout
+    assert 'someone@elsewhere.example' in done.stdout
+
+
 def test_sync_refuses_a_loose_push_key(lan):
     (lan.tmp / 'ssh' / 'id_ed25519').chmod(0o644)
     done = lan('sync_vault_to_prod.sh', DAY)
@@ -610,7 +637,7 @@ def test_sync_delete_is_scoped_to_the_incoming_generation(lan):
 def test_sync_reports_a_failed_transfer_and_promotes_nothing(lan):
     done = lan('sync_vault_to_prod.sh', DAY, env={'STUB_RSYNC_FAIL': '1'})
     assert done.returncode != 0
-    assert 'ALERT careeros-sync' in done.stdout
+    assert 'ALERT careeros-vault-sync' in done.stdout
     assert 'prod keeps serving its last promoted generation' in done.stdout
 
 
@@ -1195,9 +1222,11 @@ def backups(tmp_path):
             'BACKUP_OWNER_SOURCE': str(vault),
             'BACKUP_AGE_RECIPIENTS': str(recipients),
             'BACKUP_ZSTD_LEVEL': '1',
-            # The group the receipt push runs as. On the VPS it is
-            # `careeros-backup`; here it has to be a group that exists, or
-            # every run would be testing the chgrp-failed path.
+            # The group the LAN pull's inbound receipt write arrives
+            # as. It has no default in the script -- the account is the
+            # owner's, named by them -- so every run here names one, and
+            # it has to be a group this host really has or every run
+            # would be testing the chgrp-failed path.
             'BACKUP_RECEIPT_GROUP': GROUP,
             'DEPLOY_DATA_LOCK': str(tmp_path / 'data.lock'),
             **(env or {}),
@@ -1425,6 +1454,20 @@ def test_a_non_root_backup_says_it_cannot_group_own_the_receipts(backups):
     done = backups('--full')
     assert done.returncode == 0, done.stdout + done.stderr
     assert 'not root' in done.stdout and 'no setgid bit' in done.stdout
+
+
+def test_a_backup_with_no_receipt_group_set_says_so_and_backs_up_anyway(backups):
+    """BACKUP_RECEIPT_GROUP lost its default with the invented account
+    name it was. Unset is not an error -- the archive is what matters --
+    but it is said out loud, because until it is set the LAN's receipts
+    cannot arrive and count-pruning stays off."""
+    done = backups('--full', env={'BACKUP_RECEIPT_GROUP': ''})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'BACKUP_RECEIPT_GROUP is not set' in done.stdout
+    assert 'count-pruning stays off' in done.stdout
+    assert stat.S_IMODE(backups.receipts.stat().st_mode) == 0o770
+    assert len(sorted((backups.dir / 'full').glob('*.tar.zst.age'))) == 1, \
+        'and the backup itself happened'
 
 
 def test_count_pruning_waits_for_a_confirmed_off_vps_copy(backups):
@@ -1780,6 +1823,30 @@ def test_the_lan_pull_fails_when_it_finds_nothing_new_and_nothing_recent(lan, tm
     assert 'nothing new was pulled and the off-VPS copy is stale' in done.stdout
 
 
+def test_the_lan_pull_names_the_variable_rather_than_guessing_an_account(lan, tmp_path):
+    """Same contract as the sync's SYNC_USER: the restricted backup
+    account on the VPS is one the owner created and named, so this script
+    has no default for it and says which variable is missing."""
+    dest = tmp_path / 'nas'
+    nas_archive(dest, 'full', '20261022T030000Z')
+    done = lan('pull_backups_lan.sh', env=pull_env(lan, dest, PULL_USER=''))
+    assert done.returncode != 0
+    assert 'PULL_USER is not set' in done.stdout
+    assert 'name the restricted backup account you created' in done.stdout
+
+
+def test_the_lan_pull_check_stale_needs_no_account_at_all(lan, tmp_path):
+    # --check-stale reads the LAN side only: no connection, so no
+    # credential and no account name. The alarm has to keep working on a
+    # host that has not been given either.
+    dest = tmp_path / 'nas'
+    nas_archive(dest, 'full', '20261022T030000Z')
+    done = lan('pull_backups_lan.sh', '--check-stale',
+               env=pull_env(lan, dest, PULL_USER=''))
+    assert 'PULL_USER is not set' not in done.stdout
+    assert 'STALE owner-data' in done.stdout
+
+
 def test_the_lan_pull_refuses_to_run_without_its_receipt_key(lan, tmp_path):
     dest = tmp_path / 'nas'
     nas_archive(dest, 'full', '20261022T030000Z')
@@ -1799,7 +1866,7 @@ def smoke(tmp_path):
     write_executable(stubs / 'curl', CURL_STUB)
     env_file = tmp_path / 'prod.env'
     env_file.write_text('SMOKE_BASE_URL=https://app.career-os.test\n'
-                        'SMOKE_EMAIL=smoke@career-os.test\n'
+                        'SMOKE_EMAIL=tester@career-os.test\n'
                         "SMOKE_PASSWORD='correct horse battery staple'\n")
     env_file.chmod(0o640)
     log = tmp_path / 'curl.log'
@@ -1850,7 +1917,7 @@ def test_smoke_names_the_step_that_failed(smoke):
     assert done.returncode != 0
     assert 'ALERT careeros-smoke: step login failed' in done.stdout
 
-    smoke.env_file.write_text('SMOKE_EMAIL=smoke@career-os.test\nSMOKE_PASSWORD=x\n')
+    smoke.env_file.write_text('SMOKE_EMAIL=tester@career-os.test\nSMOKE_PASSWORD=x\n')
     done = smoke()
     assert done.returncode != 0
     assert 'step env-file failed: no base URL' in done.stdout
@@ -1920,7 +1987,7 @@ def test_a_failed_sync_is_in_the_log_the_fails_line_and_the_exit_code(nightly, t
     done, log = nightly(env={'SYNC_TO_PROD': '1', 'SYNC_DATA': str(tmp_path / 'no-data')})
     assert '== nightly finished, fails: none ==' in log, \
         'the night itself finished, which is what the sync reads as its manifest'
-    assert 'ALERT careeros-sync' in log
+    assert 'ALERT careeros-vault-sync' in log
     assert '== sync FAILED' in log
     assert 'fails: sync' in log
     assert 'FAILED: sync' in done.stdout, 'and the owner hears about it'
@@ -1932,5 +1999,5 @@ def test_a_failed_night_syncs_nothing_at_all(nightly):
                              'NIGHTLY_OLLAMA': 'http://127.0.0.1:1'})
     assert 'FATAL: local LLM host' in log
     assert '-- sync skipped: the night ended with fails:' in log
-    assert 'ALERT careeros-sync' not in log
+    assert 'ALERT careeros-vault-sync' not in log
     assert done.returncode == 1

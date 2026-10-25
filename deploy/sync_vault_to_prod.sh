@@ -47,11 +47,18 @@
 #                      unset no vault file is staged at all   (unset)
 #   SYNC_VAULT_FILES   allowlist inside the vault    (`companies tags.yaml`)
 #   SYNC_PROVIDERS     providers whose tenants/runs ship          (the six)
-#   SYNC_TARGET        rsync target             (careeros-sync@app.career-os.ch)
+#   SYNC_USER          the restricted receiving account on the VPS. NO
+#                      DEFAULT: the account is one the owner created and
+#                      named, and a name invented here would be a login
+#                      nobody can use. Unset is a one-line usage error.
+#                                                               (unset)
+#   SYNC_HOST          the VPS                        (app.career-os.ch)
+#   SYNC_TARGET        the rsync target, composed as SYNC_USER@SYNC_HOST;
+#                      set it whole to override both
 #   SYNC_SSH_KEY       private key for this push only
-#                                      (/root/.ssh/careeros-sync/id_ed25519)
+#                                      (/root/.ssh/careeros-push/id_ed25519)
 #   SYNC_KNOWN_HOSTS   pinned VPS host key file
-#                                      (/root/.ssh/careeros-sync/known_hosts)
+#                                      (/root/.ssh/careeros-push/known_hosts)
 #   SYNC_SSH_PORT      port                                            (22)
 #   SYNC_MIN_POOL_ROWS       floor for the day's pool postings         (50)
 #   SYNC_MIN_CLASSIFIED_ROWS floor for the day's classified postings   (50)
@@ -111,13 +118,15 @@
 #   owner-run seed import (decision 6). `search.yaml` is excluded for the
 #   same reason: it indexes owner records too.
 #
-# THE SSH SIDE (owner work, Part 3 of the deploy runbook -- this script
+# THE SSH SIDE (owner work, deploy/RUNBOOK.md "The off-VPS copy" -- this script
 # creates no keys and holds no credential)
-#   On the VPS, the receiving account's ~/.ssh/authorized_keys gets ONE
-#   line, write-only and confined to the incoming directory:
+#   On the VPS, the receiving account -- whatever the owner named it,
+#   which is the name SYNC_USER carries -- gets ONE
+#   ~/.ssh/authorized_keys line, write-only and confined to the incoming
+#   directory:
 #
 #     restrict,command="/usr/bin/rrsync -wo /srv/careeros/prod/incoming",\
-#     from="203.0.113.7" ssh-ed25519 AAAA...PUBLIC... careeros-sync@lan
+#     from="203.0.113.7" ssh-ed25519 AAAA...PUSHKEY... push from the LAN
 #
 #   `restrict` turns off forwarding, PTY and agent; `from=` pins the LAN's
 #   public egress address (203.0.113.7 is a documentation address --
@@ -140,8 +149,8 @@
 #   by hand, then remove the old line. Revocation: delete the line.
 #
 # FAILURE
-#   Any failure exits non-zero and prints one `ALERT careeros-sync <day>:`
-#   line on stdout. When the nightly chains this script, that line lands in
+#   Any failure exits non-zero and prints one
+#   `ALERT careeros-vault-sync <day>:` line on stdout. When the nightly chains this script, that line lands in
 #   the night's log and `sync` joins the `fails:` line (scripts/nightly_pipeline.sh).
 set -euo pipefail
 
@@ -155,9 +164,13 @@ SYNC_DATA="${SYNC_DATA%/}"
 SYNC_VAULT="${SYNC_VAULT:-${CAREEROS_VAULT:-}}"
 SYNC_VAULT_FILES="${SYNC_VAULT_FILES:-companies tags.yaml}"
 SYNC_PROVIDERS="${SYNC_PROVIDERS:-personio greenhouse lever ashby recruitee smartrecruiters}"
-SYNC_TARGET="${SYNC_TARGET:-careeros-sync@app.career-os.ch}"
-SYNC_SSH_KEY="${SYNC_SSH_KEY:-/root/.ssh/careeros-sync/id_ed25519}"
-SYNC_KNOWN_HOSTS="${SYNC_KNOWN_HOSTS:-/root/.ssh/careeros-sync/known_hosts}"
+SYNC_USER="${SYNC_USER:-}"
+SYNC_HOST="${SYNC_HOST:-app.career-os.ch}"
+# No default account name: see SYNC_USER in the header. PULL_TARGET's
+# twin in deploy/pull_backups_lan.sh follows the same rule.
+SYNC_TARGET="${SYNC_TARGET:-${SYNC_USER:+$SYNC_USER@$SYNC_HOST}}"
+SYNC_SSH_KEY="${SYNC_SSH_KEY:-/root/.ssh/careeros-push/id_ed25519}"
+SYNC_KNOWN_HOSTS="${SYNC_KNOWN_HOSTS:-/root/.ssh/careeros-push/known_hosts}"
 SYNC_SSH_PORT="${SYNC_SSH_PORT:-22}"
 SYNC_MIN_POOL_ROWS="${SYNC_MIN_POOL_ROWS:-50}"
 SYNC_MIN_CLASSIFIED_ROWS="${SYNC_MIN_CLASSIFIED_ROWS:-50}"
@@ -174,7 +187,7 @@ RSYNC_SAFE=(-a --no-links --no-devices --no-specials)
 
 STAGE=""
 alert() {   # alert <reason...>: the one line the owner reads, then out
-  echo "ALERT careeros-sync ${DAY:-?}: $*"
+  echo "ALERT careeros-vault-sync ${DAY:-?}: $*"
   exit 1
 }
 
@@ -270,6 +283,11 @@ done
 echo "-- source ok: $pool_rows pooled, $classified_rows classified, $tenants tenants"
 
 # --- 3. the credential has to be a credential -----------------------------
+# Who to log in as, first: no account name is invented here, so an unset
+# SYNC_USER is one readable line rather than an ssh failure against a
+# guess (SYNC_USER in the header).
+[[ -n $SYNC_TARGET ]] \
+  || alert "SYNC_USER is not set: name the restricted receiving account you created on the VPS (SYNC_USER=<account> $(basename "$0") $DAY), or set SYNC_TARGET whole. See this script's header, THE SSH SIDE"
 [[ -f $SYNC_SSH_KEY ]] || alert "no push key at $SYNC_SSH_KEY (owner work: see this script's header)"
 key_mode=$(stat -c '%a' "$SYNC_SSH_KEY")
 dir_mode=$(stat -c '%a' "$(dirname "$SYNC_SSH_KEY")")
@@ -279,10 +297,10 @@ dir_mode=$(stat -c '%a' "$(dirname "$SYNC_SSH_KEY")")
   || alert "no pinned host key at $SYNC_KNOWN_HOSTS -- StrictHostKeyChecking=yes would fail anyway"
 
 # --- 4. stage the allowlist, so what is hashed is exactly what is sent ----
-# A private copy is the stable snapshot the amendment asks for: the nightly
+# A private copy is the stable source the amendment asks for: the nightly
 # is finished, but the owner's own work is not, and rsyncing a live tree
 # could send half of a file somebody is editing. 16 MB makes this cheap.
-STAGE=$(mktemp -d -t careeros-sync-XXXXXX)
+STAGE=$(mktemp -d -t careeros-vault-sync-XXXXXX)
 PAYLOAD="$STAGE/payload"
 mkdir -p "$PAYLOAD"
 

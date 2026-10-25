@@ -60,38 +60,47 @@
 #   "is a recent, verified copy of both classes on the LAN" is.
 #
 # ENVIRONMENT
-#   PULL_DEST         LAN destination directory  (/srv/nas/careeros-backups)
-#   PULL_TARGET       rsync source         (careeros-backup@app.career-os.ch)
+#   PULL_DEST         LAN destination directory
+#                                     (/srv/nas/careeros-prod-backups)
+#   PULL_USER         the restricted account on the VPS that this script
+#                     logs in as. NO DEFAULT: the account is one the owner
+#                     created and named, and a name invented in a script
+#                     here would be a login nobody can use. Unset is a
+#                     one-line usage error.                       (unset)
+#   PULL_HOST         the VPS                       (app.career-os.ch)
+#   PULL_TARGET       the rsync source, composed as PULL_USER@PULL_HOST;
+#                     set it whole to override both
 #   PULL_SSH_KEY      private key for the read-only pull
-#                                    (/root/.ssh/careeros-backup/id_ed25519)
+#                                      (/root/.ssh/careeros-pull/id_ed25519)
 #   PULL_RECEIPT_SSH_KEY  private key for the receipt write; a DIFFERENT
 #                     key, because one authorized_keys line carries one
 #                     forced command and the pull key's is read-only
-#                               (/root/.ssh/careeros-backup/receipt_ed25519)
+#                                 (/root/.ssh/careeros-pull/receipt_ed25519)
 #   PULL_KNOWN_HOSTS  pinned VPS host key file
-#                                    (/root/.ssh/careeros-backup/known_hosts)
+#                                      (/root/.ssh/careeros-pull/known_hosts)
 #   PULL_SSH_PORT     port                                            (22)
 #   PULL_MAX_FULL_AGE_DAYS   staleness limit for the newest local full  (8)
 #   PULL_MAX_OWNER_AGE_DAYS  staleness limit for owner-data             (2)
 #
-#   PULL_DEST should be a versioned NAS share whose snapshots the VPS and
-#   app credentials cannot delete (Amendment 2 prefers that over a second
-#   Proxmox disk: an independent failure domain, not a second copy in the
-#   same one).
+#   PULL_DEST should be a versioned NAS share whose own versions the VPS
+#   and the app credentials cannot delete: an independent failure domain,
+#   not a second copy inside the same one (Amendment 2).
 #
 #   Archives keep their VPS timestamps (`rsync -a`), so "the newest local
 #   full is 9 days old" means the backup is 9 days old, not the download.
 #
-# THE SSH SIDE (owner work, Part 3 -- this script creates no keys)
-#   On the VPS, a dedicated unprivileged account whose
+# THE SSH SIDE (owner work -- this script creates no keys and names no
+# account; deploy/RUNBOOK.md, "The off-VPS copy", has it as a checklist)
+#   On the VPS, a dedicated unprivileged account -- whatever the owner
+#   named it, which is the name PULL_USER carries -- whose
 #   ~/.ssh/authorized_keys holds TWO lines, one per key, because a forced
 #   command belongs to a key and reading and writing need different ones:
 #
 #     restrict,command="/usr/bin/rrsync -ro /var/backups/careeros",\
-#     from="203.0.113.7" ssh-ed25519 AAAA...PUBLIC... careeros-backup-pull@lan
+#     from="203.0.113.7" ssh-ed25519 AAAA...PULLKEY... pull from the LAN
 #
 #     restrict,command="/usr/bin/rrsync -wo /var/backups/careeros/.receipts",\
-#     from="203.0.113.7" ssh-ed25519 AAAA...RECEIPT... careeros-backup-receipt@lan
+#     from="203.0.113.7" ssh-ed25519 AAAA...RECEIPTKEY... receipts from the LAN
 #
 #   `rrsync -ro` refuses rsync's writing modes; `rrsync -wo` refuses its
 #   reading modes; both confine every path they are handed to their own
@@ -109,20 +118,25 @@
 #
 #   Note what group-write on a directory the backup account OWNS means for
 #   the transfer: this account can create files in `.receipts/` and cannot
-#   chown, chmod or set times on the directory itself. So the receipt push
-#   sends plain FILES with `--no-perms --no-owner --no-group --no-times`
-#   and never the directory -- an `rsync -a` of the directory would try to
-#   apply its metadata and exit 23.
+#   chown, chmod or set times on the directory itself. So the receipt
+#   transfer sends plain FILES with `--no-perms --no-owner --no-group
+#   --no-times` and never the directory -- an `rsync -a` of the directory
+#   would try to apply its metadata and exit 23.
+#
+#   Both connections are made BY THIS HOST, into the VPS. Nothing on the
+#   VPS ever connects out, to the LAN or anywhere else: it has no
+#   credential for this host and no address for it.
 #
 # FAILURE
-#   Non-zero exit and one `ALERT careeros-backup-pull:` line.
+#   Non-zero exit and one `ALERT careeros-prod-backup-pull:` line.
 set -euo pipefail
 
-PULL_DEST="${PULL_DEST:-/srv/nas/careeros-backups}"
-PULL_TARGET="${PULL_TARGET:-careeros-backup@app.career-os.ch}"
-PULL_SSH_KEY="${PULL_SSH_KEY:-/root/.ssh/careeros-backup/id_ed25519}"
-PULL_RECEIPT_SSH_KEY="${PULL_RECEIPT_SSH_KEY:-/root/.ssh/careeros-backup/receipt_ed25519}"
-PULL_KNOWN_HOSTS="${PULL_KNOWN_HOSTS:-/root/.ssh/careeros-backup/known_hosts}"
+PULL_DEST="${PULL_DEST:-/srv/nas/careeros-prod-backups}"
+PULL_USER="${PULL_USER:-}"
+PULL_HOST="${PULL_HOST:-app.career-os.ch}"
+PULL_SSH_KEY="${PULL_SSH_KEY:-/root/.ssh/careeros-pull/id_ed25519}"
+PULL_RECEIPT_SSH_KEY="${PULL_RECEIPT_SSH_KEY:-/root/.ssh/careeros-pull/receipt_ed25519}"
+PULL_KNOWN_HOSTS="${PULL_KNOWN_HOSTS:-/root/.ssh/careeros-pull/known_hosts}"
 PULL_SSH_PORT="${PULL_SSH_PORT:-22}"
 PULL_MAX_FULL_AGE_DAYS="${PULL_MAX_FULL_AGE_DAYS:-8}"
 PULL_MAX_OWNER_AGE_DAYS="${PULL_MAX_OWNER_AGE_DAYS:-2}"
@@ -131,7 +145,7 @@ MODE="${1:-}"
 WORK=""
 
 alert() {
-  echo "ALERT careeros-backup-pull: $*"
+  echo "ALERT careeros-prod-backup-pull: $*"
   exit 1
 }
 
@@ -190,6 +204,15 @@ if [[ $MODE == --check-stale ]]; then
   exit 0
 fi
 [[ -z $MODE ]] || alert "usage: $(basename "$0") [--check-stale] (got '$MODE')"
+
+# Who to log in as. There is no default on purpose: the account on the
+# VPS is one the owner created with a name of their choosing, and a name
+# guessed here would make every run fail with an ssh error instead of
+# this one line. PULL_TARGET set whole still wins, for a host that is
+# reached some other way.
+PULL_TARGET="${PULL_TARGET:-${PULL_USER:+$PULL_USER@$PULL_HOST}}"
+[[ -n $PULL_TARGET ]] \
+  || alert "PULL_USER is not set: name the restricted backup account you created on the VPS (PULL_USER=<account> $(basename "$0")), or set PULL_TARGET whole. See this script's header, THE SSH SIDE"
 
 [[ -f $PULL_SSH_KEY ]] || alert "no pull key at $PULL_SSH_KEY (owner work: see this script's header)"
 [[ -f $PULL_RECEIPT_SSH_KEY ]] \
