@@ -10,8 +10,8 @@ looks like**, and says **what to paste back** if it does not.
 | **[VPS]** | logged into the server over SSH (`ssh ubuntu@app.career-os.ch`) |
 | **[GitHub]** | github.com in a browser |
 
-Read **Known gaps** at the end before the first production deploy. Two of
-the things in it are decisions only you can make.
+Read **Known gaps** at the end before the first production deploy. One of
+the things still open in it is a decision only you can make.
 
 Nothing in here needs the agent, and the agent never connects to the
 server. Every command below is yours.
@@ -233,6 +233,11 @@ production key here. **You can also leave all three out**: the app runs,
 and an extraction settles as `not_configured` — a visible failure with
 nothing invented (Known gaps, 2).
 
+To serve the React front end, also set `CAREEROS_REACT_UI=1` here. The
+build ships in every release checkout, so the flag is all that is needed;
+it takes effect at the next restart (the note below). What it does and
+where the build lives is in [`.env.example`](../.env.example).
+
 There is no host or port line. The app takes both as command-line flags,
 which `careeros-stg.service` passes; a `CAREEROS_PORT=` line here would
 be read by nothing.
@@ -336,9 +341,10 @@ name in Caddy and not an account in the app.
 > If the certificate never arrives: `journalctl -u caddy -n 50
 > --no-pager` — paste that back. Most often it is DNS or port 80.
 >
-> Known gap: most pages are React-only and answer 404 until a release
-> carries a built front end. `/jobs` and the whole JSON API work either
-> way. See Known gaps, 1.
+> Every release now carries the built front end — `frontend/dist` is
+> committed and the CI job `frontend-dist` keeps it fresh — so the
+> React-only pages work as soon as `CAREEROS_REACT_UI=1` is in the env
+> file (step 5). `/jobs` and the whole JSON API work either way.
 
 ## 7. [VPS] Turn the staging deploy timer on
 
@@ -370,6 +376,8 @@ sudoedit /etc/careeros/prod.env
 ```
 
 Its own LLM key, with its own spend limit. Never the staging key.
+`CAREEROS_REACT_UI=1` in `/etc/careeros/prod.env` turns the React front
+end on here too, under the same restart rule.
 
 ## [VPS] 2. Enable the service, without starting it
 
@@ -803,29 +811,33 @@ runs as `root`.
 
 # Known gaps
 
-Four things the toolchain cannot settle on its own. None is a bug in these
-scripts; each is a decision or a change in the app.
+Four things the toolchain cannot settle on its own. The first is now
+closed; three remain open. None is a bug in these scripts; each is a
+decision or a change in the app.
 
-### 1. The React front end is not built, so most pages 404
+### 1. The React front end is not built, so most pages 404 — CLOSED
 
-`deploy.sh` installs `requirements.txt` into a venv. It does **not** run
-`npm ci && npm run build`, and `setup-vps.sh` does not install Node.
+**Closed 2026-10-25** by the third of the three options this gap
+originally listed: committing the build output. `frontend/dist` is in
+Git, built with Node 22, pinned by `frontend/.nvmrc` and `engines` in
+`frontend/package.json`.
 
-A release therefore carries no `frontend/dist`, so `CAREEROS_REACT_UI`
-has nothing to serve and the React-only routes — `/`, `/companies`,
-`/experiences`, `/taxonomy`, `/notes` and every detail page — answer 404.
-What works is `/jobs` in its Jinja rendering plus the whole JSON API.
-`tests/smoke.sh` asserts only routes that exist either way, so it stays
-honest about this rather than hiding it.
+The CI job `frontend-dist` fails any push or pull request whose committed
+`frontend/dist` differs from a fresh `npm ci && npm run build`, so a
+stale or hand-edited dist cannot merge.
 
-Three ways out, your call: build on the VPS (add Node to `setup-vps.sh`
-and a build step to `deploy.sh` — most convenient, biggest new surface);
-build on the Mac and copy `frontend/dist` into the release; or commit the
-build output. Until one is chosen, leave `CAREEROS_REACT_UI` commented
-out in both env files so the app serves the Jinja rendering instead of a
-blank page.
+The VPS needs no Node and `deploy.sh` is unchanged: every release
+checkout already contains the build.
 
-*Closed by:* a front-end build PR, whichever of the three you pick.
+To turn it on, per environment: set `CAREEROS_REACT_UI=1` in
+`/etc/careeros/stg.env` and in `/etc/careeros/prod.env` (with
+`sudoedit`), then `sudo systemctl restart careeros-stg` /
+`careeros-prod`. **Expected after the restart:**
+`https://staging.career-os.ch/` and the other React-only routes
+(`/companies`, `/experiences`, `/taxonomy`, `/notes`, the detail pages)
+serve the React app instead of 404.
+
+*Closed by:* this front-end dist PR.
 
 ### 2. An environment with no LLM key settles extractions as `not_configured`
 
