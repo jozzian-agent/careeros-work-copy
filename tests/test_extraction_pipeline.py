@@ -1250,3 +1250,70 @@ def test_llm_correction_creating_new_company_completes(tmp_path, monkeypatch):
     if thread is not None:  # A completed worker may already be pruned at teardown.
         thread.join(timeout=5)
     assert cascaded == [job['company_id']]
+
+
+def test_llm_correction_for_a_tester_creates_no_company_and_still_completes(tmp_path, monkeypatch):
+    """The opposite side of the gate. A tester-owned record does not
+    contribute to the shared half (enrich.contributes_to_shared, M2/D3),
+    so resolve_company's create rung raises CompanyCreationDenied and the
+    ladder settles the job at link_state 'pending' with no company_id --
+    nothing is created, yet the extraction itself succeeded: its fields
+    are saved and the job reports complete/done, NOT extract_failed.
+    This pins that the callback's new-company branch staying quiet
+    (new_company_id is None) is the correct outcome for a denied ladder,
+    not a masked error."""
+    from careeros import server, users
+
+    def schema_html(name):
+        return ('<script type="application/ld+json">{"@type":"JobPosting","title":"Role",'
+                f'"hiringOrganization":{{"name":"{name}"}}}}</script>'
+                '<p>Great opportunity for an experienced builder.</p>')
+
+    # Same fuzzy shape as the create-side test: a vault company makes the
+    # schema name land in fuzzy_name with no link, leaving the ladder open.
+    vault.save_company(tmp_path, {'name': 'Acme GmbH'})
+    monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Acme'))
+    monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps(
+        {'title': 'Senior Platform Engineer', 'company': 'Zzztqx Novelworks AG'})))
+    monkeypatch.setattr(ingest, 'get_llm_model', object)
+    monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
+    from org_intake import enrich as company_lookup
+    cascaded = []
+    monkeypatch.setattr(company_lookup, 'classify_sector',
+                        lambda company, *a, **k: cascaded.append(company['id']) or (None, None))
+    monkeypatch.setattr(company_lookup, 'classify_size', lambda *a, **k: (None, None))
+
+    app = create_app(tmp_path)
+    api = app.test_client()
+    # A tester signs in for real: the job gets their owner stamp (M2/D4),
+    # which is what makes contributes_to_shared answer False for it.
+    users.create_user(tmp_path, email='tester@example.test', name='Tester',
+                      role='tester', password='correct horse battery staple')
+    login = api.post('/login', json={'email': 'tester@example.test',
+                                     'password': 'correct horse battery staple'})
+    assert login.status_code == 200
+
+    response = api.post('/api/jobs/intake', json={'url': 'https://unrelated.example/role'})
+    job_id = response.json['job']['id']
+    pre = vault.load_job(tmp_path, job_id)
+    assert pre['company_link_reason'] == 'fuzzy_name'
+    assert pre['company_id'] is None
+
+    app.config['LLM_THREADS'][job_id].join(timeout=5)
+
+    job = vault.load_job(tmp_path, job_id)
+    # The extraction itself is a success and is reported as one.
+    assert job['ingest_state'] == 'complete'
+    assert job['ingest_error'] is None
+    assert job['ai_status'] == 'done'
+    # But the gate held: no company was created and the link stays pending.
+    assert job['company_id'] is None
+    assert job['company_link_state'] == 'pending'
+    names = {c['name'] for c in vault.list_companies(tmp_path)}
+    assert names == {'Acme GmbH'}
+    # The employer name survives as the job's own free text, so the record
+    # still reads who the posting is from.
+    assert job['company'] == 'Zzztqx Novelworks AG'
+    assert job['employer_named_in_posting'] == 'Zzztqx Novelworks AG'
+    # And no cascade was scheduled for a company that does not exist.
+    assert cascaded == []
