@@ -7,16 +7,27 @@
 # (deploy/RUNBOOK.md, "Production, the first time").
 #
 # HOW THE APP IS ACTUALLY STARTED
-#   `python -m careeros.server --host 127.0.0.1 --port 8001`. That is
-#   what careeros/server.py's main() implements: argparse flags, then
-#   Flask's own app.run(). The app reads NO variable for the host or the
-#   port, so the flags are the only way to say where it listens -- a
-#   `CAREEROS_PORT=` line in the env file would be read by nothing. It is
-#   not a uvicorn app -- there is no ASGI entry point in this codebase
-#   and no uvicorn or gunicorn in requirements.txt -- so this unit starts
-#   what exists rather than what a WSGI deployment would prefer. See
-#   deploy/RUNBOOK.md, "Known gaps", before putting real traffic on it.
-#   `python -m` puts the working directory on sys.path, which is how the
+#   gunicorn, the production WSGI server, from the release's own venv.
+#   Flask's app.run() -- which is what careeros/server.py's main() uses --
+#   is a development server, and deploy/RUNBOOK.md's fourth known gap said
+#   adding gunicorn and changing this one line was the whole change to make
+#   when traffic justified it. The first real run showed both environments
+#   serving real clicks behind Caddy, so it is justified now.
+#
+#   `careeros.server:create_app()` names the module, then the factory, and
+#   the parentheses are what make gunicorn call it rather than look for an
+#   application object. create_app(vault=None) resolves the vault from
+#   CAREEROS_VAULT, which this unit already sets with Environment= after
+#   EnvironmentFile= below, so nothing else about how the app is built
+#   changes. The app still reads NO variable for the host or the port: a
+#   `CAREEROS_PORT=` line in the env file would be read by nothing, and
+#   gunicorn's --bind here is the only place the port is said.
+#
+#   main() in careeros/server.py stays as it is. It is how the app is run
+#   locally (`python -m careeros.server`), and the tests build the app
+#   through create_app directly; neither path goes through this unit.
+#
+#   WorkingDirectory below puts the release on sys.path, which is how the
 #   release's own `careeros` package is the one that gets imported.
 #
 # WHY THE Environment= LINES COME AFTER EnvironmentFile=
@@ -30,8 +41,19 @@
 #   This box has 1.9 GB and runs staging beside production. MemoryHigh is
 #   the point from which the kernel reclaims hard and the process is
 #   slowed down; MemoryMax is the point at which it is killed and
-#   Restart=on-failure brings it back. One process, single worker: there
-#   is nothing here to multiply.
+#   Restart=on-failure brings it back. Both limits cover the whole service,
+#   meaning gunicorn's master and ALL of its workers together, so the
+#   --workers count below is spent out of this one budget.
+#
+# WHY TWO WORKERS AND NOT MORE
+#   Each worker is a separate process holding its own copy of the app. The
+#   single-process Flask server this replaces fit inside the same 768M, so
+#   two sync workers fit beside staging on a 1.9 GB box; a larger number
+#   would spend the budget on processes and end in the OOM-kill the limit
+#   is there to make survivable. Two is also what buys the one thing the
+#   old arrangement could not do: a worker that dies is respawned by
+#   gunicorn's master while the other one keeps answering, instead of the
+#   whole environment going down and waiting for Restart=on-failure.
 
 [Unit]
 Description=Career OS (production)
@@ -47,7 +69,7 @@ WorkingDirectory=/srv/careeros/prod/app/current
 EnvironmentFile=/etc/careeros/prod.env
 Environment=CAREEROS_VAULT=/srv/careeros/prod/vault
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/srv/careeros/prod/app/current/.venv/bin/python -m careeros.server --host 127.0.0.1 --port 8001
+ExecStart=/srv/careeros/prod/app/current/.venv/bin/gunicorn --bind 127.0.0.1:8001 --workers 2 careeros.server:create_app()
 Restart=on-failure
 RestartSec=5s
 MemoryHigh=512M
@@ -59,6 +81,15 @@ MemoryMax=768M
 # through a temporary file in the same directory, so the vault is the
 # only writable path either of them needs). Temporary files anywhere
 # else go to the private /tmp below.
+#
+# gunicorn wants one more thing it does not get here: a control socket
+# under this account's home directory, which setup-vps.sh set to
+# /srv/careeros/<env> and ProtectSystem=strict leaves read-only, with
+# ProtectHome=yes closing the runtime directory it would fall back to. So
+# gunicorn logs one `Control server error:` line at every start and then
+# serves normally, which was checked rather than assumed. The hardening is
+# worth more than a control interface nothing here uses, so that line is
+# expected: deploy/RUNBOOK.md's fourth known gap tells the owner so.
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

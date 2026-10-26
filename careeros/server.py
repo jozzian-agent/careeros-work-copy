@@ -530,12 +530,23 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # M1 sessions. A signed cookie holding one user id: HttpOnly so no
     # script can read it, SameSite=Lax so another site cannot post with
     # it, and a 30-day life so closing the browser does not sign anybody
-    # out. Secure is deliberately not forced, because the instance is not
-    # always reached over HTTPS.
+    # out.
+    #
+    # Secure is the environment's call, and it is off unless asked for.
+    # Off is what a local run needs: a browser will not send a Secure
+    # cookie back over plain HTTP, so a local instance on http:// would
+    # sign in and immediately look signed out. (The smoke test is not
+    # affected: curl treats the loopback as a trustworthy origin and does
+    # replay a Secure cookie over http://127.0.0.1, verified against curl
+    # 7.81 on 2026-10-26, so the post-deploy smoke keeps working with the
+    # flag on.) On the VPS both environments are reached only through
+    # Caddy over HTTPS, so one CAREEROS_SESSION_COOKIE_SECURE=1 line in an
+    # env file turns it on there. deploy/RUNBOOK.md, "Known gaps", 3, says
+    # what to check before flipping it.
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
-        SESSION_COOKIE_SECURE=False,
+        SESSION_COOKIE_SECURE=os.environ.get('CAREEROS_SESSION_COOKIE_SECURE') == '1',
         PERMANENT_SESSION_LIFETIME=users.SESSION_MAX_AGE,
     )
     # The signing key is persisted in the vault, so sessions survive a
