@@ -2171,6 +2171,11 @@ class WriteLock:
             raise RuntimeError('WriteLock is not reentrant across flock; refactor to acquire once')
         self.fd = None
         try:
+            # The root must exist to be opened; a fresh vault (a first
+            # write ever — a rate-limit count, a token record) has not
+            # created it yet. Creating it here is the one place every
+            # writer passes through.
+            self.root.mkdir(parents=True, exist_ok=True)
             self.fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
             fcntl.flock(self.fd, fcntl.LOCK_EX)
         except Exception:

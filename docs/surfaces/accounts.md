@@ -77,6 +77,50 @@ holding, since the cookie carries an id and not a password. Disabling the
 account ends one on its next request; deleting the vault's `secret_key`
 signs everybody out at once.
 
+**Forgot password** (`/forgot-password`, added 2026-10-26). One email
+field, one button, and one answer for every submission — "If an account
+exists for that address, a reset link is on its way." — whether the
+address is known, unknown, disabled or rate-limited, so the page cannot
+be used to find out who has an account. A real request mails a link
+that works once and expires in an hour; a newer request replaces an
+older live one, so only the newest link works.
+
+**Accept invite** (`/accept-invite/<token>`, added 2026-10-26). The page
+an invite link opens: the tester's name (prefilled when the invite
+carried one) and a password of their own, at least 10 characters — the
+whole rule, the same one the CLI uses. Submitting creates the account
+with the default role (`tester`, never admin), spends the link, and
+sends the person to the login page. **No auto sign-in**, deliberately:
+the mail is not proof of a browser, and an invite link forwarded to a
+third party would otherwise open a signed-in session for whoever
+clicked it. A dead link — used, expired, or never issued — shows one
+dead-link page, the same one everywhere.
+
+**Reset password** (`/reset-password/<token>`, added 2026-10-26). The
+page a reset link opens. One password field with the same rule;
+submitting sets the new password, spends the link, **bumps the
+account's session epoch** and sends the person to the login page, again
+with no auto sign-in. The epoch is a counter on the user record that
+every session cookie carries a copy of: a reset increments it, so every
+session minted before the reset fails the gate on its next request —
+which is what a person reaching for a reset actually wants when they
+think an account is in the wrong hands. It touches that one account;
+other users' sessions are untouched. A disabled account's live link is
+spent but refused with the one dead-link message, the same shape as
+`request_reset`'s silence.
+
+**Rate limiting** (added 2026-10-26). The three unauthenticated POSTs —
+forgot-password, accept-invite submit, reset-password submit — are
+limited per email address *and* per client IP: 5 attempts per hour by
+default (`CAREEROS_RATE_LIMIT`, `CAREEROS_RATE_WINDOW`), counted in the
+vault (`ratelimit/windows.yaml`) under the write lock so both gunicorn
+workers share one budget. A refused attempt still counts — spending the
+budget is the point. Behind Caddy the IP half needs
+`CAREEROS_TRUSTED_PROXY=1` (werkzeug ProxyFix) or every request looks
+like the proxy; without it the per-address limit carries the load
+alone, which is the documented degenerate case. Login itself remains
+unlimited, the accepted limit noted below.
+
 ## States
 
 | Situation | What a person sees |
@@ -98,9 +142,17 @@ signs everybody out at once.
   table in [PROJECT.md](../../PROJECT.md) maps them to Owner and Friend.
 - Two limits accepted rather than solved, for a test of five people: no
   CSRF token beyond what `SameSite=Lax` plus same-origin JSON gives, and
-  no rate limiting on the login endpoint. The timing of a failed sign-in
-  is not one of them: every attempt runs the hash check, against a
-  throwaway hash when there is no account to check, so an unknown email,
-  a disabled account and a wrong password cost the same.
-- Self-service password reset, and anything by email, are not in this
-  milestone and have no home yet.
+  no rate limiting on the login endpoint (the three unauthenticated
+  mail-and-token POSTs are limited since 2026-10-26, above; login is
+  not). The timing of a failed sign-in is not one of them: every attempt
+  runs the hash check, against a throwaway hash when there is no account
+  to check, so an unknown email, a disabled account and a wrong password
+  cost the same.
+- Self-service password reset exists since 2026-10-26 (above). The one
+  enumeration tension left, documented rather than solved: the
+  forgot-password answer and its timing are equalized (same hash check
+  against the throwaway `_ABSENT_HASH`), but a request for a known
+  address costs one real SMTP send that an unknown address does not —
+  an observer at the provider or the network could in principle tell
+  the two apart. For a five-person deployment behind a rate limit this
+  is accepted.

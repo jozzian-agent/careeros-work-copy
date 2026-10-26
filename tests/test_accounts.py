@@ -189,7 +189,11 @@ def test_the_cookie_carries_an_id_and_nothing_a_client_could_forge(app, admin):
     # not carry it and a client rewriting the cookie cannot become admin.
     assert 'admin' not in cookie.value and 'tester' not in cookie.value
     with client.session_transaction() as stored:
-        assert dict(stored) == {'user_id': admin['id'], '_permanent': True}
+        # The session epoch joined the id when the password reset arrived:
+        # the cookie carries the generation of sessions it belongs to, and a
+        # reset of the record's epoch ends it (users.bump_session_epoch).
+        assert dict(stored) == {'user_id': admin['id'], 'session_epoch': 0,
+                                '_permanent': True}
 
 
 @pytest.mark.parametrize('setting, secure', [('1', True), (None, False)])
