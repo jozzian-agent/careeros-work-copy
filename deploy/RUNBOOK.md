@@ -236,9 +236,18 @@ build ships in every release checkout, so the flag is all that is needed;
 it takes effect at the next restart (the note below). What it does and
 where the build lives is in [`.env.example`](../.env.example).
 
-There is no host or port line. The app takes both as command-line flags,
-which `careeros-stg.service` passes; a `CAREEROS_PORT=` line here would
-be read by nothing.
+The other flag this file can carry is
+`CAREEROS_SESSION_COOKIE_SECURE=1`, which flags the session cookie
+`Secure`. **Leave it out of staging for now**: production proves the flag
+first (Known gaps, 3 has the why and the by-hand check), and a by-hand
+HTTPS smoke against staging would 401 at Caddy's basic auth anyway, so
+staging has no proven path to follow yet. The automatic post-deploy smoke
+is not a blocker either way — curl replays a Secure cookie over the
+loopback (Known gaps, 3).
+
+There is no host or port line. Locally the app takes both as command-line
+flags; on this box `careeros-stg.service` tells gunicorn which address to
+bind, so a `CAREEROS_PORT=` line here would be read by nothing.
 
 > **Editing an env file later — any of them, either environment — needs a
 > service restart to take effect:** `sudo systemctl restart careeros-stg`
@@ -383,6 +392,15 @@ Its own LLM key, with its own spend limit. Never the staging key.
 `CAREEROS_REACT_UI=1` in `/etc/careeros/prod.env` turns the React front
 end on here too, under the same restart rule.
 
+`CAREEROS_SESSION_COOKIE_SECURE=1` is the hardening line this file can
+also carry, and production is the one place worth proving it first: both
+environments are reached only through Caddy over HTTPS, and the automatic
+post-deploy smoke keeps passing with the flag on because curl replays a
+Secure cookie over the loopback. It stays out until the by-hand check in
+Known gaps, 3, has been run once against this file and a real browser
+session at `https://app.career-os.ch` has been confirmed to survive a
+reload.
+
 ## [VPS] 2. Enable the service, without starting it
 
 ```bash
@@ -477,8 +495,11 @@ Every run, in order:
    the newest 14. A backup that does not verify ends the run before
    anything is touched.
 4. Builds the release: clean checkout into `releases/<ref>`, a fresh venv,
-   `requirements.txt`. No second credential and nothing to initialise —
-   `vendor/capa-repo` is an ordinary directory in the repository.
+   `requirements.txt` — from wheels only, so a dependency that ships none
+   for this python fails the deploy here with pip naming it, rather than
+   trying to compile on a box that has no compiler. No second credential
+   and nothing to initialise — `vendor/capa-repo` is an ordinary directory
+   in the repository.
 5. Proves the release can `import careeros.server` before it may become
    `current`.
 6. Flips `current` atomically, restarts the service, polls
@@ -817,9 +838,9 @@ runs as `root`.
 
 # Known gaps
 
-Four things the toolchain cannot settle on its own. The first is now
-closed; three remain open. None is a bug in these scripts; each is a
-decision or a change in the app.
+Four things the toolchain cannot settle on its own. Three are now closed;
+one remains open. None is a bug in these scripts; each is a decision or a
+change in the app.
 
 ### 1. The React front end is not built, so most pages 404 — CLOSED
 
@@ -860,41 +881,97 @@ would change nothing and read like a setting that does.
 *Closed by:* a future app PR adding those two switches, if an explicit
 off-state is ever worth having. Nothing here waits on it.
 
-### 3. The session cookie is not flagged `Secure`
+### 3. The session cookie is not flagged `Secure` — CLOSED
 
-Both environments are reached only through Caddy over HTTPS, and the
-cookie is `HttpOnly` and `SameSite=Lax` already. But the app on this
-release reads no `SESSION_COOKIE_SECURE`, so the flag cannot be turned on
-from an env file and a `SESSION_COOKIE_SECURE=1` line would be read by
-nothing.
+**Closed 2026-10-26** by `CAREEROS_SESSION_COOKIE_SECURE`, which
+`careeros/server.py`'s `create_app` now reads: set to `1`, the session
+cookie is flagged `Secure` and a browser sends it back only over HTTPS.
+The cookie is `HttpOnly` and `SameSite=Lax` either way, as it already was.
 
-Functionally this is fine over HTTPS. It is a hardening gap, not a
-breakage: the cookie would also be sent over plain HTTP if anything ever
-reached the app that way, and nothing does.
+**The default is off**, and unset means exactly what every release so far
+has done. Off is what a local run needs: a browser will not send a Secure
+cookie back over plain HTTP, so a local instance on `http://` would sign
+in and immediately look signed out.
 
-*Closed by:* a future app PR that reads the flag from the environment;
-then one line in each env file turns it on.
+**The post-deploy smoke test is not a blocker.** It signs in over
+`http://127.0.0.1:800X` with curl, and curl treats the loopback as a
+trustworthy origin: it stores a `Secure` cookie from an HTTP login and
+sends it back on the next HTTP request (verified on this machine, curl
+7.81, 2026-10-26 — a live Flask app set `Secure`, and the follow-up GET
+arrived with the cookie; the VPS's newer curl is assumed to behave the
+same until checked once by hand, below). So the automatic smoke keeps
+passing with the flag on.
 
-### 4. The app runs on Flask's built-in server
+Still, the flag is off in both env files today, and turning it on is a
+deliberate step, not a default: it changes what every browser session
+does, and it has never run on this box. The check that proves it —
+production first, because staging sits behind Caddy basic auth that
+`tests/smoke.sh` cannot answer (a by-hand HTTPS smoke against
+`https://staging.career-os.ch` 401s at Caddy before reaching the app):
 
-The units start `python -m careeros.server --host 127.0.0.1 --port
-800X`, which is what `careeros/server.py`'s `main()` does: Flask's own
-`app.run()`. There is no ASGI entry point in the codebase and no
-`gunicorn` in `requirements.txt`, so the units start what exists. Both
-processes bind the loopback with Caddy in front, which covers TLS and the
-public surface, but Flask's development server is not meant for sustained
-traffic.
+```bash
+sudoedit /etc/careeros/prod.env     # add CAREEROS_SESSION_COOKIE_SECURE=1
+sudo systemctl restart careeros-prod
+sudo SMOKE_ENV_FILE=/etc/careeros/prod.env \
+  /srv/careeros/prod/app/current/tests/smoke.sh http://127.0.0.1:8001
+```
 
-For one owner and a tester this is very likely fine. Before real traffic,
-adding `gunicorn` to `requirements.txt` and changing one `ExecStart` line
-is the whole change.
+**Expected:** the usual `-- login ok` and three `GET` lines over the
+loopback. Then sign in from a real browser at `https://app.career-os.ch`
+and confirm the session survives a reload — that is the path the flag
+actually guards, and the one no curl test can prove. If either fails, take
+the line back out and restart; nothing else changes. Staging follows the
+same steps only once production has run this way for a while, and its
+by-hand HTTPS smoke stays blocked on the basic-auth question (Open
+questions, below).
 
-*Closed by:* a WSGI-server PR, when traffic justifies it.
+*Closed by:* this PR, for the app half — the flag is read, the default is
+off, and what to check before turning it on is written down.
+
+### 4. The app runs on Flask's built-in server — CLOSED
+
+**Closed 2026-10-26** by gunicorn, which is what the two units now start:
+
+```text
+ExecStart=/srv/careeros/prod/app/current/.venv/bin/gunicorn \
+  --bind 127.0.0.1:8001 --workers 2 careeros.server:create_app()
+```
+
+`gunicorn==26.2.0` is in `requirements.txt`, so every release venv builds
+with it and the VPS needs nothing installed by hand.
+`careeros.server:create_app()` names the module and the factory, and the
+parentheses are what make gunicorn call it; the vault still comes from the
+`CAREEROS_VAULT` the unit sets. Two sync workers, because `MemoryMax=768M`
+covers the master and all of its workers together on a 1.9 GB box that
+runs staging beside production — and a worker that dies is now respawned
+by the master instead of taking the whole environment down with it.
+
+`main()` in `careeros/server.py` is untouched: `python -m careeros.server`
+is still how the app runs locally, and that path is the only one that uses
+Flask's own `app.run()`.
+
+**Expect one `ERROR` line in the journal at every start of either
+service**, reading `Control server error:` and naming a path under
+`/srv/careeros/<env>` it could not write. That is gunicorn failing to open
+its control socket, which wants a writable home directory the units
+deliberately do not give it: `ProtectHome=yes`, and the vault is the only
+writable path either app process gets. It serves normally without one —
+checked, not assumed — and nothing here uses the control interface. The
+unit's own hardening comment says the same.
+
+*Closed by:* this PR.
 
 ---
 
 ## Open questions
 
+- The post-deploy smoke test reaches the app on `http://127.0.0.1:800X`.
+  That is fine even with `CAREEROS_SESSION_COOKIE_SECURE=1` on, because
+  curl replays a Secure cookie over the loopback (Known gaps, 3) — but it
+  means the smoke never exercises the TLS path a browser actually takes.
+  Should `deploy.sh` hand the script the public URL instead, so the check
+  goes through Caddy — and if so, where do staging's basic-auth
+  credentials come from, since `smoke.sh` sends none today?
 - `failed.ref` stops a bad ref being retried, but nothing tells you it was
   written. Is a journal line enough, or should a failed deploy reach you
   the way the nightly pipeline's alerts do?

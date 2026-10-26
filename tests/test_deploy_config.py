@@ -3,12 +3,12 @@ contracts, `setup-vps.sh --check` changing nothing, and deploy.sh's
 environment surface.
 
 These are the facts deploy/ and the app have to agree on, and nothing
-else checks them. The units start the app with command-line flags
-because the app reads no variable for its host or its port; the health
-gate polls the one unauthenticated route the app really serves; the
-release venv is built with the system python3. Every one of those is a
-sentence in two files at once, which is exactly the kind of agreement
-that rots silently.
+else checks them. The units start gunicorn on the app's own factory and
+name the port on its command line, because the app reads no variable for
+its host or its port; the health gate polls the one unauthenticated route
+the app really serves; the release venv is built with the system python3,
+from wheels only. Every one of those is a sentence in two files at once,
+which is exactly the kind of agreement that rots silently.
 
 Nothing here reaches the network, writes outside tmp_path, or needs
 root: `--check` is allowed to run unprivileged precisely so this test
@@ -111,16 +111,24 @@ def write_executable(path, body):
 # --- the app units ---------------------------------------------------------
 
 @pytest.mark.parametrize('environment', ['prod', 'stg'])
-def test_the_app_units_pass_the_host_and_port_as_flags(environment):
-    """The app reads NO environment variable for either one
-    (careeros/server.py, main: argparse --host/--port), so a
-    `CAREEROS_PORT=` line in an env file would be read by nothing and the
-    port Caddy proxies to would be whatever the default is. The flags are
-    the only way to say it."""
+def test_the_units_start_the_app_on_the_loopback_and_their_own_port(environment):
+    """gunicorn, the production WSGI server, and not Flask's own app.run()
+    -- which is what careeros/server.py's main() uses and which is a
+    development server. Three things have to stay true in this one line.
+    The bind is the loopback, so Caddy is the only thing reachable from
+    outside. The port is this environment's own, because the app reads no
+    variable for it: a `CAREEROS_PORT=` line in an env file would be read
+    by nothing, and a wrong port here is a Caddy proxying nowhere. And
+    what gunicorn is pointed at is `careeros.server:create_app()`, the
+    factory with the parentheses that make gunicorn call it, so the app is
+    built the same way every test and every local run builds it."""
     port = PORTS[environment]
-    expected = (f'ExecStart=/srv/careeros/{environment}/app/current/.venv/bin/python '
-                f'-m careeros.server --host 127.0.0.1 --port {port}')
+    expected = (f'ExecStart=/srv/careeros/{environment}/app/current/.venv/bin/gunicorn '
+                f'--bind 127.0.0.1:{port} --workers 2 careeros.server:create_app()')
     assert expected in directives(f'careeros-{environment}.service')
+    # That binary is in the release's venv only because requirements.txt
+    # puts it there, which is the other half of the same sentence.
+    assert 'gunicorn==' in (ROOT / 'requirements.txt').read_text()
 
 
 def test_no_unit_or_script_configures_the_host_or_the_port_through_the_environment():
@@ -207,7 +215,7 @@ def test_the_two_app_units_differ_only_in_which_environment_they_are():
     rewritten = [line.replace('careeros-prod', 'careeros-stg')
                      .replace('/srv/careeros/prod/', '/srv/careeros/stg/')
                      .replace('/etc/careeros/prod.env', '/etc/careeros/stg.env')
-                     .replace('--port 8001', '--port 8002')
+                     .replace('--bind 127.0.0.1:8001', '--bind 127.0.0.1:8002')
                  for line in service_section('careeros-prod.service')]
     assert rewritten == service_section('careeros-stg.service')
 
@@ -330,6 +338,21 @@ def test_the_release_venv_is_built_with_the_system_python():
     version before any of this runs."""
     assert 'PYTHON="${CAREEROS_DEPLOY_PYTHON:-python3}"' in DEPLOY_SH.read_text()
     assert [line for line in code_lines(DEPLOY_SH) if 'python3.' in line] == []
+
+
+def test_the_release_venv_installs_wheels_and_never_compiles():
+    """There is no compiler toolchain on that box, so a dependency with no
+    wheel for its python cannot be built there whatever pip tries. With
+    --only-binary=:all: the deploy fails at pip with the package named;
+    without it, the same deploy fails further along behind a wall of
+    setuptools output, which is the same outcome and much harder to read."""
+    # Continuations joined first: the flag belongs to the command, and
+    # which physical line it sits on is formatting.
+    joined = DEPLOY_SH.read_text().replace('\\\n', ' ')
+    installs = [line for line in joined.splitlines()
+                if 'pip install' in line and not line.lstrip().startswith('#')]
+    assert installs, 'the release venv is still built by a pip install'
+    assert all('--only-binary=:all:' in line for line in installs), installs
 
 
 def test_deploy_sh_refuses_an_unknown_argument_with_a_usage_line():

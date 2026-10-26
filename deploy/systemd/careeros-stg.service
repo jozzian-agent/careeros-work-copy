@@ -2,12 +2,12 @@
 # /etc/systemd/system/careeros-stg.service.
 #
 # Same shape as careeros-prod.service, which carries the notes on how the
-# app is started, why the Environment= lines come after EnvironmentFile=,
-# and what the memory limits mean. Four things differ and nothing else:
-# the user, the paths, the port (8002, the one Caddy's staging host
-# proxies to) and the env file. Staging holds a synthetic vault and its
-# own LLM key with a small spend limit, so nothing here may ever read a
-# production path.
+# app is started under gunicorn, why the Environment= lines come after
+# EnvironmentFile=, and what the memory limits and the worker count mean.
+# Four things differ and nothing else: the user, the paths, the port
+# gunicorn binds (8002, the one Caddy's staging host proxies to) and the
+# env file. Staging holds a synthetic vault and its own LLM key with a
+# small spend limit, so nothing here may ever read a production path.
 #
 # Installed and NOT started by setup-vps.sh: there is no release to run
 # yet. The staging deploy timer IS enabled, so the first release arrives
@@ -28,7 +28,7 @@ WorkingDirectory=/srv/careeros/stg/app/current
 EnvironmentFile=/etc/careeros/stg.env
 Environment=CAREEROS_VAULT=/srv/careeros/stg/vault
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/srv/careeros/stg/app/current/.venv/bin/python -m careeros.server --host 127.0.0.1 --port 8002
+ExecStart=/srv/careeros/stg/app/current/.venv/bin/gunicorn --bind 127.0.0.1:8002 --workers 2 careeros.server:create_app()
 Restart=on-failure
 RestartSec=5s
 MemoryHigh=512M

@@ -192,6 +192,36 @@ def test_the_cookie_carries_an_id_and_nothing_a_client_could_forge(app, admin):
         assert dict(stored) == {'user_id': admin['id'], '_permanent': True}
 
 
+@pytest.mark.parametrize('setting, secure', [('1', True), (None, False)])
+def test_whether_the_cookie_is_flagged_secure_is_the_environment_s_call(
+        vault_root, admin, raw_session, monkeypatch, setting, secure):
+    """CAREEROS_SESSION_COOKIE_SECURE, read in create_app. Both halves
+    matter. Unset has to stay the behaviour it has always been, because a
+    local run reaches the app over plain HTTP and a browser will not send
+    a Secure cookie back over that -- a default that flipped would sign
+    every local session straight back out. (The post-deploy smoke test is
+    not affected: curl replays a Secure cookie over the loopback, which
+    deploy/RUNBOOK.md, "Known gaps", 3, records as checked.) Set to 1,
+    the flag has to reach the real Set-Cookie header and not only the
+    config, because the header is the only part a browser reads."""
+    if setting is None:
+        monkeypatch.delenv('CAREEROS_SESSION_COOKIE_SECURE', raising=False)
+    else:
+        monkeypatch.setenv('CAREEROS_SESSION_COOKIE_SECURE', setting)
+    built = server.create_app(vault_root)
+    built.config['TESTING'] = True
+    assert built.config['SESSION_COOKIE_SECURE'] is secure
+    response = log_in(built.test_client())
+    assert response.status_code == 200
+    stored = [header for header in response.headers.get_all('Set-Cookie')
+              if header.startswith('session=')]
+    assert len(stored) == 1, stored
+    assert ('; Secure' in stored[0]) is secure, stored[0]
+    # The two flags that do not depend on the environment, so this reads
+    # the whole header rather than one attribute of it.
+    assert '; HttpOnly' in stored[0] and '; SameSite=Lax' in stored[0]
+
+
 def test_the_email_is_matched_case_insensitively(app, admin):
     client = app.test_client()
     assert log_in(client, email='OWNER@EXAMPLE.TEST').status_code == 200

@@ -373,8 +373,16 @@ build_release() {
   "$PYTHON" -m venv "$RELEASE/.venv" || fail "$PYTHON -m venv failed"
   # requirements.txt only: the app's dependencies, not the test runner's
   # (requirements-dev.txt). A release serves; it does not run pytest.
+  #
+  # --only-binary=:all: is a deliberate refusal to compile. A future
+  # dependency that ships no wheel for this python fails here, visibly,
+  # with pip naming the package it could not get -- instead of trying to
+  # build it on a 1.9 GB box that has no compiler toolchain since the apt
+  # hardening, where the attempt would fail anyway behind a wall of
+  # setuptools output. The whole pinned set installs from wheels on this
+  # box's python 3.14.4, which the owner checked.
   "$RELEASE/.venv/bin/python" -m pip install --quiet --disable-pip-version-check \
-      --no-input -r "$RELEASE/requirements.txt" \
+      --no-input --only-binary=:all: -r "$RELEASE/requirements.txt" \
     || fail 'pip install -r requirements.txt failed'
 
   # vendor/capa-repo holds the `org_intake` capability as a plain
