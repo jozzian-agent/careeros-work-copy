@@ -143,6 +143,44 @@ def allowed(root, email=None, ip=None):
 
 
 def register(root, email=None, ip=None):
-    """Count one request under each of its keys. Called after `allowed`
-    said yes, by the route doing the work."""
-    return all(hit(root, key) for key in keys_for(email, ip))
+    """Count one request under each of its keys. True when every key
+    still had budget, False when at least one was spent.
+
+    All keys are decided and counted in ONE lock hold over ONE file
+    read/write, and a refused request only increments the keys that
+    were ALREADY spent. That ordering matters for two attacks the
+    naive `all(hit(key) ...)` shape allows:
+
+    - Cross-key exhaustion: an already-blocked IP posting different
+      users' emails would spend one of each victim's budget per
+      request, locking real people out of password reset without ever
+      rotating IPs. Here the victim's healthy email key is untouched
+      by a request that is refused through the IP.
+    - Unbounded state: a blocked IP posting fresh random email strings
+      would create a new counter entry per string, growing the YAML
+      that every later request parses and rewrites under the shared
+      vault lock. A refused request creates no new entries at all.
+
+    A key that is over the limit DOES keep counting on refusal (the
+    spent budget grows past the limit) — that is the documented
+    "a refused attempt still spends budget" rule, preserved.
+    """
+    keys = keys_for(email, ip)
+    if not keys:
+        return True
+    limit, window = limit_and_window()
+    now = time.time()
+    with vault.WriteLock(root):
+        path = Path(root) / STATE_FILE
+        counters = _live((vault._read(path) or {}).get('windows') or {}, now, window)
+        spent = [key for key in keys
+                 if counters.get(key, {'count': 0})['count'] >= limit]
+        for key in spent if spent else keys:
+            entry = counters.get(key)
+            if entry is None:
+                counters[key] = {'count': 1, 'until': now + window}
+            else:
+                entry['count'] += 1
+                entry['until'] = now + window
+        vault._write(path, {'windows': counters})
+    return not spent

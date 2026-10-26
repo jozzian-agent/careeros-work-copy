@@ -137,3 +137,59 @@ def test_a_nonsense_knob_is_a_visible_refusal(monkeypatch):
 
 def test_the_defaults_are_the_documented_ones():
     assert ratelimit.limit_and_window() == (5, 3600)
+
+
+# --- register: the route-level gate (security regressions) -------------------
+
+def test_a_blocked_ip_cannot_spend_other_users_email_budgets(root):
+    """The cross-key exhaustion attack: an already-blocked IP posts a
+    different victim's email on every request. Each refusal must leave
+    the victim's healthy email budget untouched, or the attacker locks
+    everyone out of password reset from one address."""
+    ip = ratelimit.ip_key('203.0.113.9')
+    for _ in range(ratelimit.DEFAULT_LIMIT):
+        assert ratelimit.hit(root, ip) is True
+    # The IP is now spent; the attacker fires at a hundred addresses.
+    for index in range(50):
+        victim = f'victim{index}@example.test'
+        assert ratelimit.register(root, email=victim, ip='203.0.113.9') is False
+        assert ratelimit.check(root, ratelimit.email_key(victim)) is True, \
+            'a refusal through the IP must not spend the victim\'s budget'
+
+
+def test_a_blocked_ip_cannot_grow_the_state_file_with_fresh_emails(root):
+    """The unbounded-state attack: a blocked IP posts novel random email
+    strings forever. A refused request must create NO new counter
+    entries, or the YAML every request rewrites under the shared vault
+    lock grows without bound."""
+    ip = ratelimit.ip_key('203.0.113.9')
+    for _ in range(ratelimit.DEFAULT_LIMIT):
+        ratelimit.hit(root, ip)
+    for index in range(30):
+        ratelimit.register(root, email=f'novel{index}@example.test',
+                           ip='203.0.113.9')
+    stored = (vault._read(Path(root) / ratelimit.STATE_FILE) or {})['windows']
+    assert set(stored) == {ip}, 'only the spent IP key may exist'
+    assert stored[ip]['count'] == ratelimit.DEFAULT_LIMIT + 30, \
+        'a refused request still spends the budget of the key that refused it'
+
+
+def test_register_counts_both_keys_on_success(root):
+    assert ratelimit.register(root, email='owner@example.test',
+                              ip='203.0.113.9') is True
+    stored = (vault._read(Path(root) / ratelimit.STATE_FILE) or {})['windows']
+    assert stored[ratelimit.email_key('owner@example.test')]['count'] == 1
+    assert stored[ratelimit.ip_key('203.0.113.9')]['count'] == 1
+
+
+def test_register_spends_the_last_budget_and_refuses_the_same_request(root):
+    """The request that takes a key TO the limit is the last allowed
+    one; the next is refused (limit=5: five Trues, then False)."""
+    email, ip = 'owner@example.test', '203.0.113.9'
+    results = [ratelimit.register(root, email=email, ip=ip)
+               for _ in range(ratelimit.DEFAULT_LIMIT + 1)]
+    assert results == [True] * ratelimit.DEFAULT_LIMIT + [False]
+
+
+def test_register_with_no_keys_is_a_no_op_that_allows(root):
+    assert ratelimit.register(root) is True
