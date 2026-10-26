@@ -340,14 +340,18 @@ def test_a_tester_reads_companies_and_vocabulary(clients, company):
     assert 'experience-type' in registry['tags']['facets']
 
 
-def shared_writes(company_id, note_id):
-    """Every write that changes a shared record, as (method, url, json)."""
+def shared_writes(company_id):
+    """Every write that changes a shared record, as (method, url, json).
+
+    CAREER-41: company NOTES left this list. Adding one is open to every
+    signed-in user and edit/delete are the author's alone, answered as
+    404 rather than 403 (see the note-authorship tests below). The
+    company record itself -- its fields, its delete, its classification
+    writes -- stays the admin's alone.
+    """
     return (
         ('put', f'/api/companies/{company_id}', {'notes': 'Edited by a tester'}),
         ('delete', f'/api/companies/{company_id}', None),
-        ('post', f'/api/companies/{company_id}/notes', {'title': 'Tester note', 'body': 'x'}),
-        ('patch', f'/api/companies/{company_id}/notes/{note_id}', {'title': 'Rewritten'}),
-        ('delete', f'/api/companies/{company_id}/notes/{note_id}', None),
         ('post', f'/api/companies/{company_id}/enrich', None),
         ('post', f'/api/companies/{company_id}/retry', None),
         ('post', '/api/companies/backfill-sector-size', None),
@@ -363,7 +367,7 @@ def company_note(root, company):
 
 def test_a_tester_write_to_a_shared_record_is_refused_with_one_message(
         clients, company, company_note, root):
-    for method, route, payload in shared_writes(company['id'], company_note['id']):
+    for method, route, payload in shared_writes(company['id']):
         kwargs = {'json': payload} if payload is not None else {}
         response = getattr(clients['one'], method)(route, **kwargs)
         assert response.status_code == 403, f'{method} {route}'
@@ -2042,3 +2046,156 @@ def test_a_reserved_id_is_never_handed_out_again(root, people):
     for index in range(3):
         assert vault.save_company(root, {'name': f'Later {index}'})['id'] != first
     assert vault.reserve_id(root, 'companies', 'not-an-id') is None
+
+
+# --- CAREER-41: a company note is private to its author -------------------
+
+@pytest.fixture
+def authored_company_notes(root, company, people):
+    """One company note per user, each stamped with its author, plus one
+    legacy note with no author at all (written before CAREER-41)."""
+    notes = {}
+    for key, user in people.items():
+        notes[key] = vault.new_note(f'{key} company note', f'Body by {key}.',
+                                    author_id=user['id'])
+    legacy = vault.new_note('Legacy company note', 'Body from before authorship.')
+    vault.save_company(root, vault.notes_payload([legacy, *notes.values()]), company['id'])
+    return {'legacy': legacy, 'authored': notes}
+
+
+#: Every path that carries a company's notes to a reader. All three must
+#: answer with this reader's own notes and nobody else's.
+COMPANY_NOTE_READ_PATHS = (
+    lambda cid: f'/api/companies/{cid}?view=page',
+    lambda cid: f'/api/companies/{cid}',
+    lambda cid: '/api/notes',
+)
+
+
+def _note_titles(response_json, route):
+    """The company-note titles one read path answered with. The three
+    paths carry the same notes in three shapes: the page context's
+    migrated `notes` list, the raw record's `note_list`, and the roll-up's
+    rows (which mix job notes in, so only the company ones count)."""
+    if route.endswith('/api/notes'):
+        return {row['title'] for row in response_json['notes']
+                if row['company_id'] is not None}
+    if route.endswith('?view=page'):
+        return {note['title'] for note in response_json['notes']}
+    return {note['title'] for note in response_json['note_list']}
+
+
+@pytest.mark.parametrize('route', COMPANY_NOTE_READ_PATHS,
+                         ids=['detail-page', 'plain-record', 'notes-rollup'])
+def test_a_company_note_is_visible_to_its_author_alone(clients, company, people,
+                                                       authored_company_notes, route):
+    """The one CAREER-41 rule, over all three read paths: a user reads
+    their own company notes and nobody else's. The admin is no exception
+    for authored notes, and is the only reader of the legacy one."""
+    url = route(company['id'])
+    for key, client in clients.items():
+        response = client.get(url)
+        assert response.status_code == 200, f'{key} {url}'
+        titles = _note_titles(response.get_json(), url)
+        expected = {f'{key} company note'}
+        if key == 'admin':
+            expected.add('Legacy company note')
+        assert titles == expected, f'{key} {url}'
+
+
+def test_a_company_note_cannot_be_edited_or_deleted_by_a_stranger(
+        clients, company, people, authored_company_notes, root):
+    """Edit and delete are the author's alone: another user's note id
+    answers exactly like a note that does not exist (404), and the stored
+    note survives untouched. The admin gets the same 404 over a user's
+    authored note."""
+    for key, client in clients.items():
+        for other_key, other_user in people.items():
+            if other_key == key:
+                continue
+            note = authored_company_notes['authored'][other_key]
+            base = f'/api/companies/{company["id"]}/notes/{note["id"]}'
+            patched = client.patch(base, json={'title': 'Rewritten by a stranger'})
+            assert patched.status_code == 404, f'{key} patch {other_key}'
+            deleted = client.delete(base)
+            assert deleted.status_code == 404, f'{key} delete {other_key}'
+    stored = vault.load_company(root, company['id'])
+    titles = {n['title'] for n in stored['note_list']}
+    assert titles == {'Legacy company note',
+                      'admin company note', 'one company note', 'two company note'}
+
+
+def test_a_legacy_company_note_is_the_admins_alone(
+        clients, company, authored_company_notes, root):
+    """A note with no author_id predates CAREER-41 and belongs to the
+    admin by the same inheritance rule as an ownerless record: testers
+    cannot read, edit or delete it, and no migration rewrites it."""
+    legacy = authored_company_notes['legacy']
+    assert legacy.get('author_id') is None
+    for key in ('one', 'two'):
+        client = clients[key]
+        url = f'/api/companies/{company["id"]}?view=page'
+        assert 'Legacy company note' not in body(client.get(url))
+        assert 'Legacy company note' not in body(client.get('/api/notes'))
+        base = f'/api/companies/{company["id"]}/notes/{legacy["id"]}'
+        assert client.patch(base, json={'title': 'x'}).status_code == 404
+        assert client.delete(base).status_code == 404
+    # The admin reads it on every path and may edit it.
+    admin = clients['admin']
+    page = admin.get(f'/api/companies/{company["id"]}?view=page').get_json()
+    assert 'Legacy company note' in {n['title'] for n in page['notes']}
+    base = f'/api/companies/{company["id"]}/notes/{legacy["id"]}'
+    assert admin.patch(base, json={'title': 'Legacy, kept'}).status_code == 200
+    # Still no author after the edit: nothing rewrites a legacy note into
+    # an authored one.
+    stored = vault.load_company(root, company['id'])
+    kept = next(n for n in stored['note_list'] if n['id'] == legacy['id'])
+    assert kept['title'] == 'Legacy, kept'
+    assert kept.get('author_id') is None
+
+
+def test_a_tester_can_add_a_company_note(clients, company, people, root):
+    """Adding is open to every signed-in user, and the new note is
+    stamped with the session user's id here -- never taken from the
+    payload, which a client could set to somebody else."""
+    created = clients['one'].post(f'/api/companies/{company["id"]}/notes',
+                                  json={'title': 'My own note', 'body': 'Private thoughts.',
+                                        'author_id': people['two']['id']})
+    assert created.status_code == 201
+    note = created.get_json()
+    assert note['author_id'] == people['one']['id'], 'the payload cannot name the author'
+    stored = vault.load_company(root, company['id'])
+    stored_note = next(n for n in stored['note_list'] if n['id'] == note['id'])
+    assert stored_note['author_id'] == people['one']['id']
+    # Visible to its author, and to nobody else -- not even the admin.
+    one_page = clients['one'].get(f'/api/companies/{company["id"]}?view=page').get_json()
+    assert 'My own note' in {n['title'] for n in one_page['notes']}
+    admin_page = clients['admin'].get(f'/api/companies/{company["id"]}?view=page').get_json()
+    assert 'My own note' not in {n['title'] for n in admin_page['notes']}
+    two_page = clients['two'].get(f'/api/companies/{company["id"]}?view=page').get_json()
+    assert 'My own note' not in {n['title'] for n in two_page['notes']}
+    # The author can edit and delete what they just wrote.
+    base = f'/api/companies/{company["id"]}/notes/{note["id"]}'
+    assert clients['one'].patch(base, json={'body': 'Edited.'}).status_code == 200
+    assert clients['one'].delete(base).status_code == 200
+    stored = vault.load_company(root, company['id'])
+    assert note['id'] not in {n['id'] for n in stored['note_list']}
+
+
+def test_an_author_note_write_preserves_notes_they_cannot_see(
+        clients, company, people, authored_company_notes, root):
+    """The write path saves against the FULL stored record: a tester's
+    add/edit/delete must not silently drop the admin's legacy note or the
+    other users' notes they can neither see nor address."""
+    clients['one'].post(f'/api/companies/{company["id"]}/notes',
+                        json={'title': 'Addition', 'body': ''})
+    stored = vault.load_company(root, company['id'])
+    assert {'Legacy company note', 'admin company note', 'two company note'} \
+        <= {n['title'] for n in stored['note_list']}
+    own = next(n for n in stored['note_list'] if n['title'] == 'one company note')
+    base = f'/api/companies/{company["id"]}/notes/{own["id"]}'
+    assert clients['one'].patch(base, json={'title': 'Renamed mine'}).status_code == 200
+    assert clients['one'].delete(base).status_code == 200
+    stored = vault.load_company(root, company['id'])
+    assert {'Legacy company note', 'admin company note', 'two company note', 'Addition'} \
+        == {n['title'] for n in stored['note_list']}

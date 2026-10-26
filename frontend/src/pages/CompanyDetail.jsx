@@ -312,7 +312,11 @@ export default function CompanyDetail() {
             <ClassificationRow label="Size" field={classification.size} />
           </Flex>
         </SectionCard>
-        <NotesSection kind="companies" recordId={id} notes={notes} canWrite={canEditShared}
+        {/* CAREER-41: a company note is private to its author, and the
+            backend sends this reader only their own notes, so Add/Edit/
+            Delete are offered to every signed-in user here -- unlike the
+            shared company writes above, which stay with the admin. */}
+        <NotesSection kind="companies" recordId={id} notes={notes}
                       onChanged={load} />
       </Flex>
       {editOpen ? (

@@ -5,7 +5,10 @@ user and editable by the admin alone (decision D3). What is private is
 what hangs off it here: the open-jobs count on a directory card and the
 linked jobs and positions on a profile are read through the session
 user's own `vault.Owner`, so one user's board never shows in another's
-company page.
+company page. CAREER-41 adds the notes to the private half: every
+signed-in user may add a note to a company, and a company note is
+visible to its author alone (the admin included), so `visible_companies`
+answers each record with only this reader's own notes.
 """
 from flask import abort
 from careeros import vault

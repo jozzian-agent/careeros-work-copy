@@ -52,18 +52,24 @@ test('the admin is offered every company write', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Add a note' })).toBeVisible();
 });
 
-test('a tester is offered no company write at all', async ({ page }) => {
+test('a tester is offered no company write except their own note', async ({ page }) => {
   await mockCompanyPage(page, asTester(company));
   await page.goto('/companies/CO-001');
   await expect(page.getByRole('heading', { name: company.company.name })).toBeVisible();
-  for (const name of ['Edit company', 'Delete', 'Edit classification', 'Add a note']) {
+  // CAREER-41: the shared company writes stay the admin's, but a note is
+  // private to its author, so every signed-in user keeps Add a note and
+  // the Edit/Delete controls on the notes the backend sent them (their
+  // own).
+  for (const name of ['Edit company', 'Delete', 'Edit classification']) {
     await expect(page.getByRole('button', { name, exact: true })).toHaveCount(0);
   }
-  for (const label of ['Edit', 'Delete']) {
-    await expect(
-      page.getByTestId('section-notes').getByRole('button', { name: new RegExp(`^${label} `) }),
-    ).toHaveCount(0);
-  }
+  await expect(page.getByRole('button', { name: 'Add a note' })).toBeVisible();
+  await expect(
+    page.getByTestId('section-notes').getByRole('button', { name: /^Edit / }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByTestId('section-notes').getByRole('button', { name: /^Delete / }),
+  ).toHaveCount(1);
 });
 
 test('a tester still reads the whole company profile', async ({ page }) => {
