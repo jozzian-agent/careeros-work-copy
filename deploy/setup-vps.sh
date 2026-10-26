@@ -163,11 +163,33 @@ fi
 # One apt update for the whole run, and `apt-get install` only for what
 # is actually missing, so a re-run on a configured box makes no network
 # call and holds no lock.
+#
+# Every apt call here is nailed shut the same three ways, because the
+# first real run on this box (2026-10-25) hit all three:
+#   * `< /dev/null` -- apt-get stopped and sat there in process state T,
+#     waiting on a terminal nobody was watching. With no stdin it cannot
+#     ask, so it either proceeds or fails instead of hanging.
+#   * NEEDRESTART_MODE=a -- needrestart runs after an install on this
+#     release and asks which services to restart. `a` means answer that
+#     itself (restart them all) rather than prompt.
+#   * --no-install-recommends on the install -- the recommends pulled in
+#     a whole compiler toolchain this server has no use for. Checked on
+#     the box (python 3.14.4, x86_64):
+#     `pip install --only-binary=:all: --dry-run -r requirements.txt`
+#     resolves all 13 pins from wheels, and the five that contain
+#     compiled code (MarkupSafe, numpy, pandas, PyYAML, zstandard) all
+#     ship a cp314 manylinux x86_64 wheel, so pip never compiles.
+#     That covers THIS requirements.txt and nothing more: add a
+#     dependency with no cp314 wheel and pip will try to compile and
+#     fail here, loudly. That is the behaviour we want -- a missing
+#     wheel is a decision for the owner, not something a silent
+#     toolchain should paper over.
 
 APT_UPDATED=no
 apt_update_once() {
   [[ $APT_UPDATED == yes ]] && return 0
-  run env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+  run env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+    apt-get update -qq </dev/null
   APT_UPDATED=yes
 }
 
@@ -183,7 +205,8 @@ ensure_packages() {   # ensure_packages <package...>
   fi
   note "installing: ${missing[*]}"
   apt_update_once
-  run env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${missing[@]}"
+  run env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+    apt-get install -y -qq --no-install-recommends "${missing[@]}" </dev/null
 }
 
 step 'Base packages'
