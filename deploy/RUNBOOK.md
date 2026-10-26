@@ -7,7 +7,7 @@ looks like**, and says **what to paste back** if it does not.
 | Tag | Where you are |
 | --- | --- |
 | **[Mac]** | your own computer, in your clone of the repository |
-| **[VPS]** | logged into the server over SSH (`ssh ubuntu@app.career-os.ch`) |
+| **[VPS]** | logged into the server over SSH (`ssh -i ~/.ssh/id_ed25519 ubuntu@179.237.122.209`) |
 | **[GitHub]** | github.com in a browser |
 
 Read **Known gaps** at the end before the first production deploy. One of
@@ -83,24 +83,22 @@ Seven steps. Do them in this order; each one checks the last.
 
 ## 1. [Mac] Get `deploy/` onto the VPS
 
-Either way works. The clone is better if you will re-run setup after a
-repository change; `scp` is better if you only want these files there.
+Copy the folder up from your clone. The VPS holds no GitHub credential,
+so it cannot clone a private repository itself — the files travel from
+the Mac.
+
+Copy `deploy/` **and** `requirements.txt` next to it, because
+setup-vps.sh's python-3.14 dependency check pip-installs the
+requirements.txt it finds beside `deploy/` and skips itself (saying so)
+when there is none:
 
 ```bash
-# Option A, a clone on the VPS (needs the repo readable from there, so
-# normally: clone on the Mac, then option B)
-ssh ubuntu@app.career-os.ch 'git clone https://github.com/jozzian/careeros.git ~/careeros'
-
-# Option B, copy the folder from your clone -- deploy/ AND
-# requirements.txt next to it, because setup-vps.sh's python-3.14
-# dependency check pip-installs the requirements.txt it finds beside
-# deploy/ and skips itself (saying so) when there is none:
-scp -r deploy ubuntu@app.career-os.ch:~/deploy
-scp requirements.txt ubuntu@app.career-os.ch:~/requirements.txt
+scp -i ~/.ssh/id_ed25519 -r deploy ubuntu@179.237.122.209:~/deploy
+scp -i ~/.ssh/id_ed25519 requirements.txt ubuntu@179.237.122.209:~/requirements.txt
 ```
 
 **Expected:** `scp` prints one line per file and exits silently, and
-afterwards `ssh ubuntu@app.career-os.ch 'ls ~/deploy/setup-vps.sh ~/requirements.txt'`
+afterwards `ssh -i ~/.ssh/id_ed25519 ubuntu@179.237.122.209 'ls ~/deploy/setup-vps.sh ~/requirements.txt'`
 prints both paths.
 
 **Then read the scripts before running them.** They run as root, which
@@ -108,12 +106,12 @@ makes a mistake or a hidden instruction in them the single biggest risk in
 this whole setup:
 
 ```bash
-ssh ubuntu@app.career-os.ch
+ssh -i ~/.ssh/id_ed25519 ubuntu@179.237.122.209
 less ~/deploy/setup-vps.sh
 less ~/deploy/deploy.sh
 ```
 
-> **A note on option B:** `setup-vps.sh` also pip-installs
+> **A note on what you copied:** `setup-vps.sh` also pip-installs
 > `requirements.txt` into a throwaway venv to prove every dependency
 > builds on python 3.14. Copying only `deploy/` leaves no
 > `requirements.txt` beside it, so that check is skipped and says so.
@@ -299,7 +297,13 @@ staging vault needs one account before you can click anything. The vault
 is owned by `careeros-stg`, so create it as that user and the files land
 with the right owner:
 
+Run it from the release directory. `python -m careeros.users` imports the
+app package from the working directory, so from anywhere else it fails
+with `No module named careeros` — that is what happened on the first real
+run:
+
 ```bash
+cd /srv/careeros/stg/app/current &&
 sudo -u careeros-stg env CAREEROS_VAULT=/srv/careeros/stg/vault \
   /srv/careeros/stg/app/current/.venv/bin/python -m careeros.users \
   create --email you@example.com --name 'Your Name' --role admin \
@@ -500,7 +504,9 @@ journalctl -u careeros-deploy@prod --since '1 hour ago' --no-pager
   holds `flock` on `/run/careeros/deploy.lock`, and a run that cannot get
   the lock exits quietly rather than waiting.
 - A run that finds nothing new ends in a second with `already running …`.
-- `Persistent=true`, so a box that was off catches up once.
+- No catch-up after a reboot, and none is needed: these are interval
+  timers, and the `OnBootSec` run a few minutes after the box comes up
+  deploys whatever landed while it was off.
 
 ---
 
@@ -765,8 +771,8 @@ the `ubuntu` user — the VPS never reaches back to you, but you can always
 reach it:
 
 ```bash
-scp -r /tmp/restore ubuntu@app.career-os.ch:/tmp/restore-vault
-ssh ubuntu@app.career-os.ch 'sudo systemctl stop careeros-prod &&
+scp -i ~/.ssh/id_ed25519 -r /tmp/restore ubuntu@179.237.122.209:/tmp/restore-vault
+ssh -i ~/.ssh/id_ed25519 ubuntu@179.237.122.209 'sudo systemctl stop careeros-prod &&
   sudo mv /srv/careeros/prod/vault /srv/careeros/prod/vault.broken &&
   sudo mv /tmp/restore-vault /srv/careeros/prod/vault &&
   sudo chown -R careeros-prod:careeros-prod /srv/careeros/prod/vault &&
@@ -897,6 +903,3 @@ is the whole change.
   older than this deploy path and is not used by anything in this file.
   `deploy.sh` takes its own plain vault archive before a production
   release. Which of the five do you want to keep?
-- Nothing here has run against real systemd, real Caddy or a real GitHub
-  deploy key. Every command above is written from the scripts and the
-  verified facts about the box, not from a transcript.

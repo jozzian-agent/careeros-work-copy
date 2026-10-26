@@ -13,7 +13,8 @@
 # every two minutes for a repo that gets a tag a few times a week.
 #
 # See careeros-deploy-stg.timer for why this is OnUnitActiveSec and not
-# a wall-clock schedule, and why Persistent=true.
+# a wall-clock schedule, and why there is no Persistent= on an interval
+# timer. After a reboot, OnBootSec is the first check.
 #
 # This timer still fires while a rollback is pinned; deploy.sh is what
 # reads /srv/careeros/prod/app/rollback.pin and stops, so the skip is
@@ -28,7 +29,6 @@ Documentation=file:///srv/careeros/deploy.sh
 Unit=careeros-deploy@prod.service
 OnBootSec=5min
 OnUnitActiveSec=5min
-Persistent=true
 AccuracySec=30s
 
 [Install]

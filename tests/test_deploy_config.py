@@ -230,8 +230,18 @@ def test_the_deploy_unit_runs_as_root_and_takes_the_lock_once():
 def test_each_timer_calls_the_deploy_template_for_its_own_environment(environment):
     lines = directives(f'careeros-deploy-{environment}.timer')
     assert f'Unit=careeros-deploy@{environment}.service' in lines
-    assert 'Persistent=true' in lines
     assert 'WantedBy=timers.target' in lines
+
+
+@pytest.mark.parametrize('environment', ['prod', 'stg'])
+def test_timers_have_no_persistent_and_cover_a_reboot_with_onbootsec(environment):
+    """Persistent= only applies to OnCalendar schedules; on these interval
+    timers it did nothing (first real run, 2026-10-25). Reboot catch-up is
+    the OnBootSec run a few minutes after the box comes up."""
+    lines = directives(f'careeros-deploy-{environment}.timer')
+    assert not any(l.startswith('Persistent=') for l in lines)
+    assert any(l.startswith('OnBootSec=') for l in lines)
+    assert any(l.startswith('OnUnitActiveSec=') for l in lines)
 
 
 def test_setup_installs_exactly_the_unit_files_that_exist():

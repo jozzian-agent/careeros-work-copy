@@ -10,8 +10,11 @@
 # minutes rather than by a queued backlog. OnBootSec gives the box time
 # to finish booting before the first check.
 #
-# Persistent=true so a box that was off over a reboot catches up once
-# rather than not at all.
+# A reboot is covered by OnBootSec, not by a catch-up: three minutes
+# after the box is up the timer checks again, and whatever landed on main
+# while it was off deploys then. (There is no Persistent= here on
+# purpose. Persistent= only applies to OnCalendar schedules, so on an
+# interval timer like this one it does nothing at all.)
 #
 # A run that finds nothing new exits in a second or two: deploy.sh
 # compares the ref it would deploy against the one `current` already
@@ -25,7 +28,6 @@ Documentation=file:///srv/careeros/deploy.sh
 Unit=careeros-deploy@stg.service
 OnBootSec=3min
 OnUnitActiveSec=2min
-Persistent=true
 AccuracySec=15s
 
 [Install]
