@@ -955,7 +955,11 @@ state survives a restart.
 | JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md) |
 | Accounts command line | Creating, listing, resetting, disabling and enabling an account, since the first admin cannot sign in to create themselves. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [schemas](docs/schemas.md)) |
 | Health check | `GET /api/health`, the one unauthenticated read: is the process up. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md)) |
-| Test-mail command line | Proving an environment can send mail at all, before any mail-shaped feature exists to need it. Sends one test mail to an address the owner names, and no product mail: nothing in the app sends a reset, an invite or a tester update today. Added 2026-10-26 ([runbook](deploy/RUNBOOK.md), "Mail, and the one command that proves it") |
+| Test-mail command line | Proving an environment can send mail at all. Sends one test mail to an address the owner names. Since 2026-10-26 it is no longer the only mail the app sends: invites and password-reset links go through the same module ([runbook](deploy/RUNBOOK.md), "Mail, and the one command that proves it") |
+| Forgot password | The login page's reset entry. One generic answer for every email — the page cannot enumerate accounts. Added 2026-10-26 ([surface](docs/surfaces/accounts.md), [runbook](deploy/RUNBOOK.md)) |
+| Accept invite | The page an invite link opens: the tester sets name and password, the account is created with the default role, no auto sign-in. Added 2026-10-26 ([surface](docs/surfaces/accounts.md)) |
+| Reset password | The page a reset link opens: one new password, then every older session of that account is dead. Added 2026-10-26 ([surface](docs/surfaces/accounts.md)) |
+| Invites command line | Creating accounts by invitation, since there is no admin page: `python -m careeros.invites`, mail sent through `careeros/mail.py`, `--print-link` when mail is refused. Added 2026-10-26 ([runbook](deploy/RUNBOOK.md), "Inviting a tester") |
 
 Interviews is removed from the navigation until it exists. Tab order is My Jobs, All jobs, Companies, Experiences, Preferences. Proposed. All jobs sits next to My Jobs by owner decision, 2026-10-19.
 
@@ -978,6 +982,9 @@ Interviews is removed from the navigation until it exists. Tab order is My Jobs,
 | Log out | One affordance in the app header | Everyone |
 | Create, reset, disable or enable an account | `python -m careeros.users` | Owner |
 | Send one test mail | `python -m careeros.mail test --to <address>` | Owner |
+| Invite a tester | `python -m careeros.invites --email <address> [--name <name>] [--print-link]` | Owner |
+| Request a password reset | The Forgot password page | Everyone |
+| Set a new password from a mailed link | The Reset password page | Everyone |
 | Edit or delete a company, or add a value to the tag vocabulary | The company profile and the two classification popups | Owner |
 | Assign every pre-M2 job and experience to the admin | `python scripts/migrate_record_owner.py` ([runbook](docs/runbooks/migrate-record-owner.md)) | Owner |
 

@@ -75,6 +75,26 @@ SESSION_MAX_AGE = timedelta(days=30)
 #: client that unpacked the cookie would find nothing worth forging.
 SESSION_FIELD = 'user_id'
 
+#: The second thing the cookie carries: the session epoch of the record
+#: at sign-in time. `session_user` compares it against the record's own
+#: epoch on every request, and a password reset bumps that epoch — so
+#: every cookie minted before the reset stops passing the gate on its
+#: next request. Per account, by construction: bumping one user's epoch
+#: ends that user's sessions and nobody else's. A record or cookie with
+#: no epoch reads as 0, which is what keeps sessions minted before this
+#: field existed valid until something bumps them.
+SESSION_EPOCH_FIELD = 'session_epoch'
+
+#: The shortest password any account path accepts. No password rule
+#: existed anywhere before the invite and reset pages arrived, and both
+#: let a person choose their own password from a browser — so the rule
+#: lives here, beside the hash, and every path that sets a password
+#: (accounts command line, invite accept, password reset) runs it.
+#: Ten characters is the documented minimum; there is no complexity
+#: rule, because a length floor a person can meet with a passphrase is
+#: worth more than a character-class rule they meet with "Password1!".
+PASSWORD_MIN_LENGTH = 10
+
 #: One message for every failed sign-in, whichever half was wrong. An
 #: unknown email and a wrong password are indistinguishable in the
 #: response, so the login page cannot be used to find out who has an
@@ -91,6 +111,11 @@ LOGIN_REQUIRED = 'login required'
 #: than the route, so the same sentence serves every shared write path,
 #: and it says who may instead of only saying no.
 SHARED_READ_ONLY = 'Only the admin can change companies and vocabulary.'
+
+#: What a too-short password is told. Says the floor and nothing about
+#: the account or the other fields.
+PASSWORD_TOO_SHORT = (f'A password must be at least {PASSWORD_MIN_LENGTH} '
+                      'characters long.')
 
 _EMAIL_RE = re.compile(r'[^@\s]+@[^@\s]+\.[^@\s]+')
 
@@ -220,6 +245,15 @@ def normalize_email(value):
     return value.strip().lower() if isinstance(value, str) else value
 
 
+def validate_password(password):
+    """The one password rule. Raises ValueError for a password no
+    account may be created or reset with; returns nothing, because
+    there is nothing to hand back — the caller hashes what it was given.
+    """
+    if not isinstance(password, str) or len(password) < PASSWORD_MIN_LENGTH:
+        raise ValueError(PASSWORD_TOO_SHORT)
+
+
 def find_by_email(root, email):
     wanted = normalize_email(email)
     return next((d for _, d in _entries(root) if d.get('email') == wanted), None)
@@ -256,8 +290,15 @@ def validate_user(data, existing=None):
     # error rather than a no-op (CAREER-30: no drop is silent).
     if 'password' in data:
         raise ValueError('A user record never stores a plain password; pass a password_hash.')
-    defaults = dict(email='', name='', role=DEFAULT_ROLE, password_hash='',
-                    created_at='', disabled=False)
+    defaults: dict = dict(email='', name='', role=DEFAULT_ROLE, password_hash='',
+                          created_at='', disabled=False)
+    # `session_epoch` is allowed but not defaulted: a record carries it
+    # only once something bumped it, so every record written before the
+    # field existed keeps its exact shape (and the stored-fields test its
+    # exact list) until the first reset touches it.
+    if isinstance((existing or {}).get(SESSION_EPOCH_FIELD), int) or \
+            isinstance((data or {}).get(SESSION_EPOCH_FIELD), int):
+        defaults[SESSION_EPOCH_FIELD] = 0
     # The allowlist filters the merged record, not just the payload. A key
     # outside it that reached the file some other way -- a `password:` line
     # added by hand -- is therefore dropped by the next save of that
@@ -268,6 +309,8 @@ def validate_user(data, existing=None):
     for key in ('email', 'name', 'role', 'password_hash', 'created_at'):
         if not isinstance(result[key], str):
             raise ValueError(f'{key} must be text.')
+    if SESSION_EPOCH_FIELD in result and type(result[SESSION_EPOCH_FIELD]) is not int:
+        raise ValueError(f'{SESSION_EPOCH_FIELD} must be a whole number.')
     result['email'] = normalize_email(result['email'])
     result['name'] = result['name'].strip()
     if not _EMAIL_RE.fullmatch(result['email']):
@@ -312,6 +355,7 @@ def save_user(root, data, identifier=None):
 def create_user(root, *, email, name, role, password):
     """Create one account. The plain password is hashed here and is not
     part of the record this returns."""
+    validate_password(password)
     return save_user(root, dict(email=email, name=name, role=role,
                                 password_hash=generate_password_hash(password)))
 
@@ -319,6 +363,7 @@ def create_user(root, *, email, name, role, password):
 def set_password(root, identifier, password):
     """Replace one account's password. The old hash is gone after this, so
     the old password stops working on the next sign-in."""
+    validate_password(password)
     return save_user(root, dict(password_hash=generate_password_hash(password)), identifier)
 
 
@@ -326,6 +371,23 @@ def set_disabled(root, identifier, disabled):
     """Turn one account off or back on. A disabled user is rejected on
     their next request, so this ends a live session too."""
     return save_user(root, dict(disabled=disabled), identifier)
+
+
+def bump_session_epoch(root, identifier):
+    """End every live session of one account, and only that account's.
+
+    The cookie carries the epoch its sign-in saw; the gate compares it
+    against the record's on every request (session_user). Bumping the
+    record therefore invalidates every cookie minted before the bump —
+    which is what a password reset needs — while every other account's
+    epoch, and every other session, is untouched.
+    """
+    user = load_user(root, identifier)
+    if user is None:
+        raise KeyError(identifier)
+    epoch = user.get(SESSION_EPOCH_FIELD)
+    current = epoch if isinstance(epoch, int) else 0
+    return save_user(root, {SESSION_EPOCH_FIELD: current + 1}, identifier)
 
 
 def authenticate(root, email, password):
@@ -352,7 +414,7 @@ def authenticate(root, email, password):
 
 
 def sign_in(user):
-    """Put this user's id in the session and nothing else.
+    """Put this user's id and the record's session epoch in the session.
 
     session.clear() first so signing in never inherits anything from
     whatever was in the cookie before, and permanent so the cookie
@@ -360,6 +422,11 @@ def sign_in(user):
     """
     session.clear()
     session[SESSION_FIELD] = user['id']
+    # The epoch stamps the cookie with the generation of sessions it
+    # belongs to; a later bump of the record's epoch ends it (see
+    # bump_session_epoch). No epoch in the record reads as 0.
+    epoch = user.get(SESSION_EPOCH_FIELD)
+    session[SESSION_EPOCH_FIELD] = epoch if isinstance(epoch, int) else 0
     session.permanent = True
 
 
@@ -373,12 +440,18 @@ def session_user(root):
     The record is re-read on every request on purpose: the cookie holds
     an id, so disabling an account takes effect on that account's next
     request rather than whenever its cookie happens to expire.
+    The same re-read compares the cookie's session epoch against the
+    record's, so a password reset ends the sessions minted before it on
+    their next request too.
     """
     identifier = session.get(SESSION_FIELD)
     if not isinstance(identifier, str):
         return None
     user = load_user(root, identifier)
     if user is None or user.get('disabled'):
+        return None
+    record_epoch = user.get(SESSION_EPOCH_FIELD)
+    if session.get(SESSION_EPOCH_FIELD, 0) != (record_epoch if isinstance(record_epoch, int) else 0):
         return None
     return user
 

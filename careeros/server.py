@@ -13,6 +13,10 @@ from careeros import vault as storage
 from careeros import intake
 from careeros import ingest
 from careeros import users
+from careeros import invites
+from careeros import password_reset
+from careeros import ratelimit
+from careeros import tokens as link_tokens
 from org_intake import classify as sectors
 from org_intake import enrich as org_enrich
 from careeros import enrich as company_enrichment
@@ -444,7 +448,13 @@ AFTER_LOGIN = '/jobs'
 # which routes exist by reading status codes. 'static' and 'react_assets'
 # are the asset routes; a login page that could not load its own assets
 # would be a door with no handle.
-PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets'})
+# The invite and reset endpoints joined them with the mail features: a
+# person following a link from their mailbox has no session by
+# definition, and a gate that swallowed these pages would make every
+# mailed link a dead one. Each is rate-limited and token-gated instead.
+PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets',
+                              'accept_invite', 'forgot_password',
+                              'reset_password'})
 
 
 def login_page(error: str | None = None) -> str:
@@ -473,15 +483,76 @@ def login_page(error: str | None = None) -> str:
         "<label>Password<input type='password' name='password' "
         "autocomplete='current-password' required></label>"
         "<button type='submit' class='primary'>Log in</button>"
-        "</form></section>",
+        "</form>"
+        "<p class='muted'><a href='/forgot-password'>Forgot password?</a></p>"
+        "</section>",
         ui.CSS,
         nav=False,
     )
 
 
+def mail_link_page(title: str, body: str) -> str:
+    """The shared shell for the three pages a mailed link lands on:
+    accept an invite, forgot password, choose a new one.
+
+    Built like the login page — server-rendered HTML string, shared
+    control CSS, no navigation, no logout — because the person holding
+    such a link has no session and no business anywhere else. They are
+    deliberately NOT React pages: the frontend is out of scope for this
+    feature and a mailed link must work on an instance with no build,
+    exactly like the login fallback does.
+    """
+    return page_shell(title, '', body, ui.CSS, nav=False)
+
+
+def client_ip() -> str | None:
+    """The address the rate limiter counts a request under.
+
+    Reads `request.remote_addr` and nothing else. That is the client's
+    real IP exactly when ProxyFix is enabled below (CAREEROS_TRUSTED_PROXY=1
+    behind Caddy, which appends the true client to X-Forwarded-For and
+    ProxyFix folds back into REMOTE_ADDR). Without the flag — a direct
+    gunicorn, a test client — REMOTE_ADDR is the peer, which behind a
+    reverse proxy is the proxy itself: every request then shares one
+    counter and per-IP limiting is degenerate. That is the documented,
+    deliberate fallback: per-address limiting still does its whole job,
+    and trusting a client-supplied X-Forwarded-For unconditionally would
+    let any caller pick their own budget.
+    """
+    return request.remote_addr
+
+
+#: The one answer for "you have made too many attempts" on a token page.
+#: Says nothing about the token, the account or which limit was hit.
+RATE_LIMITED_MESSAGE = 'Too many attempts. Please try again later.'
+
+
+def dead_link_page() -> str:
+    """The dead-link state every mailed-link page shares: one message
+    for unknown, expired and already-used, so the page cannot be used
+    to tell them apart."""
+    return mail_link_page(
+        'Link not valid',
+        "<section class='card'><h1>This link is not valid</h1>"
+        f"<p class='muted'>{escape(link_tokens.DEAD_LINK_MESSAGE)} It may have "
+        "expired or already been used.</p>"
+        "<p><a href='/login'>Go to the login page</a></p></section>")
+
+
 def create_app(vault: str | Path | None = None) -> Flask:
     """Build the app with an explicit, environment, or default vault path."""
     app = Flask(__name__)
+    # Behind Caddy the client's real IP arrives in X-Forwarded-For, which
+    # Caddy appends to. ProxyFix(x_for=1) trusts exactly the LAST entry —
+    # the one Caddy itself wrote — and folds it into REMOTE_ADDR, which
+    # is what client_ip() then reads. Enabled only on an explicit
+    # CAREEROS_TRUSTED_PROXY=1, because the header is client-controlled:
+    # an app reached directly must not believe it, or any caller could
+    # pick the IP the rate limiter counts them under. Documented in
+    # .env.example and deploy/RUNBOOK.md.
+    if os.environ.get('CAREEROS_TRUSTED_PROXY') == '1':
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
     app.config['VAULT_PATH'] = users.vault_root(vault)
     # M0 migration (JOZ-273): with CAREEROS_REACT_UI=1 the Jobs page is
     # served by the built React/Gestalt front end instead of the Jinja
@@ -657,6 +728,162 @@ def create_app(vault: str | Path | None = None) -> Flask:
             return login_page(users.SIGN_IN_FAILED), 401
         users.sign_in(user)
         return jsonify(ok=True, next=AFTER_LOGIN) if wants_json else redirect(AFTER_LOGIN)
+
+    @app.route('/forgot-password', methods=['GET', 'POST'])
+    def forgot_password():
+        """Ask for a reset link. In PUBLIC_ENDPOINTS: the person asking
+        has no session by definition.
+
+        The POST answers with ONE message and ONE status whether the
+        address has an account, is disabled, or is rate-limited —
+        `password_reset.request_reset` returns the same string for every
+        case and the rate-limited case short-circuits to it too, so the
+        page cannot be used to find out who has an account. A refused
+        request is still counted (register, not allowed-then-register:
+        counting happens first, so a limiter-hit request spends budget
+        like any other and cannot be retried for free).
+        """
+        root = app.config['VAULT_PATH']
+        if request.method == 'GET':
+            return mail_link_page(
+                'Forgot password',
+                "<section class='card'><h1>Forgot password</h1>"
+                "<p class='muted'>Enter your email. If there is an account, "
+                "a reset link is on its way.</p>"
+                "<form class='stack spaced' method='post' action='/forgot-password'>"
+                "<label>Email<input type='email' name='email' autocomplete='username' "
+                "required></label>"
+                "<button type='submit' class='primary'>Send reset link</button>"
+                "</form>"
+                "<p><a href='/login'>Back to the login page</a></p></section>")
+        email = request.form.get('email') or ''
+        if ratelimit.register(root, email=email, ip=client_ip()):
+            message = password_reset.request_reset(root, email)
+        else:
+            # The same message as a request that was handled: which half
+            # of the rate limit was hit, or whether it was hit at all,
+            # is exactly what a stranger must not learn from this page.
+            message = password_reset.REQUEST_ACCEPTED
+        return mail_link_page(
+            'Forgot password',
+            "<section class='card'><h1>Forgot password</h1>"
+            f"<p class='muted'>{escape(message)}</p>"
+            "<p><a href='/login'>Back to the login page</a></p></section>")
+
+    @app.route('/accept-invite/<token>', methods=['GET', 'POST'])
+    def accept_invite(token):
+        """Create the account one mailed invite link is for. In
+        PUBLIC_ENDPOINTS: the invitee has no session — creating one is
+        the whole point of the page.
+
+        GET shows the name+password form while the token is live and the
+        shared dead-link state otherwise. POST is rate-limited per
+        address AND per IP with a generic refusal that says nothing about
+        the token, then spends the link under the vault write lock
+        (`invites.accept`): a second submit — a double click, two tabs,
+        two workers — finds it used and gets the dead-link state.
+        Success redirects to the login page; the invitee is NOT signed
+        in automatically, because they came from a mailbox and signing
+        in with the password they just chose proves they have it.
+        """
+        root = app.config['VAULT_PATH']
+        record = invites.load(root, token) or {}
+        if link_tokens.state(record) is not link_tokens.TOKEN_LIVE:
+            return dead_link_page()
+        if request.method == 'GET':
+            return mail_link_page(
+                'Accept your invite',
+                "<section class='card'><h1>Accept your invite</h1>"
+                "<p class='muted'>Choose your name and a password to create "
+                "your account. This link works once and expires in "
+                f"{invites.EXPIRY.days} days.</p>"
+                "<form class='stack spaced' method='post'>"
+                "<label>Name<input type='text' name='name' autocomplete='name' "
+                f"value=\"{escape(record.get('name', ''))}\" required></label>"
+                "<label>Password<input type='password' name='password' "
+                "autocomplete='new-password' required></label>"
+                "<button type='submit' class='primary'>Create account</button>"
+                "</form></section>")
+        email = record.get('email')
+        if not ratelimit.register(root, email=email, ip=client_ip()):
+            return mail_link_page(
+                'Accept your invite',
+                "<section class='card'><h1>Accept your invite</h1>"
+                f"<p class='danger' role='alert'>{escape(RATE_LIMITED_MESSAGE)}</p>"
+                "<p><a href='/login'>Go to the login page</a></p></section>"), 429
+        name = request.form.get('name') or ''
+        password = request.form.get('password') or ''
+        try:
+            invites.accept(root, token, name, password)
+        except link_tokens.TokenError:
+            return dead_link_page()
+        except ValueError as error:
+            # A refusal that is the invitee's to fix: an existing account
+            # on this email, a missing name, a too-short password. The
+            # token is unspent (consume burns it only after `then`
+            # returns), so the corrected second try still works.
+            return mail_link_page(
+                'Accept your invite',
+                "<section class='card'><h1>Accept your invite</h1>"
+                f"<p class='danger' role='alert'>{escape(str(error))}</p>"
+                "<form class='stack spaced' method='post'>"
+                "<label>Name<input type='text' name='name' autocomplete='name' "
+                f"value=\"{escape(name)}\" required></label>"
+                "<label>Password<input type='password' name='password' "
+                "autocomplete='new-password' required></label>"
+                "<button type='submit' class='primary'>Create account</button>"
+                "</form></section>"), 400
+        return redirect(url_for('login'))
+
+    @app.route('/reset-password/<token>', methods=['GET', 'POST'])
+    def reset_password(token):
+        """Set the new password one mailed reset link is for. In
+        PUBLIC_ENDPOINTS, rate-limited and single-use like the accept
+        page, with the same no-auto-sign-in ending: a successful reset
+        redirects to the login page. The reset itself also bumps the
+        account's session epoch (password_reset.complete_reset), which
+        ends every session minted before it — this account's only.
+        """
+        root = app.config['VAULT_PATH']
+        record = password_reset.load(root, token) or {}
+        if link_tokens.state(record) is not link_tokens.TOKEN_LIVE:
+            return dead_link_page()
+        if request.method == 'GET':
+            return mail_link_page(
+                'Choose a new password',
+                "<section class='card'><h1>Choose a new password</h1>"
+                "<p class='muted'>This link works once and expires in one "
+                "hour. Signing every other session of this account out is "
+                "part of the reset.</p>"
+                "<form class='stack spaced' method='post'>"
+                "<label>New password<input type='password' name='password' "
+                "autocomplete='new-password' required></label>"
+                "<button type='submit' class='primary'>Set new password</button>"
+                "</form></section>")
+        if not ratelimit.register(root, email=record.get('email'), ip=client_ip()):
+            return mail_link_page(
+                'Choose a new password',
+                "<section class='card'><h1>Choose a new password</h1>"
+                f"<p class='danger' role='alert'>{escape(RATE_LIMITED_MESSAGE)}</p>"
+                "<p><a href='/login'>Go to the login page</a></p></section>"), 429
+        password = request.form.get('password') or ''
+        try:
+            password_reset.complete_reset(root, token, password)
+        except link_tokens.TokenError:
+            return dead_link_page()
+        except ValueError as error:
+            # The password rule. The token stays live, so the corrected
+            # second try still works — same shape as the accept page.
+            return mail_link_page(
+                'Choose a new password',
+                "<section class='card'><h1>Choose a new password</h1>"
+                f"<p class='danger' role='alert'>{escape(str(error))}</p>"
+                "<form class='stack spaced' method='post'>"
+                "<label>New password<input type='password' name='password' "
+                "autocomplete='new-password' required></label>"
+                "<button type='submit' class='primary'>Set new password</button>"
+                "</form></section>"), 400
+        return redirect(url_for('login'))
 
     @app.post('/logout')
     def logout():

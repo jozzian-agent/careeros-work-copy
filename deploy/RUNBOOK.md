@@ -659,13 +659,15 @@ then `-- smoke ok: ...`.
 
 ## Mail, and the one command that proves it
 
-**Nothing in the app sends mail today** — no password reset, no invite,
-no tester update. `careeros/mail.py` is the module those features will
-call when they exist, and its only caller on this release is the test
-command below. So no deploy waits on this: set it when you want it, and
-leaving it unset is a working environment, exactly like leaving the LLM
-key unset (Known gaps, 2). A send from an environment with no SMTP
-configuration is refused and says which variables are missing.
+The app sends mail from exactly two places: an invite link and a
+password-reset link ("Inviting a tester" below). Both go through
+`careeros/mail.py`, inherit its 150-per-day cap, and a refused send is
+a visible failure — the invite command exits non-zero, and the
+forgot-password page keeps its one generic answer while the journal
+holds the reason. Leaving SMTP unset is still a working environment:
+invites then fail loudly at the command line (with `--print-link` as
+the documented fallback), and password reset simply cannot mail — which
+the log says, per request, without the page ever differing.
 
 The variables go in the env file and never in the repo:
 
@@ -744,6 +746,67 @@ to a real SMTP provider: the test suite uses a fake SMTP server, so what
 is proven here is the module's own behaviour and not that any provider
 accepts this box. Until you have run the command above against
 staging's own account and read the mail, mail is unproven on this VPS.
+
+## Inviting a tester, and password reset
+
+Accounts are created by invitation, from the VPS, as the environment's
+own user. There is no admin page and no self-signup.
+
+```bash
+cd /srv/careeros/prod/app/current &&
+sudo -u careeros-prod sh -c '\n  set -a; . /etc/careeros/prod.env; set +a
+  exec .venv/bin/python -m careeros.invites \
+    --vault /srv/careeros/prod/vault \
+    --email tester@example.com --name "The Tester"'
+```
+
+**Expected:** exit 0 and one line —
+
+```text
+Invited tester@example.com. The mail was sent; the link works once and expires in 7 days.
+```
+
+The mailed link goes to `<APP_BASE_URL>/accept-invite/<token>`, so
+staging invites need staging's `APP_BASE_URL` (same rule as mail). The
+token exists only in the mail: the vault stores a hash, and the command
+prints nothing about it.
+
+**If the mail is refused** — SMTP unset, refused, or the daily cap
+spent — the command exits non-zero, prints the module's own
+`mail failed: …` line, and says to rerun with `--print-link`, which
+prints the link once for you to copy to the tester through a channel
+you choose:
+
+```bash
+… -m careeros.invites --vault … --email tester@example.com --print-link
+```
+
+**Other behaviors worth knowing:**
+
+- Inviting an address that already has an account is refused — the
+  invite flow never overwrites an existing password.
+- A second invite for the same address replaces the first: the old link
+  dies at once, only the newest works.
+- A link works once. The tester picks their name and password on the
+  page; the account is created with the default role (never admin), and
+  there is no auto sign-in — the page sends them to the login page.
+- Password rule: at least 10 characters. That is the whole rule, and it
+  is the same one the CLI's `create-user` uses.
+- The accept page and the reset page rate-limit: 5 attempts per address
+  and per client IP per hour (`CAREEROS_RATE_LIMIT`,
+  `CAREEROS_RATE_WINDOW`), shared by both gunicorn workers through the
+  vault. Behind Caddy, set `CAREEROS_TRUSTED_PROXY=1` so the IP half
+  sees real clients; without it, every request looks like the proxy and
+  the per-address limit carries the load alone.
+
+**Password reset:** the login page's "Forgot password" link. The form
+gives one generic answer for every email — known, unknown, disabled,
+rate-limited — so the page cannot be used to find out who has an
+account. A live link expires in 1 hour and a new request replaces the
+old one. Completing a reset signs out every session of that account
+(sessions carry an epoch the reset bumps) — that is deliberate, and it
+touches no other account. A disabled account gets the same generic
+answer and no mail.
 
 ## The off-VPS copy (backups, pull-from-home)
 
