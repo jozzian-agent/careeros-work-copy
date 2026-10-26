@@ -245,6 +245,11 @@ staging has no proven path to follow yet. The automatic post-deploy smoke
 is not a blocker either way — curl replays a Secure cookie over the
 loopback (Known gaps, 3).
 
+Mail needs no line here either. Nothing in the app sends mail on this
+release, so the `SMTP_*` variables are a later step and not part of
+bringing an environment up (Day 2, **Mail, and the one command that
+proves it**).
+
 There is no host or port line. Locally the app takes both as command-line
 flags; on this box `careeros-stg.service` tells gunicorn which address to
 bind, so a `CAREEROS_PORT=` line here would be read by nothing.
@@ -651,6 +656,94 @@ sudo SMOKE_ENV_FILE=/etc/careeros/prod.env \
 
 **Expected:** `-- GET /api/health 200`, `-- login ok`, three `GET` lines,
 then `-- smoke ok: ...`.
+
+## Mail, and the one command that proves it
+
+**Nothing in the app sends mail today** — no password reset, no invite,
+no tester update. `careeros/mail.py` is the module those features will
+call when they exist, and its only caller on this release is the test
+command below. So no deploy waits on this: set it when you want it, and
+leaving it unset is a working environment, exactly like leaving the LLM
+key unset (Known gaps, 2). A send from an environment with no SMTP
+configuration is refused and says which variables are missing.
+
+The variables go in the env file and never in the repo:
+
+```bash
+sudoedit /etc/careeros/prod.env     # or stg.env
+```
+
+```text
+SMTP_HOST=<your provider's SMTP host>
+SMTP_USER=<the SMTP username>
+SMTP_PASSWORD=<the SMTP password>
+MAIL_FROM=<the address mail is sent from>
+APP_BASE_URL=https://app.career-os.ch
+```
+
+Those four have no default, and a send with any of them unset is
+refused. `APP_BASE_URL` is the one place a link inside a mail is built
+from, so **staging's is staging's own hostname** — otherwise a link in a
+staging mail sends a tester into production. One SMTP account per
+environment, never production's credentials in `stg.env`, the same rule
+as the LLM key.
+
+`SMTP_SECURITY` (`starttls`, the default, or `ssl`), `SMTP_PORT` (587
+with starttls, 465 with ssl), `SMTP_TIMEOUT` (20 seconds) and
+`MAIL_DAILY_CAP` (150 addresses per UTC day, counted in that
+environment's vault) all have real defaults and are only worth a line
+when a provider wants something else. `MAIL_FROM_NAME` has no default
+and needs none: set it and mail is from that name, leave it out and mail
+is from the bare address. The full list, with what reads each one, is
+[`.env.example`](../.env.example).
+
+Then restart, under the same rule as every other env edit:
+
+```bash
+sudo systemctl restart careeros-prod
+```
+
+**Prove it from this box.** Run it as the environment's own user, so the
+day's count is written into that environment's vault, and source the env
+file rather than passing anything on the command line — argv is
+world-readable in `/proc` and also reaches the journal and your shell
+history:
+
+```bash
+cd /srv/careeros/prod/app/current &&
+sudo -u careeros-prod sh -c '
+  set -a; . /etc/careeros/prod.env; set +a
+  exec .venv/bin/python -m careeros.mail test \
+    --to you@example.com --vault /srv/careeros/prod/vault'
+```
+
+`--to` is required: this command never picks an address for you. Staging
+is the same with `stg` in place of `prod`. There is no port and no URL
+in it — the command talks to the provider and not to the app, so it
+works whether or not the service is up.
+
+**Expected:** one line, and exit 0:
+
+```text
+Sent to you@example.com as no-reply@your-domain. 1 of 150 mails sent today.
+```
+
+Then open that inbox. The command says the provider accepted the mail,
+which is not the same fact as the mail arriving.
+
+**If it fails** it exits non-zero and prints two lines: the module's own
+`mail failed: to=… subject=… reason=…`, which is what the journal would
+hold when a feature sends one, and then the command's answer. The reason
+names a missing variable (`Mail is not configured: SMTP_HOST,
+SMTP_PASSWORD are not set. Nothing was sent.`), the provider's refusal
+(`SMTPAuthenticationError`), or today's cap being spent. No password is
+in either line, and no body of any mail ever reaches a log.
+
+**The real test is yours.** Nothing in this repository has ever talked
+to a real SMTP provider: the test suite uses a fake SMTP server, so what
+is proven here is the module's own behaviour and not that any provider
+accepts this box. Until you have run the command above against
+staging's own account and read the mail, mail is unproven on this VPS.
 
 ## The off-VPS copy (backups, pull-from-home)
 

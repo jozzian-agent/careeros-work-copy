@@ -955,6 +955,7 @@ state survives a restart.
 | JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md) |
 | Accounts command line | Creating, listing, resetting, disabling and enabling an account, since the first admin cannot sign in to create themselves. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [schemas](docs/schemas.md)) |
 | Health check | `GET /api/health`, the one unauthenticated read: is the process up. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md)) |
+| Test-mail command line | Proving an environment can send mail at all, before any mail-shaped feature exists to need it. Sends one test mail to an address the owner names, and no product mail: nothing in the app sends a reset, an invite or a tester update today. Added 2026-10-26 ([runbook](deploy/RUNBOOK.md), "Mail, and the one command that proves it") |
 
 Interviews is removed from the navigation until it exists. Tab order is My Jobs, All jobs, Companies, Experiences, Preferences. Proposed. All jobs sits next to My Jobs by owner decision, 2026-10-19.
 
@@ -976,6 +977,7 @@ Interviews is removed from the navigation until it exists. Tab order is My Jobs,
 | Log in | The Log in page | Everyone |
 | Log out | One affordance in the app header | Everyone |
 | Create, reset, disable or enable an account | `python -m careeros.users` | Owner |
+| Send one test mail | `python -m careeros.mail test --to <address>` | Owner |
 | Edit or delete a company, or add a value to the tag vocabulary | The company profile and the two classification popups | Owner |
 | Assign every pre-M2 job and experience to the admin | `python scripts/migrate_record_owner.py` ([runbook](docs/runbooks/migrate-record-owner.md)) | Owner |
 
