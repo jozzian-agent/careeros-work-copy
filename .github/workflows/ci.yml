@@ -1,6 +1,7 @@
-# Career OS CI. Two jobs: `ci`, which is the name the deploy runbook
-# refers to, and `frontend-dist`, which fails when the committed
-# front-end build does not match a fresh one.
+# Career OS CI. Three jobs: `ci`, which is the name the deploy runbook
+# refers to, `frontend-dist`, which fails when the committed front-end
+# build does not match a fresh one, and `docs-fresh`, which fails when
+# the committed generated docs do not match a fresh generator run.
 #
 # NO STORED SECRETS ANYWHERE IN THIS FILE OR IN WHAT IT RUNS. No
 # repository/environment secrets, no LLM key: the suite needs none, and
@@ -141,5 +142,49 @@ jobs:
           if [ -n "$status" ]; then
             echo "::error::frontend/dist in the commit does not match a fresh 'npm ci && npm run build':"
             echo "$status"
+            exit 1
+          fi
+
+  docs-fresh:
+    # docs/as-built is read out of the app by scripts/gen_docs.py, so a
+    # route that moves without a regenerated doc is a doc that lies. This
+    # job regenerates and fails on any diff; the fix is to run the
+    # generator and commit what it writes.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      # The same fact as in the `ci` job: `org_intake` lives in
+      # vendor/capa-repo, careeros/server.py imports it, and there is no
+      # venv here for a local install to register that path in.
+      PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/vendor/capa-repo
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install the app and the checks
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Regenerate the as-built docs
+        run: python scripts/gen_docs.py
+
+      - name: committed docs must match the fresh run
+        run: |
+          if ! git diff --exit-code docs/as-built/; then
+            echo "::error::docs/as-built/ in the commit does not match a fresh 'python scripts/gen_docs.py': run it and commit the result"
             exit 1
           fi
