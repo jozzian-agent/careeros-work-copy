@@ -457,6 +457,26 @@ PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets',
                               'reset_password'})
 
 
+#: The methods that only ever read. Flask answers HEAD on every rule
+#: that allows GET, and it answers it by running the same handler with
+#: `request.method == 'HEAD'` -- so a handler shaped as
+#: `if request.method == 'GET': <read> ... <mutate>` ran its MUTATING
+#: half for a HEAD request, body and all: HEAD could save criteria,
+#: update a record or authenticate (2026-10-27 privacy audit, finding 7).
+#:
+#: So every read/write branch below asks `reading()`, which is true for
+#: both methods, and HEAD can only ever take the read path. A branch that
+#: has to name one method uses `in` on an explicit set; no mutation is
+#: ever reached by falling through an `else`.
+READ_METHODS = frozenset({'GET', 'HEAD'})
+
+
+def reading() -> bool:
+    """Whether this request is a read -- GET, or the HEAD Flask derives
+    from it. The one test every read/write branch in create_app makes."""
+    return request.method in READ_METHODS
+
+
 def login_page(error: str | None = None) -> str:
     """The sign-in page served when the React build is not available.
 
@@ -637,7 +657,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def require_login():
         if request.endpoint in PUBLIC_ENDPOINTS:
             return None
-        if users.session_user(app.config['VAULT_PATH']) is not None:
+        # Finding 8: the ONE resolution of this request's principal.
+        # Everything behind the gate reads the answer cached here
+        # (users.request_user / users.request_owner) instead of reading
+        # the user record again and possibly getting a different answer
+        # halfway through the same request.
+        if users.request_user(app.config['VAULT_PATH']) is not None:
             return None
         if request.path.startswith('/api/'):
             return jsonify(error=users.LOGIN_REQUIRED), 401
@@ -654,10 +679,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
     #                      the tag vocabulary, which is the admin alone.
     #   shared_denied()    the one answer a tester's shared write gets.
     #
-    # Each reads the session user again rather than caching it on `g`:
-    # the record is one small YAML file, the gate above has already read
-    # it on this request, and one cache is one more place an answer can
-    # go stale inside a request.
+    # All three read the ONE principal the gate resolved, cached on
+    # `flask.g` by `users.request_user` (2026-10-27 privacy audit,
+    # finding 8). They used to read the user record again each: two
+    # readings of one request are two answers whenever anything changes
+    # in between, and a disable or a reset landing between the gate and
+    # `session_owner` turned an authenticated request into `owner=None`,
+    # which every vault reader takes as "unscoped, read everything".
+    # `users.request_owner` raises `IdentityUnresolved` instead, which
+    # the error handler at the end of this function turns into the same
+    # 401 a request with no session at all gets: a missing identity is
+    # refused, never widened.
     #
     # Every route scopes its FIRST read of a record, which is the one
     # that decides whether the request is answered at all. The reloads
@@ -668,10 +700,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # the caller owns, they run off the request thread where there is no
     # session to read, and ownership never moves once stamped.
     def session_owner():
-        return users.owner(users.session_user(app.config['VAULT_PATH']))
+        return users.request_owner(app.config['VAULT_PATH'])
 
     def may_edit_shared():
-        return users.is_admin(users.session_user(app.config['VAULT_PATH']))
+        # No principal is not an admin, which is the fail-closed reading
+        # on its own; the request still ends in the 401 above as soon as
+        # anything asks for the ownership scope.
+        return users.is_admin(users.request_user(app.config['VAULT_PATH']))
 
     def shared_denied():
         return jsonify(error=users.SHARED_READ_ONLY), 403
@@ -712,17 +747,46 @@ def create_app(vault: str | Path | None = None) -> Flask:
         one endpoint rather than needing one each. A failed attempt gets
         one message whichever half was wrong, so the page cannot be used
         to find out who has an account.
+
+        Guessing is rate-limited per address AND per IP (finding 10) and
+        a HEAD request takes the read path like any other (finding 7):
+        `reading()`, not `== 'GET'`, or HEAD with a body would have
+        authenticated and set a session cookie.
         """
         root = app.config['VAULT_PATH']
-        if request.method == 'GET':
-            if users.session_user(root) is not None:
+        if reading():
+            if users.request_user(root) is not None:
                 return redirect(AFTER_LOGIN)
             return send_from_directory(react_dist, 'index.html') if react_ui else login_page()
         payload = request.get_json(silent=True)
         wants_json = isinstance(payload, dict)
         submitted = payload if wants_json else request.form
-        user = users.authenticate(root, submitted.get('email'), submitted.get('password'))
+        email = submitted.get('email')
+        address = client_ip()
+        # Finding 10: the one unauthenticated POST that was not counted.
+        # Same module, same vault file and same lock as the mailed-link
+        # three, so the two gunicorn workers share one budget instead of
+        # an attacker alternating between them for double; login's own
+        # scope and tunables, so wrong passwords cannot spend the budget
+        # of the reset request that fixes them.
+        #
+        # Checked BEFORE authenticate, so a spent budget costs no
+        # password-hash work, and counted only when the attempt FAILS: a
+        # person signing in on a second device has spent nothing, every
+        # guess has spent one. Windows end (DEFAULT_LOGIN_WINDOW), so no
+        # address is locked out for good.
+        if not ratelimit.allowed(root, email=email, ip=address,
+                                 scope=ratelimit.LOGIN_SCOPE):
+            # One message, saying only that there were too many
+            # attempts: which key was spent, and whether the address has
+            # an account at all, is what a guesser must not learn here.
+            if wants_json:
+                return jsonify(error=RATE_LIMITED_MESSAGE), 429
+            return login_page(RATE_LIMITED_MESSAGE), 429
+        user = users.authenticate(root, email, submitted.get('password'))
         if user is None:
+            ratelimit.register(root, email=email, ip=address,
+                               scope=ratelimit.LOGIN_SCOPE)
             if wants_json:
                 return jsonify(error=users.SIGN_IN_FAILED), 401
             return login_page(users.SIGN_IN_FAILED), 401
@@ -744,7 +808,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         like any other and cannot be retried for free).
         """
         root = app.config['VAULT_PATH']
-        if request.method == 'GET':
+        if reading():
             return mail_link_page(
                 'Forgot password',
                 "<section class='card'><h1>Forgot password</h1>"
@@ -790,7 +854,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         record = invites.load(root, token) or {}
         if link_tokens.state(record) is not link_tokens.TOKEN_LIVE:
             return dead_link_page()
-        if request.method == 'GET':
+        if reading():
             return mail_link_page(
                 'Accept your invite',
                 "<section class='card'><h1>Accept your invite</h1>"
@@ -848,7 +912,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         record = password_reset.load(root, token) or {}
         if link_tokens.state(record) is not link_tokens.TOKEN_LIVE:
             return dead_link_page()
-        if request.method == 'GET':
+        if reading():
             return mail_link_page(
                 'Choose a new password',
                 "<section class='card'><h1>Choose a new password</h1>"
@@ -2797,11 +2861,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
             data = storage.load_job(root, identifier, owner)
             if data is None:
                 return jsonify(error='Job not found.'), 404
-            if request.method == 'GET':
+            if reading():
                 if request.args.get('view') == 'page':
                     return jsonify(jobs.detail_context(root, identifier, identifier in llm_pending, owner))
                 return jsonify(data | {'llm_pending': identifier in llm_pending})
-            if request.method == 'DELETE':
+            if request.method in ('DELETE',):
                 storage.delete_job(root, identifier)
                 return jsonify(deleted=identifier)
             payload = request.get_json()
@@ -2825,8 +2889,16 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # could set it could hand its own job to somebody else or
             # take one of theirs (D4: a posting belongs to whoever added
             # it, and that never changes).
-            payload = {k: v for k, v in payload.items()
-                       if k not in ('summary_source', storage.OWNER_FIELD)}
+            # Finding 2: and the note list on the same principle. A note
+            # carries `author_id`, the API stamps it from the session in
+            # `create_note`, and `validate_note_list` can only check that
+            # a stamp is a string -- so a generic write that persisted
+            # the list let a client write a note as somebody else, or
+            # re-stamp one of their own as the admin's. Notes change
+            # through the dedicated note endpoints and nowhere else.
+            payload = storage.without_note_fields(
+                {k: v for k, v in payload.items()
+                 if k not in ('summary_source', storage.OWNER_FIELD)})
             if 'summary' in payload and payload['summary'] != data.get('summary'):
                 payload['summary_source'] = ''
             # N2 (fix round 2): normalized_url and ATS identity must be
@@ -2894,7 +2966,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             data = storage.may_see_company(root, identifier, owner)
             if data is None:
                 return jsonify(error='Company not found.'), 404
-            if request.method == 'GET':
+            if reading():
                 if request.args.get('view') == 'page':
                     return jsonify(companies.detail_context(root, identifier, session_owner(),
                                                             may_edit_shared()))
@@ -2905,7 +2977,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # 403 against 404.
             if not may_edit_shared():
                 return shared_denied()
-            if request.method == 'DELETE':
+            if request.method in ('DELETE',):
                 # M2 (D3): the counts in this answer are the deleter's
                 # OWN links and nobody else's. They used to be vault-wide,
                 # which told the admin how many private records other
@@ -2962,6 +3034,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Record must be an object.')
+            # Finding 2: the same hole as the job PUT, on a record every
+            # user holds notes in. This write is the admin's alone, which
+            # makes it the forgery that matters least and the one most
+            # worth closing anyway: the admin may change a company, not
+            # author a note as one of its other readers.
+            payload = storage.without_note_fields(payload)
             # B2: same rule as the job PUT -- provenance only for keys the
             # vault persists, never for keys it drops.
             accepted = storage.company_field_names()
@@ -3072,7 +3150,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 return jsonify(error='Note not found.'), 404
             full = _note_write_record(kind, identifier, record)
             everything = storage.notes_view(full)
-            if request.method == 'DELETE':
+            if request.method in ('DELETE',):
                 save(root, storage.notes_payload([n for n in everything if n['id'] != note_id]),
                      identifier)
                 return jsonify(deleted=note_id)
@@ -3095,10 +3173,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
         The payload is a payload: `vault.save_search` copies the four
         lists and `notes` out of it and stamps the owner itself, so a
         body carrying `owner_id` cannot write to another user.
+
+        `reading()` rather than `== 'GET'` (finding 7): HEAD ran the save
+        half and replaced the criteria.
         """
         root = app.config['VAULT_PATH']
         owner = session_owner()
-        if request.method == 'GET':
+        if reading():
             if request.args.get('view') == 'page':
                 return jsonify(search.page_context(root, owner))
             return jsonify(storage.load_search(root, owner))
@@ -3109,7 +3190,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
     def experience_collection():
         root = app.config['VAULT_PATH']
         owner = session_owner()
-        if request.method == 'GET':
+        if reading():
             if request.args.get('view') == 'page':
                 return jsonify(experiences.page_context(root, owner))
             return jsonify(storage.list_experiences(root, owner))
@@ -3146,11 +3227,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
             data = storage.load_experience(root, identifier, owner)
             if data is None:
                 return jsonify(error='Position not found.'), 404
-            if request.method == 'GET':
+            if reading():
                 if request.args.get('view') == 'page':
                     return jsonify(experiences.detail_context(root, identifier, owner))
                 return jsonify(data)
-            if request.method == 'DELETE':
+            if request.method in ('DELETE',):
                 storage.delete_experience(root, identifier)
                 return jsonify(deleted=identifier)
             payload = request.get_json()
@@ -3269,6 +3350,18 @@ def create_app(vault: str | Path | None = None) -> Flask:
         # Retry response carries only the notes they may read.
         return jsonify({**(storage.reader_company(result, session_owner()) or {}),
                         'retry_applied': applied})
+
+    @app.errorhandler(users.IdentityUnresolved)
+    def identity_unresolved(error):
+        """Finding 8: a request the gate let in whose principal could not
+        be resolved when something asked for the ownership scope -- the
+        account was disabled, or its sessions ended by a reset, between
+        the two. Answered exactly like a request with no session: the
+        same 401 and the same message, so the race ends in "log in again"
+        and never in an unscoped read of the vault."""
+        if request.path.startswith('/api/'):
+            return jsonify(error=users.LOGIN_REQUIRED), 401
+        return login_page(users.LOGIN_REQUIRED), 401
 
     @app.errorhandler(ValueError)
     def invalid_data(error):

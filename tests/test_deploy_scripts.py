@@ -561,6 +561,48 @@ def test_sync_target_set_whole_still_works_without_sync_user(lan):
     assert 'someone@elsewhere.example' in done.stdout
 
 
+#: The vault names the sync may never carry, one per case: a credential,
+#: the accounts, both shapes of the search criteria, and the four
+#: owner-record directories.
+NEVER_SYNCED = ('secret_key', 'users', 'search.yaml', 'search',
+                'jobs', 'experiences', 'interviews', 'documents')
+
+
+@pytest.mark.parametrize('entry', NEVER_SYNCED)
+def test_sync_refuses_every_owner_owned_vault_name(lan, entry):
+    """The never-sync denylist, read as a list rather than as one case.
+
+    `search` is the one that was missing (2026-10-27 privacy audit): the
+    criteria moved from one shared `search.yaml` to a `search/` directory
+    with one file per owner, and the denylist still named only the old
+    file. An allowlist naming the directory would have shipped every
+    user's criteria to prod.
+    """
+    vault = lan.tmp / 'vault'
+    (vault / 'search').mkdir(parents=True, exist_ok=True)
+    for name in NEVER_SYNCED:
+        (vault / name).mkdir(exist_ok=True)
+    done = lan('sync_vault_to_prod.sh', DAY,
+               env={'SYNC_VAULT': str(vault), 'SYNC_VAULT_FILES': entry})
+    assert done.returncode != 0, done.stdout + done.stderr
+    assert f"SYNC_VAULT_FILES entry '{entry}' is owner-owned or a credential" in done.stdout
+    # Refused before anything is staged, so nothing of the owner's ever
+    # reaches the payload the upload reads.
+    assert 'allowlisted item(s)' not in done.stdout
+
+
+def test_sync_still_carries_the_shared_slice_it_is_for(lan):
+    """The denylist is a denylist and not a wall: the shared half --
+    `companies/` and `tags.yaml`, which the split keeps as one universe
+    every user reads -- still ships."""
+    vault = lan.tmp / 'vault'
+    (vault / 'companies').mkdir(parents=True, exist_ok=True)
+    (vault / 'tags.yaml').write_text('facets: {}\n')
+    done = lan('sync_vault_to_prod.sh', DAY, env={'SYNC_VAULT': str(vault)})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert '-- vault: 2 allowlisted item(s)' in done.stdout
+
+
 def test_sync_refuses_a_loose_push_key(lan):
     (lan.tmp / 'ssh' / 'id_ed25519').chmod(0o644)
     done = lan('sync_vault_to_prod.sh', DAY)

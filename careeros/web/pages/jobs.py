@@ -267,7 +267,12 @@ def company_summaries(companies, isic_sections):
 
 def build_page():
     root = current_app.config['VAULT_PATH']
-    context = page_context(root, users.owner(users.session_user(root)))
+    # The ONE principal of this request (2026-10-27 privacy audit,
+    # finding 8). Reading the user record a second time here was a second
+    # chance to get None, and `page_context(root, None)` is an unscoped
+    # read of every job in the vault; `request_principal` refuses
+    # instead, like the other two page handlers here.
+    context = page_context(root, users.owner(users.request_principal(root)))
     return page('My Jobs', 'jobs', 'jobs.html', **context)
 
 def show_remote_chip(job):
@@ -462,6 +467,8 @@ def classification_context(job, company, function_labels, isic_sections, tag_lab
 
 def taxonomy(identifier):
     root = current_app.config['VAULT_PATH']
-    user = users.session_user(root)
+    # Finding 8: the request's one principal, and a refusal rather than
+    # an unscoped read when there is none.
+    user = users.request_principal(root)
     context = taxonomy_context(root, identifier, users.owner(user), users.is_admin(user))
     return page(f"Classification · {context['job'].get('title', 'Job')}", 'jobs', 'job_taxonomy.html', **context)

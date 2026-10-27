@@ -1,9 +1,16 @@
 """A per-key request counter, stored in the vault so workers agree.
 
-The three unauthenticated POSTs — forgot password, accept an invite,
-submit a reset — are the only places a stranger can make the server do
-password work on their behalf, so each is counted per email address AND
-per client IP, and refused past a limit.
+The four unauthenticated POSTs — sign in, forgot password, accept an
+invite, submit a reset — are the only places a stranger can make the
+server do password work on their behalf, so each is counted per email
+address AND per client IP, and refused past a limit.
+
+A SCOPE keeps one of those four from spending another's budget. The
+mailed-link three share the unscoped keys they have always used; the
+login form counts under its own (`login:email:…`, `login:ip:…`) with its
+own tunables, because a failed sign-in and a request for a reset link
+are different acts and five wrong passwords must not block the reset
+that fixes them (2026-10-27 privacy audit, finding 10).
 
 The count lives in ONE vault file (`ratelimit/windows.yaml`), read and
 written under the vault's own write lock. In-memory counters would be
@@ -17,7 +24,9 @@ address cannot spend an IP's budget or the other way round.
 
 The limit is deliberately coarse. It exists to make guessing and
 mail-bombing expensive, not to be an exact science: the defaults are
-CAREEROS_RATE_LIMIT attempts per CAREEROS_RATE_WINDOW seconds per key.
+CAREEROS_RATE_LIMIT attempts per CAREEROS_RATE_WINDOW seconds per key,
+and CAREEROS_LOGIN_RATE_LIMIT / CAREEROS_LOGIN_RATE_WINDOW for the login
+scope. Every window ends, so no key is ever locked out for good.
 """
 
 from __future__ import annotations
@@ -40,6 +49,27 @@ DEFAULT_LIMIT = 5
 #: How long a window lasts, in seconds. One hour.
 DEFAULT_WINDOW=3600
 
+#: The login form's own scope. A scope is a key prefix and a pair of env
+#: tunables, nothing more; '' is the unscoped mailed-link budget.
+LOGIN_SCOPE = 'login'
+
+#: Login's own budget. Ten FAILED sign-ins an hour per address and per IP
+#: (a success spends nothing, see server.login): past anyone mistyping a
+#: password a few times, nowhere near what guessing a password needs.
+DEFAULT_LOGIN_LIMIT = 10
+DEFAULT_LOGIN_WINDOW = 3600
+
+#: Each scope's (limit, window) defaults and the env vars that override
+#: them. Same prefix and same naming as the pair the mailed-link POSTs
+#: have always read, so one scope can be loosened without loosening the
+#: other.
+SCOPES = {
+    '': ((DEFAULT_LIMIT, DEFAULT_WINDOW),
+         ('CAREEROS_RATE_LIMIT', 'CAREEROS_RATE_WINDOW')),
+    LOGIN_SCOPE: ((DEFAULT_LOGIN_LIMIT, DEFAULT_LOGIN_WINDOW),
+                  ('CAREEROS_LOGIN_RATE_LIMIT', 'CAREEROS_LOGIN_RATE_WINDOW')),
+}
+
 
 def _positive_int(name, default):
     raw=(os.environ.get(name) or '').strip()
@@ -50,24 +80,32 @@ def _positive_int(name, default):
     return int(raw)
 
 
-def limit_and_window():
-    """The configured (limit, window_seconds), read fresh on every call
-    so a test or an env-file edit takes effect without a restart."""
-    return (_positive_int('CAREEROS_RATE_LIMIT', DEFAULT_LIMIT),
-            _positive_int('CAREEROS_RATE_WINDOW', DEFAULT_WINDOW))
+def limit_and_window(scope=''):
+    """This scope's configured (limit, window_seconds), read fresh on
+    every call so a test or an env-file edit takes effect without a
+    restart."""
+    (limit, window), (limit_var, window_var) = SCOPES[scope]
+    return (_positive_int(limit_var, limit), _positive_int(window_var, window))
 
 
-def email_key(email):
+def _prefix(kind, scope):
+    """The key prefix for one kind of counter in one scope. The unscoped
+    prefixes are unchanged, so the counters already on disk keep
+    counting for the pages that wrote them."""
+    return f'{scope}:{kind}' if scope else kind
+
+
+def email_key(email, scope=''):
     """The counter key for one address. Lowercased the same way user
     records are, so `Owner@X` and `owner@x` share one budget."""
     from careeros import users
 
-    return f'email:{users.normalize_email(str(email or ""))}'
+    return f'{_prefix("email", scope)}:{users.normalize_email(str(email or ""))}'
 
 
-def ip_key(address):
+def ip_key(address, scope=''):
     """The counter key for one client IP."""
-    return f'ip:{address or ""}'
+    return f'{_prefix("ip", scope)}:{address or ""}'
 
 
 def _live(counters, now, window):
@@ -87,27 +125,27 @@ def _locked_counters(root, now, window):
                      now, window)
 
 
-def check(root, key, now=None):
+def check(root, key, now=None, scope=''):
     """Whether one more attempt on this key is allowed right now.
 
     Counts nothing: this is the read half, for a page that wants to
     know before it asks for a form. `hit` is the counting half.
     """
-    limit, window = limit_and_window()
+    limit, window = limit_and_window(scope)
     now = time.time() if now is None else now
     counters = _locked_counters(root, now, window)
     entry = counters.get(key)
     return (entry['count'] if entry else 0) < limit
 
 
-def hit(root, key, now=None):
+def hit(root, key, now=None, scope=''):
     """Count one attempt on this key. True when it was still within the
     limit, False when this attempt is the one over.
 
     Read-and-write under one hold of the lock, so two concurrent hits
     cannot both read the same count and both squeeze under the limit.
     """
-    limit, window = limit_and_window()
+    limit, window = limit_and_window(scope)
     now = time.time() if now is None else now
     with vault.WriteLock(root):
         path = Path(root) / STATE_FILE
@@ -123,26 +161,26 @@ def hit(root, key, now=None):
     return allowed
 
 
-def keys_for(email=None, ip=None):
+def keys_for(email=None, ip=None, scope=''):
     """Both keys one request is counted under. The IP half is skipped
     when the app has no address to count (a test client), so the
     per-address limit still does its whole job."""
-    keys = [email_key(email)] if email else []
+    keys = [email_key(email, scope)] if email else []
     if ip:
-        keys.append(ip_key(ip))
+        keys.append(ip_key(ip, scope))
     return keys
 
 
-def allowed(root, email=None, ip=None):
+def allowed(root, email=None, ip=None, scope=''):
     """Whether a request from this address on this IP may proceed.
 
     Every key has to have budget: the limits are per key, and a request
     is refused as soon as one of its counters is spent.
     """
-    return all(check(root, key) for key in keys_for(email, ip))
+    return all(check(root, key, scope=scope) for key in keys_for(email, ip, scope))
 
 
-def register(root, email=None, ip=None):
+def register(root, email=None, ip=None, scope=''):
     """Count one request under each of its keys. True when every key
     still had budget, False when at least one was spent.
 
@@ -165,10 +203,10 @@ def register(root, email=None, ip=None):
     spent budget grows past the limit) — that is the documented
     "a refused attempt still spends budget" rule, preserved.
     """
-    keys = keys_for(email, ip)
+    keys = keys_for(email, ip, scope)
     if not keys:
         return True
-    limit, window = limit_and_window()
+    limit, window = limit_and_window(scope)
     now = time.time()
     with vault.WriteLock(root):
         path = Path(root) / STATE_FILE

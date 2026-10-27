@@ -77,7 +77,7 @@ Beside the allowlist, a block lists the fields the writer sets itself. Those sit
 
 * Stored at: `ratelimit/windows.yaml` (ratelimit.hit).
 * Allowed fields (ratelimit.hit): `count`, `until`, `windows`.
-* Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. No Flask route reads it. Written on routes whose write access reads: public, one-time token, rate limited; public, rate limited.
+* Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. Read on routes whose read access reads: public, rate limited. Written on routes whose write access reads: public, one-time token, rate limited; public, rate limited.
 
 ### search criteria
 
@@ -102,7 +102,7 @@ Beside the allowlist, a block lists the fields the writer sets itself. Those sit
 * Stored at: `users/`, one file per record, named `f"{vault.slugify(result['name'])}-{result['id'].lower()}.yaml"` (users.save_user).
 * Allowed fields (users.validate_user defaults): `created_at`, `disabled`, `email`, `name`, `password_hash`, `role`, `session_epoch`.
 * Fields the writer sets itself, outside the allowlist: `id`.
-* Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. Read on routes whose read access reads: any logged-in user; public; public, one-time token, rate limited; public, rate limited. Written on routes whose write access reads: public, one-time token, rate limited.
+* Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. Read on routes whose read access reads: any logged-in user; public, one-time token, rate limited; public, rate limited. Written on routes whose write access reads: public, one-time token, rate limited.
 
 ## Permissions matrix
 
@@ -313,7 +313,8 @@ The access columns say what the request gate and the admin rule let through on t
 | `/jobs/<identifier>/taxonomy` | GET | `job_taxonomy` | companies | any logged-in user | no write on this route | route code | `vault.load_company`, `vault.reader_company` |
 | `/jobs/<identifier>/taxonomy` | GET | `job_taxonomy` | jobs | owner only | no write on this route | route code | `vault.load_job` |
 | `/jobs/<identifier>/taxonomy` | GET | `job_taxonomy` | tags | any logged-in user | no write on this route | route code, storage layer | `vault.function_facet_options`, `vault.function_label_map`, `vault.load_tags`, `vault.tag_label_map` |
-| `/login` | GET, POST | `login` | users | public | no write on this route | route code, storage layer | `users.authenticate`, `users.find_by_email` |
+| `/login` | GET, POST | `login` | rate-limit windows | public, rate limited | public, rate limited | route code, storage layer | `ratelimit.allowed`, `ratelimit.check`, `ratelimit.register` |
+| `/login` | GET, POST | `login` | users | public, rate limited | no write on this route | route code, storage layer | `users.authenticate`, `users.find_by_email` |
 | `/logout` | POST | `logout` | none | no record kind on this route | no write on this route |  |  |
 | `/notes` | GET | `react_notes` | none | no record kind on this route | no write on this route |  |  |
 | `/reset-password/<token>` | GET, POST | `reset_password` | id counters | no read on this route | public, one-time token, rate limited | storage layer | `vault._allocate` |
