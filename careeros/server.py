@@ -3087,13 +3087,23 @@ def create_app(vault: str | Path | None = None) -> Flask:
 
     @app.route('/api/search', methods=['GET', 'POST'])
     def search_api():
+        """The signed-in user's own saved criteria.
+
+        Criteria are a per-user kind (2026-10-27 privacy audit, finding
+        4), so all three surfaces here -- the criteria read, the page
+        read and the save -- pass `session_owner()` and nothing else.
+        The payload is a payload: `vault.save_search` copies the four
+        lists and `notes` out of it and stamps the owner itself, so a
+        body carrying `owner_id` cannot write to another user.
+        """
         root = app.config['VAULT_PATH']
+        owner = session_owner()
         if request.method == 'GET':
             if request.args.get('view') == 'page':
-                return jsonify(search.page_context(root))
-            return jsonify(storage.load_search(root))
+                return jsonify(search.page_context(root, owner))
+            return jsonify(storage.load_search(root, owner))
         with write_lock:
-            return jsonify(storage.save_search(root, request.get_json()))
+            return jsonify(storage.save_search(root, owner, request.get_json()))
 
     @app.route('/api/experiences', methods=['GET', 'POST'])
     def experience_collection():

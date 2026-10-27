@@ -10,6 +10,11 @@ from careeros.web.markdown import render_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# The suite's signed-in user (conftest.SUITE_USER), as the ownership
+# scope the routes below run under: search criteria are per-user now, so
+# the vault functions take the reader rather than a bare root.
+OWNER = vault.Owner('USER-001', True)
+
 @pytest.fixture
 def root(tmp_path):
     shutil.copytree(ROOT / 'sample/vault', tmp_path / 'vault')
@@ -20,13 +25,13 @@ def client(root):
     return create_app(root).test_client()
 
 def test_empty_roundtrip(tmp_path):
-    assert vault.load_search(tmp_path) is None
+    assert vault.load_search(tmp_path, OWNER) is None
     assert vault.list_experiences(tmp_path) == []
     assert vault.load_experience(tmp_path, 'EXP-001') is None
     assert vault.next_id(tmp_path) == 'EXP-001'
     assert not vault.delete_experience(tmp_path, '../escape')
-    data = vault.save_search(tmp_path, {'roles': ['Invented role'], 'notes': '<text>'})
-    assert data == vault.load_search(tmp_path)
+    data = vault.save_search(tmp_path, OWNER, {'roles': ['Invented role'], 'notes': '<text>'})
+    assert data == vault.load_search(tmp_path, OWNER)
     assert data['updated'] == date.today().isoformat()
     assert vault.slugify(' Example & Company / Lead! ') == 'example-company-lead'
 
@@ -34,7 +39,7 @@ def test_search_api(client, root):
     data = dict(roles=['Invented lead'], must_haves=['Remote'], nice_to_haves=[], avoid=[], notes='A note')
     response = client.post('/api/search', json=data)
     assert response.status_code == 200
-    assert response.json == vault.load_search(root) == client.get('/api/search').json
+    assert response.json == vault.load_search(root, OWNER) == client.get('/api/search').json
     assert 'Invented lead' in client.get('/api/search?view=page').json['data']['roles']
     assert client.post('/api/search', json={'roles': 'bad'}).status_code == 400
     assert client.post('/api/search', data='{', content_type='application/json').status_code == 400
@@ -106,8 +111,12 @@ def test_corrupt_and_nonmapping_yaml_never_crash(root, client):
     (root / 'experiences' / 'broken-exp-999.yaml').write_text('company: [unclosed\n  - bad')
     # valid YAML but not a mapping
     (root / 'experiences' / 'list-exp-998.yaml').write_text('- alpha\n- beta\n')
-    # a corrupt search.yaml
-    (root / 'search.yaml').write_text('roles: [unclosed\n')
+    # a corrupt criteria file, in both places one can live: this reader's
+    # own, and the legacy shared file load_search would otherwise migrate
+    # from (per-user criteria, 2026-10-27)
+    (root / vault.SEARCH_DIR).mkdir(exist_ok=True)
+    (root / vault.SEARCH_DIR / 'user-001.yaml').write_text('roles: [unclosed\n')
+    (root / vault.LEGACY_SEARCH_FILE).write_text('roles: [unclosed\n')
     # listings and pages still serve, ignoring the poison files
     assert client.get('/api/experiences?view=page').status_code == 200
     listed = client.get('/api/experiences').get_json()
