@@ -1976,7 +1976,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             job = mark_ingest_state(root, job['id'], 'fetch_failed', stage='fetch',
                                     reason=type(error).__name__,
                                     history=('fetch_failed', 'Unable to process the posting.')) or job
-            return jsonify(job=job, company=company), 201
+            return jsonify(job=job, company=storage.reader_company(company, owner)), 201
 
         if discarded:
             return jsonify(job=job, company=None), 201
@@ -1996,8 +1996,9 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 # returns when extraction actually gets underway; a bare 201
                 # here would be indistinguishable from success to a caller
                 # that only checks response.ok.
-                return jsonify(job=job, company=company, error='Could not start extraction.'), 503
-        return jsonify(job=job, company=company), 201
+                return jsonify(job=job, company=storage.reader_company(company, owner),
+                               error='Could not start extraction.'), 503
+        return jsonify(job=job, company=storage.reader_company(company, owner)), 201
 
     @app.post('/api/jobs/<identifier>/resolve-review')
     def resolve_review(identifier):
@@ -2966,7 +2967,12 @@ def create_app(vault: str | Path | None = None) -> Flask:
             accepted = storage.company_field_names()
             payload['field_provenance'] = {**data.get('field_provenance', {}),
                 **{key: 'user' for key in payload if key != 'field_provenance' and key in accepted}}
-            return jsonify(storage.save_company(root, payload | {'name_source': 'owner'}, identifier))
+            # CAREER-41: save_company answers the FULL stored record; a
+            # response echoing it would hand the writing admin every
+            # user's notes, which no read path may do. Filter to this
+            # reader's own view like every other company answer.
+            return jsonify(storage.reader_company(
+                storage.save_company(root, payload | {'name_source': 'owner'}, identifier), owner))
 
     # A note is the same object on a job and on a company: a title, a
     # body, and the record it lives in. One pair of handlers serves both,
@@ -2975,25 +2981,41 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # so a note write is an ordinary record write: same lock, same
     # validation, same history backstop.
     #
-    # M2 (D3) splits the two halves apart, which is why the loader is
-    # wrapped rather than named directly: a note on a job is a write to
-    # one user's own private record, so it is scoped to them and
-    # somebody else's job answers 'Job not found.'; a note on a company
-    # is a write to a shared record, so it is the admin's alone. Giving a
-    # note privacy of its own is CAREER-41 and not this change.
+    # CAREER-41 replaces M2's "a company note is the admin's alone" with
+    # authorship: every signed-in user may add a note to a company, and a
+    # note is private to its author -- the admin included. The loader
+    # answers the reader-scoped record (`may_see_company` filters
+    # note_list to this reader's own notes, plus the legacy authorless
+    # ones for the admin), which is what makes somebody else's note id
+    # answer 404 on edit and delete with no second ownership check. The
+    # WRITE half then reloads the full stored record (`load_company`),
+    # because saving the filtered list back would silently delete every
+    # note the reader cannot see.
     NOTE_KINDS = {
         'jobs': (lambda root, identifier: storage.load_job(root, identifier, session_owner()),
                  storage.save_job, 'Job not found.', False),
         'companies': (lambda root, identifier: storage.may_see_company(root, identifier,
-                                                                        session_owner()),
+                                                                       session_owner()),
                       storage.save_company, 'Company not found.', True),
     }
 
+    def _note_write_record(kind, identifier, visible):
+        """The record a note write saves against: the full stored one for
+        a company (see NOTE_KINDS), the already-private job record as is.
+        """
+        if not kind_shared(kind):
+            return visible
+        return storage.load_company(app.config['VAULT_PATH'], identifier)
+
+    def kind_shared(kind):
+        return NOTE_KINDS[kind][3]
+
     @app.get('/api/notes')
     def notes_api():
-        """Every note on this user's own jobs plus every company note,
-        newest first, with its record. Read only: a note is edited on the
-        page of the record that holds it."""
+        """Every note this user may read -- their own job notes and their
+        own company notes, plus the legacy authorless ones for the admin
+        (CAREER-41) -- newest first, with its record. Read only: a note is
+        edited on the page of the record that holds it."""
         return jsonify(notes.page_context(app.config['VAULT_PATH'], session_owner()))
 
     @app.post('/api/jobs/<identifier>/notes', defaults={'kind': 'jobs'})
@@ -3005,15 +3027,25 @@ def create_app(vault: str | Path | None = None) -> Flask:
             record = load(root, identifier)
             if record is None:
                 return jsonify(error=missing), 404
-            if shared and not may_edit_shared():
-                return shared_denied()
+            # CAREER-41: adding a company note is open to every signed-in
+            # user -- the note is private to its author, so it publishes
+            # nothing shared. The admin-only gate stays on every OTHER
+            # company write (edit, delete, classification).
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Note must be an object.')
-            note = storage.new_note(payload.get('title'), payload.get('body') or '')
+            # The author is the session user, stamped here and never
+            # taken from the payload: a client cannot write a note as
+            # somebody else or as nobody (same rule as owner_id, D4).
+            note = storage.new_note(payload.get('title'), payload.get('body') or '',
+                                    author_id=session_owner().identifier)
             # notes_view, not the raw field: a record still holding its
             # notes as legacy free text gets that text persisted as its
-            # first note by this very write, never dropped by it.
+            # first note by this very write, never dropped by it. For a
+            # company that view is taken from the FULL stored record, so
+            # a legacy string or another user's note is carried through
+            # the save rather than lost to the reader-scoped copy.
+            record = _note_write_record(kind, identifier, record)
             save(root, storage.notes_payload([*storage.notes_view(record), note]), identifier)
             return jsonify(note), 201
 
@@ -3028,20 +3060,28 @@ def create_app(vault: str | Path | None = None) -> Flask:
             record = load(root, identifier)
             if record is None:
                 return jsonify(error=missing), 404
-            if shared and not may_edit_shared():
-                return shared_denied()
+            # CAREER-41: edit and delete are the author's alone. On a
+            # company the reader-scoped record already holds only this
+            # reader's notes (plus the admin's legacy ones), so another
+            # user's note id is simply not in `stored` and answers the
+            # same 404 a note that never existed does -- no existence
+            # leak, and no admin override over a user's note.
             stored = storage.notes_view(record)
             target = next((note for note in stored if note['id'] == note_id), None)
             if target is None:
                 return jsonify(error='Note not found.'), 404
+            full = _note_write_record(kind, identifier, record)
+            everything = storage.notes_view(full)
             if request.method == 'DELETE':
-                save(root, storage.notes_payload([n for n in stored if n['id'] != note_id]), identifier)
+                save(root, storage.notes_payload([n for n in everything if n['id'] != note_id]),
+                     identifier)
                 return jsonify(deleted=note_id)
             payload = request.get_json()
             if not isinstance(payload, dict):
                 raise ValueError('Note must be an object.')
             edited = storage.edit_note(target, payload)
-            save(root, storage.notes_payload([edited if n['id'] == note_id else n for n in stored]),
+            save(root, storage.notes_payload([edited if n['id'] == note_id else n
+                                              for n in everything]),
                  identifier)
             return jsonify(edited)
 
@@ -3214,7 +3254,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
         # field_states, which can carry an older run's outcome when this
         # invocation skipped a field) to say whether the retry changed
         # anything. Deliberately not saved into the vault record.
-        return jsonify({**result, 'retry_applied': applied})
+        # CAREER-41: the cascade result is the full stored record; filter
+        # it like every other company answer, so even the admin's own
+        # Retry response carries only the notes they may read.
+        return jsonify({**(storage.reader_company(result, session_owner()) or {}),
+                        'retry_applied': applied})
 
     @app.errorhandler(ValueError)
     def invalid_data(error):

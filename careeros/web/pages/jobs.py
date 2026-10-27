@@ -346,7 +346,11 @@ def detail_context(root, identifier, llm_pending=False, owner=None):
     job = vault.load_job(root, identifier, owner)
     if job is None:
         abort(404)
-    return job_context(job, vault.load_company(root, job.get('company_id')),
+    # reader_company (CAREER-41): the linked company is shared facts, but
+    # its notes are private to their authors -- without this filter the
+    # job page would echo every company note to whoever holds the job.
+    return job_context(job, vault.reader_company(vault.load_company(root, job.get('company_id')),
+                                                 owner),
                        vault.function_label_map(root), llm_pending,
                        isic_sections=sectors.load_isic_sections())
 
@@ -405,7 +409,7 @@ def taxonomy_context(root, identifier, owner=None, can_edit_shared=True):
     if job is None:
         abort(404)
     return classification_context(
-        job, vault.load_company(root, job.get('company_id')),
+        job, vault.reader_company(vault.load_company(root, job.get('company_id')), owner),
         vault.function_label_map(root), sectors.load_isic_sections(),
         vault.tag_label_map(root), vault.load_tags(root), can_edit_shared)
 

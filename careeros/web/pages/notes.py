@@ -16,10 +16,11 @@ def body_preview(body):
 
 def page_context(root, owner=None):
     # M2 (CAREER-39): the job half is this user's own jobs, so a note on
-    # somebody else's job is not listed and not countable. The company
-    # half stays shared, because a company note lives on a shared record
-    # and only the admin can write one (D3); giving a note its own
-    # privacy is CAREER-41 and not this change.
+    # somebody else's job is not listed and not countable. CAREER-41:
+    # the company half is now private the same way -- `visible_companies`
+    # answers each company with only the notes this reader owns (plus
+    # the legacy authorless ones for the admin), so one user's company
+    # note is listed for nobody else.
     #
     # `list_jobs` is the board read, so a universe-only pool posting is
     # not walked here (CAREER-72/74). Nothing is lost by it: a note is

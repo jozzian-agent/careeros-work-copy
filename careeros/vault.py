@@ -128,6 +128,20 @@ class Owner(NamedTuple):
         """
         return self.owns(record) or not (record or {}).get(OWNER_FIELD)
 
+    def owns_note(self, note):
+        """Whether this reader owns one note (CAREER-41).
+
+        A note belongs to its author and to nobody else -- the admin
+        included, because a company is shared but the notes on it are
+        private. The one exception is a note with no `author_id`: it was
+        written before notes had authors, and the same inheritance rule
+        the record owner uses (`inherits_ownerless`) makes those legacy
+        notes the admin's alone. No legacy note is ever rewritten to
+        gain an author.
+        """
+        stored = (note or {}).get('author_id')
+        return stored == self.identifier or (not stored and self.inherits_ownerless)
+
 
 def owned(records, owner):
     """The records this owner may see, or all of them when unscoped."""
@@ -864,6 +878,32 @@ def is_retired(company):
     """
     return bool((company or {}).get('retired'))
 
+def reader_company(company, owner=None):
+    """One company record as this reader may see it (CAREER-41).
+
+    The company itself is shared universe and every field stays, except
+    the notes: those are private to their author, the admin included. A
+    reader gets their own notes and, when they are the admin, the legacy
+    ones (no `author_id`). The legacy free-text `notes` string is one
+    authorless note in the other shape, so a non-admin must not see that
+    either -- and `notes_view` would surface it while `note_list` is
+    empty.
+
+    A copy, never a mutation: write paths merge their payloads against
+    the on-disk record in `_save_record`, so a filtered copy can never
+    delete another user's stored note, and this function is free to hand
+    the same record to every reader.
+    """
+    if company is None or owner is None:
+        return company
+    result = dict(company)
+    result['note_list'] = [note for note in (result.get('note_list') or [])
+                           if isinstance(note, dict) and owner.owns_note(note)]
+    if not owner.inherits_ownerless:
+        result['notes'] = ''
+    return result
+
+
 def visible_companies(root, owner=None):
     """Every company this reader may see.
 
@@ -876,6 +916,12 @@ def visible_companies(root, owner=None):
     Unscoped (`owner` None) answers the whole vault, retired included,
     which is what the migration scripts and the cron watcher want: they
     run for the host and are not a surface anybody reads.
+
+    CAREER-41: a scoped read also answers every company with only the
+    notes this reader owns (`reader_company`). This is the one read
+    every company surface goes through, so filtering here is filtering
+    everywhere: the directory, the profile, the board's company map, the
+    notes roll-up and the experience labels all answer from it.
 
     "My own record links it" is read off boards (`list_jobs`,
     CAREER-72/74), so a retired company that only the feed pool's
@@ -892,10 +938,10 @@ def visible_companies(root, owner=None):
         # The common case, and the whole reason for the early exit: a
         # vault with no tombstone in it must not pay for two extra record
         # sweeps on every company read.
-        return companies
+        return [reader_company(company, owner) for company in companies]
     linked = {record.get('company_id')
               for record in list_jobs(root, owner) + list_experiences(root, owner)}
-    return [company for company in companies
+    return [reader_company(company, owner) for company in companies
             if not is_retired(company) or company.get('id') in linked]
 
 def linkable_company(root, identifier, current=None):
@@ -1160,7 +1206,16 @@ def next_company_id(root):
 # belong to, so a note's association IS containment and needs no separate
 # index or back-reference. Ids are generated here and never accepted from
 # a client.
-NOTE_FIELDS = ('id', 'title', 'body', 'created', 'updated')
+# CAREER-41: `author_id` is the session user who wrote the note, stamped
+# by the API on creation and never accepted from a client. It is optional
+# on a STORED note: every note written before this field existed carries
+# none, and those legacy notes are admin-only reads (see Owner.owns_note).
+# No stored note is ever rewritten to add one.
+NOTE_FIELDS = ('id', 'title', 'body', 'created', 'updated', 'author_id')
+
+# The fields every stored note must carry. author_id is not among them:
+# a note from before CAREER-41 has none and must keep validating.
+REQUIRED_NOTE_FIELDS = frozenset(NOTE_FIELDS) - {'author_id'}
 
 # The title a note migrated out of the legacy free-text `notes` string
 # gets. That field never had one, and a list of notes shows titles.
@@ -1172,18 +1227,26 @@ LEGACY_NOTE_TITLE = 'Note'
 LEGACY_NOTE_ID = 'legacy'
 
 
-def new_note(title, body):
+def new_note(title, body, author_id=None):
     """One note, stamped now.
 
     A note with no title is rejected: the list shows titles, so a note
     without one is a row the owner cannot tell from the next.
+
+    `author_id` (CAREER-41) is whoever created the note, from the session
+    -- never from a client payload. None means no author: a note written
+    by a path with no session (a migration or a test setup), which then
+    reads as a legacy, admin-only note.
     """
     if not isinstance(title, str) or not title.strip():
         raise ValueError('A note needs a title.')
     if not isinstance(body, str):
         raise ValueError('A note body must be text.')
+    if author_id is not None and (not isinstance(author_id, str) or not author_id.strip()):
+        raise ValueError('A note author must be text or null.')
     at = timestamp()
-    return dict(id=uuid.uuid4().hex, title=title.strip(), body=body, created=at, updated=at)
+    return dict(id=uuid.uuid4().hex, title=title.strip(), body=body, created=at, updated=at,
+                author_id=author_id or None)
 
 
 def edit_note(note, fields):
@@ -1253,16 +1316,20 @@ def validate_note_list(notes):
     """Check a stored note list against the one note shape, and return it.
 
     created and updated may be null: that is the migrated legacy note,
-    whose write-time nobody recorded. Ids must be unique within a record,
-    since every edit and delete addresses a note by its id.
+    whose write-time nobody recorded. author_id may be null or absent
+    (CAREER-41): every note written before authorship existed carries
+    none, and no legacy note is ever rewritten to gain one. Ids must be
+    unique within a record, since every edit and delete addresses a note
+    by its id.
     """
     if notes is None:
         return []
     if not isinstance(notes, list):
         raise ValueError('note_list must be a list of notes.')
     for note in notes:
-        if not isinstance(note, dict) or set(note) != set(NOTE_FIELDS):
-            raise ValueError(f'Each note must have {", ".join(NOTE_FIELDS)}.')
+        if not isinstance(note, dict) or not set(note) <= set(NOTE_FIELDS) \
+                or not REQUIRED_NOTE_FIELDS <= set(note):
+            raise ValueError(f'Each note must have {", ".join(sorted(REQUIRED_NOTE_FIELDS))}.')
         for key in ('id', 'title', 'body'):
             if not isinstance(note[key], str):
                 raise ValueError(f'note {key} must be text.')
@@ -1271,6 +1338,8 @@ def validate_note_list(notes):
         for key in ('created', 'updated'):
             if note[key] is not None and not isinstance(note[key], str):
                 raise ValueError(f'note {key} must be text or null.')
+        if note.get('author_id') is not None and not isinstance(note['author_id'], str):
+            raise ValueError('note author_id must be text or null.')
     ids = [note['id'] for note in notes]
     if len(set(ids)) != len(ids):
         raise ValueError('Note ids must be unique on one record.')

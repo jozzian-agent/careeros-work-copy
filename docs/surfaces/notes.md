@@ -23,6 +23,14 @@ A note belongs to exactly one record, and what associates them is that
 the note lives in that record's file. Nothing indexes notes separately,
 so a note can never point at a record that is gone.
 
+CAREER-41 (owner decision 2026-10-26): a note also belongs to exactly
+one author. Every signed-in user may add a note to a company, and a
+company note is visible to its author alone -- the admin included. A
+note written before authorship existed carries no `author_id`, reads as
+the admin's, and is never rewritten to gain one. Somebody else's note
+answers 404 on edit and delete, exactly like a note that never existed.
+Job notes were already private (their record is) and are unchanged.
+
 ## Appears in
 
 - Job detail → Notes section → Add a note / Edit / Delete.

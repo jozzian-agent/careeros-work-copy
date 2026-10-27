@@ -23,11 +23,12 @@ function notePreview(body) {
 // reloads that context: this component holds no copy of the list, so what
 // the section shows after a save is always what the backend stored.
 //
-// `canWrite` (M2, CAREER-39, decision D3) is false on a company for
-// everybody but the admin, because a note on a company is a write to a
-// shared record and the whole vault reads it. A note on a job is always
-// writable: the job is the reader's own record. Rows stay visible either
-// way; it is Add, Edit and Delete that go.
+// `canWrite` defaults to true and every caller leaves it there now
+// (CAREER-41): a note on a job belongs to the reader's own record, and a
+// note on a company is private to its author -- the backend sends each
+// reader only the notes they own, so Add, Edit and Delete are offered on
+// both pages to every signed-in user. The prop stays as the one place
+// the section could ever be made read-only again.
 export default function NotesSection({ kind, recordId, notes, canWrite = true, onChanged }) {
   // null when no window is open, the note when editing one, and the empty
   // object when adding: a new note is a note without an id yet.
