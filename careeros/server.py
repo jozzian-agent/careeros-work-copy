@@ -157,7 +157,7 @@ def resolve_company(root, *, url, shared=True, owner=None, **kwargs):
     the whole vault. See tenant_employer_names.
 
     `shared` is whether the job being resolved may write the shared half
-    (M2, decision D3; see enrich.contributes_to_shared). False means the
+    (M2, decision D3; see enrich.may_write_shared_company). False means the
     posting resolves to a company that already exists and never brings
     one into existence, teaches it nothing, and has no careers page or
     ATS feed recorded onto it as a source.
@@ -1230,7 +1230,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
         # M2 (D3): whether this job's reading may write the shared company
         # it resolves to. Read off the record's own owner, not a session:
         # this runs on the AI queue, where there is no request.
-        shared = company_enrichment.contributes_to_shared(root, job)
+        shared = company_enrichment.may_write_shared_company(root, job)
         # And whose jobs this resolution may read, reconstructed from the
         # record for the same reason: no session on the queue.
         scope = company_enrichment.record_owner_scope(root, job)
@@ -2055,7 +2055,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # reads. So a tester gets the read-only store, which links
             # the job and no-ops the variant, exactly as the intake
             # ladder's own identifier writes are no-opped for them.
-            shared = company_enrichment.contributes_to_shared(root, job)
+            shared = company_enrichment.may_write_shared_company(root, job)
             try:
                 result = identity.apply_review(VaultOrganisationStore(root, shared=shared),
                     url=job.get('url'), link_reason=job.get('company_link_reason'),
@@ -2091,7 +2091,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # M2 (D3): re-running the ladder can reach its create rung, so
             # it runs against the same gated store the intake path uses,
             # keyed on this job's own owner.
-            shared = company_enrichment.contributes_to_shared(root, job)
+            shared = company_enrichment.may_write_shared_company(root, job)
             scope = session_owner()
             try:
                 result = identity.rerun(
@@ -2294,7 +2294,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 new_company_id = None
                 # M2 (D3): off the record's own owner, since this runs on
                 # the AI queue with no session to read.
-                shared = company_enrichment.contributes_to_shared(root, job)
+                shared = company_enrichment.may_write_shared_company(root, job)
                 scope = company_enrichment.record_owner_scope(root, job)
                 owner_locked = any(provenance.get(key) == 'user' for key in COMPANY_LINK_GROUP)
                 if not owner_locked:

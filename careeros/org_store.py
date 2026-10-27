@@ -27,7 +27,7 @@ class VaultOrganisationStore:
     Callers retain responsibility for the product write lock.
 
     `shared` is whether the job being resolved may write the shared half
-    (M2, decision D3; see `enrich.contributes_to_shared`). False makes
+    (M2, decision D3; see `enrich.may_write_shared_company`). False makes
     every write a no-op: creating a company raises
     `CompanyCreationDenied`, and teaching an identifier or a name variant
     to a company that already exists returns that company unchanged, so

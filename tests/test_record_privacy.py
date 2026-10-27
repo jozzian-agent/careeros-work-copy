@@ -695,8 +695,15 @@ def enrichment_of(root, company_id):
     return vault.load_company(root, company_id).get('enrichment') or {}
 
 
-def test_shared_jobs_is_the_ownerless_and_admin_owned_half(root, people):
-    """The unit rule the rollup is built on."""
+def test_shared_jobs_is_the_public_postings_and_nobody_elses(root, people):
+    """The unit rule the rollup is built on.
+
+    Owner decision 2026-10-27 (privacy audit finding 3): a public
+    posting is a record NO user owns, and the admin is not an exception.
+    This test asserted `mine['id'] in shared` until that decision -- see
+    `enrich.contributes_to_shared` for why admitting it published the id
+    and the posting date of a record no other user may read.
+    """
     from careeros import enrich
 
     legacy = vault.save_job(root, {'title': 'Legacy', 'url': 'https://example.test/legacy'})
@@ -707,13 +714,15 @@ def test_shared_jobs_is_the_ownerless_and_admin_owned_half(root, people):
     orphan = vault.save_job(root, {'title': 'Orphan', 'url': 'https://example.test/orphan',
                                    vault.OWNER_FIELD: 'USER-404'})
     shared = {job['id'] for job in enrich.shared_jobs(root)}
-    assert legacy['id'] in shared and mine['id'] in shared
-    # The tester's job, obviously. And an owner id naming no stored
-    # account, which is a shape nothing produces (the accounts command
-    # line never deletes one) and so a hand-edited file: the strict
-    # reading is the safe one, because the alternative publishes a record
-    # nobody can read.
-    assert theirs['id'] not in shared and orphan['id'] not in shared
+    # The one record no user owns, and it is the only one.
+    assert shared == {legacy['id']}
+    # The admin's own job and the tester's, for the same reason: a job
+    # with an owner is private to that owner, and the rollup is read by
+    # everybody. An owner id naming no stored account stays out too,
+    # which is a shape nothing produces (the accounts command line never
+    # deletes one) and so a hand-edited file.
+    for job in (mine, theirs, orphan):
+        assert job['id'] not in shared
 
 
 def test_a_vault_with_no_accounts_aggregates_every_job(tmp_path):
@@ -729,15 +738,21 @@ def test_a_vault_with_no_accounts_aggregates_every_job(tmp_path):
 
 def test_a_testers_job_adds_nothing_to_the_shared_company_rollup(root, people, company):
     """Blocker 1. The rollup publishes a posting's count, its locations,
-    its keywords and the id of the posting its headcount came from."""
+    its keywords and the id of the posting its headcount came from.
+
+    The baseline is a PUBLIC posting now rather than the admin's own job
+    (owner decision 2026-10-27, privacy audit finding 3): the rollup is
+    derived from records no user owns, so the admin's own posting is in
+    the same position a tester's is. Its own half of the rule gets its
+    own test below.
+    """
     vault.save_job(root, {
-        'title': 'Admin Posting', 'url': 'https://example.test/admin-roll',
-        'company_id': company['id'], 'location': 'Bern', 'keywords': ['adminword'],
-        'employee_count': 11, 'posted_date': '2026-01-01',
-        vault.OWNER_FIELD: people['admin']['id']})
-    after_admin = enrichment_of(root, company['id'])
-    assert after_admin['hiring_activity']['count'] == 1
-    assert after_admin['employee_count'] == 11
+        'title': 'Public Posting', 'url': 'https://example.test/public-roll',
+        'company_id': company['id'], 'location': 'Bern', 'keywords': ['publicword'],
+        'employee_count': 11, 'posted_date': '2026-01-01'})
+    after_public = enrichment_of(root, company['id'])
+    assert after_public['hiring_activity']['count'] == 1
+    assert after_public['employee_count'] == 11
 
     tester_job = vault.save_job(root, {
         'title': 'Tester Posting', 'url': 'https://example.test/tester-roll',
@@ -745,9 +760,9 @@ def test_a_testers_job_adds_nothing_to_the_shared_company_rollup(root, people, c
         'employee_count': 999, 'posted_date': '2026-06-01',
         vault.OWNER_FIELD: people['one']['id']})
     after_tester = enrichment_of(root, company['id'])
-    # Byte for byte the block the admin's own posting produced: a tester's
+    # Byte for byte the block the public posting produced: a tester's
     # save neither contributes to it nor rewrites it.
-    assert after_tester == after_admin
+    assert after_tester == after_public
     assert 'Secret Valley' not in after_tester['locations_seen']
     assert 'secretword' not in after_tester['top_keywords']
     assert after_tester['hiring_activity']['count'] == 1
@@ -765,26 +780,37 @@ def test_a_company_response_never_names_another_users_job(clients, records, comp
             if other != key:
                 assert job['id'] not in body_text
         page = client.get(f"/api/companies/{company['id']}?view=page").get_json()
+        # Three users hold one posting each at this company and every one
+        # of those jobs is owned, so the shared rollup is derived from
+        # nothing at all and the company carries no hiring activity
+        # (owner decision 2026-10-27, privacy audit finding 3). This read
+        # `== 1` -- the admin's own posting -- until that decision.
         assert (page['company'].get('enrichment') or {}).get(
-            'hiring_activity', {}).get('count') == 1
+            'hiring_activity', {}).get('count') is None
 
 
-def test_a_testers_contact_email_is_not_promoted_onto_a_shared_company(root, people, company):
+def test_a_contact_email_is_promoted_from_a_public_posting_alone(root, people, company):
     """Blocker 3. The promotion fills an empty company contact from a
-    job's own, which would publish an address a tester's posting carried."""
-    vault.save_job(root, {
-        'title': 'Tester Posting', 'url': 'https://example.test/tester-mail',
-        'company_id': company['id'], 'contact_email': 'tester-found@shared.example',
-        'company_link_state': 'linked',
-        vault.OWNER_FIELD: people['one']['id']})
-    assert vault.load_company(root, company['id'])['contact_email'] == ''
+    job's own, which would publish an address a private posting carried.
+
+    Owner decision 2026-10-27 (privacy audit finding 3) puts the admin's
+    own job on the tester's side of this rule: only a PUBLIC posting --
+    a record no user owns -- promotes. The last assertion read
+    `== 'admin-found@shared.example'` until that decision.
+    """
+    for key in ('one', 'admin'):
+        vault.save_job(root, {
+            'title': f'{key} Posting', 'url': f'https://example.test/{key}-mail',
+            'company_id': company['id'], 'contact_email': f'{key}-found@shared.example',
+            'company_link_state': 'linked',
+            vault.OWNER_FIELD: people[key]['id']})
+        assert vault.load_company(root, company['id'])['contact_email'] == '', key
 
     vault.save_job(root, {
-        'title': 'Admin Posting', 'url': 'https://example.test/admin-mail',
-        'company_id': company['id'], 'contact_email': 'admin-found@shared.example',
-        'company_link_state': 'linked',
-        vault.OWNER_FIELD: people['admin']['id']})
-    assert vault.load_company(root, company['id'])['contact_email'] == 'admin-found@shared.example'
+        'title': 'Public Posting', 'url': 'https://example.test/public-mail',
+        'company_id': company['id'], 'contact_email': 'public-found@shared.example',
+        'company_link_state': 'linked'})
+    assert vault.load_company(root, company['id'])['contact_email'] == 'public-found@shared.example'
 
 
 def test_a_testers_job_write_leaves_the_company_file_untouched(root, people, company, records):
@@ -2199,3 +2225,263 @@ def test_an_author_note_write_preserves_notes_they_cannot_see(
     stored = vault.load_company(root, company['id'])
     assert {'Legacy company note', 'admin company note', 'two company note', 'Addition'} \
         == {n['title'] for n in stored['note_list']}
+
+
+# --- The public-posting projection (privacy audit 2026-10-27) ------------
+#
+# Findings 1, 3, 5 and 6 of docs/audits/2026-10-27-privacy.md, under one
+# owner decision: shared data is derived ONLY from public postings -- a
+# record no user owns -- and a shared surface answers with an explicit
+# allowlist of public posting facts rather than with whatever a record
+# happens to hold.
+
+#: The keys the All jobs payload adds to each entry on its way out
+#: (`web.pages.jobs.universe_context`, `board_context` and the API's own
+#: company decorations). Named here so the projection assertions below
+#: can subtract them and hold what is left against the allowlist.
+UNIVERSE_DECORATIONS = {'on_my_board', 'needs_attention', 'company_name',
+                        'company_industry', 'company_size_class', 'pending'}
+
+#: What a reader who does not own a job must never receive about it: the
+#: notes and who wrote them, the history, the custom data, the provenance
+#: and review bookkeeping, this installation's own ingest and AI run
+#: state, somebody's workflow status and board state, and the user stamp.
+PRIVATE_JOB_KEYS = (
+    'notes', 'note_list', 'history', 'custom', 'field_provenance',
+    'field_status', 'field_status_reason', 'values', 'company_review',
+    'company_link_state', 'company_link_reason', 'status', 'in_pipeline',
+    'added', 'closed_at', 'closed_reviewed_at', 'end_reason',
+    'ai_status', 'ai_error', 'ai_started', 'ai_finished',
+    'ingest_state', 'ingest_error', 'ingest_source', 'enriched',
+    'origin', 'source', 'refresh', vault.OWNER_FIELD,
+)
+
+PRIVATE_NOTE_BODY = 'Rang the hiring manager at home.'
+PRIVATE_CUSTOM_VALUE = 'salary floor 180k, do not share'
+
+
+@pytest.fixture
+def loaded_pool_job(root, people, company):
+    """A job no user owns, carrying everything a reader of somebody
+    else's record must not see: a note with an author, history events,
+    custom data and field provenance.
+
+    Ownerless is the admin's by inheritance (`vault.Owner`), so this is
+    exactly the record finding 1 is about -- the admin's own handling of
+    an inherited posting, on a tab every signed-in user reads.
+    """
+    created = vault.save_job(root, {
+        'title': 'Loaded Pool Posting', 'url': 'https://example.test/pool/loaded',
+        'company_id': company['id'], 'location': 'Zurich', 'status': 'interviewing',
+        'description': 'Pool posting text.', 'posted_date': '2026-02-02',
+        'custom': {'secret': PRIVATE_CUSTOM_VALUE},
+        'field_provenance': {'title': 'user'},
+        **vault.notes_payload([vault.new_note('Pool note', PRIVATE_NOTE_BODY,
+                                              people['admin']['id'])]),
+    })
+    # A second write, so the record carries real history events rather
+    # than only the one its creation wrote.
+    return vault.save_job(root, {'status': 'offer'}, created['id'],
+                          history_event=('note_added', 'Rang them again.'))
+
+
+def universe_entry(client, job_id):
+    entries = client.get(UNIVERSE).get_json()['entries']
+    return next(entry for entry in entries if entry['id'] == job_id)
+
+
+def test_the_allowlist_only_names_fields_a_job_actually_stores(root):
+    """A typo in the allowlist would deny a field in silence, which is
+    the one failure an allowlist cannot report for itself."""
+    assert vault.PUBLIC_POSTING_FIELDS - {'id'} <= vault.job_field_names()
+    # And the categories the owner decision excludes are excluded.
+    assert not vault.PUBLIC_POSTING_FIELDS & set(PRIVATE_JOB_KEYS)
+
+
+def test_a_reader_who_does_not_own_a_job_gets_public_posting_facts_only(
+        clients, people, records, loaded_pool_job):
+    """Finding 1. The All jobs tab answered with the complete job record,
+    so an admin's notes, note authors, history, custom data and workflow
+    state on an inherited ownerless posting were readable by every
+    signed-in user."""
+    for key in ('one', 'two'):
+        entry = universe_entry(clients[key], loaded_pool_job['id'])
+        for field in PRIVATE_JOB_KEYS:
+            assert field not in entry, (key, field)
+        # No value of any private field reaches the response in any
+        # shape, nested or not. (The status vocabulary itself is in the
+        # payload for the filter bar, so the stored status is checked by
+        # key absence above rather than by text.)
+        text = body(clients[key].get(UNIVERSE))
+        for secret in (PRIVATE_NOTE_BODY, PRIVATE_CUSTOM_VALUE, 'Pool note',
+                       people['admin']['id']):
+            assert secret not in text, (key, secret)
+        # The posting itself still reads, so the tab is not broken.
+        assert entry['title'] == 'Loaded Pool Posting'
+        assert (entry['location'], entry['posted_date']) == ('Zurich', '2026-02-02')
+        # And nothing outside the allowlist is left: a field added to the
+        # record later cannot ride onto this tab without a decision.
+        assert set(entry) - UNIVERSE_DECORATIONS <= vault.PUBLIC_POSTING_FIELDS, key
+
+
+def test_the_reader_keeps_their_own_jobs_whole_on_the_same_tab(clients, records,
+                                                              loaded_pool_job):
+    """The other half of finding 1's fix: the projection applies to the
+    records a reader does NOT own. Their own entry is their own data and
+    the tab is where they act on it, so it stays the full record -- and
+    for the admin an ownerless record IS their own (`vault.Owner`)."""
+    mine = universe_entry(clients['one'], records['jobs']['one']['id'])
+    assert mine['status'] == 'interested' and mine[vault.OWNER_FIELD]
+    assert mine['note_list'] and 'history' in mine
+    admins = universe_entry(clients['admin'], loaded_pool_job['id'])
+    assert admins['status'] == 'offer' and admins['note_list']
+
+
+def test_an_owned_job_puts_nothing_of_itself_on_a_shared_company(clients, people,
+                                                                 root, company):
+    """Finding 3, from the endpoint a tester reads. The rollup published a
+    posting's id and posting date in the headcount evidence, plus the
+    company's posting count, locations, keywords and seniority range --
+    derived from admin-owned jobs as well as public ones."""
+    admin_job = vault.save_job(root, {
+        'title': 'Admin Private Posting', 'url': 'https://example.test/admin-private',
+        'company_id': company['id'], 'location': 'Admin Valley',
+        'keywords': ['adminsecret'], 'seniority': 'director',
+        'employee_count': 4242, 'posted_date': '2026-03-03',
+        'contact_email': 'admin-private@shared.example',
+        vault.OWNER_FIELD: people['admin']['id']})
+    public_job = vault.save_job(root, {
+        'title': 'Public Posting', 'url': 'https://example.test/public-roll2',
+        'company_id': company['id'], 'location': 'Bern', 'keywords': ['publicword'],
+        'seniority': 'junior', 'employee_count': 11, 'posted_date': '2026-01-01'})
+
+    # Not the seniority: "director" is a substring of the companies
+    # directory's own empty state. The seniority range is asserted
+    # outright below instead.
+    traces = (admin_job['id'], '2026-03-03', 'Admin Valley', 'adminsecret',
+              '4242', 'admin-private@shared.example')
+    # Every company surface, read by the users who do NOT own that job.
+    # The profile's job section is the reader's OWN board by design (B3),
+    # so the admin reading their own posting there is not the leak; what
+    # finding 3 is about is the shared half carrying it to everybody.
+    for key in ('one', 'two'):
+        for path in (f"/api/companies/{company['id']}",
+                     f"/api/companies/{company['id']}?view=page",
+                     '/api/companies', '/api/companies?view=page'):
+            text = body(clients[key].get(path))
+            for trace in traces:
+                assert trace not in text, (key, path, trace)
+
+    # The counts are the public postings', not "every job at this company".
+    enrichment = enrichment_of(root, company['id'])
+    assert enrichment['hiring_activity'] == {'count': 1, 'most_recent_posted_date': '2026-01-01'}
+    assert enrichment['locations_seen'] == ['Bern']
+    assert enrichment['top_keywords'] == ['publicword']
+    assert enrichment['seniority_range'] == {'min': 'junior', 'max': 'junior'}
+    assert enrichment['employee_count_evidence'] == {
+        'count': 11, 'job_id': public_job['id'], 'posted_date': '2026-01-01'}
+    # And the contact promotion follows the same rule.
+    assert vault.load_company(root, company['id'])['contact_email'] == ''
+
+
+def test_a_testers_owned_job_puts_nothing_of_itself_on_a_shared_company(clients, people,
+                                                                       root, company):
+    """The rule the M2 split already had, kept green beside the admin's
+    half above: owning a job is what keeps it out, whoever owns it."""
+    tester_job = vault.save_job(root, {
+        'title': 'Tester Private Posting', 'url': 'https://example.test/tester-private',
+        'company_id': company['id'], 'location': 'Tester Valley',
+        'keywords': ['testersecret'], 'employee_count': 777, 'posted_date': '2026-04-04',
+        vault.OWNER_FIELD: people['one']['id']})
+    for key in ('admin', 'two'):
+        text = body(clients[key].get(f"/api/companies/{company['id']}?view=page"))
+        for trace in (tester_job['id'], '2026-04-04', 'Tester Valley', 'testersecret', '777'):
+            assert trace not in text, (key, trace)
+    assert enrichment_of(root, company['id']) == {}
+
+
+def test_add_to_my_jobs_copies_the_public_posting_facts_and_nothing_else(
+        clients, people, root, loaded_pool_job):
+    """Finding 6. The copy was every allowlisted job field minus a short
+    blacklist, so `custom`, `field_provenance`, `values` and
+    `company_review` travelled wholesale into the adding user's own
+    record -- carrying somebody else's private text, stamped as theirs."""
+    response = clients['one'].post(f"/api/jobs/{loaded_pool_job['id']}/promote")
+    assert response.status_code == 201, body(response)
+    added = response.get_json()
+    stored = vault.load_job(root, added['id'])
+
+    # A stored record always holds every field the vault defines, so the
+    # check is on the VALUES: a field outside the allowlist is still its
+    # own default, which is to say nothing travelled. The four the old
+    # blacklist let through first:
+    defaults = vault._record_defaults('jobs')
+    for field in ('custom', 'field_provenance', 'values', 'company_review',
+                  'notes', 'note_list', 'field_status', 'field_status_reason'):
+        assert stored[field] == defaults[field], field
+    assert PRIVATE_NOTE_BODY not in body(response)
+    assert PRIVATE_CUSTOM_VALUE not in body(response)
+    # Then every other field outside the allowlist, so a field added to
+    # the record later cannot travel without a decision. The six the new
+    # record sets for itself are named; `normalized_url` is computed from
+    # the copied link by `add_job_to_board` and is allowlisted anyway.
+    own = {'id', 'history', 'added', vault.OWNER_FIELD, 'status', 'in_pipeline'}
+    for field, default in defaults.items():
+        if field in vault.PUBLIC_POSTING_FIELDS or field in own:
+            continue
+        assert stored[field] == default, field
+
+    # The posting travelled, the record is the adder's, and it starts on
+    # their board in New with its own history.
+    assert (stored['title'], stored['url'], stored['description']) == (
+        loaded_pool_job['title'], loaded_pool_job['url'], loaded_pool_job['description'])
+    assert stored[vault.OWNER_FIELD] == people['one']['id']
+    assert (stored['status'], stored['in_pipeline']) == ('new', True)
+    # Its own history: the add, and the creation the vault records for
+    # every new record. None of the source record's events.
+    assert [event['event'] for event in stored['history']] == ['promoted', 'created']
+    # The source record is untouched and still holds its owner's own half.
+    assert vault.load_job(root, loaded_pool_job['id'])['custom'] == {
+        'secret': PRIVATE_CUSTOM_VALUE}
+
+
+def test_the_company_schema_only_names_fields_a_company_actually_stores(root):
+    assert vault.SHARED_COMPANY_FIELDS - {'id'} <= vault.company_field_names()
+
+
+def test_a_non_admin_reads_the_shared_company_schema_and_no_more(clients, records,
+                                                                 company, root):
+    """Finding 5. `reader_company` filtered the notes and let `custom`,
+    `field_provenance`, `review_flags`, `identifiers`, `sources` and
+    `contact_email` through raw, so private text or an attribution placed
+    in any of them reached every tester."""
+    vault.save_company(root, {
+        'custom': {'internal': 'board contact: ceo@private.example'},
+        'contact_email': 'desk@shared.example',
+        'review_flags': ['sector-ambiguous'],
+    }, company['id'])
+    withheld = ('custom', 'field_provenance', 'review_flags', 'identifiers',
+                'sources', 'contact_email', 'name_source')
+    paths = (f"/api/companies/{company['id']}", '/api/companies')
+
+    for key in ('one', 'two'):
+        for path in paths:
+            payload = clients[key].get(path).get_json()
+            record = payload[0] if isinstance(payload, list) else payload
+            for field in withheld:
+                assert field not in record, (key, path, field)
+            assert 'ceo@private.example' not in body(clients[key].get(path))
+            # And nothing outside the schema is left.
+            assert set(record) <= vault.SHARED_COMPANY_FIELDS, (key, path)
+        # The shared facts the surfaces actually render still arrive.
+        page = clients[key].get(f"/api/companies/{company['id']}?view=page").get_json()
+        assert page['company']['name'] == SHARED_COMPANY
+        assert page['company']['sectors'] == ['J']
+        assert page['company']['size_class'] == 'small'
+
+    # The admin reads the record whole: they are the one person who may
+    # change a company, and Edit company, Edit classification and Retry
+    # are offered to nobody else.
+    admin_record = clients['admin'].get(f"/api/companies/{company['id']}").get_json()
+    assert admin_record['custom'] == {'internal': 'board contact: ceo@private.example'}
+    assert admin_record['contact_email'] == 'desk@shared.example'

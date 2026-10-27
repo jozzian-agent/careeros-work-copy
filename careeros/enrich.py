@@ -107,9 +107,10 @@ def _shared_owners(root):
 
     None means there is not one stored account, which is a pre-M1 vault
     or a test fixture: there is no tester in it to protect, so everything
-    in it contributes. Otherwise it is the ids of the admins, and an
-    ownerless record contributes alongside them (see
-    `contributes_to_shared`).
+    in it may write. Otherwise it is the ids of the admins, and an
+    ownerless record may write alongside them (see
+    `may_write_shared_company`, the one caller -- the derived-data rule
+    needs no account list at all).
     """
     from careeros import users
 
@@ -118,21 +119,66 @@ def _shared_owners(root):
                                       if users.is_admin(user)}
 
 
-def contributes_to_shared(root, record, owners=None):
-    """Whether this one record's save may write a shared company record.
+def contributes_to_shared(root, record):
+    """Whether this one record's facts may be DERIVED INTO shared company
+    data: the rollup below, and the contact-email promotion in
+    `vault.save_job`.
 
-    M2 (CAREER-39, decision D3). Everything stored on a company is
-    readable by every user, because a company is shared universe. A
-    tester's job is readable by nobody else, down to its id, so a
-    tester's job contributes nothing to a company: not the rollup below,
-    not the contact-email promotion in `vault.save_job`, not the
-    metadata and website fills on the intake and enrichment paths.
-    Until the M3 merge queue exists, the shipped decision is that a
-    tester does not write a shared record, and this is the one rule that
-    says which saves may.
+    Owner decision 2026-10-27 (privacy audit finding 3): shared data is
+    derived only from PUBLIC POSTINGS, which is a record no user owns --
+    the ones the feed pool and the API add, and the pre-M2 records the
+    migration has not handed to anybody. Never from a job a user owns,
+    and the admin is not an exception.
+
+    Why the admin is not an exception, which is what changed. Everything
+    this rule lets through lands on a record every user reads, and some
+    of it names the posting it came from: `_posting_headcount` publishes
+    `{'count', 'job_id', 'posted_date'}`, and the rest of the rollup
+    publishes a company's posting count, its locations, its keywords and
+    its seniority range. An admin's job is as private as a tester's (D3
+    scopes every read by owner, the admin included), so admitting it
+    published the id and the posting date of a record no other user may
+    read, plus aggregates only its holder should have. "Admin" is a
+    permission to curate the shared half on purpose, not a statement
+    that their own board is public.
+
+    Keyed on the record's owner and never on the session, so it answers
+    the same on the request thread and on the AI queue, where there is no
+    session to read. It needs no account list either, which is why the
+    pre-M1 / fixture special case is gone: a vault with no accounts holds
+    only ownerless records, so every one of them is a public posting and
+    reads as one here.
+
+    This is NOT the rule for whether a record's resolution may bring a
+    shared company into EXISTENCE or teach one an identifier; that is
+    `may_write_shared_company` below, and the two are deliberately
+    different rules.
+    """
+    from careeros import vault
+
+    return not (record or {}).get(vault.OWNER_FIELD)
+
+
+def may_write_shared_company(root, record, owners=None):
+    """Whether this one record's resolution may create a shared company,
+    teach one an identifier, or record a source onto one.
+
+    M2 (CAREER-39, decision D3), and the rule `contributes_to_shared`
+    used to be before the 2026-10-27 decision split the two apart. A
+    tester's job is readable by nobody else, so a tester's posting
+    resolves to a company that already exists and never brings one into
+    existence, teaches it nothing, and has no careers page or ATS feed
+    recorded onto it. Until the M3 merge queue exists, the shipped
+    decision is that a tester does not write a shared record.
 
     True for a record with no owner, which is the pre-M2 record the admin
-    inherits (`vault.Owner`), and for one an admin owns.
+    inherits (`vault.Owner`), and for one an admin owns. The admin IS an
+    exception here and is not one above, which is the whole distinction:
+    curating the shared half -- deciding that an employer exists under
+    this name, with this domain, on this ATS tenant -- is the admin's
+    job, and intake is the only path the product has for doing it. What
+    they may not do is have their own private board silently aggregated
+    into data every user reads.
 
     False for a stored owner that is not an admin's. A record whose owner
     names no stored account at all is also false, which is a shape
@@ -142,9 +188,8 @@ def contributes_to_shared(root, record, owners=None):
     strict reading is the safe one there, because the alternative would
     publish a record nobody can read.
 
-    Keyed on the record's owner and never on the session, so it answers
-    the same on the request thread and on the AI queue, where there is no
-    session to read.
+    Keyed on the record's owner and never on the session, for the same
+    reason: there is no session on the AI queue.
     """
     from careeros import vault
 
@@ -209,14 +254,15 @@ def shared_jobs(root):
     "evidence earns its way in" shape the tester gate above has.
     `vault.save_job` reads this rule back, so saving a universe-only
     record skips the regeneration it could not change.
+
+    Owner decision 2026-10-27 (finding 3): the shared half is the
+    PUBLIC POSTINGS and nothing else. An admin-owned job used to be in
+    here, which published the id and posting date of a record no other
+    user may read; see `contributes_to_shared`.
     """
     from careeros import vault
 
-    owners = _shared_owners(root)
-    if owners is None:
-        return vault.list_jobs(root)
-    return [job for job in vault.list_jobs(root)
-            if contributes_to_shared(root, job, owners)]
+    return [job for job in vault.list_jobs(root) if contributes_to_shared(root, job)]
 
 
 def regenerate_company(root, identifier):
@@ -238,11 +284,12 @@ def regenerate_company(root, identifier):
     non-employer no size at all, and leaving evidence toward a class
     behind would be the nested-rollup leak above under a second name.
 
-    M2 (decision D3): the postings it aggregates are the shared half of
-    the vault (`shared_jobs`), never every user's. A rollup over all of
+    M2 (decision D3), tightened by the owner decision of 2026-10-27: the
+    postings it aggregates are the PUBLIC POSTINGS (`shared_jobs`),
+    never any user's own -- the admin's included. A rollup over all of
     them would publish one user's private postings -- their count, their
-    locations, their keywords, and the id of the posting the headcount
-    came from -- on a record every user reads.
+    locations, their keywords, and the id and posting date of the job the
+    headcount came from -- on a record every user reads.
     """
     from careeros import vault
     company = vault.load_company(root, identifier)

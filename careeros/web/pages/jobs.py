@@ -162,12 +162,26 @@ def universe_context(root, owner=None):
     by, read here rather than in the browser: a client cannot be trusted
     to work out whose record it is holding, and the answer decides which
     action it offers.
+
+    A job this reader does NOT own reaches the response as
+    `vault.public_posting_projection` and not whole (owner decision
+    2026-10-27, privacy audit finding 1). The tab used to answer with the
+    complete record for every entry on it, so an ownerless job's notes,
+    note authors, history, custom data, field provenance and workflow
+    state were readable by every signed-in user -- and an ownerless
+    record is the one the admin's own board inherits, so those were in
+    practice the admin's. Their own jobs stay whole: the reader's half of
+    this tab is the reader's own data, which is what the board shows them
+    anyway.
+
+    The projection happens here, before the board decorations below, so
+    nothing downstream can decorate a field the reader may not see; the
+    cost is that the posting-count split and the closed-postings day
+    count read a projected record as a job with no status, which is the
+    right answer for a posting nobody here holds (see `board_context`).
     """
-    entries = vault.list_universe_jobs(root, owner)
-    context = board_context(entries, vault.visible_companies(root, owner),
-                            vault.function_label_map(root))
-    return context | {
-        'empty': UNIVERSE_EMPTY_STATE,
+    entries = []
+    for job in vault.list_universe_jobs(root, owner):
         # Both halves of the rule, and the second one is what the pool
         # import added (CAREER-72/74): a record is on my board when I own
         # it AND it is a board entry at all. An ownerless pool posting is
@@ -175,10 +189,16 @@ def universe_context(root, owner=None):
         # a posting they have never added is already theirs -- and would
         # offer them a status select in place of the one action that
         # actually puts it on their board.
-        'entries': [job | {'on_my_board': (owner is None or owner.owns(job))
-                                          and vault.on_board(job)}
-                    for job in context['entries']],
-    }
+        #
+        # Read off the STORED record, before the projection below strips
+        # the two fields it answers from.
+        mine = owner is None or owner.owns(job)
+        if not mine:
+            job = vault.public_posting_projection(job)
+        entries.append(job | {'on_my_board': mine and vault.on_board(job)})
+    context = board_context(entries, vault.visible_companies(root, owner),
+                            vault.function_label_map(root))
+    return context | {'empty': UNIVERSE_EMPTY_STATE}
 
 def board_context(entries, companies, function_labels, today=None):
     """Build the board context without I/O or mutating input records."""
@@ -194,6 +214,13 @@ def board_context(entries, companies, function_labels, today=None):
     # would put 704 imported jobs into "Your search so far" and into the
     # closed-postings banner. My Jobs passes board entries only, so there
     # the filter changes nothing.
+    #
+    # A projected All jobs entry (`universe_context`, privacy audit
+    # finding 1) carries neither `in_pipeline` nor `status`, so it reads
+    # as a board entry here and then as a job with nothing applied to and
+    # nothing to review: it adds nothing to either number. `counts` below
+    # reads it as open for the same reason, which is the right answer --
+    # a posting this reader does not hold has no ending of theirs.
     board_entries = vault.board(entries)
     return dict(
         entries=entries,

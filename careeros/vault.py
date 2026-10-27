@@ -157,6 +157,80 @@ def in_universe(records, owner):
     return records if owner is None else [r for r in records if owner.sees_in_universe(r)]
 
 
+#: The fields of a job that are facts about the PUBLIC POSTING, and so the
+#: only ones a reader who does not own the record may see (owner decision
+#: 2026-10-27, privacy audit findings 1 and 6).
+#:
+#: An ALLOWLIST and never a blacklist, which is the whole point: the
+#: universe response and the "Add to my jobs" copy both used to carry
+#: every field a job stores minus a short list of exceptions, so a field
+#: added later was published on the day it landed and nobody had to decide
+#: anything. Here a field nobody has classified is absent, and the test
+#: suite holds this set against `job_field_names()` so a typo cannot
+#: quietly deny a field either.
+#:
+#: What is in: what the posting itself states, what a classifier read out
+#: of what the posting states, and the identifiers a surface needs to act
+#: on the posting (`id` for "Add to my jobs", the link and the ATS triple
+#: for the duplicate check). `closed` is in because a posting being gone
+#: is a fact about the posting and never somebody's decision (D7).
+#:
+#: What is out, and it is out by category rather than by name: everything
+#: about somebody's HANDLING of the posting. The notes and the history,
+#: the custom data, the workflow status and the board state, the company
+#: review and the field provenance, this installation's own ingest and AI
+#: run state, the dates a record was added or last looked at, and every
+#: user stamp. `owner_id` is out, which also means a projected record
+#: reads as nobody's to `Owner.owns` -- so the projection is applied to
+#: the records a reader does not own and never to their own.
+PUBLIC_POSTING_FIELDS = frozenset({
+    # What the posting is, and where it lives. `source_id` is the id the
+    # feed that carried the posting gave it, which for every supported
+    # source is the ATS triple beside it spelled as one string: a fact
+    # about a public posting, and the key the pool surface identifies one
+    # by. `source` -- the free-text "where did this come from" a person
+    # can type into Edit job -- is deliberately not here.
+    'id', 'url', 'original_url', 'normalized_url', 'source_id',
+    'ats_provider', 'ats_tenant', 'ats_posting_id',
+    'company_id', 'company', 'employer_named_in_posting',
+    # What the posting says.
+    'title', 'description', 'description_structured', 'summary', 'summary_source',
+    'location', 'remote_ok', 'posted_date', 'valid_through',
+    'employment_type', 'seniority', 'salary_info', 'salary_note', 'salary',
+    'contact_email', 'employee_count', 'posting_quality',
+    # What a classifier read out of what the posting says.
+    'sector', 'sectors', 'industry', 'industries', 'function', 'tags',
+    'keywords', 'skills', 'certifications', 'responsibilities', 'background',
+    'requirement_groups', 'occupation_code', 'skill_codes',
+    # The posting being gone is a fact about the posting (D7). The day it
+    # was found gone and the day somebody kept the job anyway are not.
+    'closed',
+})
+
+
+def public_posting_projection(record):
+    """One job as a reader who does not own it may see it.
+
+    The one projection for every shared job surface (owner decision
+    2026-10-27). Three callers, deliberately the same function: the All
+    jobs tab's entries for a posting this reader does not hold
+    (`web.pages.jobs.universe_context`), the copy "Add to my jobs" makes
+    (`add_job_to_board`), and any later surface that answers with a job
+    whose owner is somebody else. One allowlist, so a shared surface and
+    the copy it offers cannot disagree about what a public posting is.
+
+    Keys only, never defaults: a field the record does not carry is
+    absent from the answer rather than invented, which is the same thing
+    `reader_company` does and what keeps this safe to hand to
+    `save_job` as a payload (`_save_record` merges onto the stored
+    record, so an absent key changes nothing).
+
+    A copy, never a mutation.
+    """
+    return {key: value for key, value in (record or {}).items()
+            if key in PUBLIC_POSTING_FIELDS}
+
+
 def slugify(value):
     return re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-') or 'position'
 
@@ -878,25 +952,70 @@ def is_retired(company):
     """
     return bool((company or {}).get('retired'))
 
+#: The company fields a non-admin reader may see: the shared response
+#: schema (owner decision 2026-10-27, privacy audit finding 5).
+#:
+#: A company is shared universe, which used to mean every stored field
+#: went to every reader and only the notes were filtered. But a shared
+#: record has unrestricted fields in it -- `custom` is an arbitrary
+#: owner-typed mapping, `field_provenance` says which fields a person set
+#: by hand, `identifiers`, `sources` and `review_flags` are the admin's
+#: own curation trail -- and nothing stopped private text or an
+#: attribution placed in one of those from reaching every tester.
+#:
+#: So the same allowlist shape the job projection above has: a shared
+#: field is one named here, and a field added later is absent from a
+#: tester's answer until somebody decides it belongs. What is named is
+#: what the shared surfaces actually render -- the directory card, the
+#: profile, the classification block, the company label on a job or a
+#: position -- plus `enrichment`, which is the derived rollup those
+#: sections read and which since this change is derived from PUBLIC
+#: POSTINGS only (`enrich.contributes_to_shared`).
+#:
+#: `notes` is named here and then emptied below rather than dropped: the
+#: legacy free-text string is one authorless note in the other shape, and
+#: `notes_view` reads the key.
+#:
+#: The ADMIN reads the full record. They are the one person who may
+#: change a company, and the surfaces that let them -- Edit company, Edit
+#: classification, the per-company Retry and its `review_flags` /
+#: `identifiers` / `sources` answer -- are offered to nobody else
+#: (`can_edit_shared`). That is the admin-only surface finding 5 asks
+#: for; it is a shared page with admin-only controls on it rather than a
+#: separate page.
+SHARED_COMPANY_FIELDS = frozenset({
+    'id', 'name', 'kind', 'website', 'locations',
+    'sector', 'sectors', 'size', 'size_range', 'size_class',
+    'enrichment', 'retired', 'retired_at',
+    'note_list', 'notes',
+})
+
+
 def reader_company(company, owner=None):
     """One company record as this reader may see it (CAREER-41).
 
-    The company itself is shared universe and every field stays, except
-    the notes: those are private to their author, the admin included. A
-    reader gets their own notes and, when they are the admin, the legacy
-    ones (no `author_id`). The legacy free-text `notes` string is one
+    The notes are private to their author, the admin included: a reader
+    gets their own notes and, when they are the admin, the legacy ones
+    (no `author_id`). The legacy free-text `notes` string is one
     authorless note in the other shape, so a non-admin must not see that
     either -- and `notes_view` would surface it while `note_list` is
     empty.
 
+    Everything else a non-admin reads is the shared response schema
+    (`SHARED_COMPANY_FIELDS`, owner decision 2026-10-27): an allowlist of
+    the shared facts, so the unrestricted fields of a shared record stop
+    reaching a reader who cannot write one. The admin reads the record
+    whole, because they are its editor; see the note on the allowlist.
+
     A copy, never a mutation: write paths merge their payloads against
     the on-disk record in `_save_record`, so a filtered copy can never
-    delete another user's stored note, and this function is free to hand
-    the same record to every reader.
+    delete another user's stored note or drop a field it did not send,
+    and this function is free to hand the same record to every reader.
     """
     if company is None or owner is None:
         return company
-    result = dict(company)
+    result = dict(company) if owner.inherits_ownerless else {
+        key: value for key, value in company.items() if key in SHARED_COMPANY_FIELDS}
     result['note_list'] = [note for note in (result.get('note_list') or [])
                            if isinstance(note, dict) and owner.owns_note(note)]
     if not owner.inherits_ownerless:
@@ -1855,13 +1974,15 @@ def save_job(root, data, identifier=None, *, correction_detail=None, history_eve
     from careeros.enrich import contributes_to_shared, regenerate_company
     result, previous = _save_record(root, 'jobs', data, identifier, correction_detail=correction_detail,
                                      history_event=history_event)
-    # M2 (CAREER-39, decision D3): both things this save does to the
-    # linked COMPANY are writes to a shared record, so a job that may not
-    # write one does neither. A tester's posting therefore promotes no
-    # contact address onto a company every user reads, and rewrites no
-    # rollup. The job itself is already saved above either way: this gate
-    # never refuses the owner's own record, only its side effects on the
-    # shared half. See enrich.contributes_to_shared.
+    # M2 (CAREER-39, decision D3), tightened by the owner decision of
+    # 2026-10-27: both things this save does to the linked COMPANY derive
+    # shared data from this job, so only a PUBLIC POSTING -- a record no
+    # user owns -- does either. A job anybody owns, the admin's included,
+    # therefore promotes no contact address onto a company every user
+    # reads and rewrites no rollup. The job itself is already saved above
+    # either way: this gate never refuses the owner's own record, only
+    # its side effects on the shared half. See
+    # enrich.contributes_to_shared.
     #
     # A UNIVERSE-ONLY record writes nothing onto a shared company either
     # (CAREER-72/74). `enrich.shared_jobs` reads boards, so a record that
@@ -1890,23 +2011,6 @@ def save_job(root, data, identifier=None, *, correction_detail=None, history_eve
             pass
     return result
 
-#: What "Add to my jobs" does NOT carry from a universe posting onto the
-#: private record it creates (B2). Everything else a job stores is a fact
-#: about the posting and travels with it; these are facts about somebody's
-#: own handling of it, and the new record starts its own.
-#:
-#: `status` and `in_pipeline` are set explicitly below (the job lands in
-#: New on my board), `added` and the history are the new record's own,
-#: notes belong to whoever wrote them, the reading state describes the
-#: other record's own AI run, and `end_reason`/`closed_reviewed_at` are
-#: decisions the adding user has not taken.
-BOARD_COPY_EXCLUDED = frozenset({
-    'status', 'in_pipeline', 'added', 'notes', 'note_list',
-    'ai_status', 'ai_error', 'ai_started', 'ai_finished',
-    'end_reason', 'closed_reviewed_at', OWNER_FIELD,
-})
-
-
 def add_job_to_board(root, job, owner_id):
     """This user's own record of one universe posting (B2, "Add to my jobs").
 
@@ -1922,9 +2026,23 @@ def add_job_to_board(root, job, owner_id):
 
     The caller holds the write lock and has already decided this reader
     may see the record (`load_universe_job`) and does not own it.
+
+    WHAT travels is `public_posting_projection`, the same allowlist the
+    All jobs tab answers with (owner decision 2026-10-27, privacy audit
+    finding 6). This used to be every field a job stores minus a list of
+    exceptions (`BOARD_COPY_EXCLUDED`, retired with this change), which
+    carried `custom`, `field_provenance`, `values`, `company_review` and
+    anything later wholesale: private text or an attribution embedded in
+    one of those arrived in the adder's own record and, worse, arrived
+    stamped as theirs. One allowlist for both means the copy can hold
+    nothing the tab was not already allowed to show.
+
+    The new record's own half is set here: the owner, New on my board,
+    and -- by absence rather than by exclusion -- its own `added` date,
+    its own history, no notes, and no reading state.
     """
-    payload = {key: value for key, value in (job or {}).items()
-               if key in job_field_names() and key not in BOARD_COPY_EXCLUDED}
+    payload = {key: value for key, value in public_posting_projection(job).items()
+               if key in job_field_names()}
     payload.update({OWNER_FIELD: owner_id, 'status': 'new', 'in_pipeline': True})
     # The copy carries the same dedupe identity as the posting it came
     # from, computed when the source record has none: a record written
@@ -2194,8 +2312,8 @@ def delete_job(root, identifier):
             reserve_id(root, 'jobs', identifier)
             path.unlink()
             # M2: same rule as save_job. A job that never contributed to
-            # the shared rollup has nothing to withdraw from it, and a
-            # tester removing their own posting must not rewrite a record
+            # the shared rollup has nothing to withdraw from it, and
+            # anybody removing a job they own must not rewrite a record
             # every user reads.
             if data.get('company_id') and contributes_to_shared(root, data):
                 try:
@@ -2280,8 +2398,8 @@ def save_watch_result(root, job):
     _write(path, job)
     if job.get('company_id'):
         from careeros.enrich import contributes_to_shared, regenerate_company
-        # M2: same rule as save_job. A scan of a tester's posting writes
-        # that posting and nothing shared.
+        # M2: same rule as save_job. A scan of a job somebody owns writes
+        # that job and nothing shared.
         if contributes_to_shared(root, job):
             regenerate_company(root, job['company_id'])
 
