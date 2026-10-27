@@ -235,7 +235,12 @@ def slugify(value):
     return re.sub(r'[^a-z0-9]+', '-', value.lower()).strip('-') or 'position'
 
 def blank_search():
-    return dict(updated=None, **{key: [] for key in LISTS}, notes='')
+    return {'updated': None, **{key: [] for key in LISTS}, 'notes': '',
+            # Whose criteria these are. Criteria became a per-user kind on
+            # 2026-10-27 (privacy audit finding 4), so the record carries
+            # the same field a job and an experience carry and is read
+            # through the same Owner (see OWNER_FIELD).
+            OWNER_FIELD: None}
 
 def _read(path):
     """Load a vault YAML file. Missing, empty, corrupt, or non-mapping content
@@ -258,11 +263,139 @@ def _write(path, data):
     finally:
         temporary.unlink(missing_ok=True)
 
-def load_search(root):
-    data = _read(Path(root) / 'search.yaml')
-    return None if data is None else {**blank_search(), **data}
+def _write_new(path, data):
+    """Write one vault YAML file, but only if nothing is there yet.
 
-def save_search(root, data):
+    Returns True if this call is the one that created the file. Same
+    atomic shape as `_write` -- the content is complete in a temporary
+    file before it is given a name -- but the naming step is `os.link`
+    rather than `os.replace`, so it fails instead of overwriting. That
+    is what makes the legacy-criteria migration in `load_search`
+    exactly-once without a lock: two concurrent reads, or a read racing
+    the owner's own save, cannot both land, and the loser never
+    clobbers what the winner wrote.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as f:
+        temporary = Path(f.name)
+        yaml.safe_dump(data, f, sort_keys=False, allow_unicode=True)
+    try:
+        os.link(temporary, path)
+        return True
+    except FileExistsError:
+        return False
+    finally:
+        temporary.unlink(missing_ok=True)
+
+# Where one user's saved criteria live, and where everybody's used to.
+#
+# Criteria were one shared file until the 2026-10-27 privacy audit
+# (finding 4): any signed-in user read the last saver's roles,
+# must-haves, notes and all, and overwrote them for everyone. They are a
+# per-user kind now, one file per owner under SEARCH_DIR, keyed by the
+# owner's user id exactly as `jobs/` and `experiences/` are keyed by a
+# record id.
+#
+# LEGACY_SEARCH_FILE is that old shared file. Nothing in the product
+# writes it or deletes it any more; `load_search` copies it once into the
+# admin's own criteria (see there) and leaves the file itself alone, so a
+# vault can be rolled back to the previous release without having lost
+# anything.
+SEARCH_DIR = 'search'
+LEGACY_SEARCH_FILE = 'search.yaml'
+# The shape a user id has (`USER-001`). Checked rather than slugified,
+# because the id becomes a filename here: slugifying would silently turn
+# `../escape` into a name inside the directory, and two different ids
+# into one file.
+SEARCH_OWNER_RE = re.compile(r'[A-Za-z0-9_-]+')
+
+
+def _search_filename(owner):
+    """The file one owner's criteria are stored under, as a plain name."""
+    identifier = (owner.identifier or '').strip() if owner is not None else ''
+    if not SEARCH_OWNER_RE.fullmatch(identifier):
+        raise ValueError('Criteria belong to a user; no user was given.')
+    return f'{identifier.lower()}.yaml'
+
+
+def _stored_search(root, owner):
+    """One owner's own criteria as stored, or None if they have none.
+
+    The owner id is stamped onto the answer rather than read out of the
+    file: the path is what says whose record this is, so a file written
+    by hand without the field still answers honestly, and a file written
+    with somebody else's id in it cannot lie about whose criteria the
+    reader is holding.
+    """
+    data = _read(Path(root) / SEARCH_DIR / _search_filename(owner))
+    return None if data is None else {**blank_search(), **data,
+                                      OWNER_FIELD: owner.identifier}
+
+
+def legacy_search(root):
+    """The pre-split shared criteria file, or None.
+
+    Read-only, and read from exactly one place (`load_search`). Never
+    written, never deleted.
+    """
+    return _read(Path(root) / LEGACY_SEARCH_FILE)
+
+
+def load_search(root, owner):
+    """This owner's saved criteria, or None if they have not saved any.
+
+    `owner` is required and comes from the session, never from a
+    payload: there is no unscoped read of criteria, because a read with
+    no owner is what the audit found -- everybody's file answering
+    everybody.
+
+    The one-time legacy migration. A vault that predates the split holds
+    one shared `search.yaml`, and the rule the rest of the vault already
+    uses for a record that carries no owner is that it is the admin's
+    (`Owner.inherits_ownerless`, scripts/migrate_record_owner.py). So
+    the first read by an owner who inherits ownerless records copies
+    that file into their own criteria and answers with the copy. Every
+    other user starts empty, which is the honest answer: they never had
+    criteria of their own.
+
+    Exactly once, by "the owner's own record exists": the copy is
+    attempted only when this owner has no file yet, and it is written
+    with `_write_new`, which refuses to overwrite. So a second read
+    after the admin has edited their criteria reads the edit, a second
+    read before any edit reads the copy, and two concurrent first reads
+    produce one file. Deleting an admin's criteria file by hand would
+    let the copy happen again; nothing in the product deletes one.
+    """
+    stored = _stored_search(root, owner)
+    if stored is not None:
+        return stored
+    if owner.inherits_ownerless:
+        legacy = legacy_search(root)
+        if legacy is not None:
+            # Carried across as it was found, including its `updated`
+            # date: moving a file is not an edit, and claiming the owner
+            # revised their criteria today would be a lie. Unvalidated
+            # for the same reason the old read was -- a legacy field
+            # this code would now refuse is still what that user saved.
+            copied = {**blank_search(), **legacy, OWNER_FIELD: owner.identifier}
+            if _write_new(Path(root) / SEARCH_DIR / _search_filename(owner), copied):
+                return copied
+            return _stored_search(root, owner)
+    return None
+
+
+def save_search(root, owner, data):
+    """Replace this owner's criteria and return what was stored.
+
+    `result` starts from `blank_search()` and only the four lists and
+    `notes` are copied out of `data`, so no field of the payload can
+    reach the stored record -- `owner_id` included. Whose criteria these
+    are is the session's answer and only the session's (D3, and the same
+    rule `_experience_payload` enforces for a position).
+    """
+    # Whose criteria these are is settled before the payload is looked
+    # at, so a write with no owner is refused rather than half-done.
+    path = Path(root) / SEARCH_DIR / _search_filename(owner)
     if not isinstance(data, dict):
         raise ValueError('Criteria must be an object.')
     result = blank_search()
@@ -274,7 +407,8 @@ def save_search(root, data):
     if not isinstance(data.get('notes', ''), str):
         raise ValueError('Notes must be text.')
     result.update(notes=data.get('notes', ''), updated=date.today().isoformat())
-    _write(Path(root) / 'search.yaml', result)
+    result[OWNER_FIELD] = owner.identifier
+    _write(path, result)
     return result
 
 def default_tags():

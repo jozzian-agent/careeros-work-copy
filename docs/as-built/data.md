@@ -81,9 +81,9 @@ Beside the allowlist, a block lists the fields the writer sets itself. Those sit
 
 ### search criteria
 
-* Stored at: `search.yaml` (vault.load_search).
-* Allowed fields (vault.blank_search): `avoid`, `must_haves`, `nice_to_haves`, `notes`, `roles`, `updated`.
-* Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. Read on routes whose read access reads: any logged-in user. Written on routes whose write access reads: any logged-in user.
+* Stored at: `search` (vault.load_search).
+* Allowed fields (vault.blank_search): `avoid`, `must_haves`, `nice_to_haves`, `notes`, `owner_id`, `roles`, `updated`.
+* Scope: per user, by `owner_id`. Read through `vault.Owner`, which answers for somebody else's record exactly as it answers for one that does not exist.
 
 ### session signing key
 
@@ -276,7 +276,7 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/notes` | GET | `notes_api` | experiences | owner only | no write on this route | storage layer | `vault.list_experiences` |
 | `/api/notes` | GET | `notes_api` | jobs | owner only | no write on this route | route code, storage layer | `vault.list_jobs` |
 | `/api/notes` | GET | `notes_api` | notes | owner only | no write on this route | route code | `vault.notes_view` |
-| `/api/search` | GET, POST | `search_api` | search criteria | any logged-in user | any logged-in user | route code | `vault.load_search`, `vault.save_search` |
+| `/api/search` | GET, POST | `search_api` | search criteria | owner only | owner only | route code | `vault.load_search`, `vault.save_search` |
 | `/api/taxonomy` | GET | `taxonomy_api` | companies | any logged-in user | no write on this route | route code, storage layer | `vault.list_companies`, `vault.reader_company`, `vault.visible_companies` |
 | `/api/taxonomy` | GET | `taxonomy_api` | experiences | owner only | no write on this route | route code, storage layer | `vault.list_experiences` |
 | `/api/taxonomy` | GET | `taxonomy_api` | jobs | owner only | no write on this route | storage layer | `vault.list_jobs` |
@@ -405,7 +405,6 @@ erDiagram
     invites
     mail_send_count
     rate_limit_windows
-    search_criteria
     session_signing_key
     tags
     companies ||--o{ experiences : "company_id"
@@ -425,4 +424,5 @@ erDiagram
     users ||--o{ jobs : "owner_id"
     users ||--o{ notes : "author_id"
     users ||--o{ password_resets : "user_id"
+    users ||--o{ search_criteria : "owner_id"
 ```
