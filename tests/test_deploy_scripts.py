@@ -132,11 +132,32 @@ cat
 '''
 
 #: curl, which is where the password would leak if smoke.sh ever put it
-#: on a command line. It records every argument it was given, answers
-#: each URL with the smallest body that keeps the script going, and
-#: prints the status code -w asks for.
+#: on a command line, and also where the SESSION COOKIE would leak if it
+#: ever did. It records every argument it was given, answers each URL
+#: with the smallest body that keeps the script going, and prints the
+#: status code -w asks for.
+#:
+#: It models a STRICT curl on purpose -- the one the smoke test has to
+#: survive. Two rules, both of them real curl behaviour:
+#:
+#:   * `-c jar` stores the `Secure` cookie /login sets only when the URL
+#:     was https. Over plain http it stores nothing. That is what curl
+#:     7.86+ does with a Secure cookie from a non-https origin, and the
+#:     version on the VPS is not something the deploy gets to pick.
+#:   * `-b` sends a cookie only if it would really be sent: a literal
+#:     `name=value` always, a jar line only when its secure column is
+#:     FALSE or the URL is https.
+#:
+#: So a smoke test that leaves the cookie to curl's storage rules gets
+#: 403 on every authenticated path over http, and one that carries the
+#: cookie itself does not.
 CURL_STUB = r'''#!/usr/bin/env python3
 import os, sys
+
+# Opaque fixture cookie value. Deliberately NOT shaped like a JWT: the
+# base64 eyJ... literal tripped gitleaks' generic-api-key rule even though
+# it is a fake, and the smoke-test contract only needs an opaque string.
+TOKEN = 'smoke-...e-fixture-cookie-value'
 
 args = sys.argv[1:]
 with open(os.environ['STUB_LOG'], 'a') as log:
@@ -146,22 +167,79 @@ with open(os.environ['STUB_LOG'], 'a') as log:
     # /proc/<pid>/environ is just as readable.
     log.write('curl-inherited ' + ','.join(
         sorted(name for name in os.environ if name.startswith('SMOKE_'))) + '\n')
-out = None
+
+flags = {}
 for index, arg in enumerate(args):
-    if arg == '-o':
-        out = args[index + 1]
-url = args[-1]
+    if arg in ('-o', '-D', '-b', '-c'):
+        flags[arg] = args[index + 1]
+out, url = flags.get('-o'), args[-1]
 path = url.split(os.environ['STUB_BASE'], 1)[-1] or '/'
-bodies = {
-    '/login': '{"next": "/jobs", "ok": true}',
-    '/': '<html>home</html>',
-    '/jobs': '<table><a href="/jobs/channel-manager-job-030">Channel</a></table>',
-    '/jobs/channel-manager-job-030': '<html>one job</html>',
-}
-code = '200' if path in bodies else '404'
+https = url.startswith('https://')
+
+
+def jar_line(domain, secure):
+    return '%s\tFALSE\t/\t%s\t0\tsession\t%s\n' % (domain, secure, TOKEN)
+
+
+def presented():
+    """(value, secure-column) this invocation would really send, or ('', '')."""
+    given = flags.get('-b')
+    if not given:
+        return '', ''
+    if '=' in given:                       # a literal pair: always sent
+        name, _, value = given.partition('=')
+        return (value if name == 'session' else ''), 'literal'
+    try:                                   # no '=' means a cookie FILE
+        lines = open(given).read().splitlines()
+    except OSError:
+        return '', ''
+    for line in lines:
+        fields = line.split('\t')
+        if len(fields) == 7 and fields[5] == 'session':
+            if fields[3] == 'FALSE' or https:
+                return fields[6], fields[3]
+            return '', fields[3]           # Secure cookie, plain http: dropped
+    return '', ''
+
+
+if path == '/login':
+    cookie = ('Set-Cookie: session=%s; Expires=Thu, 26 Nov 2026 19:15:01 GMT; '
+              'Secure; HttpOnly; Path=/; SameSite=Lax' % TOKEN)
+    if os.environ.get('STUB_NO_COOKIE'):
+        cookie = 'Set-Cookie: csrf=nothing-to-do-with-the-session; Path=/'
+    if flags.get('-D'):
+        # CRLF, the way a real header block arrives.
+        with open(flags['-D'], 'w') as handle:
+            handle.write('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n'
+                         + cookie + '\r\n\r\n')
+    if flags.get('-c') and https and not os.environ.get('STUB_NO_COOKIE'):
+        with open(flags['-c'], 'w') as handle:
+            handle.write('# Netscape HTTP Cookie File\n')
+            handle.write(jar_line(url.split('://')[1].split('/')[0].split(':')[0], 'TRUE'))
+    body, code = '{"next": "/jobs", "ok": true}', '200'
+else:
+    value, secure = presented()
+    with open(os.environ['STUB_LOG'], 'a') as log:
+        log.write('curl-cookie sent=%s secure=%s\n' % (value, secure))
+    jobs_page = '<table><a href="/jobs/channel-manager-job-030">Channel</a></table>'
+    if os.environ.get('STUB_NO_LINKS'):    # a React build: no links in the HTML
+        jobs_page = '<!doctype html><div id="root"></div>'
+    bodies = {
+        '/': '<html>home</html>',
+        '/jobs': jobs_page,
+        '/jobs/channel-manager-job-030': '<html>one job</html>',
+        '/api/jobs': '[{"id": "channel-manager-job-030", "title": "Channel"}]',
+    }
+    if value != TOKEN:
+        # The gate. No session, no page -- which is the whole point of a
+        # smoke test that signs in.
+        body, code = '<html>sign in</html>', '403'
+    else:
+        body = bodies.get(path, 'not found')
+        code = '200' if path in bodies else '404'
 if out:
     with open(out, 'w') as handle:
-        handle.write(bodies.get(path, 'not found'))
+        handle.write(body)
 sys.stdout.write(code)
 '''
 
@@ -1901,24 +1979,41 @@ def test_the_lan_pull_refuses_to_run_without_its_receipt_key(lan, tmp_path):
 
 # --- the smoke test -------------------------------------------------------
 
+#: The session value CURL_STUB's /login hands out. The tests read it to
+#: check that the cookie really travelled, and that it travelled in a
+#: file rather than on a command line.
+STUB_SESSION = 'smoke-...e-fixture-cookie-value'  # must equal the curl stub's TOKEN
+
+
 @pytest.fixture
 def smoke(tmp_path):
     stubs = tmp_path / 'smoke-bin'
     stubs.mkdir()
     write_executable(stubs / 'curl', CURL_STUB)
     env_file = tmp_path / 'prod.env'
-    env_file.write_text('SMOKE_BASE_URL=https://app.career-os.test\n'
-                        'SMOKE_EMAIL=tester@career-os.test\n'
-                        "SMOKE_PASSWORD='correct horse battery staple'\n")
-    env_file.chmod(0o640)
     log = tmp_path / 'curl.log'
+    state = {'base': 'https://app.career-os.test'}
 
-    def run(*args, env=None):
+    def write_env(base):
+        env_file.write_text(f'SMOKE_BASE_URL={base}\n'
+                            'SMOKE_EMAIL=tester@career-os.test\n'
+                            "SMOKE_PASSWORD='correct horse battery staple'\n")
+        env_file.chmod(0o640)
+
+    write_env(state['base'])
+
+    def run(*args, env=None, base=None):
+        # `base` is the scheme the smoke test is talking over, which is
+        # the whole question for a Secure cookie: the deploy's own run is
+        # http://127.0.0.1:800X, against a server that sets Secure.
+        if base:
+            state['base'] = base
+            write_env(base)
         environment = {
             **os.environ,
             'PATH': f"{stubs}:{os.environ['PATH']}",
             'STUB_LOG': str(log),
-            'STUB_BASE': 'https://app.career-os.test',
+            'STUB_BASE': state['base'],
             'SMOKE_ENV_FILE': str(env_file),
             **(env or {}),
         }
@@ -1928,6 +2023,20 @@ def smoke(tmp_path):
     run.log = log
     run.env_file = env_file
     return run
+
+
+def authenticated_calls(log):
+    """Every curl line the smoke test made that was not the login POST,
+    paired with the cookie the stub decided it would really have sent."""
+    lines = log.read_text().splitlines()
+    calls = []
+    for index, line in enumerate(lines):
+        if not line.startswith('curl ') or '/login' in line:
+            continue
+        sent = next((later for later in lines[index:]
+                     if later.startswith('curl-cookie ')), '')
+        calls.append((line, sent))
+    return calls
 
 
 def test_smoke_signs_in_and_asserts_three_real_pages(smoke):
@@ -1970,6 +2079,108 @@ def test_smoke_refuses_an_unreadable_env_file(smoke, tmp_path):
     assert done.returncode != 0
     assert 'step env-file failed' in done.stdout
     assert 'is not readable' in done.stdout
+
+
+# --- the smoke test and the Secure session cookie -------------------------
+# Prod sets CAREEROS_SESSION_COOKIE_SECURE=1 and the deploy's own smoke run
+# talks to the local port over plain http://127.0.0.1:800X, before Caddy.
+# Whether curl stores and replays a Secure cookie from a plain-http
+# loopback origin is a question each curl version answers differently (7.81
+# does; 7.86 tightened it), and the version on the VPS is not something the
+# deploy gets to pick. So the script does not ask: it reads the cookie out
+# of the login response headers and writes it into the jar itself.
+
+SMOKE_SH = (DEPLOY / 'smoke.sh').read_text()
+
+
+def test_smoke_captures_the_login_response_headers_and_reads_the_cookie_out():
+    """The login POST keeps its headers, and the session pair comes from
+    them -- not from whatever curl decided to put in the jar."""
+    login = SMOKE_SH.split('--- 1. login')[1].split('--- 2.')[0]
+    assert '-D "$HDRS"' in login, 'the login response headers are not captured'
+    assert 'set-cookie' in login.lower(), 'nothing parses the Set-Cookie line'
+    assert 'session=' in login, 'the parse does not name the cookie it wants'
+    # And the headers file is a credential like the rest: 0600, and gone.
+    assert 'HDRS=$(mktemp' in SMOKE_SH
+    assert '"$HDRS"' in SMOKE_SH.split('chmod 600')[1].split('\n')[0]
+    assert '"$HDRS"' in SMOKE_SH.split('cleanup()')[1].split('\n')[0]
+
+
+def test_smoke_alerts_when_login_answers_without_a_session_cookie():
+    """A 200 with no Set-Cookie is a broken login, and it has to be named
+    as one: everything after it would otherwise fail as a page error."""
+    login = SMOKE_SH.split('--- 1. login')[1].split('--- 2.')[0]
+    assert 'alert login' in login
+    assert 'Set-Cookie' in login
+
+
+def test_the_smoke_cookie_travels_over_plain_http_to_a_secure_cookie_server(smoke):
+    """The run the deploy actually makes: http://127.0.0.1, Secure cookie.
+    CURL_STUB stores nothing in the jar for it, the way a strict curl does,
+    so a script that trusts curl's storage is signed out on every page."""
+    done = smoke(base='http://127.0.0.1:8001')
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert '-- GET / 200' in done.stdout
+    assert '-- GET /jobs 200' in done.stdout
+    assert 'smoke ok' in done.stdout
+
+
+def test_every_authenticated_request_really_carries_the_session(smoke):
+    """Not "the jar is passed" -- that is what main did. The cookie the
+    request would really have sent, over http, is the login session."""
+    assert smoke(base='http://127.0.0.1:8001').returncode == 0
+    calls = authenticated_calls(smoke.log)
+    assert len(calls) >= 3, calls
+    for line, sent in calls:
+        assert f'sent={STUB_SESSION}' in sent, (line, sent)
+        assert 'secure=FALSE' in sent, (
+            'the injected jar line must not be marked Secure, or a strict '
+            'curl drops it over http: ' + sent)
+
+
+def test_the_session_cookie_never_reaches_argv(smoke):
+    """It is a bearer credential for the tester account until it expires,
+    so it belongs in the 0600 jar and not on a command line /proc, the
+    journal and the history file can all read."""
+    assert smoke(base='http://127.0.0.1:8001').returncode == 0
+    calls = smoke.log.read_text()
+    for line in calls.splitlines():
+        if line.startswith('curl '):
+            assert STUB_SESSION not in line, line
+            assert '-b session=' not in line, line
+    assert f'sent={STUB_SESSION}' in calls, 'and yet it was sent'
+
+
+def test_the_api_jobs_fallback_is_reachable_when_jobs_has_no_links(smoke):
+    """A React-served /jobs has no job link in its HTML, which is the one
+    case the /api/jobs fallback exists for. Under `set -o pipefail` the
+    grep that finds no link used to fail the assignment and `set -e` then
+    exited 1 printing nothing at all -- no fallback, and no ALERT line for
+    the deploy script to read either."""
+    done = smoke(base='http://127.0.0.1:8001', env={'STUB_NO_LINKS': '1'})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert '-- GET /jobs/channel-manager-job-030 200' in done.stdout, \
+        'the id came from /api/jobs'
+    assert '/api/jobs' in smoke.log.read_text()
+    assert 'smoke ok' in done.stdout
+
+
+def test_a_login_that_sets_no_session_cookie_names_the_login_step(smoke):
+    done = smoke(base='http://127.0.0.1:8001', env={'STUB_NO_COOKIE': '1'})
+    assert done.returncode != 0
+    assert 'ALERT careeros-smoke: step login failed' in done.stdout
+    assert 'Set-Cookie' in done.stdout, \
+        'the alert has to say what was missing, not just that a page 403d'
+
+
+def test_the_documented_account_creation_command_runs_from_the_app_directory():
+    """`from careeros import users, vault` resolves against the working
+    directory, and sudo leaves you in /root. The documented heredoc used
+    to die on ModuleNotFoundError before reading the password file."""
+    block = (SMOKE_SH.split("openssl rand -base64 24 >/etc/careeros/smoke-password")[1]
+             .split("print('created'")[0])
+    assert 'cd /srv/careeros/prod/app/current' in block
+    assert 'from careeros import users, vault' in block
 
 
 # --- the chain onto the nightly ------------------------------------------
