@@ -116,7 +116,9 @@
 #   would ship owner data. Splitting it needs a content-aware export that
 #   does not exist yet; until then prod's universe jobs come from the
 #   owner-run seed import (decision 6). `search.yaml` is excluded for the
-#   same reason: it indexes owner records too.
+#   same reason: it indexes owner records too, and so is the `search/`
+#   directory that replaced it -- criteria are a per-user kind now, one
+#   file per owner (2026-10-27 privacy audit, finding 4).
 #
 # THE SSH SIDE (owner work, deploy/RUNBOOK.md "The off-VPS copy" -- this script
 # creates no keys and holds no credential)
@@ -325,7 +327,7 @@ if [[ -n $SYNC_VAULT ]]; then
   for f in $SYNC_VAULT_FILES; do
     case $f in
       */*|..|.) alert "SYNC_VAULT_FILES entry '$f' is not a plain name in the vault root" ;;
-      secret_key|users|search.yaml|jobs|experiences|interviews|documents)
+      secret_key|users|search.yaml|search|jobs|experiences|interviews|documents)
         alert "SYNC_VAULT_FILES entry '$f' is owner-owned or a credential and may never be synced" ;;
     esac
     [[ -e "$SYNC_VAULT/$f" ]] || alert "vault allowlist entry missing: $SYNC_VAULT/$f"

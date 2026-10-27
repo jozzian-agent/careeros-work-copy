@@ -28,7 +28,7 @@ import tempfile
 from datetime import timedelta
 from pathlib import Path
 
-from flask import session
+from flask import g, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from careeros import vault
@@ -474,10 +474,75 @@ def owner(user):
     owner, because those are the pre-M2 records the migration hands them
     (see vault.Owner and scripts/migrate_record_owner.py).
 
-    None for no user, which no request path reaches: the gate turns a
-    request with no session away before anything reads a record.
+    None for no user. No request path may hand that None to a vault
+    reader -- `owner=None` means "unscoped, read everything" there --
+    so a request resolves its scope through `request_owner` below, which
+    refuses rather than returning None.
     """
     return None if user is None else vault.Owner(user['id'], is_admin(user))
+
+
+# --- One principal per request (2026-10-27 privacy audit, finding 8) -----
+#
+# The gate (server.require_login) used to validate a user and then every
+# later reading of "who is this" -- the ownership scope, the admin check,
+# the Jinja pages' own -- called `session_user` again. Two readings of one
+# request are two answers whenever anything changes in between: a reset or
+# a disable landing between them turned a request the gate had let in into
+# one with no user, and `owner(None)` is None, which every vault reader
+# takes as "unscoped, read the whole vault".
+#
+# So the principal is resolved ONCE, cached on `flask.g` (per request, by
+# definition), and a request that cannot resolve one is refused instead of
+# being read as unscoped.
+
+#: Where the resolved principal is cached on `flask.g`. Set even when it
+#: is None, so "resolved to nobody" is told apart from "not yet resolved"
+#: and the record is never read twice in one request.
+REQUEST_PRINCIPAL = '_careeros_principal'
+
+
+class IdentityUnresolved(Exception):
+    """A request whose principal cannot be resolved, raised rather than
+    answered with None.
+
+    None is not a safe value to pass on: `owner(None)` is None and an
+    unscoped `owner` is every vault reader's "no filter". A missing
+    identity therefore has to stop the request, which is what raising
+    does; `server.create_app` turns this into the same 401 the gate
+    gives a request with no session at all.
+    """
+
+
+def request_user(root):
+    """The one principal of this request, resolved once and cached on `g`.
+
+    The gate resolves it first, so every later reading in the same
+    request is the gate's own answer rather than a fresh read of the
+    record that may by then say something else.
+    """
+    if not hasattr(g, REQUEST_PRINCIPAL):
+        setattr(g, REQUEST_PRINCIPAL, session_user(root))
+    return getattr(g, REQUEST_PRINCIPAL)
+
+
+def request_principal(root):
+    """This request's principal, or `IdentityUnresolved`.
+
+    What every consumer of identity behind the gate calls: a request that
+    got this far has a session, so no user here is the race the finding
+    describes and is refused, never read as "see everything".
+    """
+    user = request_user(root)
+    if user is None:
+        raise IdentityUnresolved(LOGIN_REQUIRED)
+    return user
+
+
+def request_owner(root):
+    """The ownership scope this request reads and writes under, failing
+    closed when there is no principal to build one from."""
+    return owner(request_principal(root))
 
 
 # --- The accounts command line -------------------------------------------

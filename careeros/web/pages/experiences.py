@@ -74,6 +74,8 @@ def editor_context(data, companies, tags, can_edit_shared=True):
 
 def form(identifier=None):
     root = current_app.config['VAULT_PATH']
-    user = users.session_user(root)
+    # Finding 8: the request's one principal, and a refusal rather than
+    # an unscoped read when there is none.
+    user = users.request_principal(root)
     context = form_context(root, identifier, users.owner(user), users.is_admin(user))
     return page('Edit position' if identifier else 'Add position', 'experiences', 'experience_form.html', **context)

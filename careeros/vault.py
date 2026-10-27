@@ -1565,6 +1565,39 @@ def notes_payload(notes):
     return {'note_list': notes, 'notes': ''}
 
 
+#: The payload key a note list arrives under, which a GENERIC record
+#: write must never accept (2026-10-27 privacy audit, finding 2).
+#:
+#: `_record_defaults` has to name `note_list` -- the note endpoints save
+#: through `save_job`/`save_company` like any other record write -- so a
+#: PUT carrying its own list used to be persisted whole, `author_id`
+#: stamps included. `validate_note_list` checks that the stamp is a
+#: string and cannot check whose it is. Authorship is therefore enforced
+#: where the session is: the API strips this key from every generic
+#: write (`without_note_fields`), and notes change only through the
+#: dedicated endpoints, which stamp the author themselves (`new_note`).
+#:
+#: The legacy free-text `notes` string is deliberately NOT in here: it
+#: carries no author, a note migrated out of it reads as authorless (and
+#: so admin-only on a shared company, see Owner.owns_note), and editing
+#: it through the record PUT is behaviour the clients still have.
+GENERIC_WRITE_DENIED_FIELDS = frozenset({'note_list'})
+
+
+def without_note_fields(payload):
+    """One record-write payload with the note fields taken out.
+
+    Called by the generic record PUTs (job, company) so a client cannot
+    write, re-stamp or delete a note through them. A non-dict payload
+    passes through untouched, so the caller's own error for it is the
+    one that gets raised.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    return {key: value for key, value in payload.items()
+            if key not in GENERIC_WRITE_DENIED_FIELDS}
+
+
 def validate_note_list(notes):
     """Check a stored note list against the one note shape, and return it.
 
