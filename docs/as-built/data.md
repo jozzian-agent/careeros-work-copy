@@ -136,7 +136,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/companies/<identifier>/enrich` | POST | `enrich_company` | jobs | owner only | no write on this route | storage layer | `vault.list_jobs` |
 | `/api/companies/<identifier>/enrich` | POST | `enrich_company` | notes | owner only | no write on this route | storage layer | `vault.has_notes`, `vault.notes_view` |
 | `/api/companies/<identifier>/enrich` | POST | `enrich_company` | tags | any logged-in user | admin only | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
-| `/api/companies/<identifier>/enrich` | POST | `enrich_company` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/api/companies/<identifier>/notes` | POST | `create_note` | companies | any logged-in user | any logged-in user | route code, storage layer | `vault.linkable_company`, `vault.list_companies`, `vault.load_company`, `vault.may_see_company`, `vault.reader_company`, `vault.save_company`, `vault.visible_companies` |
 | `/api/companies/<identifier>/notes` | POST | `create_note` | experiences | owner only | no write on this route | storage layer | `vault.list_experiences` |
 | `/api/companies/<identifier>/notes` | POST | `create_note` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
@@ -144,7 +143,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/companies/<identifier>/notes` | POST | `create_note` | jobs | owner only | owner only | route code, storage layer | `vault.list_jobs`, `vault.load_job`, `vault.save_job` |
 | `/api/companies/<identifier>/notes` | POST | `create_note` | notes | owner only | owner only | route code, storage layer | `vault.has_notes`, `vault.new_note`, `vault.notes_payload`, `vault.notes_view` |
 | `/api/companies/<identifier>/notes` | POST | `create_note` | tags | any logged-in user | any logged-in user | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
-| `/api/companies/<identifier>/notes` | POST | `create_note` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | companies | any logged-in user | any logged-in user | route code, storage layer | `vault.linkable_company`, `vault.list_companies`, `vault.load_company`, `vault.may_see_company`, `vault.reader_company`, `vault.save_company`, `vault.visible_companies` |
 | `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | experiences | owner only | no write on this route | storage layer | `vault.list_experiences` |
 | `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
@@ -152,7 +150,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | jobs | owner only | owner only | route code, storage layer | `vault.list_jobs`, `vault.load_job`, `vault.save_job` |
 | `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | notes | owner only | owner only | route code, storage layer | `vault.edit_note`, `vault.has_notes`, `vault.notes_payload`, `vault.notes_view` |
 | `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | tags | any logged-in user | any logged-in user | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
-| `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/api/companies/<identifier>/retry` | POST | `retry_company` | companies | any logged-in user | admin only | route code, storage layer | `vault.linkable_company`, `vault.list_companies`, `vault.load_company`, `vault.may_see_company`, `vault.reader_company`, `vault.save_company`, `vault.visible_companies` |
 | `/api/companies/<identifier>/retry` | POST | `retry_company` | experiences | owner only | no write on this route | storage layer | `vault.list_experiences` |
 | `/api/companies/<identifier>/retry` | POST | `retry_company` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
@@ -203,7 +200,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | jobs | owner only | owner only | route code, storage layer | `vault.delete_job`, `vault.list_jobs`, `vault.load_job`, `vault.save_job` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | notes | owner only | no write on this route | route code, storage layer | `vault.has_notes`, `vault.notes_view` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | tags | any logged-in user | admin only | route code, storage layer | `vault.function_facet_options`, `vault.function_label_map`, `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.unregistered_tags`, `vault.validate_tags` |
-| `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | companies | any logged-in user | any logged-in user | route code, storage layer | `vault.linkable_company`, `vault.list_companies`, `vault.load_company`, `vault.save_company` |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | id counters | no read on this route | any logged-in user | storage layer | `vault._allocate` |
@@ -225,7 +221,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/jobs/<identifier>/notes` | POST | `create_note` | jobs | owner only | owner only | route code, storage layer | `vault.list_jobs`, `vault.load_job`, `vault.save_job` |
 | `/api/jobs/<identifier>/notes` | POST | `create_note` | notes | owner only | owner only | route code, storage layer | `vault.has_notes`, `vault.new_note`, `vault.notes_payload`, `vault.notes_view` |
 | `/api/jobs/<identifier>/notes` | POST | `create_note` | tags | any logged-in user | any logged-in user | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
-| `/api/jobs/<identifier>/notes` | POST | `create_note` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/api/jobs/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | companies | any logged-in user | any logged-in user | route code, storage layer | `vault.linkable_company`, `vault.list_companies`, `vault.load_company`, `vault.may_see_company`, `vault.reader_company`, `vault.save_company`, `vault.visible_companies` |
 | `/api/jobs/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | experiences | owner only | no write on this route | storage layer | `vault.list_experiences` |
 | `/api/jobs/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
@@ -233,7 +228,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/jobs/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | jobs | owner only | owner only | route code, storage layer | `vault.list_jobs`, `vault.load_job`, `vault.save_job` |
 | `/api/jobs/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | notes | owner only | owner only | route code, storage layer | `vault.edit_note`, `vault.has_notes`, `vault.notes_payload`, `vault.notes_view` |
 | `/api/jobs/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | tags | any logged-in user | any logged-in user | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
-| `/api/jobs/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/api/jobs/<identifier>/paste-description` | POST | `paste_description` | companies | any logged-in user | any logged-in user | route code, storage layer | `vault.linkable_company`, `vault.load_company`, `vault.save_company` |
 | `/api/jobs/<identifier>/paste-description` | POST | `paste_description` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
 | `/api/jobs/<identifier>/paste-description` | POST | `paste_description` | id counters | no read on this route | any logged-in user | storage layer | `vault._allocate` |
@@ -247,7 +241,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/jobs/<identifier>/promote` | POST | `promote_job` | jobs | owner only | owner only | route code, storage layer | `vault.add_job_to_board`, `vault.list_jobs`, `vault.list_owned_jobs`, `vault.load_universe_job`, `vault.save_job` |
 | `/api/jobs/<identifier>/promote` | POST | `promote_job` | notes | owner only | no write on this route | storage layer | `vault.has_notes`, `vault.notes_view` |
 | `/api/jobs/<identifier>/promote` | POST | `promote_job` | tags | any logged-in user | any logged-in user | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
-| `/api/jobs/<identifier>/promote` | POST | `promote_job` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/api/jobs/<identifier>/re-extract` | POST | `re_extract_job` | companies | any logged-in user | any logged-in user | route code, storage layer | `vault.linkable_company`, `vault.load_company`, `vault.save_company` |
 | `/api/jobs/<identifier>/re-extract` | POST | `re_extract_job` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
 | `/api/jobs/<identifier>/re-extract` | POST | `re_extract_job` | id counters | no read on this route | any logged-in user | storage layer | `vault._allocate` |
@@ -294,7 +287,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/watch/scan` | POST | `watch_scan` | jobs | owner only | owner only | route code, storage layer | `vault.list_jobs`, `vault.load_job`, `vault.save_watch_result` |
 | `/api/watch/scan` | POST | `watch_scan` | notes | owner only | no write on this route | storage layer | `vault.has_notes`, `vault.notes_view` |
 | `/api/watch/scan` | POST | `watch_scan` | tags | any logged-in user | any logged-in user | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
-| `/api/watch/scan` | POST | `watch_scan` | users | any logged-in user | no write on this route | storage layer | `users.list_users` |
 | `/assets/<path:filename>` | GET | `react_assets` | none | no record kind on this route | no write on this route |  |  |
 | `/companies` | GET | `react_companies` | none | no record kind on this route | no write on this route |  |  |
 | `/companies/<identifier>` | GET | `react_company_detail` | none | no record kind on this route | no write on this route |  |  |

@@ -732,7 +732,14 @@ def test_async_company_correction_and_email(tmp_path, monkeypatch, matched):
     assert resolved.status_code == 200
     recipient = vault.load_company(tmp_path, resolved.json['company_id'])
     assert recipient['name'] == 'Correct Labs'
-    assert recipient['contact_email'] == 'jobs@correct.example'
+    # The address the posting carried stays ON THE JOB and reaches no
+    # shared company (owner decision 2026-10-27, privacy audit finding
+    # 3): a contact promoted onto a company every user reads may only
+    # come from a PUBLIC posting, which is a record no user owns, and an
+    # intake job is owned by whoever pasted it -- the admin included.
+    # This assertion read `== 'jobs@correct.example'` until that decision.
+    assert recipient['contact_email'] == ''
+    assert api.get('/api/jobs/' + job['id']).json['contact_email'] == 'jobs@correct.example'
     assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
 
 
@@ -966,7 +973,12 @@ def test_company_email_fill_migrates_existing_job_email(tmp_path, monkeypatch):
     response = api.post('/api/jobs/' + job['id'] + '/resolve-review', json={
         'company_id': target['id'], 'review_token': job['company_review']['token']})
     assert response.status_code == 200
-    assert vault.load_company(tmp_path, target['id'])['contact_email'] == 'owner@safe.example'
+    # Held through review and then promoted nowhere: the job keeps its
+    # own address and no shared company gains one from a job somebody
+    # owns (owner decision 2026-10-27, privacy audit finding 3). This
+    # assertion read `== 'owner@safe.example'` until that decision.
+    assert vault.load_company(tmp_path, target['id'])['contact_email'] == ''
+    assert api.get('/api/jobs/' + job['id']).json['contact_email'] == 'owner@safe.example'
     assert vault.load_company(tmp_path, baseline['company_id'])['contact_email'] == ''
 
 
