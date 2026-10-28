@@ -86,10 +86,12 @@ def records(root):
     """Every stored job with the file it lives in, through the vault's
     own tolerant reader."""
     for path in sorted((Path(root) / 'jobs').glob('*.yaml')):
-        data = vault._read(path)
-        if data and vault.is_reserved(data):
+        if path.name.startswith(vault.RESERVED_PREFIX):
             # A reserved id is a number, not a job: nothing to classify.
+            # Known by the machine-written name `vault.reserve_id` gives
+            # it, so this sweep never deserialises one.
             continue
+        data = vault._read(path)
         if data:
             yield path, data
         else:

@@ -99,10 +99,12 @@ def records(root, kind):
     the vault's own tolerant reader. A directory that is not there yields
     nothing."""
     for path in sorted((Path(root) / kind).glob('*.yaml')):
-        data = vault._read(path)
-        if data and vault.is_reserved(data):
+        if path.name.startswith(vault.RESERVED_PREFIX):
             # An id-reservation tombstone holds a number, not a record.
+            # Known by the machine-written name `vault.reserve_id` gives
+            # it, so this sweep never deserialises one.
             continue
+        data = vault._read(path)
         if data:
             yield path, data
         else:

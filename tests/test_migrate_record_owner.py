@@ -210,6 +210,25 @@ def test_a_rerun_leaves_the_counters_correct_with_tombstones(with_tombstones, ca
     assert vault._next(with_tombstones, 'experiences') == 'EXP-002'
 
 
+def test_a_tombstone_is_skipped_by_its_name_whatever_it_holds(legacy, capsys):
+    """This sweep walks the record directory itself, so it skips a
+    tombstone on the `_reserved-` name `vault.reserve_id` writes, before
+    the file is read at all. For an offline reader the prefix is the
+    whole contract: a tombstone whose stored `reserved` flag is gone is
+    still a number and not a record waiting for an owner (CAREER-94).
+    The stored flag stays what `vault._records` reads on the server."""
+    stone = legacy / 'jobs' / f'{vault.RESERVED_PREFIX}42.yaml'
+    stone.write_text('id: JOB-042\n', encoding='utf-8')
+    before = stone.read_bytes()
+    capsys.readouterr()
+    assert migrate.main(['--vault', str(legacy), '--apply']) == 0
+    out = capsys.readouterr().out
+    # The two legacy jobs, never the three files in the directory.
+    assert 'jobs: 2 of 2 gain an owner' in out
+    assert 'JOB-042' not in out
+    assert stone.read_bytes() == before
+
+
 def test_the_migration_seeds_counters_from_tombstones_too(legacy):
     """A vault whose counter file is gone but whose tombstones remain:
     the seeding has to read the reserved numbers, or it would seed a mark

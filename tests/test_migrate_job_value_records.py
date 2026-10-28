@@ -146,6 +146,25 @@ def test_an_admin_value_written_afterwards_survives_a_re_run(filled):
         'occupation_family']['value'] == 'software-architect'
 
 
+# --- id-reservation tombstones --------------------------------------------
+
+def test_a_tombstone_is_skipped_by_its_name_whatever_it_holds(filled, capsys):
+    """This sweep walks the record directory itself, so it skips a
+    tombstone on the `_reserved-` name `vault.reserve_id` writes, before
+    the file is read at all. For an offline reader the prefix is the
+    whole contract: a tombstone whose stored `reserved` flag is gone is
+    still a number and not a job to classify (CAREER-94)."""
+    stone = filled / 'jobs' / f'{vault.RESERVED_PREFIX}42.yaml'
+    stone.write_text('id: JOB-042\n', encoding='utf-8')
+    before = stone.read_bytes()
+    assert migrate.main(['--vault', str(filled), '--apply']) == 0
+    out = capsys.readouterr().out
+    # The three stored jobs, never the four files in the directory.
+    assert '3 of 3 jobs gain value records' in out
+    assert 'JOB-042' not in out
+    assert stone.read_bytes() == before
+
+
 # --- the rails ------------------------------------------------------------
 
 def test_a_vault_that_is_not_one_stops_the_run(tmp_path):

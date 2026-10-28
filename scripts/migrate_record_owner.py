@@ -90,13 +90,15 @@ def records(root, kind):
     the vault's own tolerant reader. A directory that is not there yields
     nothing: a vault may hold jobs and no experiences."""
     for path in sorted((Path(root) / kind).glob('*.yaml')):
-        data = vault._read(path)
-        if data and vault.is_reserved(data):
+        if path.name.startswith(vault.RESERVED_PREFIX):
             # An id-reservation tombstone holds a number, not a record,
             # so it is not a job or an experience needing an owner and it
-            # is not counted as one. Its number still reaches the counter
+            # is not counted as one. Known by the machine-written name
+            # `vault.reserve_id` gives it, so this sweep never
+            # deserialises one. Its number still reaches the counter
             # marks this records, because those read the directory raw.
             continue
+        data = vault._read(path)
         if data:
             yield path, data
         else:
