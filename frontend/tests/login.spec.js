@@ -42,6 +42,15 @@ test('a visit with no session ends on the login page', async ({ page }) => {
   await expect(page.getByRole('navigation', { name: 'Main' })).toHaveCount(0);
 });
 
+test('the login page links to the forgot-password page (CAREER-97)', async ({ page }) => {
+  await mockBoardUnauthorized(page);
+  await page.goto('/login');
+  const link = page.getByRole('link', { name: 'Forgot password?' });
+  await expect(link).toBeVisible();
+  // Same-origin relative href, no absolute URL, no new env var.
+  await expect(link).toHaveAttribute('href', '/forgot-password');
+});
+
 test('the right credentials land on the board', async ({ page }) => {
   await mockBoard(page, fixture);
   const attempts = await mockLogin(page);
