@@ -159,3 +159,22 @@ def test_no_vault_given_stops_rather_than_guessing(monkeypatch):
     monkeypatch.delenv('CAREEROS_VAULT', raising=False)
     with pytest.raises(SystemExit):
         cleanup.main([])
+
+
+# --- id-reservation tombstones --------------------------------------------
+
+def test_a_tombstone_is_skipped_by_its_name_whatever_it_holds(dirty, capsys):
+    """This sweep walks the record directories itself, so it skips a
+    tombstone on the `_reserved-` name `vault.reserve_id` writes, before
+    the file is read at all. For an offline reader the prefix is the
+    whole contract: a tombstone whose stored `reserved` flag is gone
+    holds no text to clean all the same (CAREER-94)."""
+    stone = dirty / 'jobs' / f'{vault.RESERVED_PREFIX}42.yaml'
+    stone.write_text('id: JOB-042\ntitle: Lead &amp; Learn\n', encoding='utf-8')
+    before = stone.read_bytes()
+    assert run(dirty, '--apply') == 0
+    out = capsys.readouterr().out
+    # The four stored jobs, never the five files in the directory.
+    assert 'jobs: 3 of 4 change' in out
+    assert 'JOB-042' not in out
+    assert stone.read_bytes() == before
