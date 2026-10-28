@@ -969,6 +969,15 @@ def test_url_change_settle_and_release_are_atomic(tmp_path, monkeypatch):
     response = api.post('/api/jobs/intake', json={'url': 'https://posting.example/role'})
     job_id = response.json['job']['id']
     assert entered.wait(2)
+    # Grab the worker handle while it is provably alive and parked: after
+    # release.set() the poller's GETs run prune_threads (server.py
+    # before_request), which pops dead LLM_THREADS entries -- a later
+    # app.config['LLM_THREADS'][job_id] lookup can then KeyError (the exact
+    # 'JOB-001' flake seen in CI). Join is unbounded because release is
+    # already set, so the parked worker is guaranteed to finish; a bounded
+    # join that silently timed out would let the final state-reads race the
+    # callback they are asserting on.
+    worker = app.config['LLM_THREADS'][job_id]
 
     put_response = api.put('/api/jobs/' + job_id, json={'url': 'https://posting.example/changed-role'})
     assert put_response.status_code == 200
@@ -991,7 +1000,7 @@ def test_url_change_settle_and_release_are_atomic(tmp_path, monkeypatch):
     poller.start()
     assert sampled.wait(2)
     release.set()
-    app.config['LLM_THREADS'][job_id].join(timeout=2)
+    worker.join()
     stop_polling.set()
     poller.join(2)
 
@@ -1122,6 +1131,13 @@ def test_terminal_extraction_failure_settles_fields_while_poller_observes(tmp_pa
     response = api.post('/api/jobs/intake', json={'url': 'https://posting.example/role'})
     job_id = response.json['job']['id']
     assert entered.wait(2)
+    # Capture the worker handle before any poller GET runs: before_request's
+    # prune_threads pops dead LLM_THREADS entries, so after release the
+    # dict lookup below could KeyError (the CI flake seen as
+    # KeyError: 'JOB-001'). Unbounded join: release is set, so the parked
+    # worker is guaranteed to terminate; a bounded join timing out would
+    # let the final state-reads race the settling callback.
+    worker = app.config['LLM_THREADS'][job_id]
 
     violations = []
     sampled_once = Event()
@@ -1153,7 +1169,7 @@ def test_terminal_extraction_failure_settles_fields_while_poller_observes(tmp_pa
     # before letting the worker thread (and then the poller) finish.
     assert sampled_after_release.wait(2), (
         'the poller must sample at least once after the failure is released')
-    app.config['LLM_THREADS'][job_id].join(timeout=2)
+    worker.join()
     stop_polling.set()
     poller.join(2)
 
@@ -1212,9 +1228,25 @@ def test_llm_correction_creating_new_company_completes(tmp_path, monkeypatch):
     # in fuzzy_name with no company_id -- the same shape test_company_resolve
     # uses for its needs_review rung-3 probe.
     vault.save_company(tmp_path, {'name': 'Acme GmbH'})
+    # CI flake: job_intake starts the LLM worker BEFORE the 201 returns and
+    # the instant fake model means the worker's callback overwrites the link
+    # group ~65ms after POST-return (measured). On a loaded runner the main
+    # thread can be descheduled longer than that between the POST and the
+    # pre-read below, which then sees post-LLM state ('new_company') instead
+    # of 'fuzzy_name'. Gate the model call on a release Event -- the pattern
+    # test_write_lock_not_held_during_slow_extraction already uses -- so the
+    # worker provably cannot reach its callback until both pre-reads are
+    # done. No sleeps, no weakened assertions.
+    entered, release = Event(), Event()
+
+    def on_call():
+        entered.set()
+        assert release.wait(5)
+
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Acme'))
     monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps(
-        {'title': 'Senior Platform Engineer', 'company': 'Zzztqx Novelworks AG'})))
+        {'title': 'Senior Platform Engineer', 'company': 'Zzztqx Novelworks AG'}),
+        on_call=on_call))
     monkeypatch.setattr(ingest, 'get_llm_model', object)
     # The cascade runs a background thread gated on AUTO_CASCADE_ENABLED;
     # count its sector/size calls instead of patching the closure.
@@ -1228,9 +1260,13 @@ def test_llm_correction_creating_new_company_completes(tmp_path, monkeypatch):
     api = app.test_client()
     response = api.post('/api/jobs/intake', json={'url': 'https://unrelated.example/role'})
     job_id = response.json['job']['id']
+    # The worker is now provably parked inside the model call (entered is
+    # set there and release is not), so these pre-reads cannot race it.
+    assert entered.wait(2)
     pre = vault.load_job(tmp_path, job_id)
     assert pre['company_link_reason'] == 'fuzzy_name'
     assert pre['company_id'] is None
+    release.set()
 
     app.config['LLM_THREADS'][job_id].join(timeout=5)
 
@@ -1272,9 +1308,21 @@ def test_llm_correction_for_a_tester_creates_no_company_and_still_completes(tmp_
     # Same fuzzy shape as the create-side test: a vault company makes the
     # schema name land in fuzzy_name with no link, leaving the ladder open.
     vault.save_company(tmp_path, {'name': 'Acme GmbH'})
+    # CI flake (this test failed once in the real repo: line 1299 got None):
+    # same race as the create-side test above -- the worker started before
+    # the 201 returns, and on a denied ladder its callback writes
+    # link_reason=None over the 'fuzzy_name' stub. Gate the model call until
+    # the pre-reads are done. No sleeps, no weakened assertions.
+    entered, release = Event(), Event()
+
+    def on_call():
+        entered.set()
+        assert release.wait(5)
+
     monkeypatch.setattr(intake, 'fetch_url', lambda url: schema_html('Acme'))
     monkeypatch.setattr(ingest, 'get_llm_client', lambda: client_for(json.dumps(
-        {'title': 'Senior Platform Engineer', 'company': 'Zzztqx Novelworks AG'})))
+        {'title': 'Senior Platform Engineer', 'company': 'Zzztqx Novelworks AG'}),
+        on_call=on_call))
     monkeypatch.setattr(ingest, 'get_llm_model', object)
     monkeypatch.setattr(server, 'AUTO_CASCADE_ENABLED', True)
     from org_intake import enrich as company_lookup
@@ -1295,9 +1343,13 @@ def test_llm_correction_for_a_tester_creates_no_company_and_still_completes(tmp_
 
     response = api.post('/api/jobs/intake', json={'url': 'https://unrelated.example/role'})
     job_id = response.json['job']['id']
+    # The worker is parked inside the model call, so these pre-reads
+    # cannot race its callback.
+    assert entered.wait(2)
     pre = vault.load_job(tmp_path, job_id)
     assert pre['company_link_reason'] == 'fuzzy_name'
     assert pre['company_id'] is None
+    release.set()
 
     app.config['LLM_THREADS'][job_id].join(timeout=5)
 
