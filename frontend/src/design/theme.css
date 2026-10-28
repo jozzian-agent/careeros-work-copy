@@ -12,7 +12,7 @@
  * take no custom colours..."). Redeclaring the component tokens is the
  * CSS-variable half of that choice, and it means the Jobs board markup does
  * not have to change to pick up the brand: a `Button color="red"` renders in
- * brand blue because the primary-button tokens below are brand blue.
+ * brand green because the primary-button tokens below are brand green.
  *
  * `!important` is required here for the same reason as in tokens.css: the
  * DesignTokensProvider style tag lives in <body>, later in document order
@@ -51,33 +51,34 @@
   --color-border-popover-primary: var(--color-background-card) !important;
   --color-background-elevation-floating: var(--color-background-card) !important;
 
-  /* Primary action = brand blue, replacing Gestalt's Pinterest red. These
+  /* Primary action = brand green, replacing Gestalt's Pinterest red. These
    * three also drive Button color="red", which is how the board's Add /
-   * Retry / Add anyway buttons become brand blue with no markup change. */
+   * Retry / Add anyway buttons become brand green with no markup change. */
   --color-background-button-primary-default: var(--color-brand-primary) !important;
   --color-background-button-primary-hover: var(--color-brand-primary-strong) !important;
   --color-background-button-primary-active: var(--color-brand-primary-strong) !important;
   --color-background-primary-base: var(--color-brand-primary) !important;
   --color-background-primary-strong: var(--color-brand-primary-strong) !important;
-  --color-background-primary-weak: var(--color-brand-wash-blue) !important;
+  --color-background-primary-weak: var(--color-brand-wash) !important;
 
   /* ButtonToggle's selected state (Board/List, Needs attention) reads this
    * token rather than the button-primary-* trio above, whatever its own
-   * color prop says. Gestalt 177 defaults it to near-black
-   * (--color-background-selected-base); the board wants brand blue. */
+   * Gestalt 177 defaults it to near-black
+   * (--color-background-selected-base); the board wants brand green. */
   --color-background-button-selected-default: var(--color-brand-primary) !important;
 
   /* The detail pages' back-link arrow (DetailHeader's Icon
    * color="brandPrimary") reads Gestalt's own brand icon token, which is
-   * still Pinterest red: the arrow rendered red beside its blue link text.
-   * The brand here is blue, so bind the token to it. Recorded as an
+   * still Pinterest red: the arrow rendered red beside its link text.
+   * The brand here is green, so bind the token to it. Recorded as an
    * override in docs/decisions/design-system.md, per AGENTS.md. */
   --color-icon-brand-primary: var(--color-brand-primary) !important;
 
-  /* Informational blue (Badge type="info": AI-generated, function chips). */
+  /* Informational colour = brand green (Badge type="info": AI-generated,
+   * function chips), per the 2026-10-26 handover. */
   --color-background-info-base: var(--color-brand-primary) !important;
   --color-background-info-strong: var(--color-brand-primary-strong) !important;
-  --color-background-info-weak: var(--color-brand-wash-blue) !important;
+  --color-background-info-weak: var(--color-brand-wash) !important;
   --color-icon-info: var(--color-brand-primary) !important;
 
   /* Violet (Badge type="recommendation": "Needs your input"). Gestalt uses
@@ -111,7 +112,7 @@
  *
  * (gestalt.es.js lines 8034 and 8077-8081 at 177.0.12.) With the fill replaced
  * by the brand blue, that exception backfires: dark --color-text-default is
- * #ffffff and the dark brand blue is #75bfff, which is 1.97:1 - far below WCAG
+ * #ffffff and the dark brand fill is #75bfff, which is 1.97:1 - far below WCAG
  * AA's 4.5:1. The handoff has the answer already: color-brand-on-color is the
  * foreground it pairs with brand fills, #ffffff light and #111111 dark.
  *
@@ -147,30 +148,24 @@ body {
   font-family: var(--font-sans);
 }
 
-/* Line heights, per the brief: 44, 36, 28, 24, 20.
+/* Line heights, per the 2026-10-26 design handover: paired by font size,
+ * 12->16, 14->20, 16->22, 20->24, 28->31, 36->40, on leaf elements only.
  *
  * Gestalt classic ships no line-height for Text or Heading at all (it defines
  * --font-lineheight-* only for the datepicker), so the whole scale has to come
- * from here. The handoff pairs each line height with a *font size*, not with a
- * heading level, and the two do not always agree: Gestalt's PageHeader renders
- * its title as an h1 at 20px, so keying off the tag would put a 44px line
- * height on 20px text.
+ * from here. The pairs above are no longer one arithmetic progression (the
+ * old min(1em + 8px, 2em - 8px) formula produced 16->24, 20->28, 28->36,
+ * 36->44), so Gestalt's own typography classes now carry the exact value per
+ * size. The hashed class names are Gestalt 177.0.12's own (styles maps in
+ * gestalt.es.js: Text fontSize100-600 = dR0/j1A/sAJ/bwj/GTB/R-d, Heading
+ * fontSize100-700 = rrU/kNw/LUr/JW7/h4h/X9y); naming them is the same pinned-
+ * version precedent as `.Il7` below, and tests/theme.spec.js asserts the
+ * rendered pairs, so a class that moved could not pass silently.
  *
- * So pair on the element's own font size. `em` in line-height resolves against
- * that element's font-size, which makes this one declaration reproduce the
- * entire handoff type scale exactly:
- *
- *   12px -> min(20, 16) = 16    (text-100)
- *   14px -> min(22, 20) = 20    (text-200)
- *   16px -> min(24, 24) = 24    (text-300, heading-300)
- *   20px -> min(28, 32) = 28    (heading-400)
- *   28px -> min(36, 48) = 36    (heading-600)
- *   36px -> min(44, 64) = 44    (heading-700)
- *
- * It has to be set per element rather than inherited from body: a line-height
- * given in em computes to an absolute length where it is declared, and
- * descendants would inherit that length instead of recomputing from their own
- * font size. tests/theme.spec.js asserts every pair above.
+ * The generic leaf rule stays as the fallback for leaves outside Gestalt
+ * typography (raw HTML, inline-styled chips); where one of those has a font
+ * size the pairs above cover, the component sets line-height inline instead
+ * (SearchCriteria's remove button, ExperienceDetail's markdown body).
  *
  * Scoped to leaf elements, which is where text actually sits (Gestalt's Text
  * renders a div holding a string, Heading an h1-h6 holding a string). A plain
@@ -180,13 +175,48 @@ body {
  * dies (caught by tests/jobs-board.spec.js). Leaves exclude the draggable card
  * wrapper, the columns and every Box/Flex, so the behaviour freeze holds.
  *
- * The second selector is for portals, which are not inside #root. Gestalt's
- * Layer mounts its children in a plain `div` it creates and appends to
- * document.body (gestalt.es.js lines 2643-2653; it carries a class only when
- * Layer is given a zIndex, which the board's Toast is not), so a #root-only
- * rule leaves Toast text with no line-height at all. Same leaf-only
- * constraint, for the same drag-and-drop reason: whatever the selector, this
- * declaration must never land on a structural wrapper. */
+ * The portal selectors are for elements outside #root. Gestalt's Layer mounts
+ * its children in a plain `div` it creates and appends to document.body
+ * (gestalt.es.js lines 2643-2653; it carries a class only when Layer is given
+ * a zIndex, which the board's Toast is not), so a #root-only rule leaves Toast
+ * text with no line-height at all. Same leaf-only constraint, for the same
+ * drag-and-drop reason: whatever the selector, these declarations must never
+ * land on a structural wrapper. */
+#root .dR0, #root .rrU,
+body > div:not(#root) .dR0, body > div:not(#root) .rrU {
+  line-height: 16px; /* 12px text-100 */
+}
+#root .j1A, #root .kNw,
+body > div:not(#root) .j1A, body > div:not(#root) .kNw {
+  line-height: 20px; /* 14px text-200 */
+}
+#root .sAJ, #root .LUr,
+body > div:not(#root) .sAJ, body > div:not(#root) .LUr {
+  line-height: 22px; /* 16px text-300 / heading-300 */
+}
+#root .bwj, #root .JW7,
+body > div:not(#root) .bwj, body > div:not(#root) .JW7 {
+  line-height: 24px; /* 20px heading-400 */
+}
+#root .GTB, #root .h4h,
+body > div:not(#root) .GTB, body > div:not(#root) .h4h {
+  line-height: 31px; /* 28px heading-600 */
+}
+#root .R-d, #root .X9y,
+body > div:not(#root) .R-d, body > div:not(#root) .X9y {
+  line-height: 40px; /* 36px heading-700 */
+}
+
+/* Links are always underlined and always ink-black (--color-text-link,
+ * 2026-10-26 handover). Gestalt underlines an inline Link by default but
+ * only on hover for a block one, and Text color="link" outside a Link (the
+ * card titles) would otherwise render unadorned black text. Scoped to the
+ * link token's own class and to anchors, never to arbitrary text. */
+#root a,
+body > div:not(#root) a {
+  text-decoration-line: underline;
+}
+
 #root *:not(:has(*)),
 body > div:not(#root) *:not(:has(*)) {
   line-height: min(calc(1em + 8px), calc(2em - 8px));

@@ -192,7 +192,7 @@ export default function EndedLane({
           // No border in either state: the ground is what the lane is
           // drawn with, and the drag-over state swaps that ground and
           // adds the dashed outline the columns use.
-          background: isOver ? 'var(--color-brand-wash-blue)' : 'var(--color-background-secondary-base)',
+          background: isOver ? 'var(--color-brand-wash)' : 'var(--color-background-secondary-base)',
           outline: isOver ? '2px dashed var(--color-brand-primary)' : 'none',
           outlineOffset: '-2px',
         }}

@@ -3,9 +3,9 @@ import { Box, Text } from 'gestalt';
 // Icon paths verbatim from the FitChip component README (24x24, filled,
 // nonzero rule). Rendered as raw SVG rather than Gestalt's Icon because
 // Icon's `color` prop only reaches Gestalt's own semantic icon tokens
-// (--color-icon-error/-warning), not the brief's color-text-error/-warning/
-// color-brand-accent tokens; see BUILD_NOTES.md for the precedent (Button
-// red needed the same kind of CSS-variable workaround).
+// (--color-icon-error/-warning), not the brief's color-text-error/-warning
+// tokens; see BUILD_NOTES.md for the precedent (Button red needed the same
+// kind of CSS-variable workaround).
 const ICON_PATHS = {
   no_fit: 'M15.18 16.95 12 13.77l-3.18 3.18a1.25 1.25 0 0 1-1.77-1.77L10.23 12 7.05 8.82a1.25 1.25 0 0 1 1.77-1.77L12 10.23l3.18-3.18a1.25 1.25 0 1 1 1.77 1.77L13.77 12l3.18 3.18a1.25 1.25 0 0 1-1.77 1.77M24 12a12 12 0 1 0-24 0 12 12 0 0 0 24 0',
   lucky:
@@ -23,8 +23,11 @@ const LEVELS = {
   },
   excellent: {
     label: 'Excellent fit',
-    background: 'var(--color-brand-wash-teal)',
-    iconColor: 'var(--color-brand-accent)',
+    // Neutral like the placeholder chip: fit is not calculated today, and
+    // the old teal ground referenced brand tokens that the 2026-10-26
+    // design handover removed (wash-teal, brand-accent).
+    background: 'var(--color-background-secondary-base)',
+    iconColor: 'var(--color-text-subtle)',
   },
 };
 

@@ -169,7 +169,7 @@ export default function ExperienceDetail() {
         ) : null}
         {exp.detail ? (
           <SectionCard title="Content">
-            <Box dangerouslySetInlineStyle={{ __style: { fontSize: 16, lineHeight: '24px' } }}>
+            <Box dangerouslySetInlineStyle={{ __style: { fontSize: 16, lineHeight: '22px' } }}>
               <span dangerouslySetInnerHTML={{ __html: markdown }} />
             </Box>
           </SectionCard>

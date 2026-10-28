@@ -9,7 +9,7 @@ const job = loadFixture('job-detail');
 const taxonomy = loadFixture('job-taxonomy');
 const company = loadFixture('company-detail');
 
-const BRAND_PRIMARY = 'rgb(0, 95, 203)'; // #005fcb, src/design/tokens.css
+const BRAND_PRIMARY = 'rgb(0, 135, 83)'; // #008753, src/design/tokens.css
 
 const PAGES = [
   { name: 'job', url: '/jobs/JOB-001', editLabel: 'Edit job', title: job.job.title },

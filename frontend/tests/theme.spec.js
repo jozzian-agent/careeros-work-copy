@@ -3,19 +3,20 @@ import { loadBoardFixture, mockBoard, mockIntake } from './helpers.js';
 
 const fixture = loadBoardFixture();
 
-// The handoff design tokens, version 3 (JOZ-277). These replace the former
-// ad-hoc indigo/violet accent (#5e6ad2 / #7170ff) that src/theme.js used to
-// inject. Values come from src/design/tokens.css, which is the repo's single
-// source of truth and a verbatim port of the handoff's design-system/tokens.css.
-const BRAND_PRIMARY = 'rgb(0, 95, 203)'; // #005fcb, blue-skycicle 600
-const BRAND_WASH_BLUE = 'rgb(230, 244, 255)'; // #e6f4ff, the selected-toggle ground
-const SECONDARY_BASE = 'rgb(233, 233, 233)'; // #e9e9e9, the neutral chip ground
-const BRAND_PRIMARY_DARK = '#75bfff'; // blue-skycicle 300
-const TEXT_SUBTLE = '#5f5f5f'; // raised from Gestalt's #767676
-const BORDER_FOCUS = '#004ba9'; // solid, replacing Gestalt's 50% blue
-const PAGE_LIGHT = 'rgb(247, 251, 255)'; // #f7fbff
+// The design tokens as of the 2026-10-26 handover: Matchacado green brand on a
+// light green ground, light theme only. Values come from
+// src/design/tokens.css, the repo's single source of truth.
+const BRAND_PRIMARY = 'rgb(0, 135, 83)'; // #008753, matchacado 500
+const BRAND_PRIMARY_STRONG = '#005f3e'; // brand-hover
+const BRAND_WASH = 'rgb(227, 250, 225)'; // #e3fae1, the selected-toggle ground
+const SECONDARY_BASE = 'rgb(232, 231, 225)'; // #e8e7e1, the neutral chip ground
+const BRAND_PRIMARY_DARK = '#75bfff'; // dark tokens are untouched by this PR
+const TEXT_SUBTLE = '#636361'; // raised from Gestalt's #767676
+const TEXT_NEUTRAL = '#4c4c4a';
+const BORDER_FOCUS = '#007db8'; // solid focus ring
+const PAGE_LIGHT = 'rgb(246, 253, 245)'; // #f6fdf5
 const CARD_DARK = '#191919';
-const ON_COLOR_DARK = 'rgb(17, 17, 17)'; // #111111, the handoff's dark foreground for brand fills
+const ON_COLOR_DARK = 'rgb(17, 17, 17)'; // #111111, dark foreground for brand fills
 const ON_COLOR_LIGHT = 'rgb(255, 255, 255)';
 
 // The app itself is pinned to colorScheme="light" (src/App.jsx), so the
@@ -83,11 +84,11 @@ function readPrimaryButton(page) {
   });
 }
 
-// Brief 2026-10-18, section 1: a selected toggle is a STATE, so it gets
-// the wash-blue ground and the blue border the Function filter always
-// had, never the brand FILL. The fill belongs to the one main action on
-// the screen, and "Add a job" is it.
-test('a selected toggle is wash blue with a blue border, and only the main action is filled', async ({
+// Brief 2026-10-18, section 1 (values per the 2026-10-26 handover): a
+// selected toggle is a STATE, so it gets the wash ground and the brand border
+// the Function filter always had, never the brand FILL. The fill belongs to
+// the one main action on the screen, and "Add a job" is it.
+test('a selected toggle is brand wash with a brand border, and only the main action is filled', async ({
   page,
 }) => {
   const boardButton = await openBoard(page);
@@ -96,7 +97,7 @@ test('a selected toggle is wash blue with a blue border, and only the main actio
     const cs = getComputedStyle(el);
     return { background: cs.backgroundColor, border: cs.borderTopColor, width: cs.borderTopWidth };
   });
-  expect(selected.background).toBe(BRAND_WASH_BLUE);
+  expect(selected.background).toBe(BRAND_WASH);
   expect(selected.border).toBe(BRAND_PRIMARY);
   expect(selected.width).toBe('2px');
 
@@ -137,14 +138,24 @@ test('a selected toggle is wash blue with a blue border, and only the main actio
   expect(addBackground).toBe(BRAND_PRIMARY);
 });
 
-test('links use the brand blue and the page uses the cool near-white ground', async ({ page }) => {
+test('links are ink-black and always underlined, and the page ground is the light green', async ({
+  page,
+}) => {
   await openBoard(page);
 
-  const linkColor = await page.evaluate(() => {
-    const link = document.querySelector('a[href^="/companies/"]');
-    return getComputedStyle(link.querySelector('div, span')).color;
+  // 2026-10-26 handover: --color-text-link is #000000 and links are always
+  // underlined (the underline is what carries "this is a link", not colour).
+  const link = await page.evaluate(() => {
+    const el = document.querySelector('a[href^="/companies/"]');
+    // Read the decoration off the anchor: text-decoration propagates to
+    // descendants visually, but a child's computed value is its own (`none`),
+    // so the assertion has to be on the element that carries the rule.
+    const a = getComputedStyle(el);
+    const cs = getComputedStyle(el.querySelector('div, span'));
+    return { color: cs.color, decoration: a.textDecorationLine };
   });
-  expect(linkColor).toBe(BRAND_PRIMARY);
+  expect(link.color).toBe('rgb(0, 0, 0)');
+  expect(link.decoration).toBe('underline');
 
   const pageBackground = await page.evaluate(
     () => getComputedStyle(document.body).backgroundColor,
@@ -159,12 +170,71 @@ test('the deliberate departures from Gestalt are in force', async ({ page }) => 
     const cs = getComputedStyle(document.documentElement);
     return {
       subtle: cs.getPropertyValue('--color-text-subtle').trim(),
+      neutral: cs.getPropertyValue('--color-text-neutral').trim(),
       focus: cs.getPropertyValue('--color-border-focus').trim(),
+      brandStrong: cs.getPropertyValue('--color-brand-primary-strong').trim(),
+      rounding100: cs.getPropertyValue('--rounding-100').trim(),
     };
   });
-  // Gestalt's #767676 fails on gray fills; its focus ring is a 50% blue.
+  // Gestalt's #767676 fails on the fills; its focus ring is a 50% blue.
   expect(tokens.subtle).toBe(TEXT_SUBTLE);
+  expect(tokens.neutral).toBe(TEXT_NEUTRAL);
   expect(tokens.focus).toBe(BORDER_FOCUS);
+  expect(tokens.brandStrong).toBe(BRAND_PRIMARY_STRONG);
+  // The one token added by the 2026-10-26 package (badges, small chips).
+  expect(tokens.rounding100).toBe('4px');
+});
+
+test('the four WCAG AA pairs from the handover hold on rendered values', async ({ page }) => {
+  await openBoard(page);
+
+  // Check the ratio helper against WCAG's reference pair and against what
+  // dark mode looked like before the on-brand binding was fixed (white on
+  // #75bfff), so a broken formula cannot pass the real assertions below.
+  expect(contrastRatio('rgb(255, 255, 255)', 'rgb(0, 0, 0)')).toBeCloseTo(21, 1);
+  expect(contrastRatio('rgb(255, 255, 255)', 'rgb(117, 191, 255)')).toBeCloseTo(1.97, 1);
+
+  const pairs = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    const token = (name) => root.getPropertyValue(name).trim();
+    const hexToRgb = (hex) => {
+      const h = hex.replace('#', '');
+      return [0, 2, 4]
+        .map((i) => parseInt(h.slice(i, i + 2), 16))
+        .join(', ');
+    };
+    const asRgb = (value) =>
+      value.startsWith('#') ? `rgb(${hexToRgb(value)})` : value;
+    return {
+      // brand on on-brand: white label on the green primary fill
+      onBrand: asRgb(token('--color-brand-on-color')),
+      brand: asRgb(token('--color-brand-primary')),
+      // text-subtle on surface
+      subtle: asRgb(token('--color-text-subtle')),
+      surface: asRgb(token('--color-background-card')),
+      // ink text on surface
+      ink: asRgb(token('--color-text-default')),
+      // ink text on the brand wash (selected-toggle ground, info strips)
+      wash: asRgb(token('--color-brand-wash')),
+      // text-neutral on surface, the handover's third acceptance pair
+      neutral: asRgb(token('--color-text-neutral')),
+    };
+  });
+
+  // Acceptance values from the 2026-10-26 handover: brand on on-brand
+  // ~4.6:1, text-subtle on surface ~6:1, text-neutral on surface ~8.9:1,
+  // ink on the wash the maximum. All must clear WCAG AA's 4.5:1.
+  expect(contrastRatio(pairs.onBrand, pairs.brand)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(pairs.subtle, pairs.surface)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(pairs.ink, pairs.surface)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(pairs.ink, pairs.wash)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(pairs.neutral, pairs.surface)).toBeGreaterThanOrEqual(4.5);
+
+  // Pin the measured ratios so a future token edit that quietly drops below
+  // the handover's acceptance numbers fails here with the real value.
+  expect(contrastRatio(pairs.onBrand, pairs.brand)).toBeCloseTo(4.57, 1);
+  expect(contrastRatio(pairs.subtle, pairs.surface)).toBeCloseTo(6.02, 1);
+  expect(contrastRatio(pairs.neutral, pairs.surface)).toBeCloseTo(8.61, 1);
 });
 
 test('Atkinson Hyperlegible is registered from the bundled woff2 and applied app-wide', async ({
@@ -205,47 +275,69 @@ test('Atkinson Hyperlegible is registered from the bundled woff2 and applied app
 test('line heights pair with font size across the whole type scale', async ({ page }) => {
   await openBoard(page);
 
-  // The brief's 44/36/28/24/20, plus text-100's 16. Each line height belongs
-  // to a font *size* and not to a heading level, which is why this is keyed
-  // on font-size: a Gestalt Heading renders the same tag at two sizes
-  // depending on its `size`.
+  // The 2026-10-26 pairs: 12->16, 14->20, 16->22, 20->24, 28->31, 36->40.
+  // Each line height belongs to a font *size* and not to a heading level,
+  // which is why this is keyed on font-size: a Gestalt Heading renders the
+  // same tag at two sizes depending on its `size`. The pairs are no longer
+  // one formula, so they are carried by Gestalt's own typography classes in
+  // design/theme.css (see that file's comment). Probe those classes inside
+  // #root directly; the rendered-component assertions below cover the pairs
+  // the board actually shows.
   const scale = await page.evaluate(() => {
     const host = document.createElement('div');
     document.querySelector('#root').appendChild(host);
+    // [Gestalt Text fontSize class, Gestalt Heading fontSize class, expected]
+    const probes = [
+      ['dR0', 'rrU', '16px'], // 12px
+      ['j1A', 'kNw', '20px'], // 14px
+      ['sAJ', 'LUr', '22px'], // 16px
+      ['bwj', 'JW7', '24px'], // 20px
+      ['GTB', 'h4h', '31px'], // 28px
+      ['R-d', 'X9y', '40px'], // 36px
+    ];
     const out = {};
-    for (const size of [12, 14, 16, 20, 28, 36]) {
-      const el = document.createElement('span');
-      el.textContent = 'x';
-      el.style.fontSize = `${size}px`;
-      host.appendChild(el);
-      out[size] = getComputedStyle(el).lineHeight;
+    for (const [textClass, headingClass, expected] of probes) {
+      for (const cls of [textClass, headingClass]) {
+        const el = document.createElement('span');
+        el.className = cls;
+        el.textContent = 'x';
+        host.appendChild(el);
+        const got = getComputedStyle(el).lineHeight;
+        const size = getComputedStyle(el).fontSize;
+        if (got !== expected) out[`FAIL:${cls}`] = `${size}/${got} != ${expected}`;
+        el.remove();
+      }
     }
     host.remove();
     return out;
   });
-  expect(scale).toEqual({
-    12: '16px', // text-100
-    14: '20px', // text-200
-    16: '24px', // text-300 / heading-300
-    20: '28px', // heading-400
-    28: '36px', // heading-600
-    36: '44px', // heading-700
-  });
+  expect(scale).toEqual({});
 
   // And the board's own rendered Gestalt components, which must land on the
   // same pairs. The page title is an h1 at 28px since the white band went
-  // (brief 2026-10-18, section 3: Heading size 600, 28/36); a column title
-  // is Heading size 400 at 20px; card text is Text size 200 at 14px.
+  // (brief 2026-10-18, section 3), now paired 28->31; a column title is
+  // Heading size 400 at 20px paired 20->24; card text is Text size 200 at
+  // 14px paired 14->20.
   const rendered = await page.evaluate(() => {
     const read = (sel) => {
       const cs = getComputedStyle(document.querySelector(sel));
       return { fontSize: cs.fontSize, lineHeight: cs.lineHeight, fontWeight: cs.fontWeight };
     };
-    return { h1: read('h1'), h3: read('h3') };
+    const card = document.querySelector('[data-testid^="job-card-"]');
+    const cardText = [...card.querySelectorAll('div, span')].find(
+      (el) => getComputedStyle(el).fontSize === '14px',
+    );
+    const cs = getComputedStyle(cardText);
+    return {
+      h1: read('h1'),
+      h3: read('h3'),
+      cardText: { fontSize: cs.fontSize, lineHeight: cs.lineHeight },
+    };
   });
   // Only 400 and 700 exist in Atkinson Hyperlegible, so headings are bold.
-  expect(rendered.h1).toEqual({ fontSize: '28px', lineHeight: '36px', fontWeight: '700' });
-  expect(rendered.h3).toEqual({ fontSize: '20px', lineHeight: '28px', fontWeight: '700' });
+  expect(rendered.h1).toEqual({ fontSize: '28px', lineHeight: '31px', fontWeight: '700' });
+  expect(rendered.h3).toEqual({ fontSize: '20px', lineHeight: '24px', fontWeight: '700' });
+  expect(rendered.cardText).toEqual({ fontSize: '14px', lineHeight: '20px' });
 });
 
 test('portal text gets the line heights too, not just text inside #root', async ({ page }) => {
@@ -274,7 +366,7 @@ test('portal text gets the line heights too, not just text inside #root', async 
   // #root-scoped rule left its text at `normal`.
   expect(toast.insideRoot).toBe(false);
   expect(toast.fontSize).toBe('16px');
-  expect(toast.lineHeight).toBe('24px'); // text-300
+  expect(toast.lineHeight).toBe('22px'); // text-300, 2026-10-26 pair
 });
 
 test('the app stays light: ThemeProvider never marks the document dark', async ({ page }) => {
@@ -306,6 +398,11 @@ test('a provider-driven switch to dark swaps in the dark token set', async ({ pa
   expect(await page.locator('[class*="__gestaltTheme"]').count()).toBe(0);
   expect(await page.evaluate(() => document.documentElement.className)).toBe('');
 
+  // The dark token block is deliberately untouched by the green PR (launch is
+  // light-only): these are the pre-existing dark values, asserted so a future
+  // dark rework is a visible decision. The dark block still defines the old
+  // token names (wash-blue, wash-teal, accent) because renaming those is part
+  // of the dark rework, not this PR.
   const dark = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const values = {
@@ -356,23 +453,19 @@ test('a provider-driven switch to dark swaps in the dark token set', async ({ pa
 test('the primary button keeps a legible foreground on the brand fill in both schemes', async ({
   page,
 }) => {
-  // Check the ratio helper against WCAG's reference pair and against what
-  // dark mode actually looked like before this was fixed (white on the dark
-  // brand blue), so a broken formula cannot pass the real assertions below.
-  expect(contrastRatio('rgb(255, 255, 255)', 'rgb(0, 0, 0)')).toBeCloseTo(21, 1);
-  expect(contrastRatio('rgb(255, 255, 255)', 'rgb(117, 191, 255)')).toBeCloseTo(1.97, 1);
-
   await openHarness(page);
 
   // Gestalt picks a Button's label colour in JS, from useColorScheme(): red
   // maps to Text color="inverse", except in dark mode, where it switches to
   // "default" on purpose for contrast against its own dark-mode red. With the
-  // fill rebound to the brand blue that exception inverts the problem, because
-  // dark --color-text-default is #ffffff: the fix in design/theme.css binds
-  // both tokens to the handoff's color-brand-on-color inside the fill.
+  // fill rebound to the brand green that exception inverts the problem,
+  // because dark --color-text-default is #ffffff: the fix in design/theme.css
+  // binds both tokens to the handover's color-brand-on-color inside the fill.
   const light = await readPrimaryButton(page);
   expect(light.background).toBe(BRAND_PRIMARY);
   expect(light.color).toBe(ON_COLOR_LIGHT);
+  // White on #008753 measures 4.57:1 - AA, but not by much. If the brand
+  // green ever lightens, this is the assertion that catches it.
   expect(contrastRatio(light.color, light.background)).toBeGreaterThanOrEqual(4.5);
 
   await page.getByTestId('to-dark').click();
@@ -419,5 +512,5 @@ test('the token override still beats the provider stylesheet injected below it',
   expect(cascade.providerIndex).toBeGreaterThan(cascade.tokensIndex);
   expect(cascade.providerDeclaresBrandRed).toBe(true);
   // Resolves through the bridge to --color-brand-primary, not Gestalt's red.
-  expect(cascade.resolvedPrimary).toBe('#005fcb');
+  expect(cascade.resolvedPrimary).toBe('#008753');
 });
