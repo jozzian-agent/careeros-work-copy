@@ -108,10 +108,26 @@
     }
   ],
   "size_classes": [
-    "micro",
-    "small",
-    "medium",
-    "large"
+    [
+      "micro",
+      "Micro"
+    ],
+    [
+      "small",
+      "Small"
+    ],
+    [
+      "medium",
+      "Medium"
+    ],
+    [
+      "large",
+      "Large"
+    ],
+    [
+      "xl",
+      "Very large"
+    ]
   ],
   "kinds": [
     "employer",

@@ -243,11 +243,15 @@ def board_context(entries, companies, function_labels, today=None):
         search_so_far=search_so_far(board_entries),
         empty=EMPTY_STATE,
         function_options=function_options,
-        # The one company-size scale, for the board's Company size facet.
-        # Sent here rather than hard-coded in JS so the board and the
-        # Companies directory read the same vocabulary from the same place
-        # (owner decision 2026-10-15: classes, never a numeric range).
-        size_classes=vault.SIZE_CLASSES,
+        # The one company-size scale, for the board's Company size facet:
+        # `[code, label]` pairs like function_options above. Sent here
+        # rather than hard-coded in JS so the board and the Companies
+        # directory read the same vocabulary from the same place (owner
+        # decision 2026-10-15: classes, never a numeric range), and sent
+        # WITH its words since CAREER-71, because the facet used to
+        # title-case the code and so offered "Xl" for the class whose
+        # label is "Very large".
+        size_classes=vault.SIZE_CLASS_OPTIONS,
     )
 
 def company_summaries(companies, isic_sections):

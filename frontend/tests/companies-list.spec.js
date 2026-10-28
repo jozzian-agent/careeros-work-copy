@@ -114,14 +114,14 @@ test('the Size filter offers only the classes companies are in, and filters by c
   await page.goto('/companies');
   await page.getByTestId('filter-chip-size').click();
 
-  // Small, Medium, Large and no Micro: no company is in that class, so
-  // the panel does not offer a box that would empty the grid.
-  await expect(page.getByRole('checkbox')).toHaveCount(3);
-  for (const label of ['Small', 'Medium', 'Large']) {
-    await expect(page.getByRole('checkbox', { name: label })).toBeVisible();
+  // Small, Medium, Large, Very large and no Micro: no company is in that
+  // class, so the panel does not offer a box that would empty the grid.
+  await expect(page.getByRole('checkbox')).toHaveCount(4);
+  for (const label of ['Small', 'Medium', 'Large', 'Very large']) {
+    await expect(page.getByRole('checkbox', { name: label, exact: true })).toBeVisible();
   }
 
-  await page.getByRole('checkbox', { name: 'Large' }).check();
+  await page.getByRole('checkbox', { name: 'Large', exact: true }).check();
   await expect(card(page, 'CO-002')).toBeVisible();
   await expect(card(page, 'CO-004')).toBeVisible();
   await expect(card(page, 'CO-001')).toHaveCount(0);
@@ -180,7 +180,7 @@ test('no company surface asks for "Needs your input"', async ({ page }) => {
 test('Clear all drops every filter together', async ({ page }) => {
   await page.goto('/companies');
   await page.getByTestId('filter-chip-size').click();
-  await page.getByRole('checkbox', { name: 'Large' }).check();
+  await page.getByRole('checkbox', { name: 'Large', exact: true }).check();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await page.getByTestId('filter-chip-openJobs').click();
   await page.getByRole('checkbox', { name: 'With open jobs' }).check();
@@ -196,7 +196,7 @@ test('Clear all drops every filter together', async ({ page }) => {
 test('a filter choice survives a reload (localStorage, no URL state)', async ({ page }) => {
   await page.goto('/companies');
   await page.getByTestId('filter-chip-size').click();
-  await page.getByRole('checkbox', { name: 'Large' }).check();
+  await page.getByRole('checkbox', { name: 'Large', exact: true }).check();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
   await page.reload();
@@ -320,7 +320,7 @@ test('only Name and Open jobs sort, and each sorts both ways', async ({ page }) 
 test('the filters apply to both views, and the view choice survives a reload', async ({ page }) => {
   await page.goto('/companies');
   await page.getByTestId('filter-chip-size').click();
-  await page.getByRole('checkbox', { name: 'Large' }).check();
+  await page.getByRole('checkbox', { name: 'Large', exact: true }).check();
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
 
   // Tiles first: two companies are Large.
@@ -338,6 +338,24 @@ test('the filters apply to both views, and the view choice survives a reload', a
   await expect(page.getByTestId('view-chip-list')).toHaveAttribute('aria-pressed', 'true');
   await expect(row(page, 'CO-002')).toBeVisible();
   await expect(row(page, 'CO-001')).toHaveCount(0);
+});
+
+// CAREER-71 (owner decision D3, 2026-10-17): `xl` is the one size class
+// whose label is not its own code dressed up. The page used to derive the
+// words from the code, so the class the taxonomy calls "Very large" read
+// "Xl" on every surface that showed it. The label travels with the
+// vocabulary now, and "Xl" is what must not come back.
+test('the xl class reads "Very large" on the tile, the row and the Size facet', async ({ page }) => {
+  await page.goto('/companies');
+  await expect(card(page, 'CO-007')).toContainText('Very large');
+  await expect(page.getByText('Xl', { exact: true })).toHaveCount(0);
+
+  await showList(page);
+  await expect(row(page, 'CO-007')).toContainText('Very large');
+
+  await page.getByTestId('filter-chip-size').click();
+  await expect(page.getByRole('checkbox', { name: 'Very large' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Xl' })).toHaveCount(0);
 });
 
 test('a filter that matches nothing says so in the list view too', async ({ page }) => {

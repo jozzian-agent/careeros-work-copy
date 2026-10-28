@@ -164,7 +164,12 @@ def test_taxonomy_values(api_client):
     # (kinds/size_classes there, review_flags on the record).
     company = api_client.get('/api/companies/CO-001?view=page').get_json()
     assert company['kinds'] == ['employer', 'institution']
-    assert company['size_classes'] == ['micro', 'small', 'medium', 'large', 'xl']
+    # `[code, label]` pairs, like function_options above: the Size select
+    # in Edit classification offers the taxonomy's own words, so `xl` is
+    # "Very large" and not the "Xl" a title-cased code read (CAREER-71).
+    assert company['size_classes'] == [['micro', 'Micro'], ['small', 'Small'],
+                                       ['medium', 'Medium'], ['large', 'Large'],
+                                       ['xl', 'Very large']]
     assert company['company']['review_flags'] == ['sector-ambiguous']
 
 

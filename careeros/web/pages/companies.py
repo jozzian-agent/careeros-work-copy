@@ -87,7 +87,10 @@ def directory_context(jobs, entries, isic_sections):
         empty=EMPTY_STATE,
         isic_sections=isic_sections,
         sector_labels=sector_labels,
-        size_classes=vault.SIZE_CLASSES,
+        # `[code, label]` pairs, like the board's own (CAREER-71): the
+        # card, the list row and the Size facet all show the taxonomy's
+        # label for a class and never a title-cased code.
+        size_classes=vault.SIZE_CLASS_OPTIONS,
     )
 
 def field_events(company, field):
@@ -106,13 +109,18 @@ def field_value(company, field, isic_labels):
     `size_class` only -- so the two surfaces can disagree on a record that
     carries both, which is an open question in
     `docs/surfaces/companies.md`, not a settled match.
+
+    A class is answered as the words it is shown by and not as its code
+    (CAREER-71), which is the whole difference between "Very large" and
+    "xl" in the page header. The two retired scales above it are free text
+    a source reported and have no label to look up.
     """
     if field == 'sector':
         return sector_display(company, isic_labels)
     for key in ('size', 'size_range', 'size_class'):
         value = (company.get(key) or '').strip() if isinstance(company.get(key), str) else company.get(key)
         if value:
-            return value
+            return vault.SIZE_CLASS_LABELS.get(value, value) if key == 'size_class' else value
     return None
 
 
@@ -188,7 +196,9 @@ def company_context(company, jobs, experiences, isic_sections, can_edit_shared=T
                         for field in ('sector', 'size')},
         companies={identifier: company},
         isic_sections=isic_sections,
-        size_classes=vault.SIZE_CLASSES,
+        # The Size select in Edit classification, in the same
+        # `[code, label]` pairs the directory gets (CAREER-71).
+        size_classes=vault.SIZE_CLASS_OPTIONS,
         kinds=vault.KINDS,
         # M2 (D3): the company itself is shared and the admin alone edits
         # it, so Edit company, Delete, Edit classification, Try again and

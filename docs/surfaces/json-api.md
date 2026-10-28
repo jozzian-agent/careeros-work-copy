@@ -75,6 +75,19 @@ record and become a list of titled notes. The two detail contracts gained
 HTML anymore), and notes have their own write endpoints plus one
 vault-wide read. See the Notes section under Minimal contents.
 
+2026-10-28 (CAREER-71, size-class labels): `size_classes` changed shape in
+all three contracts that carry it (Board, Companies, Company detail). It
+was the bare code list and is now `[code, label]` pairs in the same order,
+the shape `function_options` already used. The reason is one class: the
+pages derived their display text by title-casing the code, which reads
+"Xl" for the class the taxonomy labels "Very large" (owner decision D3,
+2026-10-17). The labels come from `careeros/data/taxonomy/company_size.yaml`
+through `vault.SIZE_CLASS_LABELS` and are retyped nowhere. Two readers of
+a class outside those keys moved with it: the Company detail
+`classification.size.value` answers a stored class as its label, and each
+`sizes` row of `GET /api/taxonomy` gained a `label`. No code changed and
+no record was migrated — this is what a class is SHOWN as.
+
 ## Appears in
 
 The existing Jobs, Search, Companies and Experiences flows. Page views extend
@@ -287,10 +300,13 @@ converts template tuples to arrays and rendered Markdown to strings.
 - Board: `statuses`, `status_labels`, `ended_statuses`, `counts`,
   `end_reasons`, `end_note_title`, `closed_review`, `search_so_far`,
   `size_classes`, `entries`, `companies`, `function_options`, `empty`.
-  `size_classes` is the company-size scale
-  (micro, small, medium, large, xl — the taxonomy code list, see
+  `size_classes` is the company-size scale as `[code, label]` pairs,
+  smallest first (micro/Micro, small/Small, medium/Medium, large/Large,
+  xl/"Very large" — the taxonomy code list and its own labels, see
   PROJECT.md "Taxonomy"), the same key the Companies contracts
-  carry, so both pages filter over one vocabulary.
+  carry, so both pages filter over one vocabulary and show it in one set
+  of words. A page derives no label of its own: `xl` is the class that
+  proves why (CAREER-71).
   The D7 keys (see [Jobs](jobs.md) for the rules behind them):
   `statuses` is the eight owner statuses in board order,
   `status_labels` the word for each one, and `ended_statuses` the three

@@ -127,7 +127,11 @@ export default function Taxonomy() {
             labelHeading="Size"
             rows={sizes}
             getKey={(row) => row.size_class}
-            getLabel={(row) => titleCase(row.size_class)}
+            // The row's own label, like the Industry table above it, with
+            // titleCase kept only as the fallback for a payload that
+            // predates it: title-casing the code read "Xl" for the class
+            // the taxonomy calls "Very large" (CAREER-71).
+            getLabel={(row) => row.label || titleCase(row.size_class)}
             emptyMessage="No companies yet."
             isEmpty={sizes.every((row) => row.count === 0)}
           />

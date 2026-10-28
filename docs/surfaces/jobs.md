@@ -216,7 +216,9 @@ rebuild (JOZ-279)" section; this is the surface-level summary.
   field — no backend change.
 - **Company size filters on the company's class (2026-10-15).** The facet
   reads each job's `company_size_class` over the `size_classes` vocabulary
-  the board payload now carries, which is the one size scale the
+  the board payload now carries — since CAREER-71 as `[code, label]`
+  pairs, so the box reads "Very large" for `xl` rather than the "Xl" a
+  title-cased code gave — which is the one size scale the
   [Companies list](companies.md) uses too (owner decision: classes, never
   a numeric range). It used to bucket each job's own raw `employee_count`
   in JS with a copy of the backend's thresholds, which disagreed with the

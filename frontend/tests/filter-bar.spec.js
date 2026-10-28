@@ -244,6 +244,19 @@ test('a Company size selection in More filters narrows the board by the company 
   }
 });
 
+// CAREER-71: the facet shows each class by the taxonomy's own label,
+// which the backend sends beside the code. `xl` is the case that proves
+// it -- its label is "Very large", and title-casing the code in the
+// browser read "Xl".
+test('the Company size facet names the xl class "Very large", not "Xl"', async ({ page }) => {
+  await page.goto('/jobs');
+  expect(fixture.entries.some((entry) => entry.company_size_class === 'xl')).toBe(true);
+
+  await page.getByTestId('filter-chip-more').click();
+  await expect(page.getByRole('checkbox', { name: 'Very large', exact: true })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Xl', exact: true })).toHaveCount(0);
+});
+
 // --- popovers are opaque and on top (brief 2026-10-18, section 2) --------
 //
 // The panel was never transparent: Gestalt's Popover renders inline with

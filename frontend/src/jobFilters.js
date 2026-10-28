@@ -4,7 +4,7 @@
 // and the predicate live here once rather than being copied into the
 // second page -- a copy would let the two drift into filtering the same
 // records by different rules.
-import { countBy, presentOptions, sortedOptions } from './filters.js';
+import { countBy, labelPairs, presentOptions, sortedOptions } from './filters.js';
 
 // No Fit facet: fit is not calculated, so neither surface offers a filter
 // for it (D7 removed the chip the JOZ-279 bar still had).
@@ -25,7 +25,9 @@ export function titleCase(value) {
 // Function keeps the vault's own label list and order; Location and
 // Industry come from the data; Company size is the one size scale the
 // backend sends (`size_classes`), read off the linked company's class
-// rather than bucketed from a posting's headcount in the browser.
+// rather than bucketed from a posting's headcount in the browser. Both
+// fixed vocabularies arrive as [code, label] pairs and are shown by the
+// label the backend sent, never by a code this file dressed up.
 export function jobFilterOptions(payload) {
   const entries = payload?.entries || [];
   const counts = countBy(entries, (job) => job.function || []);
@@ -40,9 +42,8 @@ export function jobFilterOptions(payload) {
     // Defaulted, not assumed: a bundle loaded against a server that
     // predates `size_classes` loses the facet's options, not the page.
     companySize: presentOptions(
-      payload?.size_classes || [],
+      labelPairs(payload?.size_classes),
       countBy(entries, (job) => [job.company_size_class]),
-      titleCase,
     ),
   };
 }

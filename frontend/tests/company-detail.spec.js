@@ -169,6 +169,27 @@ test('Set it yourself opens Edit classification and saves the sector and size', 
   expect(requests[0]).toEqual({ sectors: ['C'], size_class: 'small' });
 });
 
+// CAREER-71: the Size select offers the taxonomy's label and writes the
+// code. `xl` is the pair that cannot be derived in the browser: the popup
+// used to title-case the code and so offered "Xl" for "Very large".
+test('the Size select offers each class by its taxonomy label and saves the code', async ({ page }) => {
+  await mockCompanyPage(page, unknownSector);
+  const requests = await mockUpdate(page, '**/api/companies/CO-001', { body: fixture.company });
+  await page.goto('/companies/CO-001');
+  await page.getByRole('button', { name: 'Show the classification' }).click();
+  await page.getByRole('button', { name: 'Set it yourself' }).click();
+  const size = page.getByRole('dialog', { name: 'Edit classification' }).getByLabel('Size');
+
+  expect(await size.locator('option').allInnerTexts()).toEqual([
+    'Not set', 'Micro', 'Small', 'Medium', 'Large', 'Very large',
+  ]);
+
+  await size.selectOption({ label: 'Very large' });
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect.poll(() => requests.length).toBe(1);
+  expect(requests[0].size_class).toBe('xl');
+});
+
 test('Try again runs the enrichment retry and reports what it did', async ({ page }) => {
   let current = unknownSector;
   await page.route('**/api/companies/*?view=page', (route) => route.fulfill({ json: current }));

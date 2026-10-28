@@ -9,11 +9,12 @@
     { "code": "K", "label": "Financial and insurance activities", "count": 1 }
   ],
   "sizes": [
-    { "size_class": "micro", "count": 1 },
-    { "size_class": "small", "count": 2 },
-    { "size_class": "medium", "count": 0 },
-    { "size_class": "large", "count": 1 },
-    { "size_class": "unknown", "count": 1 }
+    { "size_class": "micro", "label": "Micro", "count": 1 },
+    { "size_class": "small", "label": "Small", "count": 2 },
+    { "size_class": "medium", "label": "Medium", "count": 0 },
+    { "size_class": "large", "label": "Large", "count": 1 },
+    { "size_class": "xl", "label": "Very large", "count": 1 },
+    { "size_class": "unknown", "label": "Unknown", "count": 1 }
   ],
   "tag_labels": {}
 }

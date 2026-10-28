@@ -8,6 +8,7 @@ import NotesSection from '../components/NotesSection.jsx';
 import EditCompanyPopup from '../components/EditCompanyPopup.jsx';
 import EditClassificationPopup from '../components/EditClassificationPopup.jsx';
 import DeleteConfirmModal from '../components/DeleteConfirmModal.jsx';
+import { labelPairs } from '../filters.js';
 
 // B5 (CAREER-92, owner decision 2026-10-19): this page asks for nothing
 // under the name "Needs your input" any more -- no chip, no violet card,
@@ -210,7 +211,7 @@ export default function CompanyDetail() {
 
   const {
     company, jobs = [], experiences = [], classification = {}, notes = [],
-    isic_sections: sectorOptions = [], size_classes: sizeOptions = [],
+    isic_sections: sectorOptions = [], size_classes: sizeClasses = [],
     // M2 (CAREER-39, decision D3): a company is shared universe, so
     // everybody reads this page and the admin alone changes it. Every
     // control that writes the record is behind this flag rather than
@@ -218,6 +219,11 @@ export default function CompanyDetail() {
     can_edit_shared: canEditShared = false,
   } = page;
   const locations = (company.locations || []).join(', ');
+  // The size vocabulary as [code, label] pairs for the Size select in
+  // Edit classification, which shows the taxonomy's own label and writes
+  // the code (CAREER-71). The size in the header and the Classification
+  // row is already the words the backend answered with, not a code.
+  const sizeOptions = labelPairs(sizeClasses);
   const sectorText = classification.sector?.value || 'Sector unknown';
   const sizeText = classification.size?.value || 'Size unknown';
   // Whether anything in the Classification section reads Unknown, which

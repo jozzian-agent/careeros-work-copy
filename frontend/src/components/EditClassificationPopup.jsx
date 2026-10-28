@@ -231,8 +231,11 @@ export default function EditClassificationPopup({
               onChange={({ value }) => setSizeClass(value)}
             >
               <SelectList.Option value="" label="Not set" />
-              {sizeOptions.map((size) => (
-                <SelectList.Option key={size} value={size} label={size.charAt(0).toUpperCase() + size.slice(1)} />
+              {/* [code, label] pairs, the shape functionOptions above
+                  uses: the words are the taxonomy's and are not derived
+                  from the code here, because `xl` is "Very large". */}
+              {sizeOptions.map(([code, label]) => (
+                <SelectList.Option key={code} value={code} label={label} />
               ))}
             </SelectList>
           </>
