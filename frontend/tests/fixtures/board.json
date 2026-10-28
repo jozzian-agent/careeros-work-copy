@@ -63,10 +63,26 @@
     }
   },
   "size_classes": [
-    "micro",
-    "small",
-    "medium",
-    "large"
+    [
+      "micro",
+      "Micro"
+    ],
+    [
+      "small",
+      "Small"
+    ],
+    [
+      "medium",
+      "Medium"
+    ],
+    [
+      "large",
+      "Large"
+    ],
+    [
+      "xl",
+      "Very large"
+    ]
   ],
   "empty": "My Jobs is empty, paste a posting link to get started.",
   "function_options": [
@@ -104,7 +120,7 @@
     "CO-002": {
       "name": "Vector Analytics",
       "industry": "Banking and finance",
-      "size_class": "large"
+      "size_class": "xl"
     },
     "CO-003": {
       "name": "Helviva AG",
@@ -685,7 +701,7 @@
       ],
       "status_changed": "2026-10-08",
       "company_industry": "Banking and finance",
-      "company_size_class": "large",
+      "company_size_class": "xl",
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,
@@ -774,7 +790,7 @@
       ],
       "status_changed": "2026-10-05",
       "company_industry": "Banking and finance",
-      "company_size_class": "large",
+      "company_size_class": "xl",
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,

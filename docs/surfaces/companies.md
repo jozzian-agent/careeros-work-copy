@@ -109,7 +109,12 @@ under `careerCompaniesFilters`; there is no URL state (owner decision).
 2. **One size scale.** The classes (`vault.SIZE_CLASSES`) win over the
    numeric `size_range`: a company carrying both reads as its class
    everywhere on this page. The stored ranges are retired by the migration
-   below, not by read-time rewriting.
+   below, not by read-time rewriting. A class is shown by the taxonomy's
+   own label, which the payload sends beside the code
+   (`vault.SIZE_CLASS_OPTIONS`, CAREER-71): the tile, the list row, the
+   Size facet and the Size select in Edit classification all read it, so
+   `xl` reads "Very large" on each of them instead of the "Xl" that
+   title-casing the code produced.
 3. **Open jobs.** A job is open unless its status is won, rejected or
    stopped (`vault.ENDED_STATUSES` / `vault.is_open_job`, the one place
    that says so, which the count and the Open jobs filter both read).
@@ -336,7 +341,9 @@ filters over both views and the B5 absence pins in
   unlike the filters and the view choice. Nothing asked for it to be.
 - Does the Company detail page's size value follow the same
   classes-win rule? It still prefers the raw range it was given
-  (`companies.field_value`), which only matters until `--apply` runs.
+  (`companies.field_value`), which only matters until `--apply` runs. What
+  it no longer does is show a class as its code: where it reads the class,
+  it reads the taxonomy's label for it (CAREER-71).
 - Should the legacy free-text `size` field go the same way as
   `size_range`? A posting that states a size still fills it on a company
   with no class, and the detail page prefers it over the class, so the

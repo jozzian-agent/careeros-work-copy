@@ -2,11 +2,12 @@
   "skills": [],
   "industries": [],
   "sizes": [
-    { "size_class": "micro", "count": 0 },
-    { "size_class": "small", "count": 0 },
-    { "size_class": "medium", "count": 0 },
-    { "size_class": "large", "count": 0 },
-    { "size_class": "unknown", "count": 0 }
+    { "size_class": "micro", "label": "Micro", "count": 0 },
+    { "size_class": "small", "label": "Small", "count": 0 },
+    { "size_class": "medium", "label": "Medium", "count": 0 },
+    { "size_class": "large", "label": "Large", "count": 0 },
+    { "size_class": "xl", "label": "Very large", "count": 0 },
+    { "size_class": "unknown", "label": "Unknown", "count": 0 }
   ],
   "tag_labels": {}
 }

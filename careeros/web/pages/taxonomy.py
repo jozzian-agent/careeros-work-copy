@@ -73,7 +73,13 @@ def size_counts(companies):
 
     The order used to be a second copy of the vocabulary in this module.
     It is the taxonomy's list itself since CAREER-55, so a class added
-    there (`xl`, 2026-10-17) appears here without an edit."""
+    there (`xl`, 2026-10-17) appears here without an edit.
+
+    Each row carries the words it is shown by as well as its code
+    (CAREER-71). The page used to title-case the code, which reads "Xl"
+    for the class the taxonomy labels "Very large"; the label travels with
+    the count instead, and the `unknown` row -- which is this module's own
+    row and not a taxonomy code -- says Unknown."""
     counts = {size: 0 for size in vault.SIZE_CLASSES}
     unknown = 0
     for company in companies:
@@ -82,5 +88,6 @@ def size_counts(companies):
             counts[size_class] += 1
         else:
             unknown += 1
-    return [{'size_class': size, 'count': counts[size]} for size in vault.SIZE_CLASSES] + \
-        [{'size_class': 'unknown', 'count': unknown}]
+    return [{'size_class': size, 'label': vault.SIZE_CLASS_LABELS[size], 'count': counts[size]}
+            for size in vault.SIZE_CLASSES] + \
+        [{'size_class': 'unknown', 'label': 'Unknown', 'count': unknown}]

@@ -79,6 +79,19 @@
       "locations": [
         "Bern"
       ]
+    },
+    {
+      "id": "CO-007",
+      "name": "Helvetia Rail Group",
+      "sectors": [
+        "K"
+      ],
+      "size_class": "xl",
+      "size_range": null,
+      "review_flags": [],
+      "locations": [
+        "Olten"
+      ]
     }
   ],
   "counts": {
@@ -87,7 +100,8 @@
     "CO-003": 0,
     "CO-004": 0,
     "CO-005": 2,
-    "CO-006": 0
+    "CO-006": 0,
+    "CO-007": 4
   },
   "isic_sections": [
     {
@@ -123,12 +137,31 @@
       "Public administration and defence; compulsory social security"
     ],
     "CO-005": [],
-    "CO-006": []
+    "CO-006": [],
+    "CO-007": [
+      "Financial and insurance activities"
+    ]
   },
   "size_classes": [
-    "micro",
-    "small",
-    "medium",
-    "large"
+    [
+      "micro",
+      "Micro"
+    ],
+    [
+      "small",
+      "Small"
+    ],
+    [
+      "medium",
+      "Medium"
+    ],
+    [
+      "large",
+      "Large"
+    ],
+    [
+      "xl",
+      "Very large"
+    ]
   ]
 }

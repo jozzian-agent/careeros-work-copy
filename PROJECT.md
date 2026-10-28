@@ -1028,7 +1028,13 @@ the interface does not offer them the control. In force since M2,
   is the ONLY size scale, so the numeric `size_range` the intake cascade
   used to derive as well is retired by `scripts/migrate_company_size_scale.py` (dry
   run by default, `--apply` owner-gated) and every surface shows the
-  class. Where a record still carries both, the class wins. No product
+  class. Every surface shows it by the label in the data file and never by
+  its code (CAREER-71, 2026-10-28): the React bundles used to title-case
+  the code, which reads "Xl" for the class the taxonomy labels "Very
+  large", so `size_classes` in each page payload is `[code, label]` pairs
+  now (`vault.SIZE_CLASS_OPTIONS`, the shape `function_options` already
+  used) and nothing in the browser derives a word from a code. Where a
+  record still carries both scales, the class wins. No product
   write persists a range any more either: `vault.save_company` drops one
   from every payload (M0-7), so only a record written before that still
   carries one, and only an explicit clear is let through. Nothing

@@ -84,8 +84,11 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
               'valid_through': 'str'}],
  'function_options': [['str']],
  # The one company-size scale, which the board's Company size facet reads
- # instead of bucketing employee counts of its own.
- 'size_classes': ['str'],
+ # instead of bucketing employee counts of its own. `[code, label]` pairs
+ # like function_options above (CAREER-71): the facet shows the taxonomy's
+ # own word for a class, because `xl` reads "Very large" and a code
+ # title-cased in the browser read "Xl".
+ 'size_classes': [['str']],
  # D7's status vocabulary as the board reads it: the ordered list, the
  # words for each one, which of them end a job, and the open/ended split
  # the filter bar shows.
@@ -270,6 +273,10 @@ def test_board_values_and_default_collection(api_client, assert_json_shape):
     assert board['companies'] == {'CO-001': {'name': 'Contract Studio', 'industry': 'Information and communication',
                                               'size_class': 'small'}}
     assert board['function_options'] == [['builder', 'Builder']]
+    # The whole size vocabulary with its words, smallest first: the facet
+    # offers what the taxonomy says and derives nothing (CAREER-71).
+    assert board['size_classes'] == [['micro', 'Micro'], ['small', 'Small'], ['medium', 'Medium'],
+                                     ['large', 'Large'], ['xl', 'Very large']]
     assert job['company_name'] == 'Contract Studio'
     assert job['company_industry'] == 'Information and communication'
     assert job['company_size_class'] == 'small'

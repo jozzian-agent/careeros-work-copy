@@ -95,4 +95,8 @@ def test_sector_labels_and_the_size_scale_come_from_the_context():
     entries = [company(sectors=['J', 'ZZ'], size_class='small')]
     result = context(entries)
     assert result['sector_labels'] == {'CO-001': ['Information and communication', 'ZZ']}
-    assert result['size_classes'] == vault.SIZE_CLASSES
+    # The scale with the words it is shown by, smallest first (CAREER-71):
+    # the card, the list row and the Size facet all read it, so none of
+    # them has to turn a code into a label and get `xl` wrong.
+    assert result['size_classes'] == vault.SIZE_CLASS_OPTIONS
+    assert ('xl', 'Very large') in result['size_classes']

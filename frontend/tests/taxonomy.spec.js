@@ -33,10 +33,17 @@ test('industries table shows human ISIC labels, not bare codes', async ({ page }
   }
 });
 
-test('company size table shows title-cased labels including the unknown bucket', async ({ page }) => {
+// CAREER-71: the row's label is the taxonomy's own word for the class,
+// sent with the count. Title-casing the code read "Xl" for `xl`, whose
+// label is "Very large" -- the one class the two readings disagree on.
+test('company size table shows the taxonomy label for every class, including the unknown bucket', async ({ page }) => {
   await page.goto('/taxonomy');
-  await expect(page.locator('tr', { hasText: 'Micro' })).toBeVisible();
-  await expect(page.locator('tr', { hasText: 'Unknown' })).toBeVisible();
+  // One cell per class, matched exactly: "Large" and "Very large" are two
+  // rows, and a substring match would not tell them apart.
+  for (const row of fixture.sizes) {
+    await expect(page.getByRole('cell', { name: row.label, exact: true })).toBeVisible();
+  }
+  await expect(page.getByText('Xl', { exact: true })).toHaveCount(0);
 });
 
 test('the page is read-only: no edit, save or delete controls', async ({ page }) => {

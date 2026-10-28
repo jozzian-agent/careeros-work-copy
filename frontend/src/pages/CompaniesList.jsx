@@ -5,7 +5,7 @@ import FilterBar from '../components/FilterBar.jsx';
 import FilterChip from '../components/FilterChip.jsx';
 import PageLayout from '../components/PageLayout.jsx';
 import SortableHeaderCell from '../components/SortableHeaderCell.jsx';
-import { countBy, presentOptions, sortedOptions } from '../filters.js';
+import { countBy, labelPairs, presentOptions, sortedOptions } from '../filters.js';
 
 const FILTERS_KEY = 'careerCompaniesFilters';
 // B4 (CAREER-91): which of the two views this browser last chose,
@@ -51,10 +51,6 @@ const LIST_COLUMNS = [
   { key: 'location', label: 'Location' },
   { key: 'openJobs', label: 'Open jobs', sortable: true },
 ];
-
-function titleCase(value) {
-  return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
-}
 
 // Counted and cut by character, not by UTF-16 code unit: an astral
 // character (an emoji, some CJK extensions) straddling the limit would
@@ -185,14 +181,22 @@ export default function CompaniesList() {
     );
   }, [entries, page]);
 
+  // The one size vocabulary, as the backend sent it: [code, label] pairs,
+  // so the facet, the tile and the row all say "Very large" where the
+  // record carries `xl` (CAREER-71). Shown by the label and filtered by
+  // the code, which is what makes the two lines below one list.
+  const sizeClasses = useMemo(() => labelPairs(page?.size_classes), [page]);
+  const sizeLabels = useMemo(() => new Map(sizeClasses), [sizeClasses]);
+  // A class the vocabulary does not carry falls back to the stored code
+  // rather than to a word nothing said.
+  const sizeText = useCallback(
+    (company) => (company.size_class ? sizeLabels.get(company.size_class) || company.size_class : 'Size unknown'),
+    [sizeLabels],
+  );
+
   const sizeOptions = useMemo(
-    () =>
-      presentOptions(
-        page?.size_classes || [],
-        countBy(entries, (company) => [company.size_class]),
-        titleCase,
-      ),
-    [entries, page],
+    () => presentOptions(sizeClasses, countBy(entries, (company) => [company.size_class])),
+    [entries, sizeClasses],
   );
 
   const openJobsOptions = useMemo(
@@ -305,7 +309,6 @@ export default function CompaniesList() {
   const tiles = (
     <Box dangerouslySetInlineStyle={{ __style: GRID_STYLE }}>
       {filtered.map((company) => {
-        const sizeText = company.size_class ? titleCase(company.size_class) : 'Size unknown';
         const chip = openJobsChip(openJobs(company));
         return (
           <Link key={company.id} href={companyHref(company.id)} display="block">
@@ -330,7 +333,7 @@ export default function CompaniesList() {
                   {sectorLabels(company)}
                 </Text>
                 <Text color="subtle" size="200">
-                  {sizeText}
+                  {sizeText(company)}
                 </Text>
               </Flex>
               <Box marginTop="auto">
@@ -387,7 +390,7 @@ export default function CompaniesList() {
                   <Text>{sectorLabels(company)}</Text>
                 </Table.Cell>
                 <Table.Cell>
-                  <Text>{company.size_class ? titleCase(company.size_class) : 'Size unknown'}</Text>
+                  <Text>{sizeText(company)}</Text>
                 </Table.Cell>
                 <Table.Cell>
                   {/* The company's own stored locations, the way the

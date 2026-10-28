@@ -28,6 +28,19 @@ KINDS = ('employer', 'institution')
 # `tests/test_taxonomy.py` pins the two against each other so they cannot
 # drift. `xl` joined the list on 2026-10-17 (owner decision D3).
 SIZE_CLASSES = taxonomy.codes('company_size')
+# The same scale as the words a person reads. The labels are the
+# taxonomy's own, read here exactly as the codes above are and never
+# retyped, so a class renamed in company_size.yaml renames itself on
+# every surface. They exist because a code is NOT its own label: `xl`
+# reads "Very large", and the title-casing the React bundles used to do
+# could only ever have produced "Xl" (CAREER-71).
+#
+# Two shapes of the one list, one read: the mapping for a surface that
+# shows one stored class, and the `(code, label)` pairs -- the shape
+# `function_options` already uses -- for a payload that sends the whole
+# vocabulary in its own order.
+SIZE_CLASS_LABELS = taxonomy.labels('company_size')
+SIZE_CLASS_OPTIONS = tuple(SIZE_CLASS_LABELS.items())
 COMPANY_LINK_REASONS = ('ats_tenant', 'domain', 'name_exact', 'fuzzy_name',
                         'employer_differs_from_tenant', 'shared_tenant', 'new_company', 'manual',
                         'ambiguous_exact')

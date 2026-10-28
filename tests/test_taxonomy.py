@@ -99,6 +99,19 @@ def test_the_size_vocabulary_is_one_list():
     assert tuple(classify.SIZE_CLASSES) == taxonomy.codes('company_size')
 
 
+def test_the_words_a_size_class_is_shown_by_are_the_data_files():
+    """CAREER-71: the labels every surface reads come from the same file
+    as the codes and are never retyped in the product, which is what
+    makes "Very large" the answer for `xl` rather than the "Xl" a
+    title-cased code produced."""
+    assert vault.SIZE_CLASS_LABELS == taxonomy.labels('company_size')
+    assert vault.SIZE_CLASS_LABELS['xl'] == 'Very large'
+    # The payload shape: the same list, in the same order, as pairs.
+    assert vault.SIZE_CLASS_OPTIONS == tuple(zip(vault.SIZE_CLASSES,
+                                                 (taxonomy.entry('company_size', code)['label']
+                                                  for code in vault.SIZE_CLASSES)))
+
+
 @pytest.mark.parametrize('code,count_in,count_above', [
     ('micro', 1, 10), ('micro', 9, 10),
     ('small', 10, 50), ('small', 49, 50),

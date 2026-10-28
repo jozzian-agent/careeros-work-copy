@@ -37,7 +37,9 @@ DIRECTORY_SHAPE = {'counts': {'CO-001': 'int'},
               'website': 'NoneType'}],
  'isic_sections': [{'code': 'str', 'keywords': ['str'], 'label': 'str', 'label_de': 'str'}],
  'sector_labels': {'CO-001': ['str']},
- 'size_classes': ['str']}
+ # `[code, label]` pairs since CAREER-71: the card, the row and the Size
+ # facet show the taxonomy's own word for a class.
+ 'size_classes': [['str']]}
 
 def test_directory_contract(api_client, assert_json_shape):
     response = api_client.get('/api/companies?view=page')
@@ -192,13 +194,25 @@ DETAIL_SHAPE = {'can_edit_shared': 'bool',
  'notes': [{'body': 'str', 'created': 'NoneType', 'id': 'str',
            'title': 'str', 'updated': 'NoneType'}],
  'sector_labels': ['str'],
- 'size_classes': ['str']}
+ 'size_classes': [['str']]}
 
 def test_detail_contract(api_client, assert_json_shape):
     response = api_client.get('/api/companies/CO-001?view=page')
     assert response.status_code == 200
     assert response.is_json
     assert_json_shape(response.get_json(), DETAIL_SHAPE)
+
+
+def test_both_bundles_send_the_size_scale_with_its_words(api_client):
+    """CAREER-71: `size_classes` is the whole vocabulary as [code, label]
+    pairs, smallest first, so every surface that shows a class shows the
+    taxonomy's own word for it. `xl` is the class that proves it matters:
+    its label is "Very large", and the title-casing the pages used to do
+    read "Xl"."""
+    expected = [['micro', 'Micro'], ['small', 'Small'], ['medium', 'Medium'],
+                ['large', 'Large'], ['xl', 'Very large']]
+    for route in ('/api/companies?view=page', '/api/companies/CO-001?view=page'):
+        assert api_client.get(route).get_json()['size_classes'] == expected
 
 
 def test_linked_records_and_raw_contract(api_client, assert_json_shape):

@@ -67,12 +67,21 @@ def test_classification_source_null_when_nothing_on_the_record_says():
 
 def test_classification_source_user_for_size_through_any_stored_key():
     company = {'size_class': 'small', 'field_provenance': {'size_class': 'user'}}
-    assert context(company)['classification']['size'] == {'value': 'small', 'source': 'user'}
+    assert context(company)['classification']['size'] == {'value': 'Small', 'source': 'user'}
 
 
 def test_classification_size_prefers_the_reported_range():
     company = {'size': '200-500', 'size_range': '250-500', 'size_class': 'medium'}
     assert context(company)['classification']['size']['value'] == '200-500'
+
+
+def test_classification_answers_a_size_class_with_its_taxonomy_label():
+    """CAREER-71: the page shows a class by the words the taxonomy gives
+    it, which for `xl` is "Very large" -- the one class no rule applied to
+    the code could produce. A code the vocabulary does not carry is
+    answered as itself rather than as a word nothing said."""
+    assert context({'size_class': 'xl'})['classification']['size']['value'] == 'Very large'
+    assert context({'size_class': 'huge'})['classification']['size']['value'] == 'huge'
 
 
 def test_classification_is_empty_for_an_unclassified_company():

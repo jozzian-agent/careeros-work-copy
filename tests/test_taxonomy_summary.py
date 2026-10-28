@@ -85,16 +85,19 @@ def test_industry_counts_falls_back_to_the_code_for_an_unknown_section():
 def test_size_counts_canonical_order_with_an_honest_unknown_bucket():
     """Every class in the vocabulary gets a row, in the vocabulary's own
     order, whether or not a company is in it -- including `xl`, which
-    joined the list with the BFS boundaries (D3, 2026-10-17)."""
+    joined the list with the BFS boundaries (D3, 2026-10-17).
+
+    Each row carries the words the page shows it by, which for `xl` is the
+    taxonomy's "Very large" and never the code title-cased (CAREER-71)."""
     companies = [{'size_class': 'small'}, {'size_class': 'small'}, {'size_class': 'large'},
                  {'size_class': None}, {}]
     assert taxonomy.size_counts(companies) == [
-        {'size_class': 'micro', 'count': 0},
-        {'size_class': 'small', 'count': 2},
-        {'size_class': 'medium', 'count': 0},
-        {'size_class': 'large', 'count': 1},
-        {'size_class': 'xl', 'count': 0},
-        {'size_class': 'unknown', 'count': 2},
+        {'size_class': 'micro', 'label': 'Micro', 'count': 0},
+        {'size_class': 'small', 'label': 'Small', 'count': 2},
+        {'size_class': 'medium', 'label': 'Medium', 'count': 0},
+        {'size_class': 'large', 'label': 'Large', 'count': 1},
+        {'size_class': 'xl', 'label': 'Very large', 'count': 0},
+        {'size_class': 'unknown', 'label': 'Unknown', 'count': 2},
     ]
 
 
@@ -105,9 +108,12 @@ def test_aggregate_context_shape():
     assert context == {
         'skills': [{'skill': 'Python', 'count': 1}],
         'industries': [{'code': 'J', 'label': 'Information and communication', 'count': 1}],
-        'sizes': [{'size_class': 'micro', 'count': 0}, {'size_class': 'small', 'count': 1},
-                  {'size_class': 'medium', 'count': 0}, {'size_class': 'large', 'count': 0},
-                  {'size_class': 'xl', 'count': 0}, {'size_class': 'unknown', 'count': 0}],
+        'sizes': [{'size_class': 'micro', 'label': 'Micro', 'count': 0},
+                  {'size_class': 'small', 'label': 'Small', 'count': 1},
+                  {'size_class': 'medium', 'label': 'Medium', 'count': 0},
+                  {'size_class': 'large', 'label': 'Large', 'count': 0},
+                  {'size_class': 'xl', 'label': 'Very large', 'count': 0},
+                  {'size_class': 'unknown', 'label': 'Unknown', 'count': 0}],
         'tag_labels': {'function:builder': {'label': 'Builder', 'local': True}},
     }
 
@@ -116,4 +122,4 @@ def test_taxonomy_api_endpoint(api_client):
     data = api_client.get('/api/taxonomy').get_json()
     assert sorted(data) == ['industries', 'sizes', 'skills', 'tag_labels']
     assert {'code': 'J', 'label': 'Information and communication', 'count': 1} in data['industries']
-    assert {'size_class': 'small', 'count': 1} in data['sizes']
+    assert {'size_class': 'small', 'label': 'Small', 'count': 1} in data['sizes']
