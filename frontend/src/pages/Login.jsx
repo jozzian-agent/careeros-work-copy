@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BannerSlim, Box, Button, Flex, Heading, Text, TextField } from 'gestalt';
+import { BannerSlim, Box, Button, Flex, Heading, Link, Text, TextField } from 'gestalt';
 import { logIn } from '../api/client.js';
 
 // The one page a person can reach without a session (M1). Plain fields and
@@ -58,6 +58,16 @@ export default function Login() {
               onChange={({ value }) => setPassword(value)}
             />
             <Button type="submit" color="red" text="Log in" disabled={busy} fullWidth />
+            {/* CAREER-97: the mailed-link pages (forgot password, invites,
+                reset) are deliberately server-rendered, not React routes,
+                so this is a plain same-origin anchor that does a full page
+                load into /forgot-password — mirroring the Jinja fallback
+                login page, which has carried this link since it shipped. */}
+            <Flex justifyContent="center">
+              <Link href="/forgot-password" display="inlineBlock">
+                <Text size="200" color="subtle">Forgot password?</Text>
+              </Link>
+            </Flex>
           </Flex>
         </form>
       </Box>
