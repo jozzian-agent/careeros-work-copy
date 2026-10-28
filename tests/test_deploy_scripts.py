@@ -28,6 +28,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = ROOT / 'deploy'
+SETUP = DEPLOY / 'setup-vps.sh'
+RUNBOOK = DEPLOY / 'RUNBOOK.md'
 PIPELINE = ROOT / 'scripts' / 'nightly_pipeline.sh'
 DAY = '2026-10-22'
 
@@ -123,6 +125,17 @@ if [ -n "$STUB_AGE_SLEEP" ]; then sleep "$STUB_AGE_SLEEP"; fi
 if [ -n "$STUB_AGE_PREEMPT" ]; then
   echo "an archive some other run published" > "$(echo "$out" | sed 's/\\.partial\\.[0-9]*$//')"
 fi
+'''
+
+#: chgrp, recorded and then really performed: the group the namespace
+#: directory ends up with is the fact, and WHICH directories the script
+#: asked about is the other half -- a run under an account whose primary
+#: group is already the target group would land the right group without
+#: the script ever asking. STUB_REAL_CHGRP is resolved before the stub
+#: directory joins PATH, or this would exec itself.
+CHGRP_STUB = '''#!/bin/sh
+echo "chgrp $*" >> "$STUB_LOG"
+exec "$STUB_REAL_CHGRP" "$@"
 '''
 
 #: zstd, standing in for a compressor this host does not have.
@@ -1380,6 +1393,8 @@ def backups(tmp_path):
 
     run.dir = tmp_path / 'var-backups'
     run.receipts = tmp_path / 'var-backups' / '.receipts'
+    run.stub_log = log
+    run.stubs = stubs
     run.receipt = receipt
     run.command = command
     run.environment = environment
@@ -1590,6 +1605,68 @@ def test_a_backup_with_no_receipt_group_set_says_so_and_backs_up_anyway(backups)
         'and the backup itself happened'
 
 
+def chgrp_calls(backups, tmp_path):
+    """(stub directory to put first on PATH, a reader for the chgrp lines)."""
+    stubs = tmp_path / 'chgrp-bin'
+    stubs.mkdir()
+    write_executable(stubs / 'chgrp', CHGRP_STUB)
+    path = f"{stubs}:{backups.stubs}:{os.environ['PATH']}"
+    env = {'PATH': path, 'STUB_REAL_CHGRP': shutil.which('chgrp')}
+
+    def calls():
+        if not backups.stub_log.exists():
+            return []
+        return [line for line in backups.stub_log.read_text().splitlines()
+                if line.startswith('chgrp ')]
+
+    return env, calls
+
+
+def test_the_namespace_directory_is_group_owned_to_the_pull_account(backups, tmp_path):
+    """0750 is only half of "the LAN pull can read this". The owner's
+    `chgrp -R /var/backups/careeros` runs once, before any namespace
+    directory exists; full/, owner-data/ and the pre-deploy pair are
+    created by this script afterwards, and a directory created with this
+    process's own primary group is one the pull account's group read of
+    0750 grants nothing. So the group is placed by the code that makes
+    the directory."""
+    env, calls = chgrp_calls(backups, tmp_path)
+    done = backups('--full', env=env)
+    assert done.returncode == 0, done.stdout + done.stderr
+
+    namespace = backups.dir / 'full'
+    assert f'chgrp {GROUP} {namespace}' in calls(), \
+        f'the namespace directory itself was never group-owned: {calls()}'
+    assert namespace.stat().st_gid == os.getgid(), f'group-owned to {GROUP}'
+    assert stat.S_IMODE(namespace.stat().st_mode) == 0o750, \
+        'and still 0750: group READ, never group write, on a directory of archives'
+    assert 'cannot group-own' not in done.stdout
+
+
+def test_a_backup_with_no_receipt_group_set_group_owns_nothing(backups, tmp_path):
+    """The group has no default, because the account is one only the owner
+    can name. Unset has to stay the path that changes no group anywhere
+    and says so -- not one that chgrps to the empty string."""
+    env, calls = chgrp_calls(backups, tmp_path)
+    done = backups('--full', env={**env, 'BACKUP_RECEIPT_GROUP': ''})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'BACKUP_RECEIPT_GROUP is not set' in done.stdout
+    assert calls() == [], 'nothing was group-owned at all'
+    assert len(sorted((backups.dir / 'full').glob('*.tar.zst.age'))) == 1
+
+
+def test_a_backup_says_so_when_the_namespace_group_cannot_be_placed(backups):
+    """Non-fatal, like the receipts half: an archive that exists and is
+    readable by too few is worth more than no archive. Silent is how the
+    owner ends up with a pull that reads an empty directory."""
+    done = backups('--full', env={'BACKUP_RECEIPT_GROUP': 'no-such-group-here'})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert f'cannot group-own {backups.dir / "full"}' in done.stdout
+    assert 'The LAN pull cannot read this namespace' in done.stdout
+    assert len(sorted((backups.dir / 'full').glob('*.tar.zst.age'))) == 1, \
+        'and the backup itself happened'
+
+
 def test_count_pruning_waits_for_a_confirmed_off_vps_copy(backups):
     """"Keep 5" was deleting the sixth copy without anything having
     confirmed a second one exists. An archive nobody has receipted is the
@@ -1761,6 +1838,58 @@ def test_check_stale_is_the_alarm_for_a_job_that_stopped_running(backups):
     done = backups('--check-stale', env={'BACKUP_STALE_FULL_DAYS': '-1'})
     assert done.returncode != 0
     assert 'over the -1d limit' in done.stdout
+
+
+# --- the full class, switchable off until the pipeline is deployed -------
+
+def test_the_full_class_can_be_switched_off_while_prod_has_no_pipeline(backups):
+    """BACKUP_FULL_SOURCE does not exist on a prod box that has never had
+    a generation promoted, so `--full` fails every run and --check-stale
+    rings an alarm nobody can clear -- which is how an owner-data alarm
+    gets lost behind it."""
+    done = backups('--full', env={'BACKUP_FULL_ENABLED': '0'})
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'the full class is disabled' in done.stdout
+    assert not (backups.dir / 'full').exists(), 'and nothing was created'
+
+    assert backups('--owner-data').returncode == 0
+    done = backups('--check-stale', env={'BACKUP_FULL_ENABLED': '0'})
+    assert done.returncode == 0, done.stdout
+    assert 'no backup at all' not in done.stdout, 'the missing full class is not an alarm'
+    assert '-- owner-data: newest backup 0d old' in done.stdout
+
+    # The half that still has to ring: owner-data is the slice nothing can
+    # reproduce, and switching full off must not have quietened it.
+    done = backups('--check-stale', env={'BACKUP_FULL_ENABLED': '0',
+                                        'BACKUP_STALE_OWNER_DAYS': '-1'})
+    assert done.returncode != 0
+    assert 'careeros-prod-backup owner-data' in done.stdout
+
+
+def test_the_full_class_is_on_unless_it_is_switched_off(backups):
+    """The regression guard: unset, and an explicit 1, are the behaviour
+    this script has always had."""
+    for env in ({}, {'BACKUP_FULL_ENABLED': '1'}):
+        done = backups('--full', env=env)
+        assert done.returncode == 0, done.stdout + done.stderr
+        assert 'disabled' not in done.stdout
+        assert sorted((backups.dir / 'full').glob('*.tar.zst.age'))
+        done = backups('--check-stale', env=env)
+        assert done.returncode != 0, 'owner-data has no archive yet, so the alarm rings'
+        assert 'full: newest backup 0d old' in done.stdout
+        assert 'no backup at all in' in done.stdout and 'owner-data' in done.stdout
+        shutil.rmtree(backups.dir)
+        time.sleep(1.1)
+
+
+def test_a_typo_cannot_switch_the_full_class_off_by_accident(backups):
+    """`BACKUP_FULL_ENABLED=false` read as "not 1, so off" is a backup
+    class that stopped happening because of a spelling."""
+    for mode in ('--full', '--owner-data', '--check-stale'):
+        done = backups(mode, env={'BACKUP_FULL_ENABLED': 'false'})
+        assert done.returncode != 0
+        assert "BACKUP_FULL_ENABLED must be 1 or 0, not 'false'" in done.stdout
+    assert not backups.dir.exists(), 'and not one byte was written'
 
 
 # --- the LAN pull ---------------------------------------------------------
@@ -1975,6 +2104,78 @@ def test_the_lan_pull_refuses_to_run_without_its_receipt_key(lan, tmp_path):
     assert done.returncode != 0
     assert 'no receipt key at' in done.stdout
     assert 'will not prune by count' in done.stdout
+
+
+def test_the_lan_pull_skips_the_full_class_when_it_is_switched_off(lan, tmp_path):
+    """One switch over one decision: the VPS is not making full archives,
+    so the LAN neither asks for them nor alarms about the copy it has not
+    got. owner-data -- the half nothing can reproduce -- is pulled,
+    verified and checked exactly as before."""
+    dest = tmp_path / 'nas'
+    stale = nas_archive(dest, 'full', '20261001T030000Z')
+    long_ago = time.time() - 27 * 86400
+    os.utime(stale, (long_ago, long_ago))
+    vps_side = tmp_path / 'vps'
+    nas_archive(vps_side, 'owner-data', '20261022T034500Z')
+
+    done = lan('pull_backups_lan.sh',
+               env=pull_env(lan, dest, STUB_VPS=str(vps_side), BACKUP_FULL_ENABLED='0'))
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'the full class is disabled on the VPS' in done.stdout
+    assert 'STALE full' not in done.stdout, '27 days old and not an alarm, because it is off'
+    assert '-- owner-data: newest copy 0d old' in done.stdout, 'the other half is checked'
+    assert '1 new archive(s)' in done.stdout, 'and really pulled'
+    assert 'pull ok' in done.stdout
+
+    # The stub rsync copies whatever the VPS fixture holds; what the real
+    # one would leave behind is decided by the arguments, so that is what
+    # this asserts about the namespace it must not ask for.
+    pull = next(line for line in lan.stub_log.read_text().splitlines()
+                if line.startswith('rsync') and '--ignore-existing' in line)
+    assert '--exclude=full/' in pull, pull
+
+    # The regression guard, same fixture: with the class on, the ancient
+    # local full copy is exactly what the freshness check is for.
+    done = lan('pull_backups_lan.sh', env=pull_env(lan, dest, STUB_VPS=str(vps_side)))
+    assert done.returncode != 0
+    assert 'STALE full: the newest copy is 27d old' in done.stdout
+    assert 'the off-VPS copy is stale (full)' in done.stdout
+
+
+def test_the_lan_pull_refuses_a_typo_in_the_full_switch(lan, tmp_path):
+    dest = tmp_path / 'nas'
+    dest.mkdir()
+    for args in ((), ('--check-stale',)):
+        done = lan('pull_backups_lan.sh', *args,
+                   env=pull_env(lan, dest, BACKUP_FULL_ENABLED='no'))
+        assert done.returncode != 0
+        assert "BACKUP_FULL_ENABLED must be 1 or 0, not 'no'" in done.stdout
+
+
+# --- what the VPS install and the runbook have to say ---------------------
+
+def test_setup_installs_the_two_tools_the_backup_pipeline_streams_through():
+    """deploy/backup_prod.sh is `tar | zstd | age -R` and fails closed
+    without either -- so a box set up without them has no encrypted
+    backup at all, which is the one thing the backup is for."""
+    lines = SETUP.read_text().splitlines()
+    start = next(index for index, line in enumerate(lines)
+                 if line.startswith('ensure_packages python3'))
+    call = []
+    while True:                      # one call, however many continuations
+        call.append(lines[start].rstrip('\\'))
+        if not lines[start].endswith('\\'):
+            break
+        start += 1
+    packages = ' '.join(call).split()[1:]
+    assert 'zstd' in packages, f'zstd is not in the base packages: {packages}'
+    assert 'age' in packages, f'age is not in the base packages: {packages}'
+
+
+def test_the_runbook_invite_command_carries_no_literal_backslash_n():
+    """A `\\n` inside the single-quoted `sh -c` string is two characters
+    that get pasted into the command and run."""
+    assert "sh -c '\\n" not in RUNBOOK.read_text()
 
 
 # --- the smoke test -------------------------------------------------------

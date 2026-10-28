@@ -213,7 +213,12 @@ step 'Base packages'
 # No version-suffixed python package anywhere: python3-venv and
 # python3-pip follow this release's own python3, which is the 3.14 the
 # check above just confirmed. git, curl and tar are what deploy.sh runs.
+# zstd and age are what deploy/backup_prod.sh streams every archive
+# through (`tar | zstd | age -R`, one stream, no plaintext on disk): it
+# fails closed without either, so a box set up without them has no
+# encrypted backup at all rather than an unencrypted one.
 ensure_packages python3-venv python3-pip git curl ca-certificates tar \
+                zstd age \
                 ufw unattended-upgrades gpg debian-keyring debian-archive-keyring \
                 apt-transport-https
 

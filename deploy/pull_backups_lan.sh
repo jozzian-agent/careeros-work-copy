@@ -81,6 +81,20 @@
 #   PULL_SSH_PORT     port                                            (22)
 #   PULL_MAX_FULL_AGE_DAYS   staleness limit for the newest local full  (8)
 #   PULL_MAX_OWNER_AGE_DAYS  staleness limit for owner-data             (2)
+#   BACKUP_FULL_ENABLED      1 or 0, and the SAME value the VPS's
+#                            deploy/backup_prod.sh runs with -- hence the
+#                            BACKUP_ prefix on a variable this script
+#                            reads: it is one switch over one decision,
+#                            not a LAN opinion about it. 0 means the VPS
+#                            is not making full archives (no pipeline
+#                            generation there yet), so this pull excludes
+#                            the `full/` namespace and the freshness
+#                            check stops asking about it; owner-data is
+#                            pulled and checked exactly as before. Set
+#                            both sides back to 1 the day the pipeline
+#                            lands -- left at 0 the LAN stops noticing
+#                            that half of prod is not arriving. Any other
+#                            value is an error.                      (1)
 #
 #   PULL_DEST should be a versioned NAS share whose own versions the VPS
 #   and the app credentials cannot delete: an independent failure domain,
@@ -140,6 +154,7 @@ PULL_KNOWN_HOSTS="${PULL_KNOWN_HOSTS:-/root/.ssh/careeros-pull/known_hosts}"
 PULL_SSH_PORT="${PULL_SSH_PORT:-22}"
 PULL_MAX_FULL_AGE_DAYS="${PULL_MAX_FULL_AGE_DAYS:-8}"
 PULL_MAX_OWNER_AGE_DAYS="${PULL_MAX_OWNER_AGE_DAYS:-2}"
+BACKUP_FULL_ENABLED="${BACKUP_FULL_ENABLED:-1}"
 
 MODE="${1:-}"
 WORK=""
@@ -158,6 +173,26 @@ trap cleanup EXIT
 #: would still allow one pointing inside the tree.
 RSYNC_SAFE=(-a --no-links --no-devices --no-specials)
 
+# 1 or 0 and nothing else, the same rule backup_prod.sh applies to it.
+# `BACKUP_FULL_ENABLED=flase` (a typo) read as "not 1, so off" is how the LAN
+# quietly stops checking whether half of prod is arriving.
+case $BACKUP_FULL_ENABLED in
+  0|1) ;;
+  *) alert "BACKUP_FULL_ENABLED must be 1 or 0, not '$BACKUP_FULL_ENABLED'" ;;
+esac
+
+#: Which namespaces this run pulls and checks. `full` only while the VPS
+#: is making full archives: a class that is switched off there has no
+#: newest copy anywhere, so a freshness check on it is a permanent alarm,
+#: and an alarm that is always ringing hides the owner-data one that is
+#: the whole point of this script.
+PULL_EXCLUDE_FULL=()
+CHECKED_CLASSES="both namespaces"
+if [[ $BACKUP_FULL_ENABLED != 1 ]]; then
+  PULL_EXCLUDE_FULL=(--exclude='full/')
+  CHECKED_CLASSES="owner-data (full is switched off)"
+fi
+
 newest_in() {   # newest_in <namespace>: the newest local archive, or nothing
   local dir="$PULL_DEST/$1"
   [[ -d $dir ]] || return 0
@@ -172,9 +207,15 @@ STALE_CLASSES=""
 
 freshness() {   # freshness: 0 if both namespaces hold a recent VERIFIED copy
   local now stale=0 pair ns limit newest days
+  local pairs=("owner-data:$PULL_MAX_OWNER_AGE_DAYS")
   now=$(date -u +%s)
   STALE_CLASSES=""
-  for pair in "full:$PULL_MAX_FULL_AGE_DAYS" "owner-data:$PULL_MAX_OWNER_AGE_DAYS"; do
+  if [[ $BACKUP_FULL_ENABLED == 1 ]]; then
+    pairs=("full:$PULL_MAX_FULL_AGE_DAYS" "${pairs[@]}")
+  else
+    echo "-- full: the full class is disabled on the VPS (BACKUP_FULL_ENABLED=0), so it is neither pulled nor checked; the off-VPS copy is the vault only until it is set back to 1"
+  fi
+  for pair in "${pairs[@]}"; do
     ns="${pair%%:*}"; limit="${pair##*:}"
     newest=$(newest_in "$ns")
     if [[ -z $newest ]]; then
@@ -200,7 +241,7 @@ freshness() {   # freshness: 0 if both namespaces hold a recent VERIFIED copy
 if [[ $MODE == --check-stale ]]; then
   [[ -d $PULL_DEST ]] || alert "the LAN destination $PULL_DEST does not exist"
   freshness || alert "the off-VPS copy is stale; prod's backups are not leaving the VPS"
-  echo "-- check-stale ok: a recent off-VPS copy of both namespaces is on the LAN"
+  echo "-- check-stale ok: a recent off-VPS copy of ${CHECKED_CLASSES} is on the LAN"
   exit 0
 fi
 [[ -z $MODE ]] || alert "usage: $(basename "$0") [--check-stale] (got '$MODE')"
@@ -251,7 +292,7 @@ find "$PULL_DEST" -type f -name '*.tar.zst.age' | LC_ALL=C sort >"$WORK/before"
 # backup_prod.sh writes while a stream is still running; `.receipts/` is
 # this script's own writing coming back at it.
 rsync "${RSYNC_SAFE[@]}" --ignore-existing --no-owner --no-group --chmod=D750,F640 \
-      --exclude='*.partial' --exclude='.receipts/' \
+      --exclude='*.partial' --exclude='.receipts/' "${PULL_EXCLUDE_FULL[@]}" \
       -e "$ssh_cmd" "$PULL_TARGET:." "$PULL_DEST/" \
   || alert "rsync from $PULL_TARGET failed; nothing on the VPS was changed"
 

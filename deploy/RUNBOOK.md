@@ -754,7 +754,7 @@ own user. There is no admin page and no self-signup.
 
 ```bash
 cd /srv/careeros/prod/app/current &&
-sudo -u careeros-prod sh -c '\n  set -a; . /etc/careeros/prod.env; set +a
+sudo -u careeros-prod sh -c 'set -a; . /etc/careeros/prod.env; set +a
   exec .venv/bin/python -m careeros.invites \
     --vault /srv/careeros/prod/vault \
     --email tester@example.com --name "The Tester"'
@@ -798,6 +798,17 @@ you choose:
   vault. Behind Caddy, set `CAREEROS_TRUSTED_PROXY=1` so the IP half
   sees real clients; without it, every request looks like the proxy and
   the per-address limit carries the load alone.
+- The login page has its own budget, counted the same way and in the
+  same vault file but under its own keys: 10 **failed** sign-ins per
+  address and per client IP per hour
+  (`CAREEROS_LOGIN_RATE_LIMIT`, `CAREEROS_LOGIN_RATE_WINDOW`, defaults
+  10 and 3600). A successful sign-in spends nothing — the count is taken
+  only when the password check fails — and the limiter is consulted
+  before the password is hashed, so a spent budget costs the box no
+  work. Over the limit, the page answers `429` with one "too many
+  attempts" message that says nothing about whether the address has an
+  account. Separate from the pair above on purpose: five wrong passwords
+  must not spend the budget of the password reset that fixes them.
 
 **Password reset:** the login page's "Forgot password" link. The form
 gives one generic answer for every email — known, unknown, disabled,
@@ -833,7 +844,7 @@ refuse to run rather than guess one.
 
 ```bash
 BACKUP_USER=<the name you picked>
-sudo useradd --system --create-home --shell /usr/sbin/nologin "$BACKUP_USER"
+sudo useradd --system --create-home --shell /bin/sh "$BACKUP_USER"
 sudo install -d -m 700 -o "$BACKUP_USER" -g "$BACKUP_USER" \
      "/home/$BACKUP_USER/.ssh"
 # The backup directory is made by the first backup run. `mkdir -p` here
@@ -841,19 +852,45 @@ sudo install -d -m 700 -o "$BACKUP_USER" -g "$BACKUP_USER" \
 # key read the archives at all (backup_prod.sh keeps them 0750/0640).
 sudo mkdir -p /var/backups/careeros
 sudo chgrp -R "$BACKUP_USER" /var/backups/careeros
+# setgid, so the namespace folders the backup script creates LATER --
+# full/, owner-data/, the pre-deploy pair -- are created with this group
+# instead of root's. backup_prod.sh also chgrps each namespace directory
+# it makes, to the group in BACKUP_RECEIPT_GROUP; the two land the same
+# group, and this covers anything else that appears under the directory.
+sudo chmod g+s /var/backups/careeros
 ```
 
-**Expected:** `id "$BACKUP_USER"` prints the account, and
-`ls -ld /var/backups/careeros` shows that group.
+**`--shell /bin/sh`, not `/usr/sbin/nologin`.** What locks this account
+down is the `restrict,command="..."` on every `authorized_keys` line
+below, not the shell: sshd runs the forced command *through the login
+shell*, so with `nologin` the forced `rrsync` never runs and the pull
+fails with the unhelpful `protocol version mismatch`. Interactive login
+is still effectively impossible as long as every key on that account
+carries `restrict` plus a forced command — there is no key on it that
+can ask for a shell, a PTY, or a port forward.
+
+**Expected:** `id "$BACKUP_USER"` prints the account,
+`ls -ld /var/backups/careeros` shows that group and an `s` in the group
+triad (`drwxr-s---`).
 
 Then two `authorized_keys` lines in `/home/$BACKUP_USER/.ssh/authorized_keys`,
 one per key, because a forced command belongs to a key and reading and
 writing need different ones:
 
 ```text
-restrict,command="/usr/bin/rrsync -ro /var/backups/careeros",from="<your LAN address>" ssh-ed25519 AAAA...PULLKEY...
-restrict,command="/usr/bin/rrsync -wo /var/backups/careeros/.receipts",from="<your LAN address>" ssh-ed25519 AAAA...RECEIPTKEY...
+restrict,command="/usr/bin/rrsync -ro /var/backups/careeros",from="<your home's PUBLIC address>" ssh-ed25519 AAAA...PULLKEY...
+restrict,command="/usr/bin/rrsync -wo /var/backups/careeros/.receipts",from="<your home's PUBLIC address>" ssh-ed25519 AAAA...RECEIPTKEY...
 ```
+
+**`from=` is the address the VPS sees, not the pulling machine's own.**
+sshd matches `from=` against the peer address of the connection, which
+behind NAT is your home's public address — a private-range value
+(`192.168.*`, `10.*`) can never match it, and every pull is refused with
+nothing in the LAN's output but an ssh failure. So put your home's
+public address there, or, if it changes and you would rather not chase
+it, leave `from=` out of both lines entirely: `restrict` plus the forced
+command is what confines the key, and `from=` only narrows where it may
+be used from.
 
 `rrsync -ro` refuses rsync's writing modes, `rrsync -wo` refuses its
 reading modes, and both confine every path to their own directory. So one
@@ -868,9 +905,51 @@ or the LAN's receipt write is refused and count-pruning stays off:
 BACKUP_RECEIPT_GROUP=$BACKUP_USER
 ```
 
+### [LAN] Running the pull
+
+```bash
+cd ~                      # the home of whoever runs this, root included
+PULL_USER=<the name you picked> /path/to/deploy/pull_backups_lan.sh
+```
+
+**Run it from a directory the user it runs as can enter** — that user's
+own home is the safe answer, and it is why the cron line starts with
+`cd`. `rsync` and `ssh` are started in the current working directory,
+and from one that user cannot read (somebody else's home, a directory
+deleted under them) they fail with messages about neither: a `getcwd`
+error, or a shell complaint before the script is even reached.
+
 **Expected** from a LAN pull: `-- N receipt(s) written back to ...` and
 `-- pull ok`. **If it fails**, paste back the whole output; it is one
 `ALERT careeros-prod-backup-pull:` line naming the reason.
+
+### Turning the `full` class off until the pipeline is deployed
+
+`--full` archives `/srv/careeros/prod/pipeline/current`. Until a
+pipeline generation has actually been promoted on the VPS that path does
+not exist, so every `--full` run fails and
+`backup_prod.sh --check-stale` reports a staleness that cannot be
+cleared. One switch, read by **both** scripts, turns that class off:
+
+```bash
+# in the cron lines or wrappers on BOTH sides, while prod has no
+# pipeline generation yet
+BACKUP_FULL_ENABLED=0
+```
+
+With `0`: `backup_prod.sh --full` prints one line and exits 0 creating
+nothing, `--check-stale` stops asking about `full`, and
+`pull_backups_lan.sh` excludes the `full/` namespace and stops checking
+its freshness. `owner-data` — the vault, the half nothing can
+reproduce — is untouched and still alarms on both sides. Any value other
+than `1` or `0` is a hard error, so a typo cannot switch a backup class
+off quietly.
+
+**Set it back to `1` on both sides the day the pipeline is deployed.**
+Left at `0` it silently narrows backup coverage to the vault: prod's
+served generation is in no backup at all, and neither staleness alarm
+will say so — each run says it once, in a line that is easy to stop
+reading.
 
 A restore is the only thing that proves a backup. Do one — decryption,
 ownership, permissions, app startup — once before go-live and quarterly
