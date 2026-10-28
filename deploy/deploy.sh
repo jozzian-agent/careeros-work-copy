@@ -155,8 +155,19 @@ export GIT_TERMINAL_PROMPT=0
 
 # --- the release pointers --------------------------------------------------
 
-current_release() { [[ -L $CURRENT ]] && readlink -f "$CURRENT" || true; }
-previous_release() { [[ -L $PREVIOUS ]] && readlink -f "$PREVIOUS" || true; }
+# `if/then` and not `[[ -L … ]] && readlink … || true`: the `A && B || C`
+# form runs C when B fails, which shellcheck 0.10 and older report as
+# SC2015 (0.11 no longer does, which is why local runs missed it). The
+# if-form behaves identically here: the symlink's resolved path when the
+# link exists, otherwise no output and status 0 -- including when readlink
+# itself fails (the `|| true` keeps that, so a broken link cannot trip
+# the `set -e` the call sites run under).
+current_release() {
+  if [[ -L $CURRENT ]]; then readlink -f "$CURRENT" || true; fi
+}
+previous_release() {
+  if [[ -L $PREVIOUS ]]; then readlink -f "$PREVIOUS" || true; fi
+}
 
 point() {   # point <symlink> <target>: an atomic flip, never a gap
   # ln -sfn on an existing symlink is two steps (unlink, create), so a
