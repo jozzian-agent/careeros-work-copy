@@ -118,8 +118,29 @@ workers share one budget. A refused attempt still counts — spending the
 budget is the point. Behind Caddy the IP half needs
 `CAREEROS_TRUSTED_PROXY=1` (werkzeug ProxyFix) or every request looks
 like the proxy; without it the per-address limit carries the load
-alone, which is the documented degenerate case. Login itself remains
-unlimited, the accepted limit noted below.
+alone, which is the documented degenerate case.
+
+The login POST has had its own scope since 2026-10-27 (privacy audit
+finding 10). Same module, same vault file and same lock, under its own
+keys (`login:email:…`, `login:ip:…`) and its own tunables: **10 failed
+sign-ins per address and per client IP per hour** by default
+(`CAREEROS_LOGIN_RATE_LIMIT`, `CAREEROS_LOGIN_RATE_WINDOW`, defaults 10
+and 3600). Three things make it different from the three above:
+
+- **A success spends nothing.** The counter is touched only when
+  `users.authenticate` returns nothing, so a person signing in on a
+  second device has spent none of their budget and every guess has
+  spent one.
+- **The check runs before the password is hashed**, so a spent budget
+  costs the box no password work.
+- **Its own scope**, so five wrong passwords cannot spend the budget of
+  the password reset that fixes them — which is the whole reason the
+  login form does not share the pair above.
+
+Over the limit, the page and the JSON API answer `429` with the one
+`Too many attempts. Please try again later.` message: which key was
+spent, and whether the address has an account at all, is what a guesser
+must not learn here. Windows end, so no address is locked out for good.
 
 ## States
 
@@ -140,11 +161,11 @@ unlimited, the accepted limit noted below.
 - Whether the two role words should be one. Decided 2026-10-17: they
   stay two. A record stores `admin` and `tester`, and the vocabulary
   table in [PROJECT.md](../../PROJECT.md) maps them to Owner and Friend.
-- Two limits accepted rather than solved, for a test of five people: no
-  CSRF token beyond what `SameSite=Lax` plus same-origin JSON gives, and
-  no rate limiting on the login endpoint (the three unauthenticated
-  mail-and-token POSTs are limited since 2026-10-26, above; login is
-  not). The timing of a failed sign-in is not one of them: every attempt
+- One limit accepted rather than solved, for a test of five people: no
+  CSRF token beyond what `SameSite=Lax` plus same-origin JSON gives.
+  Login's own rate limit was the second one; it is limited since
+  2026-10-27, in its own scope, above. The timing of a failed sign-in is
+  not one of them: every attempt
   runs the hash check, against a throwaway hash when there is no account
   to check, so an unknown email, a disabled account and a wrong password
   cost the same.

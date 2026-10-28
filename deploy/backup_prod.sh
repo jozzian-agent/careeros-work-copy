@@ -7,6 +7,8 @@
 #
 #   --full         The prod-synced subset: the generation prod is serving.
 #                  Sunday's job. Keeps 5 (~1 month at one a week).
+#                  Skippable while prod has no pipeline generation yet:
+#                  BACKUP_FULL_ENABLED=0, below.
 #   --owner-data   The prod-authoritative slice -- the prod vault, which is
 #                  where applications, statuses, notes and CVs live once
 #                  editing begins in prod (owner decision 1). Daily job.
@@ -111,6 +113,19 @@
 #                            mode. deploy/pre_deploy_backup.sh sets
 #                            `pre-deploy` and `pre-deploy-owner-data`
 #                                                             (per mode)
+#   BACKUP_FULL_ENABLED      1 or 0. 0 turns the whole full class off:
+#                            `--full` creates nothing and exits 0, and
+#                            `--check-stale` stops asking about it.
+#                            For the window before the pipeline is
+#                            deployed, where BACKUP_FULL_SOURCE does not
+#                            exist yet and the stale alarm would be a
+#                            permanent one nobody can clear. owner-data
+#                            is unaffected and still alarms. Set it back
+#                            to 1 the day the pipeline lands: left at 0
+#                            it narrows backup coverage to the vault and
+#                            says so only in one line per run. Any other
+#                            value is an error, so a typo cannot turn a
+#                            backup class off by accident.          (1)
 #   BACKUP_KEEP              archives to keep    (5 / 30 / 14 per namespace)
 #   BACKUP_MAX_AGE_DAYS      age at which an archive is pruned, provided a
 #                            newer one survives AND either it or something
@@ -152,6 +167,7 @@ BACKUP_DIR="${BACKUP_DIR:-/var/backups/careeros}"
 BACKUP_FULL_SOURCE="${BACKUP_FULL_SOURCE:-/srv/careeros/prod/pipeline/current}"
 BACKUP_OWNER_SOURCE="${BACKUP_OWNER_SOURCE:-/srv/careeros/prod/vault}"
 BACKUP_AGE_RECIPIENTS="${BACKUP_AGE_RECIPIENTS:-/etc/careeros/backup-recipients.txt}"
+BACKUP_FULL_ENABLED="${BACKUP_FULL_ENABLED:-1}"
 BACKUP_ZSTD_LEVEL="${BACKUP_ZSTD_LEVEL:-19}"
 BACKUP_MIN_BYTES="${BACKUP_MIN_BYTES:-512}"
 BACKUP_STALE_FULL_DAYS="${BACKUP_STALE_FULL_DAYS:-8}"
@@ -173,6 +189,14 @@ alert() {
 cleanup() { [[ -n $PARTIAL && -e $PARTIAL ]] && rm -f "$PARTIAL"; return 0; }
 trap cleanup EXIT
 
+# 1 or 0 and nothing else. A switch that turns a backup class off is one
+# a typo must not be able to flip: `BACKUP_FULL_ENABLED=false` read as
+# "not 1, so off" is how a class stops being backed up quietly.
+case $BACKUP_FULL_ENABLED in
+  0|1) ;;
+  *) alert "BACKUP_FULL_ENABLED must be 1 or 0, not '$BACKUP_FULL_ENABLED'" ;;
+esac
+
 newest_in() {   # newest_in <namespace>: the newest archive, or nothing
   local dir="$BACKUP_DIR/$1"
   [[ -d $dir ]] || return 0
@@ -185,7 +209,17 @@ if [[ $MODE == --check-stale ]]; then
   NS=check-stale
   now=$(date -u +%s)
   stale=0
-  for pair in "full:$BACKUP_STALE_FULL_DAYS" "owner-data:$BACKUP_STALE_OWNER_DAYS"; do
+  # owner-data always; full only while the class is on. A disabled class
+  # produces no archive, so asking whether its newest one is recent is a
+  # question with one permanent answer -- an alarm that is always ringing
+  # is an alarm nobody reads, including when owner-data starts ringing too.
+  pairs=("owner-data:$BACKUP_STALE_OWNER_DAYS")
+  if [[ $BACKUP_FULL_ENABLED == 1 ]]; then
+    pairs=("full:$BACKUP_STALE_FULL_DAYS" "${pairs[@]}")
+  else
+    echo "-- full: the full class is disabled (BACKUP_FULL_ENABLED=0), so its staleness is not checked; backup coverage is the vault only until it is set back to 1"
+  fi
+  for pair in "${pairs[@]}"; do
     ns="${pair%%:*}"; limit="${pair##*:}"
     newest=$(newest_in "$ns")
     if [[ -z $newest ]]; then
@@ -210,6 +244,13 @@ case $MODE in
   --owner-data) NS=owner-data; SRC="$BACKUP_OWNER_SOURCE"; keep=30; max_age=35 ;;
   *) alert "usage: $(basename "$0") --full | --owner-data | --check-stale (got '${MODE:-nothing}')" ;;
 esac
+# Before the lock and before anything is created: with the class off,
+# this run is a no-op that says so, not a failure. It covers the
+# pre-deploy full namespace too -- same source, same missing generation.
+if [[ $MODE == --full && $BACKUP_FULL_ENABLED != 1 ]]; then
+  echo "-- full: the full class is disabled (BACKUP_FULL_ENABLED=0); nothing was created. Set it back to 1 once $BACKUP_FULL_SOURCE exists, or prod's served generation is in no backup at all"
+  exit 0
+fi
 NS="${BACKUP_NAMESPACE:-$NS}"
 # The pre-deploy namespaces hold the same two subsets kept against a
 # different failure mode (a bad release, and the additive migrations that
@@ -261,6 +302,26 @@ mkdir -p "$DEST_DIR"
 # ciphertext and nothing else. Owner work: group-own BACKUP_DIR to the pull
 # account (see deploy/pull_backups_lan.sh).
 chmod 750 "$BACKUP_DIR" "$DEST_DIR"
+# And the group itself, on the namespace directory this run just made.
+# `chgrp -R /var/backups/careeros` is an owner step that runs once, which
+# leaves every namespace directory created AFTER it -- full/, owner-data/,
+# the pre-deploy pair -- carrying this process's primary group instead,
+# and 0750 on a directory group-owned by root grants the pull account
+# nothing. So the group is placed here, by the code that creates the
+# directory, every run. The RUNBOOK's `chmod g+s` on BACKUP_DIR covers
+# the same hole from the other side (anything else created under it);
+# both land the same group, so neither contradicts the other.
+#
+# Attempted rather than gated on root: a chgrp succeeds for any member of
+# the target group, which is how this runs under a non-root backup
+# account that is one. A failure is one line and not a failed backup --
+# an archive that exists but is readable by too few is worth more than no
+# archive -- and it names what to do, because 0750 without the right
+# group is a pull that silently reads nothing.
+if [[ -n $BACKUP_RECEIPT_GROUP ]]; then
+  chgrp "$BACKUP_RECEIPT_GROUP" "$DEST_DIR" 2>/dev/null \
+    || echo "ALERT careeros-prod-backup $NS: cannot group-own $DEST_DIR to '$BACKUP_RECEIPT_GROUP' -- does that group exist, and is this account root or a member? The LAN pull cannot read this namespace until it is group-owned there. Not fatal: this backup itself is unaffected"
+fi
 # 2770 for the receipts, and only the receipts: the LAN pull account has to
 # be able to CREATE a file in here, which is the one write its credential
 # allows anywhere on this box. Nothing in this directory is a backup -- a
