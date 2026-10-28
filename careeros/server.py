@@ -972,6 +972,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # and it is settled here with a reason rather than left as a
             # state that never resolves.
             storage.recover_interrupted_ai(app.config['VAULT_PATH'])
+            # CAREER-45: and the extraction half of the same restart. A
+            # job handed to the extraction worker reads 'fetched' until
+            # that worker reports back, and the worker went with the
+            # process too, so those records are settled here for the same
+            # reason -- a state that looks healthy and that nothing alive
+            # can advance is the zombie this sweep exists to clear.
+            storage.recover_interrupted_ingest(app.config['VAULT_PATH'])
     except OSError:
         pass
 

@@ -36,6 +36,12 @@ SOURCE_KINDS = ('careers_page', 'ats_feed')
 FIELD_STATUS_VALUES = ('pending', 'done', 'failed', 'not_evidenced')
 # _save_record's history backstop writes the new state itself as the event
 # type, so careeros.history.REGISTRY must name every member of this tuple.
+#
+# 'fetched' is the one state that says a worker inside the process holds
+# this record, so a process that stops leaves it owed exactly the way
+# AI_UNSETTLED below is owed; recover_interrupted_ingest settles those at
+# startup. 'stub' is not one of them: it is a pre-fetch state nothing has
+# taken ownership of yet.
 INGEST_STATES = ('stub', 'fetched', 'complete', 'fetch_failed', 'extract_failed')
 POSTING_QUALITY_VALUES = ('thin', 'ok', 'rich')
 # CAREER-36: where a job's own AI reading stands right now. The AI call
@@ -53,6 +59,10 @@ AI_ABSENT = 'absent'
 # the only copy of its queue, so a record left in one of these is a record
 # nothing will ever finish; recover_interrupted_ai settles them at startup.
 AI_UNSETTLED = ('queued', 'running')
+# The one wording for work a stopped process abandoned, read by both
+# startup sweeps: recover_interrupted_ai stores it as the record's
+# ai_error, recover_interrupted_ingest as its ingest_error reason. One
+# interruption, one word for it.
 AI_RESTART_ERROR = 'interrupted by server restart'
 # How a stored description_structured block was produced. 'user' is the
 # owner having written it in Edit job, which is a producer the block gained
@@ -971,6 +981,56 @@ def recover_interrupted_ai(root):
             save_job(root, ai_failed(AI_RESTART_ERROR), record['id'])
         except Exception as error:
             print(f'recover_interrupted_ai: skipped {record["id"]} '
+                  f'({type(error).__name__}: {error})', file=sys.stderr)
+            continue
+        changed.append(record['id'])
+    return changed
+
+def recover_interrupted_ingest(root):
+    """Settle every job a stopped process left mid-extraction (CAREER-45).
+
+    A job reads 'fetched' from the moment the extraction worker is handed
+    the posting until that worker reports an outcome, and the worker lives
+    in the process. At startup NO worker can be alive -- the process that
+    owned every one of them is the one that just died -- so a 'fetched'
+    record found here is a zombie by definition, however healthy it
+    looks. Each one becomes extract_failed carrying AI_RESTART_ERROR as
+    its reason, which is a visible failure with a Retry beside it rather
+    than a record that reads as still arriving forever. Returns the job
+    ids it changed, in the order it changed them.
+
+    'stub' is deliberately NOT swept. It is a pre-fetch state: nothing
+    has taken ownership of the record yet, the page already shows it as a
+    posting not read, and intake's own retry path re-drives it, so
+    failing it here would report an extraction that never started.
+
+    A sibling of recover_interrupted_ai rather than a second job for it:
+    the two settle the same interruption one field apart, under different
+    vocabularies and with their own return lists, and the AI sweep's own
+    contract ("the job ids it changed", meaning readings) stays what it
+    was. They share the one wording, AI_RESTART_ERROR.
+
+    Runs at the same startup moment, inside the same write lock, and is
+    idempotent for the same reason the field migrations are: a second
+    pass finds no 'fetched' record left. One record whose save is refused
+    is reported to stderr and skipped, never allowed to take the sweep,
+    and with it the server's startup, down (see recover_interrupted_ai).
+    """
+    changed = []
+    # Materialized before the first save: a save can rewrite the file the
+    # generator is walking.
+    for record in [data for _, data in _records(root, 'jobs')]:
+        if record.get('ingest_state') != 'fetched' or not record.get('id'):
+            continue
+        try:
+            save_job(root, {'ingest_state': 'extract_failed',
+                            'ingest_error': {'stage': 'extract', 'reason': AI_RESTART_ERROR,
+                                             'at': timestamp()}},
+                     record['id'],
+                     history_event=('extract_failed',
+                                    'Extraction interrupted by server restart.'))
+        except Exception as error:
+            print(f'recover_interrupted_ingest: skipped {record["id"]} '
                   f'({type(error).__name__}: {error})', file=sys.stderr)
             continue
         changed.append(record['id'])

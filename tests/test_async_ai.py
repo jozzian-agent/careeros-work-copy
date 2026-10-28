@@ -7,6 +7,10 @@ queued/running/failed transitions, the reason a failure carries, one unit
 of AI work at a time, recovery from a restart, and the status fields
 being readable from the payloads the front end polls. The UI half
 (CAREER-37) is the owner click-test.
+
+The restart recovery here is both halves of the same rule: the reading
+status (CAREER-36) and the ingest state a process killed mid-extraction
+leaves at `fetched` (CAREER-45), which no live worker can own.
 """
 from pathlib import Path
 from threading import Event, Lock
@@ -520,6 +524,97 @@ def test_the_recovery_sweep_names_the_records_it_settled(tmp_path):
     assert vault.recover_interrupted_ai(tmp_path) == [job['id']]
     assert vault.recover_interrupted_ai(tmp_path) == []
     assert vault.ai_status(vault.load_job(tmp_path, other['id'])) == 'absent'
+
+
+# --- Recovery from a restart: the extraction half (CAREER-45) -----------
+
+def fetched_job(root, title='Engineer', url='https://posting.example/role'):
+    """A job parked exactly where the extraction worker is handed one: the
+    posting text is stored and ingest_state says a worker has it."""
+    return vault.save_job(root, {'title': title, 'url': url,
+                                 'description': 'Stored posting text.',
+                                 'ingest_state': 'fetched'})
+
+
+def test_a_restart_fails_every_extraction_it_interrupted(tmp_path, own_queue):
+    """CAREER-45: the same no-zombie rule one state further along. A job
+    sits at `fetched` from the handoff until the extraction worker reports
+    back, and that worker died with the process, so at startup every
+    `fetched` record is one nothing can ever settle. It says extract_failed
+    with a reason rather than reading as still arriving forever."""
+    job = fetched_job(tmp_path)
+
+    create_app(tmp_path)
+
+    record = vault.load_job(tmp_path, job['id'])
+    assert record['ingest_state'] == 'extract_failed'
+    assert record['ingest_error'] == {'stage': 'extract', 'reason': vault.AI_RESTART_ERROR,
+                                      'at': record['ingest_error']['at']}
+    assert record['ingest_error']['at']
+    assert record['history'][-1]['event'] == 'extract_failed'
+    assert record['history'][-1]['detail'] == 'Extraction interrupted by server restart.'
+
+
+@pytest.mark.parametrize('state,error', [
+    ('stub', None),
+    ('complete', None),
+    ('fetch_failed', {'stage': 'fetch', 'reason': 'http_404', 'at': '2026-10-28T09:00:00+00:00'}),
+    ('extract_failed', {'stage': 'extract', 'reason': 'empty_content',
+                        'at': '2026-10-28T09:00:00+00:00'}),
+])
+def test_the_extraction_sweep_leaves_every_other_ingest_state_as_it_was(tmp_path, state, error):
+    """Only `fetched` says a worker holds this record. `stub` above all is
+    left alone: it is a pre-fetch state the page already shows as not read
+    yet and the retry path re-drives, so settling it would report an
+    extraction that never started."""
+    job = vault.save_job(tmp_path, {'title': 'Engineer', 'url': 'https://posting.example/role',
+                                    'description': 'Stored posting text.',
+                                    'ingest_state': state, 'ingest_error': error})
+    assert vault.recover_interrupted_ingest(tmp_path) == []
+    assert vault.load_job(tmp_path, job['id']) == job
+
+
+def test_settling_an_interrupted_extraction_twice_changes_nothing(tmp_path):
+    """Idempotent for the same reason the AI sweep is: a second pass finds
+    no `fetched` record left to settle."""
+    job = fetched_job(tmp_path)
+    other = vault.save_job(tmp_path, {'title': 'Other', 'url': 'https://posting.example/other'})
+
+    assert vault.recover_interrupted_ingest(tmp_path) == [job['id']]
+    settled = vault.load_job(tmp_path, job['id'])
+    assert vault.recover_interrupted_ingest(tmp_path) == []
+    assert vault.load_job(tmp_path, job['id']) == settled
+    assert vault.load_job(tmp_path, other['id'])['ingest_state'] == 'complete'
+
+
+@pytest.mark.parametrize('fetch_ok,expected,stage', [
+    (True, 'fetched', None),
+    (False, 'fetch_failed', 'fetch'),
+])
+def test_a_settled_extraction_is_retryable(tmp_path, own_queue, monkeypatch,
+                                           fetch_ok, expected, stage):
+    """The point of settling it: the record a restart left behind goes back
+    through the retry the owner already has. /extract's own transition
+    guard accepts extract_failed (careeros/server.py: the stub,
+    fetch_failed, extract_failed tuple), so the retry moves the state on
+    and clears the stale extract error either way -- to `fetched` when the
+    refetch works, to a fresh fetch_failed when it does not."""
+    job = fetched_job(tmp_path)
+    if fetch_ok:
+        monkeypatch.setattr(intake, 'fetch_url', lambda url: POSTING)
+    monkeypatch.setattr('careeros.ingest.extract_async',
+                        lambda description, callback, **kwargs: Mock(is_alive=lambda: True))
+    api = create_app(tmp_path).test_client()
+    assert vault.load_job(tmp_path, job['id'])['ingest_state'] == 'extract_failed'
+
+    assert api.post(f'/api/jobs/{job["id"]}/extract').status_code == 202
+    for worker in list(api.application.config['REFRESH_THREADS'].values()):
+        worker.join(timeout=5)
+
+    retried = vault.load_job(tmp_path, job['id'])
+    assert retried['ingest_state'] == expected
+    assert (retried['ingest_error'] or {}).get('stage') == stage
+    assert (retried['ingest_error'] or {}).get('reason') != vault.AI_RESTART_ERROR
 
 
 # --- What the front end polls -------------------------------------------

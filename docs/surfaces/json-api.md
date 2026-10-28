@@ -344,8 +344,11 @@ converts template tuples to arrays and rendered Markdown to strings.
     text is all the fetch was ever for. The company ask always wins.
   - `reading`: true while the posting is still on its way in: the
     extractor running in this process (`llm_pending`), or an
-    `ingest_state` that has not reached a result yet (`stub` or
-    `fetched`, which is where a record parks when intake is interrupted).
+    `ingest_state` that has not reached a result yet (`stub`, or
+    `fetched` while the extraction worker that was handed the posting is
+    still running). Neither survives a restart as an in-flight state: a
+    `fetched` record is settled at startup (see the restart note below),
+    and a `stub` is the fetch the owner can still retry.
   - `summary_effective`: `job.summary`, or null when that summary is just
     the opening of the description verbatim. The stored record is never
     changed.
@@ -465,7 +468,13 @@ converts template tuples to arrays and rendered Markdown to strings.
   - The queue lives in the server process, so a process that stops
     abandons whatever it held: a job left queued or running is marked
     failed with `ai_error` "interrupted by server restart" the next time
-    the server starts. Nothing stays in flight forever.
+    the server starts. Nothing stays in flight forever. The extraction
+    worker lives in that process too, so the same startup settles the
+    ingest side with the same words: a job left at `ingest_state:
+    fetched` becomes `extract_failed` with `ingest_error {stage:
+    extract, reason: "interrupted by server restart", at}` and is
+    retryable through `/extract` like any other failed reading
+    (CAREER-45). A `stub` is left alone: nothing had taken it on yet.
 - Job taxonomy: `job`, `company`, `function_options`, `function_labels`,
   `isic_labels`, `tags`, `tag_labels`, `tag_registry`.
 - Experiences: `entries`, `companies`, `labels`, `tag_labels`, `empty`.
