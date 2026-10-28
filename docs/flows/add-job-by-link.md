@@ -80,6 +80,7 @@ While unresolved, the job shows "Company: pending" or "Company: needs your input
 - Set `posting_quality: thin | ok | rich` from the text and show it. Thin postings display a notice that extraction will be limited.
 - Extraction applies per field, respecting global rule 1.
 - LLM failure → `ingest_state: extract_failed`, visible, with **Retry**.
+- A server that is killed while the worker holds the posting is the same failure: `fetched` says a worker in this process owns the record, so at startup every `fetched` record is one nothing can finish, and it is settled to `extract_failed` with reason "interrupted by server restart" rather than reading as still arriving forever (CAREER-45). A `stub` is never settled this way — the posting has not been read yet and step 5's Retry fetch re-drives it.
 - A function id the reading returns that the vault's `function` facet does not carry cannot be stored, so it is dropped (decision 23). The drop is never silent: the count and the ids are logged, and when no id survives, `field_status.function` stays `not_evidenced` with a `field_status_reason` naming the ids, which is what tells an unseeded registry apart from a posting that said nothing about the role. Seeding the facet is [its own runbook](../runbooks/seed-function-facet.md).
 - No drop on the way into a record is silent, which is the general form of the rule above (CAREER-30, 2026-10-16). Three sites drop a value, and each one is reported:
   - **An unknown function id**, as described above.
