@@ -1,4 +1,5 @@
 import { Icon, Text } from 'gestalt';
+import './FilterChip.css';
 
 const CHEVRON_PATH = 'M3 6l5 5 5-5';
 
@@ -26,8 +27,14 @@ function Chevron() {
 
 // The 2px border is on both states, transparent while unselected, so
 // selecting a chip never changes its size and the row never reflows.
-// box-sizing keeps the height the stated 40px (or 44px) rather than
-// 40px plus two borders.
+// box-sizing keeps the height the stated 32px (or 44px) rather than
+// 32px plus two borders.
+//
+// The two grounds and the border colour are NOT here: they are the
+// chip's two states and one of them has a hover, which inline style
+// cannot express, so they live in FilterChip.css. Pill radius and the
+// 14px bold label (the Text below, size="200" weight="bold") are the
+// other two halves of the 2026-10-29 brief's B2.
 const BASE_STYLE = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -40,22 +47,6 @@ const BASE_STYLE = {
   cursor: 'pointer',
   color: 'var(--color-text-default)',
   fontFamily: 'inherit',
-};
-
-// The one style a selected toggle has, anywhere in the app (brief
-// 2026-10-18, section 1): the wash ground and the blue border the
-// Function filter already had when active, with the default text colour.
-// A primary blue FILL is reserved for the one main action on a screen and
-// is never a selected state, which is what Board/List used to look like.
-// Recorded in docs/decisions/design-system.md.
-const SELECTED_TOGGLE_STYLE = {
-  background: 'var(--color-brand-wash)',
-  borderColor: 'var(--color-brand-primary)',
-};
-
-const UNSELECTED_TOGGLE_STYLE = {
-  background: 'var(--color-background-secondary-base)',
-  borderColor: 'transparent',
 };
 
 // The chip shared by every control in the filter bar - Fit, Function,
@@ -80,24 +71,21 @@ export default function FilterChip({
   dataTestId,
   anchorRef,
   // 44px for the Board/List view pair, which stands beside the page's
-  // primary button and matches its height (artboard 2026-10-18); 40px
-  // for the filter row itself.
-  height = 40,
+  // primary button and matches its height (artboard 2026-10-18); 32px
+  // for the filter row itself (2026-10-29 brief, B2; it was 40px).
+  height = 32,
 }) {
   return (
     <button
       ref={anchorRef}
       type="button"
+      className={selected ? 'filter-chip filter-chip-selected' : 'filter-chip'}
       data-testid={dataTestId}
       aria-pressed={pressed}
       aria-haspopup={haspopup ? 'true' : undefined}
       aria-expanded={haspopup ? expanded : undefined}
       onClick={onClick}
-      style={{
-        ...BASE_STYLE,
-        height,
-        ...(selected ? SELECTED_TOGGLE_STYLE : UNSELECTED_TOGGLE_STYLE),
-      }}
+      style={{ ...BASE_STYLE, height }}
     >
       {icon ? <Icon icon={icon} accessibilityLabel="" color="default" size={16} /> : null}
       <Text weight="bold" size="200">

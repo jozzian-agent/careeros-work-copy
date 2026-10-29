@@ -204,7 +204,7 @@ function EndedReason({ job, canExplain, onAddReason }) {
 // 1. Top row, 32px tall: the "Needs your input" chip on the left when the
 //    job is waiting on the owner, the compact status select on the right.
 // 2. Title (16px bold, two lines max) and the company link (14px bold,
-//    link blue), 4px apart.
+//    ink-black and underlined, --color-text-link), 4px apart.
 // 3. One meta line: a pin and the location, then "Added 14 Oct".
 // 4. The closed posting, when there is one (D7, ClosedChip above).
 //

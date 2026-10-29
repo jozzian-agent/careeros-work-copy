@@ -1,0 +1,38 @@
+/* The chip's two grounds, per the 2026-10-29 brief (B2).
+ *
+ * They live here rather than in the component's inline style because a
+ * hover cannot be written inline at all, and a half-and-half split would
+ * be worse than either: an inline declaration beats every rule in this
+ * file, so an inline ground plus a hover rule here would need
+ * `!important` to reach the element. The geometry stays inline in
+ * FilterChip.jsx, where the height is a prop. */
+.filter-chip {
+  background: var(--color-background-secondary-base);
+  border-color: transparent;
+}
+
+/* The brief's "hover fill-secondary-hover". The token set ported from the
+   design handoff (src/design/tokens.css) carries no name of that form;
+   its one darker partner to --color-background-secondary-base is
+   --color-background-secondary-weak (#d6d4cd), so the hover binds to that
+   rather than to a token invented here. */
+.filter-chip:hover {
+  background: var(--color-background-secondary-weak);
+}
+
+/* The one selected style in the app: the brand wash with a 2px brand
+   border (docs/decisions/design-system.md, "FilterBar: the one selected
+   style"). The border is 2px in both states, transparent while
+   unselected, so selecting a chip never changes its size and the row
+   never reflows -- see FilterChip.jsx.
+
+   `:hover` is pinned to the same values on purpose. A selected chip is
+   already showing the state a hover would be announcing, and without this
+   second selector `.filter-chip:hover` (0,2,0) would outrank
+   `.filter-chip-selected` (0,1,0) and grey out the chosen view under the
+   pointer. */
+.filter-chip-selected,
+.filter-chip-selected:hover {
+  background: var(--color-brand-wash);
+  border-color: var(--color-brand-primary);
+}

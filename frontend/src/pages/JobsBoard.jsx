@@ -1087,10 +1087,12 @@ export default function JobsBoard() {
   //
   // Board and List are one FilterChip pair in a labelled group rather
   // than two ButtonToggles (brief 2026-10-18, section 1): a selected view
-  // is a state, and ButtonToggle's selected state is a primary blue fill,
-  // which made the view look like the page's main action. "Add a job"
-  // stays the only blue fill above the board. The 16px between the button
-  // and the pair is the row's own 8px gap plus 8px on the button.
+  // is a state, and ButtonToggle's selected state is a primary brand
+  // fill, which made the view look like the page's main action. "Add a
+  // job" stays the only brand fill above the board. Nothing here reads
+  // --color-background-button-selected-default (2026-10-29 brief, A3).
+  // The 16px between the button and the pair is the row's own 8px gap
+  // plus 8px on the button.
   const headerRows = (
     <>
       <Flex gap={2} alignItems="center" wrap>
