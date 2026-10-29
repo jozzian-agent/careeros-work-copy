@@ -123,6 +123,7 @@ boundary behaviour is covered by `tests/test_waitlist_collector.py`.
 
 `/srv/careeros/waitlist` is **outside every backup path this repo
 controls**: `deploy/deploy.sh` archives only `/srv/careeros/vault`
-(prod), nothing touches the waitlist directory. Whether the VPS
-provider takes whole-disk snapshots is a VPS fact I do not have — ask
-before promising deletion-from-all-copies to a data subject.
+(prod), nothing touches the waitlist directory. The VPS provider takes
+**no disk snapshots** (owner confirmed 2026-10-29; recovery is a server
+reset), so `secure_delete` deletion is deletion everywhere — the
+12-month promise holds against every copy of the data.
