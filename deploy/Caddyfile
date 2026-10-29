@@ -31,6 +31,37 @@ app.career-os.ch {
     reverse_proxy 127.0.0.1:8001
 }
 
+# Public landing page (CAREER-99): static files only, plus the one live
+# endpoint. /waitlist goes to the waiting-list collector (port 8003,
+# collector/README.md); everything else is served from the rsync'd
+# landing/ directory. try_files so /imprint and /privacy work without
+# the .html. www redirects to the bare domain.
+www.career-os.ch {
+    redir https://career-os.ch{uri} permanent
+}
+
+career-os.ch {
+    root * /srv/careeros/landing
+    encode zstd gzip
+
+    # The only live endpoint: POST /waitlist to the collector. A GET on
+    # the same path stays a static miss (404/redirect to file_server
+    # finds nothing), which is fine -- nothing links to it.
+    @waitlist_post {
+        method POST
+        path /waitlist
+    }
+    handle @waitlist_post {
+        reverse_proxy 127.0.0.1:8003
+    }
+
+    handle {
+        try_files {path} {path}.html
+        file_server
+    }
+    header / Cache-Control "no-cache"
+}
+
 staging.career-os.ch {
     encode zstd gzip
     basic_auth {

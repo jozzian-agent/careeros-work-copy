@@ -1,0 +1,54 @@
+# Career OS waiting-list collector (CAREER-99 PR B). Installed by hand
+# (deploy/RUNBOOK.md / collector/README.md) to
+# /etc/systemd/system/careeros-waitlist.service.
+#
+# Separate from the app on purpose: its own system user, its own data
+# directory, no venv (system python3, stdlib only). Port 8003 on
+# 127.0.0.1 (8001 = app prod, 8002 = app staging); only Caddy talks to
+# it, see deploy/Caddyfile's career-os.ch block.
+#
+# The data directory /srv/careeros/waitlist is 0700 owned by
+# careeros-waitlist and the SQLite file 0600 (the collector re-asserts
+# both permissions on every start): the app users careeros-prod and
+# careeros-stg cannot read it, and neither can Caddy (runs as
+# caddy/www-data), so the waiting-list addresses stay with this one
+# service.
+#
+# Logs (journalctl -u careeros-waitlist) carry counts and outcome
+# classes only -- never an email address, never a request body.
+
+[Unit]
+Description=Career OS waiting-list collector
+Documentation=file:///srv/careeros/app/current/collector/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=careeros-waitlist
+Group=careeros-waitlist
+ExecStart=/usr/bin/python3 /srv/careeros/app/current/collector/waitlist_collector.py serve --host 127.0.0.1 --port 8003 --db /srv/careeros/waitlist/data/waitlist.sqlite3
+Restart=on-failure
+RestartSec=5s
+MemoryHigh=128M
+MemoryMax=192M
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+SystemCallArchitectures=native
+ReadWritePaths=/srv/careeros/waitlist
+
+[Install]
+WantedBy=multi-user.target

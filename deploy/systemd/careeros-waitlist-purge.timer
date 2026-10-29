@@ -1,0 +1,18 @@
+# Fires careeros-waitlist-purge.service once a day at 03:30 local time
+# (off the deploy-timer hours). Persistent is deliberately OFF: a missed
+# run just means the next day's run deletes the entries instead -- the
+# promise is "kept for at most 12 months", and one day of slack against
+# a 12-month clock is inside it; catching up on boot would instead run
+# the purge at a random moment on every restart.
+
+[Unit]
+Description=Daily Career OS waiting-list purge timer
+Documentation=file:///srv/careeros/app/current/collector/README.md
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=false
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target
