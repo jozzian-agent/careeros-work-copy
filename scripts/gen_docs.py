@@ -1,5 +1,6 @@
 """Write docs/as-built/ from the app itself, so the docs cannot drift from the
-code: routes.md from the routes, data.md from the data model.
+code: routes.md from the routes, data.md from the data model, llm.md from the
+places that send text to a language model.
 
     python scripts/gen_docs.py
 
@@ -17,6 +18,10 @@ diff.
     paths that page's code can call.
   * `careeros.server`: the Flask url map of an app built on a throwaway
     vault, and the source of each handler the map points at.
+  * `careeros.llm_registry`: the list of the places that send text to a
+    language model, and -- for every claim that list makes -- the syntax tree
+    of the prompt builder, the sender and the endpoint config function it
+    names, plus a canary run of each prompt builder.
 
 The vault is a fresh `tempfile.mkdtemp()`, never the developer's own: it is
 read for nothing, and `create_app` writing a session secret key into it is
@@ -138,6 +143,72 @@ The diagram draws what the code does enforce -- the status a new record
 starts in, and the open/ended split `vault.ENDED_STATUSES` defines -- and the
 page states in words that any status may follow any other.
 
+## How the model page is derived
+
+`careeros.llm_registry` lists the call sites; everything the page prints
+about one is read out of the code it names, and a disagreement is an abort.
+
+**Fields placed in the prompt.** Two readings, held against each other. The
+first walks the prompt builder's syntax tree and collects every string-literal
+key it reads off each of its own parameters, following the taint through
+assignment, iteration, `or`, the f-strings and joins a prompt is built with,
+and into a call to another function of the same module (both product builders
+delegate a stretch of the prompt to one). A key read off a parameter that the
+registry does not list is an abort. The second CALLS the builder, once per
+field of the stored kind it is handed, with a canary record whose every value
+is a sentinel naming its own key -- so which stored fields reach a prompt is
+read off the rendered prompt itself, through the real adapter
+(`careeros.classify.from_vault_job`), including the fields that only arrive
+when another is empty. One call site has no record parameter at all: job
+extraction is handed a string by five different routes, so its stored field is
+the registry's own claim, and what the generator checks there is that the
+builder reads no key off that parameter -- nothing but the text it is given
+can enter.
+
+**Fields never sent.** The allowlists of the stored kinds
+`llm_registry.USER_DATA_KINDS` names, minus every field the readings above
+found in any prompt. Each one is then shown absent rather than assumed
+absent: a field of a kind a call site is handed must have its sentinel
+missing from that call site's own canary run, and a kind no call site is
+handed cannot contribute a field to one. A field that can be shown neither
+way is an abort.
+
+**Trigger.** The routes are the url map routes.md reads, filtered by the same
+call-graph walk the data-model page's kinds column uses: a rule is a trigger
+when its handler reaches the call site's marker function. The scripts are
+`scripts/*.py` (never this generator, which imports the app in order to read
+it), filtered twice over: the script has to reach the sender AND name the
+module the sender lives in. The second half is what separates
+`scripts/run_classification.py`, which imports `careeros.classify.llm` and
+has a `--layer llm` for it, from `scripts/classification_report.py`, which
+reaches the same function through `classify.classify` but names only
+`careeros.classify` and passes `layer='rules'`. A shell script in `scripts/`
+or `deploy/` that names a triggering script is reported too; whether a cron
+entry runs that shell script is not a fact in this repository.
+
+**Size limit.** The slices the prompt builder and the senders really apply:
+an `ast.Slice` whose upper bound is a module constant, printed with the value
+that constant holds on this run. No slice means no limit, and the page says
+so.
+
+**Gate flag and endpoint variables.** Both read as environment reads: every
+`get` on a name that is, or was assigned from, something ending in `environ`,
+inside the function the registry names and the functions of its own module it
+calls. The gate function of a call site with no gate has to read no variable
+at all. A variable the scan finds that the registry does not list, or the
+other way round, is an abort.
+
+**Leaves the server.** Derived from the default the config function falls back
+to for the one variable that decides the address. Where there is a default,
+its host is parsed and tested with `ipaddress`: a private address is
+`no (LAN) unless <variable> points elsewhere`, a public one says so and names
+it. Where the code has NO default -- `careeros.llm_client.get_llm_client`
+raises instead -- the endpoint cannot be determined from the code at all, so
+the page names the variable that decides it and says the value is whatever
+that variable is configured to. The one thing on the page that is not read out
+of the code is the parenthesis naming what the owner has configured that
+variable to, and the page labels it as owner-supplied.
+
 ## Why the parsers abort instead of reporting less
 
 A generated doc that quietly lists nine of eleven routes is worse than no
@@ -158,16 +229,20 @@ shortfall exits non-zero, naming both counts.
 import ast
 import importlib
 import inspect
+import ipaddress
 import os
 import re
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from careeros import server  # noqa: E402
 from careeros import history, invites, mail, password_reset, ratelimit, users, vault  # noqa: E402
+from careeros import llm_registry  # noqa: E402
 from careeros import tokens as link_tokens  # noqa: E402
 
 FRONTEND = ROOT / 'frontend' / 'src'
@@ -175,6 +250,7 @@ APP_JSX = FRONTEND / 'App.jsx'
 NAV_JS = FRONTEND / 'nav.js'
 OUT = ROOT / 'docs' / 'as-built' / 'routes.md'
 DATA_OUT = ROOT / 'docs' / 'as-built' / 'data.md'
+LLM_OUT = ROOT / 'docs' / 'as-built' / 'llm.md'
 
 SOURCES = ('frontend/src/App.jsx, frontend/src/nav.js, the frontend/src modules each '
            'page imports, and the url map and handler sources of careeros.server')
@@ -188,6 +264,13 @@ DATA_SOURCES = (', '.join(module.__name__ for module in DATA_MODULES)
                 + ', and the url map and handler sources of careeros.server')
 DATA_HEADER = (f'GENERATED by scripts/gen_docs.py from {DATA_SOURCES}. Do not edit. '
                'Regenerate with python scripts/gen_docs.py.')
+
+LLM_SOURCES = ('careeros.llm_registry, the syntax trees of the prompt builders, senders and '
+               'endpoint config functions it names, a canary run of each of those prompt '
+               'builders, the stored field allowlists data.md is read out of, the url map and '
+               'handler sources of careeros.server, and the scripts in scripts/ and deploy/')
+LLM_HEADER = (f'GENERATED by scripts/gen_docs.py from {LLM_SOURCES}. Do not edit. '
+              'Regenerate with python scripts/gen_docs.py.')
 
 # The Search tab's page lives at "/", unlike every other tab, whose slug is
 # its own URL segment. Mirrored from frontend/src/Nav.jsx, which builds the
@@ -1661,6 +1744,921 @@ def er_section(fields):
     return lines
 
 
+# --- the model page -------------------------------------------------------
+
+#: Scanned for a function that hands text to a model client. The product
+#: tree, the scripts beside it, and the one vendored file that sends a
+#: prompt of its own -- read, never written, which is why it is named here
+#: rather than globbed with the rest of vendor/. Not `tests/`: a test that
+#: drives a fake client is not a place this app sends text, and every test
+#: that exercises a model call injects a client of its own.
+LLM_SCAN_TREES = ('careeros', 'scripts')
+LLM_SCAN_FILES = ('vendor/capa-repo/org_intake/enrich.py',)
+
+#: What a scanned call has to look like to count as handing text to a
+#: model client, by the tail of the dotted name it calls.
+LLM_CALL_TAILS = ('chat.completions.create', 'completions.create',
+                  'LLMClient', 'get_llm_client')
+
+#: A name that is the process environment, by its last part. `os.environ`
+#: and the `environ` parameter `Config.from_env` takes are both one, and
+#: a name assigned from either is too.
+ENVIRONMENT_PART = 'environ'
+
+#: No second argument to the `get`, so the code has no default at all.
+NO_DEFAULT = object()
+#: A default this run cannot read (not a literal, not a module constant).
+UNREADABLE_DEFAULT = object()
+
+#: Where a shell script that runs a triggering script is looked for.
+SHELL_TREES = ('scripts', 'deploy')
+
+
+class Canary(str):
+    """A sentinel value that survives every shape a prompt builder reads a
+    record field in.
+
+    It is a string, so an f-string and a `.strip()` keep it whole. It
+    iterates as itself once rather than as its characters, so
+    `' '.join(record['skills'])` -- how the classification subject folds a
+    job's list fields into one text -- yields the sentinel instead of
+    spelling it out letter by letter. And `.get` answers with a nested
+    sentinel, so a builder that reads a mapping field keeps saying which
+    field it read rather than raising.
+    """
+
+    def __iter__(self):
+        return iter((str(self),))
+
+    def get(self, key, default=None):
+        return Canary(f'{self}.{key}')
+
+
+def sentinel(name):
+    return f'CANARY-{name}'
+
+
+def canary_record(names, only=None):
+    """A record whose every field is a sentinel naming itself, or -- with
+    `only` -- whose one named field is, every other field being empty.
+
+    The one-field form is what finds a field that is only placed when
+    another is missing: the classification subject takes a job's `company`
+    or, when that is empty, its `employer_named_in_posting`, and a record
+    with both filled in would only ever show the first.
+    """
+    return {name: Canary(sentinel(name) if only in (None, name) else '') for name in names}
+
+
+def resolve_dotted(name):
+    """What one dotted name is, with whatever of it could not be resolved.
+
+    Returns `(object, remainder)`. The remainder is the tail that named
+    nothing importable or gettable, which is how a sender that is a
+    closure -- `classification_options`'s `create` -- resolves to the
+    function whose source holds it.
+    """
+    parts = name.split('.')
+    module, index = None, 0
+    for stop in range(len(parts), 0, -1):
+        module = import_module('.'.join(parts[:stop]))
+        if module is not None:
+            index = stop
+            break
+    if module is None:
+        fail(f'{name} names no module this run can import')
+    value = module
+    for position in range(index, len(parts)):
+        found = getattr(value, parts[position], None)
+        if found is None:
+            return value, '.'.join(parts[position:])
+        value = found
+    return value, ''
+
+
+def registry_function(name):
+    """The function one registry entry names, which has to be one."""
+    value, remainder = resolve_dotted(name)
+    if remainder or not callable(value):
+        fail(f'careeros.llm_registry names {name}, which is not a function of this app')
+    return value
+
+
+def definition_of(function):
+    """The syntax tree of one function, from its own source."""
+    try:
+        source = textwrap.dedent(inspect.getsource(function))
+    except (OSError, TypeError):
+        fail(f'{function_key(function)} has no source this run can read')
+    node = ast.parse(source).body[0]
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        fail(f'{function_key(function)} is not a plain function definition')
+    return node
+
+
+def parameter_names(definition):
+    arguments = definition.args
+    return [argument.arg for argument in
+            arguments.posonlyargs + arguments.args + arguments.kwonlyargs]
+
+
+def taint_of(node, taint):
+    """Which of a function's parameters one expression's value can carry.
+
+    An upper bound on purpose, and over exactly the expression shapes a
+    prompt is built with: a `get`, an attribute, a subscript, an `or`, a
+    conditional, a list, an f-string and a `+`. A call to anything else
+    carries nothing, which is what keeps a constant table read with a
+    tainted key -- `DIMENSION_OF[field]` -- from being read as the
+    parameter's own value.
+    """
+    if node is None:
+        return set()
+    if isinstance(node, ast.Name):
+        return set(taint.get(node.id, ()))
+    if isinstance(node, (ast.Attribute, ast.Subscript, ast.Starred)):
+        return taint_of(node.value, taint)
+    if isinstance(node, ast.BoolOp):
+        return set().union(*[taint_of(value, taint) for value in node.values])
+    if isinstance(node, ast.IfExp):
+        return taint_of(node.body, taint) | taint_of(node.orelse, taint)
+    if isinstance(node, ast.BinOp):
+        return taint_of(node.left, taint) | taint_of(node.right, taint)
+    if isinstance(node, ast.FormattedValue):
+        return taint_of(node.value, taint)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set, ast.JoinedStr)):
+        children = getattr(node, 'elts', None) or getattr(node, 'values', None) or []
+        return set().union(*[taint_of(child, taint) for child in children]) if children else set()
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        return taint_of(node.elt, taint)
+    if isinstance(node, ast.Call):
+        function = node.func
+        if isinstance(function, ast.Attribute) and function.attr in ('get', 'pop'):
+            return taint_of(function.value, taint)
+        return set()
+    return set()
+
+
+def literal_key(node):
+    """The string a node is, or None when it is not one."""
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def same_module_call(node, module):
+    """The function of `module` one call names, or None."""
+    if not isinstance(node.func, ast.Name):
+        return None
+    target = getattr(module, node.func.id, None)
+    if inspect.isfunction(target) and inspect.getmodule(target) is module:
+        return target
+    return None
+
+
+def prompt_reads(function, taint=None, seen=None):
+    """Which literal keys a prompt builder reads off each of its parameters.
+
+    `{parameter: {key, ...}}`, with an empty set for a parameter whose
+    whole value is placed. See the module docstring: this is the first of
+    the two readings the fields column is held against.
+    """
+    module = inspect.getmodule(function)
+    seen = set() if seen is None else seen
+    if function in seen:
+        return {}
+    seen = seen | {function}
+    definition = definition_of(function)
+    names = parameter_names(definition)
+    taint = {name: {name} for name in names} if taint is None else dict(taint)
+    found = {}
+
+    def bind(target, roots):
+        if isinstance(target, ast.Name) and roots:
+            taint[target.id] = set(taint.get(target.id, ())) | roots
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for item in target.elts:
+                bind(item, roots)
+
+    # Two passes: the taint of every local first, so a key read above the
+    # assignment that tainted it is still attributed. A prompt builder is
+    # a dozen lines and reads top to bottom, so one pass would do; two
+    # cost nothing and cannot be fooled by the order.
+    for node in ast.walk(definition):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                bind(target, taint_of(node.value, taint))
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            bind(node.target, taint_of(node.value, taint))
+        elif isinstance(node, (ast.For, ast.comprehension)):
+            bind(node.target, taint_of(node.iter, taint))
+
+    def record(roots, keys):
+        for root in roots:
+            found.setdefault(root, set()).update(keys)
+
+    for node in ast.walk(definition):
+        if isinstance(node, ast.Subscript):
+            key = literal_key(node.slice)
+            if key is not None:
+                record(taint_of(node.value, taint), {key})
+        elif isinstance(node, ast.Call):
+            call = node.func
+            if isinstance(call, ast.Attribute) and call.attr in ('get', 'pop') and node.args:
+                key = literal_key(node.args[0])
+                if key is not None:
+                    record(taint_of(call.value, taint), {key})
+                    continue
+            target = same_module_call(node, module)
+            if target is None:
+                continue
+            inner = parameter_names(definition_of(target))
+            passed = {}
+            for position, argument in enumerate(node.args):
+                if position < len(inner):
+                    passed.setdefault(inner[position], set()).update(taint_of(argument, taint))
+            for keyword in node.keywords:
+                if keyword.arg:
+                    passed.setdefault(keyword.arg, set()).update(taint_of(keyword.value, taint))
+            if not any(passed.values()):
+                continue
+            deeper = prompt_reads(target, {name: {name} for name in inner}, seen)
+            for parameter, keys in deeper.items():
+                record(passed.get(parameter, ()), keys)
+    return {name: found.get(name, set()) for name in names}
+
+
+def environment_reads(function, seen=None):
+    """Every environment variable one function reads, with its default.
+
+    `{variable: default}`, where the default is the second argument to the
+    `get` as this run can read it, `NO_DEFAULT` when there is none and
+    `UNREADABLE_DEFAULT` when it is neither a literal nor a constant of
+    the function's own module. Follows a call to another function of the
+    same module, which is how `get_llm_client` is found to read the model
+    name as well as the address.
+    """
+    module = inspect.getmodule(function)
+    seen = set() if seen is None else seen
+    if function in seen:
+        return {}
+    seen = seen | {function}
+    definition = definition_of(function)
+    environment = {name for name in parameter_names(definition) if name == ENVIRONMENT_PART}
+    found = {}
+
+    def is_environment(node):
+        name = dotted_name(node)
+        if name is None:
+            return False
+        return name.split('.')[-1] == ENVIRONMENT_PART or name in environment
+
+    for node in ast.walk(definition):
+        if isinstance(node, ast.Assign):
+            if any(is_environment(child) for child in ast.walk(node.value)):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        environment.add(target.id)
+
+    def default_of(node, position):
+        if len(node.args) > position:
+            argument = node.args[position]
+            if isinstance(argument, ast.Constant):
+                return argument.value
+            if isinstance(argument, ast.Name):
+                value = getattr(module, argument.id, None)
+                return value if value is not None else UNREADABLE_DEFAULT
+            return UNREADABLE_DEFAULT
+        return NO_DEFAULT
+
+    for node in ast.walk(definition):
+        if not isinstance(node, ast.Call):
+            continue
+        call = node.func
+        if isinstance(call, ast.Attribute) and call.attr == 'getenv':
+            variable = literal_key(node.args[0]) if node.args else None
+            if variable is not None:
+                found[variable] = default_of(node, 1)
+            continue
+        if (isinstance(call, ast.Attribute) and call.attr == 'get'
+                and node.args and is_environment(call.value)):
+            variable = literal_key(node.args[0])
+            if variable is not None:
+                found[variable] = default_of(node, 1)
+            continue
+        target = same_module_call(node, module)
+        if target is not None:
+            found.update(environment_reads(target, seen))
+    return found
+
+
+def slice_caps(function):
+    """The upper bounds of the slices one function applies, as the page
+    prints them: `{what it is called: how long it is}`."""
+    module = inspect.getmodule(function)
+    caps = {}
+    for node in ast.walk(definition_of(function)):
+        if not isinstance(node, ast.Subscript) or not isinstance(node.slice, ast.Slice):
+            continue
+        upper = node.slice.upper
+        if isinstance(upper, ast.Name):
+            value = getattr(module, upper.id, None)
+            if isinstance(value, int):
+                caps[f'{module.__name__}.{upper.id}'] = value
+        elif isinstance(upper, ast.Constant) and isinstance(upper.value, int):
+            caps[f'a literal in {function_key(function)}'] = upper.value
+    return caps
+
+
+def scan_files():
+    """Every file the model-client scan reads, repo-relative and sorted."""
+    paths = [path for tree in LLM_SCAN_TREES
+             for path in (ROOT / tree).rglob('*.py')]
+    for name in LLM_SCAN_FILES:
+        path = ROOT / name
+        if not path.exists():
+            fail(f'{name} is named by the model-client scan and does not exist')
+        paths.append(path)
+    return sorted(set(paths))
+
+
+def module_name_of(path):
+    """The dotted name a scanned file is reported under."""
+    relative = path.relative_to(ROOT)
+    parts = list(relative.with_suffix('').parts)
+    if parts[:2] == ['vendor', 'capa-repo']:
+        parts = parts[2:]
+    return '.'.join(parts)
+
+
+def llm_client_calls():
+    """Every function in the scanned files that hands text to a model
+    client: `{qualified name: repo-relative file}`.
+
+    The accounting the page and the suite are held to. A function that
+    calls a model client and is neither a registered sender nor named in
+    `llm_registry.CLIENT_PLUMBING` is a call site nobody wrote down, and
+    the generator refuses to write a page that does not mention it.
+    """
+    found = {}
+    for path in scan_files():
+        if path == Path(__file__).resolve():
+            continue
+        module = module_name_of(path)
+        scope = []
+
+        def walk(node):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    scope.append(child.name)
+                    walk(child)
+                    scope.pop()
+                    continue
+                if isinstance(child, ast.Call):
+                    name = dotted_name(child.func) or ''
+                    if any(name.endswith(tail) for tail in LLM_CALL_TAILS) and scope:
+                        found['.'.join([module] + scope)] = str(path.relative_to(ROOT))
+                walk(child)
+
+        walk(ast.parse(path.read_text()))
+    return found
+
+
+def check_call_site_accounting():
+    """Refuse to write the page while a model call is unaccounted for.
+
+    Both directions, like the storage map: a scanned function has to be a
+    registered sender or declared plumbing, and every registered sender
+    has to still be found by the scan. Plumbing is held to existing rather
+    than to being found, because the transport itself calls no client.
+    """
+    found = llm_client_calls()
+    known = {name for entry in llm_registry.CALL_SITES for name in entry.senders}
+    for name in sorted(set(found) - known - set(llm_registry.CLIENT_PLUMBING)):
+        fail(f'{name} ({found[name]}) hands text to a model client and is in no '
+             'careeros.llm_registry entry: add it to the registry, or to '
+             'CLIENT_PLUMBING with the reason it sends no prompt')
+    for name in sorted(known - set(found)):
+        fail(f'careeros.llm_registry registers {name} as a sender and the scan of '
+             'the product tree no longer finds a model call in it')
+    for name in sorted(llm_registry.CLIENT_PLUMBING):
+        _value, remainder = resolve_dotted(name)
+        if remainder:
+            fail(f'careeros.llm_registry CLIENT_PLUMBING names {name}, which no longer exists')
+    return found
+
+
+def check_prompt_parts(entry):
+    """Hold one entry's parts against the builder's own syntax tree."""
+    builder = registry_function(entry.prompt_builder)
+    reads = prompt_reads(builder)
+    declared = {}
+    for part in entry.parts:
+        if part.parameter:
+            declared.setdefault(part.parameter, set()).update(part.keys)
+    for parameter in sorted(set(reads) | set(declared)):
+        if parameter not in reads:
+            fail(f'{entry.name}: careeros.llm_registry names the prompt parameter '
+                 f'{parameter!r}, which {entry.prompt_builder} does not take')
+        if parameter not in declared:
+            if reads[parameter]:
+                fail(f'{entry.name}: {entry.prompt_builder} reads '
+                     f'{sorted(reads[parameter])} off {parameter!r}, which no part of '
+                     'the careeros.llm_registry entry claims')
+            continue
+        if reads[parameter] != declared[parameter]:
+            fail(f'{entry.name}: {entry.prompt_builder} reads '
+                 f'{sorted(reads[parameter])} off {parameter!r} and '
+                 f'careeros.llm_registry says {sorted(declared[parameter])}')
+    return reads
+
+
+def prompt_arguments(entry, record):
+    """What to call one prompt builder with, from the registry's own
+    description of its parameters."""
+    builder = registry_function(entry.prompt_builder)
+    arguments = {}
+    for parameter in parameter_names(definition_of(builder)):
+        if parameter not in entry.canary:
+            fail(f'{entry.name}: {entry.prompt_builder} takes {parameter!r} and '
+                 'careeros.llm_registry does not say what to call it with')
+        wanted = entry.canary[parameter]
+        if isinstance(wanted, llm_registry.Literal):
+            arguments[parameter] = wanted.value
+        elif wanted == llm_registry.CANARY_RECORD:
+            arguments[parameter] = record
+        elif wanted == llm_registry.CANARY_RECORD_LIST:
+            arguments[parameter] = [record]
+        elif wanted == llm_registry.CANARY_TEXT:
+            arguments[parameter] = Canary(sentinel(parameter))
+        else:
+            fail(f'{entry.name}: careeros.llm_registry asks for {wanted!r} for the '
+                 f'{parameter!r} parameter, which is not a canary this generator has')
+    return builder, arguments
+
+
+def rendered_prompt(entry, record):
+    """One prompt as one text, so what it carries can be read off it."""
+    builder, arguments = prompt_arguments(entry, record)
+    try:
+        messages = builder(**arguments)
+    except Exception as error:
+        fail(f'{entry.name}: {entry.prompt_builder} raised {type(error).__name__} on a '
+             f'canary record, so this run cannot read what its prompt carries: {error}')
+    if not isinstance(messages, list) or not all(isinstance(m, dict) for m in messages):
+        fail(f'{entry.name}: {entry.prompt_builder} no longer returns a list of messages')
+    return '\n'.join(str(message.get('content') or '') for message in messages)
+
+
+def reaching_fields(entry, fields):
+    """Which stored fields of one kind a canary run finds in the prompt.
+
+    One run per field with that field alone filled in, plus one with all of
+    them, and the union of what came through. The per-field runs are what
+    find a field that is only placed when another is empty; the whole-record
+    run is what finds one that is only placed when another is not.
+    """
+    names = list(fields)
+    adapter = registry_function(entry.adapter) if entry.adapter else None
+    reached = set()
+    for only in [None] + names:
+        record = canary_record(names, only=only)
+        subject = adapter(record) if adapter is not None else record
+        text = rendered_prompt(entry, subject)
+        squeezed = re.sub(r'\s+', '', text)
+        for name in names:
+            if sentinel(name) in text or sentinel(name) in squeezed:
+                reached.add(name)
+    return reached
+
+
+def prompt_fields(entry, universe):
+    """The stored fields one call site's prompt carries, and the sentence
+    that says how this run knows the rest are absent."""
+    declared = {}
+    for part in entry.parts:
+        if part.vault_kind:
+            declared.setdefault(part.vault_kind, set()).update(part.vault_fields)
+    for kind, named in declared.items():
+        if kind not in universe:
+            fail(f'{entry.name}: careeros.llm_registry names the stored kind {kind!r}, '
+                 'which the data model page does not have')
+        for name in sorted(named - set(universe[kind])):
+            fail(f'{entry.name}: careeros.llm_registry says the prompt carries the '
+                 f'{kind} field {name!r}, which is not in that kind\'s allowlist')
+    if not entry.canary_kind:
+        # No record parameter: the value arrives as a plain argument from
+        # several callers, so the registry's claim stands and what this run
+        # checks is that nothing else can come in with it.
+        for part in entry.parts:
+            if part.vault_kind and not part.declared:
+                fail(f'{entry.name}: the {part.vault_kind} fields of the '
+                     f'{part.label!r} part are neither derived from a canary run nor '
+                     'marked declared in careeros.llm_registry')
+            if part.vault_kind and part.keys:
+                fail(f'{entry.name}: the {part.label!r} part claims stored fields and '
+                     'reads keys off its parameter, so a canary run has to derive them')
+        parameters = sorted({part.parameter for part in entry.parts if part.vault_kind})
+        evidence = ('the builder reads no key off ' + ', '.join(f'`{name}`' for name in parameters)
+                    + ', so nothing but the text it is handed can enter')
+        return declared, evidence
+    kind = entry.canary_kind
+    if kind not in universe:
+        fail(f'{entry.name}: careeros.llm_registry runs its canary over {kind!r}, '
+             'which the data model page does not have')
+    reached = reaching_fields(entry, universe[kind])
+    if reached != declared.get(kind, set()):
+        fail(f'{entry.name}: a canary run finds the {kind} fields {sorted(reached)} in the '
+             f'prompt and careeros.llm_registry says {sorted(declared.get(kind, set()))}')
+    evidence = (f'a canary run over all {len(universe[kind])} fields of {kind} finds these '
+                'in the rendered prompt and no other')
+    return declared, evidence
+
+
+def route_triggers(entry, rules):
+    """The rules whose handler can reach one call site."""
+    found = []
+    for rule in rules:
+        _kinds, reached, _scoped = route_touches(rule['function'])
+        if reached & set(entry.reach_markers):
+            found.append(f"{', '.join(rule['methods'])} {rule['path']}")
+    return sorted(set(found))
+
+
+def reached_from(function):
+    """Every careeros function one function can reach, by name."""
+    seen, queue, reached = set(), [function], {function_key(function)}
+    while queue:
+        current = queue.pop()
+        key = definition_key(current)
+        if key in seen:
+            continue
+        seen.add(key)
+        for target in references(current):
+            reached.add(function_key(target))
+            queue.append(target)
+    return reached
+
+
+def script_scope(tree, module_names):
+    """What a script's careeros imports bind, and which modules it names.
+
+    Only the careeros side is resolved: the point is to find what app
+    function a script can call, not to import the script itself, which
+    would run whatever sits at its top level.
+    """
+    scope, named = {}, set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or '').split('.')[0] == 'careeros':
+            module = import_module(node.module)
+            for alias in node.names:
+                value = (getattr(module, alias.name, None)
+                         or import_module(f'{node.module}.{alias.name}'))
+                if value is not None:
+                    scope[alias.asname or alias.name] = value
+                named.add(node.module)
+                named.add(f'{node.module}.{alias.name}')
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split('.')[0] != 'careeros':
+                    continue
+                value = import_module(alias.name)
+                if value is not None:
+                    scope[alias.asname or alias.name.split('.')[0]] = value
+                named.add(alias.name)
+    return scope, named & module_names
+
+
+def script_triggers(entry):
+    """The scripts that can turn one call site on.
+
+    Reaching the sender is not enough, and the module docstring says why:
+    the accuracy report reaches the classification model layer through
+    `classify.classify` and never asks for it. A script has to name the
+    module the sender lives in as well.
+    """
+    senders = set(entry.senders)
+    modules = {name.rsplit('.', 1)[0] for name in senders}
+    found = []
+    for path in sorted((ROOT / 'scripts').glob('*.py')):
+        if path == Path(__file__).resolve():
+            continue
+        tree = ast.parse(path.read_text())
+        scope, named = script_scope(tree, modules)
+        if not named:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Name, ast.Attribute)):
+                continue
+            name = dotted_name(node)
+            if not name:
+                continue
+            for function in functions_in(resolve(scope, name)):
+                if reached_from(function) & senders:
+                    found.append(str(path.relative_to(ROOT)))
+    return sorted(set(found))
+
+
+def shell_triggers(scripts):
+    """The shell scripts that run one of those scripts."""
+    found = []
+    for tree in SHELL_TREES:
+        for path in sorted((ROOT / tree).glob('*.sh')):
+            text = path.read_text()
+            if any(script in text for script in scripts):
+                found.append(str(path.relative_to(ROOT)))
+    return sorted(set(found))
+
+
+def leaves_the_server(entry):
+    """Whether one call site's request stays on this machine, read off the
+    default its config function falls back to for the address."""
+    endpoint = entry.endpoint
+    reads = environment_reads(registry_function(endpoint.config_function))
+    if set(reads) != set(endpoint.env_vars):
+        fail(f'{entry.name}: {endpoint.config_function} reads {sorted(reads)} out of the '
+             f'environment and careeros.llm_registry says {sorted(endpoint.env_vars)}')
+    if endpoint.base_url_var not in reads:
+        fail(f'{entry.name}: careeros.llm_registry says {endpoint.base_url_var} decides the '
+             f'address and {endpoint.config_function} does not read it')
+    default = reads[endpoint.base_url_var]
+    if default in (NO_DEFAULT, UNREADABLE_DEFAULT) or not default:
+        note = f' ({endpoint.owner_note})' if endpoint.owner_note else ''
+        return (f'conditional: whatever {endpoint.base_url_var} is configured to{note}',
+                f'no default in code: `{endpoint.config_function}` raises when '
+                f'`{endpoint.base_url_var}` is unset, so the endpoint cannot be determined '
+                f'from the code at all -- `{endpoint.base_url_var}` is the variable that '
+                'decides it')
+    host = urlsplit(str(default)).hostname
+    if not host:
+        fail(f'{entry.name}: the default {endpoint.base_url_var} of '
+             f'{endpoint.config_function} is {default!r}, which names no host')
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return (f'cannot be told from code: the default {endpoint.base_url_var} names the '
+                f'host `{host}`, not an address',
+                f'the default in code is `{default}`, whose host is a name this run cannot '
+                'resolve to a private or a public address')
+    if address.is_private:
+        return (f'no (LAN) unless {endpoint.base_url_var} points elsewhere',
+                f'the default in code is `{default}`, and `{host}` is a private address')
+    return (f'yes: the default {endpoint.base_url_var} is the public address `{host}`, '
+            f'unless {endpoint.base_url_var} points elsewhere',
+            f'the default in code is `{default}`, and `{host}` is a public address')
+
+
+def size_limit(entry):
+    """How much text one call site sends, read off the slices it applies."""
+    functions = [registry_function(entry.prompt_builder)]
+    for name in entry.senders:
+        value, _remainder = resolve_dotted(name)
+        if callable(value):
+            functions.append(value)
+    caps = {}
+    for function in functions:
+        caps.update(slice_caps(function))
+    declared = entry.size_limit
+    if declared and declared not in caps:
+        fail(f'{entry.name}: careeros.llm_registry says {declared} caps the text and no '
+             f'slice of its prompt builder or senders applies it (found {sorted(caps)})')
+    if not declared and caps:
+        fail(f'{entry.name}: careeros.llm_registry says nothing caps the text and '
+             f'{sorted(caps)} is applied to it')
+    if not declared:
+        return 'none'
+    return f'{caps[declared]:,} characters (`{declared}`)'.replace(',', ' ')
+
+
+def gate_flag(entry):
+    """The environment flag one call site is off without, or that it has
+    none, read off the function the registry names for it."""
+    if not entry.gate_function:
+        fail(f'{entry.name}: careeros.llm_registry names no function to read the gate off; '
+             'name the sender itself for a call site that has no gate')
+    reads = environment_reads(registry_function(entry.gate_function))
+    if set(reads) != set(entry.gate_reads):
+        fail(f'{entry.name}: {entry.gate_function} reads {sorted(reads)} out of the '
+             f'environment and careeros.llm_registry says {sorted(entry.gate_reads)}')
+    if entry.gate_var and entry.gate_var not in reads:
+        fail(f'{entry.name}: careeros.llm_registry says {entry.gate_var} gates the call and '
+             f'{entry.gate_function} does not read it')
+    others = sorted(set(reads) - {entry.gate_var})
+    beside = (' (the sender also reads ' + ', '.join(f'`{name}`' for name in others)
+              + ', which bounds the call rather than gating it)') if others else ''
+    if not entry.gate_var:
+        return 'none' + beside
+    return f'only with `{entry.gate_var}=1`' + beside
+
+
+def part_cell(part):
+    """One prompt part in the table: what it is, and the stored fields it
+    carries. Which keys the builder reads to get them, and where they come
+    from, are the detail table below."""
+    text = f'{part.label} ({part.kind})'
+    if part.vault_fields:
+        return (f'{text}: {part.vault_kind} '
+                + ', '.join(f'`{name}`' for name in sorted(part.vault_fields)))
+    if part.keys:
+        return text + ': ' + ', '.join(f'`{key}`' for key in sorted(part.keys))
+    return text
+
+
+def source_file(function):
+    """Where one function is defined, repo-relative."""
+    path = inspect.getsourcefile(function)
+    if path is None:
+        fail(f'{function_key(function)} has no source file')
+    return str(Path(path).resolve().relative_to(ROOT))
+
+
+def llm_rows(rules, universe):
+    """One row per call site, and the evidence each row rests on."""
+    rows, evidence = [], []
+    for entry in llm_registry.CALL_SITES:
+        builder = registry_function(entry.prompt_builder)
+        reads = check_prompt_parts(entry)
+        carried, absence = prompt_fields(entry, universe)
+        scripts = script_triggers(entry)
+        routes = route_triggers(entry, rules)
+        shells = shell_triggers(scripts)
+        triggers = ['`' + route + '`' for route in routes]
+        triggers += [f'`{name}`' for name in scripts + shells]
+        if not triggers:
+            triggers = ['nothing in this repository reaches it']
+        elif not routes:
+            triggers = ['no Flask route reaches it'] + triggers
+        if entry.trigger_note:
+            triggers.append(entry.trigger_note)
+        leaves, how = leaves_the_server(entry)
+        rows.append((
+            f'**{entry.name}**<br>`{entry.prompt_builder}`<br>{source_file(builder)}',
+            '<br>'.join(triggers),
+            '<br>'.join(part_cell(part) for part in entry.parts),
+            size_limit(entry),
+            gate_flag(entry),
+            ', '.join(f'`{name}`' for name in sorted(entry.endpoint.env_vars)),
+            leaves,
+        ))
+        evidence.append({'entry': entry, 'carried': carried, 'absence': absence,
+                         'endpoint': how, 'reads': reads})
+    return rows, evidence
+
+
+def llm_never_sent(universe, evidence):
+    """The stored fields no prompt carries, and how this run knows.
+
+    The allowlists of every kind named in `llm_registry.USER_DATA_KINDS`,
+    minus the fields the readings above found in a prompt. A kind that
+    reaches no call site contributes all of its fields; a kind that
+    reaches one has to have shown the rest absent.
+    """
+    carried, shown = {}, {}
+    for found in evidence:
+        for kind, names in found['carried'].items():
+            carried.setdefault(kind, set()).update(names)
+            shown.setdefault(kind, []).append(f"{found['entry'].name}: {found['absence']}")
+    handed = ' and '.join(sorted(carried)) or 'nothing'
+    never = {}
+    for kind in llm_registry.USER_DATA_KINDS:
+        if kind not in universe:
+            fail(f'careeros.llm_registry USER_DATA_KINDS names {kind!r}, which is not a '
+                 'record kind of the data model page')
+        if not universe[kind]:
+            fail(f'careeros.llm_registry USER_DATA_KINDS names {kind!r}, which has no field '
+                 'allowlist in code, so this page cannot say what a prompt does not carry')
+        missing = sorted(set(universe[kind]) - carried.get(kind, set()))
+        if kind in carried and kind not in shown:
+            fail(f'{kind} reaches a prompt and no run has shown which of its fields do not')
+        never[kind] = (missing, shown.get(kind, [
+            f'no prompt builder is handed a record of this kind: the only stored records '
+            f'the three take are {handed}, so no field of this one can enter a prompt']))
+    return never
+
+
+def llm_never_sent_section(never):
+    lines = [
+        '## What no prompt carries',
+        '',
+        'Every field of every stored kind that holds what a person typed, minus the fields '
+        'the table below places in a prompt. Nothing here is a list somebody kept up to '
+        'date: it is the allowlists in code minus the prompts in code, and the generator '
+        'aborts rather than print a field it cannot show absent. The way it is shown is '
+        'printed with each kind.',
+        '',
+    ]
+    for kind in llm_registry.USER_DATA_KINDS:
+        missing, shown = never[kind]
+        lines.append(f'**{kind}** ({len(missing)} of them): '
+                     + (', '.join(f'`{name}`' for name in missing) or 'none') + '.')
+        lines.append('')
+        for line in shown:
+            lines.append(f'  * {line}')
+        lines.append('')
+    return lines[:-1]
+
+
+def llm_table_section(rows):
+    lines = [
+        '## Where text goes to a model',
+        '',
+        'One row per place this app sends text to a language model. Every column is read '
+        'out of the sources the first line names, by the method the scripts/gen_docs.py '
+        'docstring sets out; the only thing on this page that is not is the parenthesis '
+        'naming what the owner has configured an address variable to, which is labelled '
+        'as owner-supplied where it appears. A trigger is what the call graph of this '
+        'repository can reach the call site from, which is an upper bound: a route on a '
+        'row sends text when that run gets as far as the model, not on every request. '
+        '`Endpoint variables` is every variable the config function reads, which is more '
+        'than the one that decides the address.',
+        '',
+    ]
+    columns = ('Call site', 'Trigger', 'What the prompt carries', 'Size limit', 'Gate flag',
+               'Endpoint variables', 'Leaves the server')
+    return lines + table(columns, rows)
+
+
+def llm_parts_section(evidence):
+    lines = [
+        '## What each part of each prompt is',
+        '',
+        'One row per part of one prompt. `Read off` is the keys the prompt builder reads '
+        'off that parameter, as its own syntax tree has them -- `the whole value` for a '
+        'part that is placed as it arrives. `Stored fields` is what a canary run of the '
+        'builder finds reaches the part, and is empty for a part that carries no stored '
+        'record. A key the builder reads that no row here claims stops the generator.',
+        '',
+    ]
+    rows = []
+    for found in evidence:
+        entry = found['entry']
+        for part in entry.parts:
+            keys = (', '.join(f'`{key}`' for key in sorted(part.keys)) if part.keys
+                    else ('the whole value' if part.parameter else 'the builder\'s own text'))
+            rows.append((entry.name, part.label, part.kind,
+                         f'`{part.parameter}`' if part.parameter else 'none',
+                         keys,
+                         ', '.join(f'`{name}`' for name in sorted(part.vault_fields)) or 'none',
+                         part.origin))
+    return lines + table(('Call site', 'Part', 'Kind', 'Parameter', 'Read off',
+                          'Stored fields', 'Where it comes from'), rows)
+
+
+def llm_endpoint_section(evidence):
+    lines = [
+        '## How the last column was read',
+        '',
+        'The address each call site sends to, and what the code says about it.',
+        '',
+    ]
+    rows = [(found['entry'].name, f"`{found['entry'].endpoint.config_function}`",
+             f"`{found['entry'].endpoint.base_url_var}`", found['endpoint'])
+            for found in evidence]
+    return lines + table(('Call site', 'Config function', 'Address variable',
+                          'What the code has'), rows)
+
+
+def llm_accounting_section(found):
+    lines = [
+        '## Every function that touches a model client',
+        '',
+        'The scan the page is held to: every function in `careeros/`, `scripts/` and the '
+        'one vendored file that sends a prompt of its own, that calls a model client. A '
+        'function here that is in no registry entry stops the generator, so this list and '
+        'the table above cannot come apart.',
+        '',
+    ]
+    senders = {name: entry for entry in llm_registry.CALL_SITES for name in entry.senders}
+    rows = []
+    for name in sorted(set(found) | set(llm_registry.CLIENT_PLUMBING)):
+        if name in senders:
+            rows.append((f'`{name}`', f'sends the prompt of: {senders[name].name}'))
+        else:
+            rows.append((f'`{name}`', llm_registry.CLIENT_PLUMBING[name]))
+    return lines + table(('Function', 'What it is'), rows)
+
+
+def llm_document(rules, universe):
+    found = check_call_site_accounting()
+    rows, evidence = llm_rows(rules, universe)
+    never = llm_never_sent(universe, evidence)
+    sections = [
+        [LLM_HEADER],
+        ['# As-built: what this app sends to a language model', '',
+         'Three places in this app put text in front of a model, and this page is all three '
+         'of them: what each one sends, what turns it on, how much of a posting it carries '
+         'and whether the request leaves this machine. Every table is read out of the '
+         'sources named in the first line, which is why the file is generated rather than '
+         'written: a prompt that starts carrying one more field, a config function that '
+         'starts reading one more variable, or a fourth call site shows up here on the next '
+         'run, and the `docs-fresh` CI job fails until it does.'],
+        llm_never_sent_section(never),
+        llm_table_section(rows),
+        llm_parts_section(evidence),
+        llm_endpoint_section(evidence),
+        llm_accounting_section(found),
+    ]
+    return '\n\n'.join('\n'.join(section) for section in sections) + '\n', rows
+
+
 def data_document(rules):
     check_storage_map()
     check_token('a handler builds the ownership scope through session_owner',
@@ -1718,6 +2716,12 @@ def main():
     DATA_OUT.write_text(data, newline='\n')
     print(f'{DATA_OUT.relative_to(ROOT)}: {len(kinds)} record kinds, '
           f'{len(rows)} permission rows')
+    # The same kinds, so what a prompt does not carry is computed against
+    # the allowlists the data model page prints rather than a second
+    # reading of them, and the same rules, for the trigger column.
+    text, sites = llm_document(rules, kinds)
+    LLM_OUT.write_text(text, newline='\n')
+    print(f'{LLM_OUT.relative_to(ROOT)}: {len(sites)} model call sites')
 
 
 if __name__ == '__main__':
