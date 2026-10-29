@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Career OS: invite-only testing</title>
+<meta name="description" content="Career OS keeps a reliable record of your job search. Paste a job link and it lands on your board, linked to its company.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><div class="wrap">
+<div class="nav"><a class="brandmark" href="/">Career OS</a>
+<nav class="nav-links" aria-label="Page sections"><a class="link" href="/#how">How it works</a><a class="link" href="/#privacy">Privacy</a><a class="link" href="/#faq">FAQ</a></nav></div>
+<div class="header-actions"><a class="btn btn-gray" href="https://app.career-os.ch/login">Log in</a><a class="btn btn-primary" href="/#signup">Get early access</a></div>
+</div></header>
+<main>
+<section id="top" class="wrap hero" aria-labelledby="hero-title"><div class="hero-grid">
+<div class="hero-copy">
+<span class="badge badge-brand">Invite-only testing</span>
+<h1 id="hero-title">Paste a job link. It lands ready to triage.</h1>
+<p class="lead">Career OS keeps a reliable record of your job search. Each posting is linked to its company, filled in and placed on your board, so you spend your time deciding instead of copying.</p>
+<div id="signup" class="signup">
+<form id="waitlist" data-endpoint="/waitlist" novalidate>
+<div class="field"><label for="email">Email address</label><input id="email" name="email" type="email" required autocomplete="email" aria-describedby="waitlist-privacy"></div>
+<div class="hp" aria-hidden="true"><label for="website">Website</label><input id="website" name="website" type="text" tabindex="-1" autocomplete="off"></div>
+<button class="btn btn-primary" type="submit">Join the waiting list</button>
+</form>
+<div id="waitlist-status" role="status" aria-live="polite" hidden></div>
+<p id="waitlist-privacy" class="hint">We store your email address and the time you signed up, only so we can invite you if Career OS opens beyond invitation-only access. We keep it for at most 12 months and then delete it permanently. To have it removed earlier, write to jozzian-agent@career-os.ch.</p>
+</div></div>
+<div class="board"><div class="board-top"><span class="badge badge-white">Example</span><span>Your board, with sample jobs</span></div>
+<div class="cols"><div class="col"><div class="col-head"><div><h3>New</h3><span class="badge">1</span></div><hr></div><div class="job"><span class="badge">New</span><strong>Product Designer</strong><span class="co">Example Company</span><span class="meta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Bern</span><span class="meta">Added today</span></div></div><div class="col"><div class="col-head"><div><h3>Interested</h3><span class="badge">1</span></div><hr></div><div class="job"><span class="badge">Interested</span><strong>Data Analyst</strong><span class="co">Sample AG</span><span class="meta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Basel</span><span class="meta">Added yesterday</span></div></div><div class="col"><div class="col-head"><div><h3>Applied</h3><span class="badge">1</span></div><hr></div><div class="job"><span class="badge">Applied</span><strong>Operations Lead</strong><span class="co">Demo GmbH</span><span class="meta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Zurich</span><span class="meta">Added last week</span></div></div></div></div>
+</div></section>
+
+<section id="how" class="wrap block" aria-labelledby="how-title">
+<div class="sec-head"><h2 id="how-title">From link to triage in three steps</h2><p class="muted">One place for every posting you are weighing, instead of tabs, notes and spreadsheets.</p></div>
+<div class="grid3">
+<div class="card"><span class="badge">Step 1</span><h3 class="card-title">Add a posting link</h3><p class="muted">Paste the URL of a job posting. Career OS fetches the page.</p></div>
+<div class="card"><span class="badge">Step 2</span><h3 class="card-title">The AI fills in the details</h3><p class="muted">An AI model reads the posting and fills in the title, company, location and similar fields. The job is linked to its company.</p></div>
+<div class="card"><span class="badge">Step 3</span><h3 class="card-title">Track it on your board</h3><p class="muted">Move jobs from New to Interested, Applied, Interviewing and Offer, or end them. Keep your notes next to the roles they belong to.</p></div>
+</div></section>
+
+<section id="privacy" class="wrap block" aria-labelledby="privacy-title">
+<div class="sec-head"><h2 id="privacy-title">What stays private, and what the AI sees</h2></div>
+<div class="grid3">
+<div class="card"><span class="badge">Private</span><h3 class="card-title">Your jobs and notes are yours</h3><p class="muted">Another user cannot see your jobs or your notes. Company pages are shared, but they are built only from public postings.</p></div>
+<div class="card" id="data" style="grid-column:span 2"><span class="badge">AI</span><h3 class="card-title">Career OS uses AI to read the postings you add</h3>
+<div class="notice"><p>Career OS uses AI to read the job postings you add. When you add a posting, its text is sent to <a class="link" href="https://openrouter.ai/privacy" rel="noopener">OpenRouter</a>, an AI gateway service, which passes it to an AI model provider, currently <a class="link" href="https://cloud.google.com/terms/cloud-privacy-notice" rel="noopener">Google Cloud</a> (Vertex AI) running Anthropic's Claude Haiku 5.5, so the model can fill in details such as the job title, company and location. Only the posting text is sent: not your notes, experiences, search criteria, name or email. We have switched off prompt logging on our OpenRouter account, and the data policy OpenRouter shows for our requests is "no data training". The AI providers handle the text under their own terms, outside our control, and may process it outside Switzerland. The provider can change; if it does, we update this page. If you do not want a posting's text sent to an AI, do not add it.</p></div>
+<a class="link" href="/privacy.html">Read the privacy notice</a></div>
+</div></section>
+
+<section id="faq" class="wrap block" aria-labelledby="faq-title">
+<div class="sec-head"><h2 id="faq-title">Questions</h2></div>
+<div class="faq"><details><summary>Who can use Career OS right now?</summary><div><p>Career OS is invite-only and, for now, offered to people in Switzerland. A small group of testers is trying it. Join the waiting list and we will invite people in waves.</p></div></details><details><summary>Which AI do you use, and who sees my text?</summary><div><p>Career OS uses AI to read the job postings you add. When you add a posting, its text is sent to <a class="link" href="https://openrouter.ai/privacy" rel="noopener">OpenRouter</a>, an AI gateway service, which passes it to an AI model provider, currently <a class="link" href="https://cloud.google.com/terms/cloud-privacy-notice" rel="noopener">Google Cloud</a> (Vertex AI) running Anthropic's Claude Haiku 5.5, so the model can fill in details such as the job title, company and location. Only the posting text is sent: not your notes, experiences, search criteria, name or email. We have switched off prompt logging on our OpenRouter account, and the data policy OpenRouter shows for our requests is "no data training". The AI providers handle the text under their own terms, outside our control, and may process it outside Switzerland. The provider can change; if it does, we update this page. If you do not want a posting's text sent to an AI, do not add it.</p></div></details><details><summary>Is my data used to train AI?</summary><div><p>We do not use your data to train AI. OpenRouter's data policy on our requests is "no data training", and we have turned off prompt logging on our OpenRouter account. What the model host does with the text is governed by its own terms.</p></div></details><details><summary>Does the AI decide anything about me?</summary><div><p>No. It only reads postings and fills in fields. Career OS does not rate you, rank you against other people or calculate a fit score.</p></div></details><details><summary>Can I use Career OS without the AI?</summary><div><p>Not today. The AI reading is how a posting becomes a job on your board. If you do not want a posting's text sent to an AI, do not add it.</p></div></details><details><summary>Who can see my notes and jobs?</summary><div><p>Only you. Another user cannot see your jobs or your notes. Company pages are shared, but they are built only from public postings. Nobody at Career OS reads your data in normal operation; the operator, as the only server administrator, technically has access.</p></div></details><details><summary>Where is my data stored?</summary><div><p>On a server hosted by Infomaniak in Switzerland. Encrypted backup copies are kept on a separate server run by the operator.</p></div></details><details><summary>Does Career OS match me to jobs or check whether a posting is still open?</summary><div><p>Not yet. There are no fit scores and no live checks. What it does today is keep your postings, companies, notes and status in one place.</p></div></details><details><summary>How do I get my account and data deleted?</summary><div><p>There is no delete button yet. Write to jozzian-agent@career-os.ch and we will delete your account and data.</p></div></details></div>
+</section>
+
+<section class="wrap closing" aria-labelledby="cta-title"><div class="cta">
+<h2 id="cta-title">Get a spot when early access opens</h2>
+<p>Join the waiting list and we'll email you when it's your turn.</p>
+<a class="btn btn-white" href="#signup">Join the waiting list</a></div></section>
+</main>
+<footer class="site-footer"><div class="wrap">
+<div class="left"><strong>Career OS</strong><small>© 2026</small></div>
+<nav aria-label="Legal and sign-in"><a class="link" href="/imprint.html">Imprint</a><a class="link" href="/privacy.html">Privacy</a><a class="link" href="https://app.career-os.ch/login">Log in</a></nav>
+</div></footer>
+<script src="waitlist.js" defer></script>
+</body>
+</html>
