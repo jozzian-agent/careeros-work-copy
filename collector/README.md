@@ -53,9 +53,9 @@ promote). Run as root (`sudo -i`).
 3. **systemd units** (after the release is deployed):
 
    ```bash
-   sudo cp /srv/careeros/app/current/deploy/systemd/careeros-waitlist.service \
-           /srv/careeros/app/current/deploy/systemd/careeros-waitlist-purge.service \
-           /srv/careeros/app/current/deploy/systemd/careeros-waitlist-purge.timer \
+   sudo cp /srv/careeros/app/current/collector/systemd/careeros-waitlist.service \
+           /srv/careeros/app/current/collector/systemd/careeros-waitlist-purge.service \
+           /srv/careeros/app/current/collector/systemd/careeros-waitlist-purge.timer \
            /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now careeros-waitlist.service
