@@ -11,6 +11,10 @@ third party involved.
   `deploy/Caddyfile`.
 - Data: `/srv/careeros/waitlist/data/waitlist.sqlite3`, SQLite, one
   table `waitlist(email TEXT PRIMARY KEY, added_at TEXT)`.
+  `PRAGMA secure_delete=ON` (persisted in the DB header): purged or
+  deleted addresses are zero-overwritten in the file, not just removed
+  from the index. `journal_mode=DELETE`, so there is never a WAL/SHM
+  side file that could retain data.
 - Privacy: file 0600 in a 0700 directory, owned by `careeros-waitlist`
   (re-asserted on every start). The app users (`careeros-prod`,
   `careeros-stg`) and Caddy cannot read it. Logs contain counts and
@@ -21,6 +25,9 @@ third party involved.
 - Rate limit: 3 submissions per hour per client IP, sliding window, in
   memory (resets on service restart; that is deliberate — nuisance
   filter, not a security boundary). Over the limit → HTTP 429.
+  Client IP = last `X-Forwarded-For` entry; Caddy overwrites the header
+  with the real peer (`header_up X-Forwarded-For {remote_host}`), so a
+  client cannot pick its own bucket by sending a fake header.
 
 ## Install (owner runs these on the VPS, `ubuntu@ov-5e1fbd`)
 
@@ -107,6 +114,15 @@ sudo -u careeros-waitlist python3 -c \
 ## Retention promise
 
 The landing page says: kept for **at most 12 months**, then deleted
-permanently. `careeros-waitlist-purge.timer` fires daily and deletes
-every row whose `added_at` is older than 12 months (365 days). Boundary
-behaviour and the maths are covered by `tests/test_waitlist_collector.py`.
+permanently. `careeros-waitlist-purge.timer` fires daily at 03:30 and
+deletes every row whose `added_at` is older than 12 months (365 days).
+With `secure_delete=ON` the bytes are gone from the file immediately;
+boundary behaviour is covered by `tests/test_waitlist_collector.py`.
+
+## Backups
+
+`/srv/careeros/waitlist` is **outside every backup path this repo
+controls**: `deploy/deploy.sh` archives only `/srv/careeros/vault`
+(prod), nothing touches the waitlist directory. Whether the VPS
+provider takes whole-disk snapshots is a VPS fact I do not have — ask
+before promising deletion-from-all-copies to a data subject.

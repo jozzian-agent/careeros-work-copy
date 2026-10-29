@@ -52,7 +52,12 @@ career-os.ch {
         path /waitlist
     }
     handle @waitlist_post {
-        reverse_proxy 127.0.0.1:8003
+        reverse_proxy 127.0.0.1:8003 {
+            # Overwrite (not append) any client-sent XFF with the real
+            # peer address, so the collector's rate-limit identity
+            # cannot be spoofed by rotating fake header values.
+            header_up X-Forwarded-For {remote_host}
+        }
     }
 
     handle {

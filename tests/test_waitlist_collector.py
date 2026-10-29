@@ -113,6 +113,48 @@ class TestPurge:
         conn2.close()
 
 
+class TestSecureDelete:
+    """Owner point 2: deleted data must be gone from the FILE bytes,
+    not just from the index. secure_delete=ON zero-overwrites freed
+    pages; journal_mode=DELETE means there is no WAL file at all."""
+
+    def _raw_bytes(self, path):
+        return path.read_bytes()
+
+    def test_no_wal_or_shm_side_files_exist(self, db):
+        _, path = db
+        assert not path.with_name(path.name + "-wal").exists()
+        assert not path.with_name(path.name + "-shm").exists()
+
+    def test_purged_address_absent_from_raw_file_bytes(self, db):
+        conn, path = db
+        secret = "purged-secret-address@example.ch"
+        now = datetime(2026, 10, 29, tzinfo=timezone.utc)
+        Store.submit(conn, secret, now=now - timedelta(days=400))
+        assert secret.encode() in self._raw_bytes(path)  # sanity: it was on disk
+        assert Store.purge(conn, now=now, months=12) == 1
+        assert secret.encode() not in self._raw_bytes(path)
+
+    def test_delete_one_address_absent_from_raw_file_bytes(self, db):
+        conn, path = db
+        secret = "delete-me-secret@example.ch"
+        other = "keep-me@example.ch"
+        Store.submit(conn, secret)
+        Store.submit(conn, other)
+        assert Store.delete_email(conn, secret) == 1
+        raw = self._raw_bytes(path)
+        assert secret.encode() not in raw
+        assert other.encode() in raw  # untouched row still intact
+
+    def test_secure_delete_survives_reconnect(self, db):
+        """The pragma is persisted in the DB header, so a fresh process
+        (systemd restart) reopens with the same guarantee."""
+        conn, path = db
+        conn2 = Store(str(path)).connect()
+        assert conn2.execute("PRAGMA secure_delete").fetchone()[0] == 1
+        conn2.close()
+
+
 class TestNormalizeEmail:
     @pytest.mark.parametrize("bad", [
         None, 42, "", "   ", "no-at-sign", "@nodomain", "noat@",
@@ -276,6 +318,41 @@ class TestHttpRoundTrip:
         s2, _ = self._post(base, {"email": "other@b.ch", "website": ""},
                            headers={"X-Forwarded-For": "6.6.6.6"})
         assert s2 == 200
+
+    def test_two_xff_values_get_separate_limits(self, live):
+        """Owner point 1: the limit counts the XFF client address, not
+        the socket peer (always 127.0.0.1 behind Caddy). Two different
+        XFF values each exhaust their own budget independently."""
+        base, _ = live
+        for ip in ("7.7.7.7", "8.8.8.8"):
+            hdr = {"X-Forwarded-For": ip}
+            for _ in range(RATE_LIMIT_MAX_PER_IP):
+                s, _ = self._post(
+                    base, {"email": f"x{_}@{ip}.ch", "website": ""},
+                    headers=hdr)
+                assert s == 200, f"{ip} should still be under its limit"
+            s, _ = self._post(base, {"email": "y@b.ch", "website": ""},
+                              headers=hdr)
+            assert s == 429, f"{ip} exhausted its limit and must be blocked"
+        # and a third untouched IP still works after both are exhausted
+        s3, _ = self._post(base, {"email": "fresh@b.ch", "website": ""},
+                           headers={"X-Forwarded-For": "9.9.9.9"})
+        assert s3 == 200
+
+    def test_chained_xff_last_entry_is_the_identity(self, live):
+        """Caddy overwrites XFF with the real peer; if anything ever
+        chains another proxy, the LAST entry (closest to us) wins, so a
+        client cannot escape its bucket by prepending fake prefixes."""
+        base, _ = live
+        spoof = "1.1.1.1, 2.2.2.2"   # last entry = real client per Caddy
+        for i in range(RATE_LIMIT_MAX_PER_IP):
+            s, _ = self._post(base, {"email": f"r{i}@b.ch", "website": ""},
+                              headers={"X-Forwarded-For": spoof})
+            assert s == 200
+        # same last entry, different spoofed prefix -> still blocked
+        s, _ = self._post(base, {"email": "r9@b.ch", "website": ""},
+                          headers={"X-Forwarded-For": "9.9.9.9, 2.2.2.2"})
+        assert s == 429
 
     def test_logs_never_contain_the_email(self, live, caplog):
         """The privacy rule: outcome classes in logs, never addresses."""

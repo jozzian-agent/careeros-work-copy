@@ -82,6 +82,10 @@ class Store:
         # serialized; SQLite's own locking covers the rest.
         conn = sqlite3.connect(self.db_path, check_same_thread=False)
         conn.execute("PRAGMA journal_mode=DELETE")  # no -wal/-shm side files
+        # Overwrite freed pages with zeros: a purge or delete-one must
+        # remove the address from the FILE, not just from the index.
+        # Persisted in the DB header, so it survives reconnects.
+        conn.execute("PRAGMA secure_delete=ON")
         conn.execute(SCHEMA)
         conn.commit()
         os.chmod(self.db_path, 0o600)
@@ -208,10 +212,18 @@ class WaitlistHandler(BaseHTTPRequestHandler):
     # handle_submission, which the tests drive directly.
 
     def _client_ip(self):
-        # Caddy sets X-Forwarded-For; we bind 127.0.0.1 only, so the only
-        # writer of that header is our own proxy. First entry = client.
+        # Rate-limit identity = the LAST X-Forwarded-For entry. Caddy is
+        # configured to overwrite the header with the real peer address
+        # (header_up X-Forwarded-For {remote_host}), so a client-supplied
+        # XFF never survives the proxy. Taking the last entry is defence
+        # in depth: even if some other proxy were chained in front, the
+        # entry closest to us is the one the trusted proxy appended, and
+        # a client rotating fake prefixes cannot escape its bucket.
+        # We bind 127.0.0.1 only; without the header the peer is Caddy
+        # itself and every direct request shares one bucket -- safe.
         xff = self.headers.get("X-Forwarded-For", "")
-        ip = xff.split(",")[0].strip() if xff else self.client_address[0]
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        ip = parts[-1] if parts else self.client_address[0]
         return ip[:64]
 
     def _send(self, status, body_dict):
