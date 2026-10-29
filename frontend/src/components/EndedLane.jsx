@@ -200,8 +200,8 @@ export default function EndedLane({
         <Flex direction="column" gap={3}>
           {/* Same wrapper as a column header in KanbanBoard, so "Ended"
               and a column title share a baseline; the rule under it is
-              grey rather than the columns' blue, because the lane is not
-              one of the statuses being worked. */}
+              grey rather than the columns' brand green, because the lane
+              is not one of the statuses being worked. */}
           <Box
             data-testid="ended-lane-header"
             paddingY={2}

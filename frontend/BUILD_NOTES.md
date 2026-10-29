@@ -269,13 +269,21 @@ font size. `tests/theme.spec.js` asserts all six pairs.
 
 `design/theme.css` maps Gestalt's component-level tokens onto the brand, so the
 board picks up the brand with no markup change — a `Button color="red"` renders
-brand blue because the primary-button tokens are brand blue:
+in the brand colour because the primary-button tokens are the brand.
+
+The table below is kept current rather than frozen at JOZ-277: the brand was
+blue when this section was written and has been Matchacado green since the
+2026-10-26 handover, and the 2026-10-29 batch (see "Gestalt bridge and restyle"
+at the end of this file) added the box-\* and badge-\* names and the one
+dialog-scoped red.
 
 | Brief token | Bound to |
 | --- | --- |
-| `color-brand-primary` / `-strong` | `--color-background-button-primary-{default,hover,active}`, `--color-background-button-selected-default`, `--color-background-primary-{base,strong}`, `--color-background-info-{base,strong}`, `--color-icon-info` |
+| `color-brand-primary` / `-strong` | `--color-background-button-primary-{default,hover,active}`, `--color-background-button-selected-default`, `--color-background-primary-{base,strong}`, `--color-background-info-{base,strong}`, `--color-background-box-info-base`, `--color-background-badge-info-{default,hover}`, `--color-icon-info`, `--color-icon-brand-primary` |
 | `color-brand-violet` | `--color-background-recommendation-base`, `--color-icon-recommendation` |
-| `color-brand-wash-blue` / `-violet` | `--color-background-{primary,info}-weak`, `--color-background-recommendation-weak` |
+| `color-brand-wash` / `-violet` | `--color-background-{primary,info}-weak`, `--color-background-box-info-weak`, `--color-background-recommendation-weak` |
+| `color-background-{warning,error}-weak`, `color-text-{warning,error}` | `--color-background-box-{warning,error}-weak`, `--color-icon-{warning,error}` |
+| `color-text-error`, `color-background-danger-hover` | `--color-background-button-primary-{default}` / `{hover,active}`, scoped to `[role="alertdialog"]` — the one red fill, see "Gestalt bridge and restyle (2026-10-29)" |
 | `color-brand-on-color` | `--color-text-inverse` **and** `--color-text-default`, both scoped to Button's primary fill — see "Dark-mode primary buttons" below |
 | `color-background-card` | `--color-background-default` (so `Box color="default"`, `Modal` and `Popover` follow the theme) |
 | `color-background-page` | `html`/`body` background |
@@ -1475,3 +1483,150 @@ mounted and the polling has every chance to carry on; what it asserts is
 that exactly one request met the 401 and none followed.
 `tests/page-health.spec.js` gained `/login`, with its own landmark since
 it is the one route with no nav. No fixture changed.
+
+## Gestalt bridge and restyle (2026-10-29)
+
+The brand went green in the 2026-10-26 handover (`src/design/tokens.css`).
+This batch is the half that makes Gestalt follow it everywhere, plus the
+restyle of four components the owner's brief names. No layout, component
+structure, copy, behaviour or API changed; the decisions are recorded in
+`docs/decisions/design-system.md`, "Tokens, the bridge and the restyle,
+2026-10-29".
+
+### The alias trap, found twice more
+
+`gestalt.css` ships a `:root` block that aliases its component tokens to
+its semantic ones:
+
+```css
+--color-background-box-info-weak: var(--color-background-info-weak);
+--color-background-badge-info-default: var(--color-background-info-base);
+--color-background-badge-info-hover: var(--color-background-info-strong);
+```
+
+Read as CSS, binding `--color-background-info-weak` to the brand wash
+carries all three. Read as what actually runs, it does not:
+`DesignTokensProvider` re-emits **every** token as a resolved literal on
+`:root` from inside `<body>`, later in document order, so the alias is
+replaced by Gestalt's own hex before any of our values can flow through
+it. This is the same trap `design/theme.css` already recorded for the
+popover ground; this batch found two more components standing in it.
+
+- `BannerSlim type="info"` takes its ground from
+  `--color-background-box-info-weak` (`MESSAGING_TYPE_ATTRIBUTES` maps
+  `info` to `Box color="infoWeak"`, and `.Am_` in `gestalt.css` is
+  `background-color:var(--color-background-box-info-weak)`), so the
+  closed-postings banner was still `#d7edff`.
+- Every `Badge type="info"` — "AI-generated" on the Job page, the function
+  chips — takes its fill from `--color-background-badge-info-default`, so
+  they were still `#0074e8`.
+
+All eight info names are now bound in `design/theme.css`, and
+`tests/theme.spec.js` asserts the eight resolved values **and** that no
+element on the board is painted in any of Gestalt's three info blues, so
+a ninth alias appearing in a future Gestalt would fail here rather than
+render blue. The same binding is applied to
+`--color-background-box-{warning,error}-weak` and
+`--color-icon-{warning,error}`: Gestalt's stock light values already equal
+the handover's, so nothing moved on screen, but the agreement is now this
+theme's instead of a coincidence of two palettes.
+
+### The one red fill: scoping by role, not by prop
+
+Rebinding `--color-background-button-primary-*` to the brand is what makes
+`Button color="red"` green with no markup change. The one place that is
+wrong is a destructive confirmation.
+
+Gestalt builds a `ModalAlert`'s primary action as `Button color="red"`
+(`ModalAlertAction`, `gestalt.es.js` line 18059: `const color = type ===
+'primary' ? 'red' : 'gray'`) and renders the alert with
+`role="alertdialog"`. `ModalAlert` has exactly one caller in this app,
+`components/DeleteConfirmModal.jsx`, and every use of it is a delete — so
+the role *is* the destructive case and no component had to grow a prop:
+
+```css
+[role='alertdialog'] {
+  --color-background-button-primary-default: var(--color-text-error);
+  --color-background-button-primary-hover: var(--color-background-danger-hover);
+  --color-background-button-primary-active: var(--color-background-danger-hover);
+}
+[role='alertdialog'] .Il7 {
+  --color-text-inverse: var(--color-background-card);
+  --color-text-default: var(--color-background-card);
+}
+```
+
+No `!important`, for the reason the `.Il7` block already gives: these land
+on the dialog element, and a custom property declared on an element beats
+one inherited from `:root` whatever the root's importance. Both label
+tokens are bound because Gestalt picks between them in JS. Measured:
+`#ffffff` on `#cc0000` is 5.25:1. The secondary action is
+`Button color="gray"` and reads none of these, so "Keep job" is untouched.
+
+### Links: excluding the button that is an anchor
+
+`#root a { text-decoration-line: underline }` underlined every anchor,
+including a Gestalt `ButtonLink` — an `<a>` wearing a button's chrome,
+which the Experiences page's "Add position" is. The rule now skips
+`.USg`. That class is the `button` entry of both of Gestalt 177.0.12's
+button style maps (`styles$U`, used by Button/ButtonLink, and `styles$E`)
+and appears in no other map, so it names "this element is a button"
+rather than a shape something else might also want; `.USg{min-width:60px}`
+is all it draws. Once the rule stops matching, Gestalt's own
+`.NtY{text-decoration:none}` on the same anchor takes over. Same
+pinned-version precedent as `.Il7` and the typography classes, with
+`tests/theme.spec.js` asserting both halves on one page.
+
+Nav items are `TapAreaLink`s and carry no `.USg`: they are links and keep
+the underline. No chip needed excluding — every chip in the app is a
+`<button>` or a `<div>`.
+
+### FilterChip: two grounds, one of them with a hover
+
+The brief's B2 is 32px high (it was 40), 14px bold, pill radius,
+`--color-background-secondary-base` unselected with a darker hover, brand
+wash plus a 2px brand border selected.
+
+The hover is why the two grounds moved out of the component's inline
+style into the new `components/FilterChip.css` (the `StatusSelect.css`
+precedent). A hover cannot be written inline at all, and splitting it —
+inline ground, hover in the stylesheet — is worse than either, because an
+inline declaration outranks every rule in a stylesheet and the hover would
+need `!important` just to reach the element. The geometry stays inline,
+where the height is a prop.
+
+`.filter-chip-selected:hover` repeats the selected values on purpose:
+`.filter-chip:hover` is (0,2,0) and `.filter-chip-selected` is (0,1,0), so
+without it the chosen view greyed out under the pointer.
+
+The brief names the hover "fill-secondary-hover". The token set ported
+from the handoff has no name of that form; `--color-background-secondary-
+weak` (`#d6d4cd`) is its one darker partner to the base, so the hover
+binds to that rather than to a token invented here.
+
+The two view pairs (Jobs' Board/List, Companies' Tiles/List) pass
+`height={44}` explicitly and keep it: that is the height of the primary
+button beside them (artboard 2026-10-18). 32px is the default, so it is
+the filter row's height. **Known gap:** at 32px the filter chips are under
+WCAG 2.5.5's 44px touch target at phone widths, as they were at 40px.
+`StatusSelect.css` has the precedent for fixing that with a media query;
+the brief did not ask for one, so none was added.
+
+### What this batch did not touch
+
+`LevelTag` and the Ended lane were both already compliant: the level tag's
+three colours are `--color-background-secondary-base`, transparent and
+`--color-border-container`, and the lane is the secondary ground with a
+brand-wash drag-over. Only their comments changed, which said "blue".
+
+### Specs
+
+`tests/theme.spec.js` gains four tests: the ButtonLink exclusion against
+an ordinary link on the same page, the info banner's rendered ground, icon
+and text contrast plus all eight info tokens and a no-blue sweep, the
+destructive confirm's fill/hover/active/label against the brand primary
+outside the dialog, and AA for ink on the brand wash and on the info wash
+with the two grounds asserted equal. `tests/filter-bar.spec.js` gains the
+chip's metrics and its three grounds including the hover, and one test
+pinning the view pair at 44px while the filter row is 32px. No other spec
+changed: nothing else pinned a colour this batch moved.

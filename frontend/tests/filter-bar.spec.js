@@ -343,3 +343,66 @@ test('the "How did it end?" chooser is opaque and on top of the board', async ({
   await expect(chooser).toBeVisible();
   expect(await topmostAt(page, chooser)).toMatchObject({ insidePanel: true });
 });
+
+// 2026-10-29 brief, B2: the chip is 32px high (it was 40px), 14px bold,
+// pill radius; unselected is the secondary fill and darkens on hover,
+// selected is the brand wash behind a 2px brand border.
+test('a filter chip is 32px, 14px bold and a pill, and its ground follows the state', async ({
+  page,
+}) => {
+  await page.goto('/jobs');
+  const chip = page.getByTestId('filter-chip-needs-attention');
+  await expect(chip).toBeVisible();
+
+  const metrics = await chip.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const label = [...el.querySelectorAll('*')].find(
+      (node) => node.children.length === 0 && node.textContent.trim() === 'Needs attention',
+    );
+    const labelStyle = getComputedStyle(label);
+    return {
+      height: cs.height,
+      radius: cs.borderTopLeftRadius,
+      borderWidth: cs.borderTopWidth,
+      background: cs.backgroundColor,
+      border: cs.borderTopColor,
+      fontSize: labelStyle.fontSize,
+      fontWeight: labelStyle.fontWeight,
+    };
+  });
+
+  // Height is the content box plus the two borders, which is what
+  // box-sizing: border-box in FilterChip.jsx is there to keep true.
+  expect(metrics.height).toBe('32px');
+  expect(metrics.radius).toBe('999px');
+  expect(metrics.borderWidth).toBe('2px');
+  expect(metrics.fontSize).toBe('14px');
+  expect(metrics.fontWeight).toBe('700');
+
+  // Unselected: the secondary fill behind a border that is present but
+  // transparent, so selecting it never reflows the row.
+  expect(metrics.background).toBe('rgb(232, 231, 225)'); // --color-background-secondary-base
+  expect(metrics.border).toBe('rgba(0, 0, 0, 0)');
+
+  // Hover darkens the unselected ground to the secondary weak.
+  await chip.hover();
+  await expect(chip).toHaveCSS('background-color', 'rgb(214, 212, 205)'); // --color-background-secondary-weak
+
+  // Selected: the brand wash behind a 2px brand border, and the hover
+  // does not take that away while the pointer is still on it.
+  await chip.click();
+  await expect(chip).toHaveAttribute('aria-pressed', 'true');
+  await expect(chip).toHaveCSS('background-color', 'rgb(227, 250, 225)'); // --color-brand-wash
+  await expect(chip).toHaveCSS('border-top-color', 'rgb(0, 135, 83)'); // --color-brand-primary
+  await expect(chip).toHaveCSS('height', '32px');
+});
+
+// The Board/List pair keeps the 44px it was given to match the height of
+// the primary button beside it (artboard 2026-10-18); the brief's 32px is
+// the chip's own default, which the filter row uses.
+test('the view pair keeps its 44px while the filter row is 32px', async ({ page }) => {
+  await page.goto('/jobs');
+  await expect(page.getByTestId('view-chip-board')).toHaveCSS('height', '44px');
+  await expect(page.getByTestId('view-chip-list')).toHaveCSS('height', '44px');
+  await expect(page.getByTestId('filter-chip-function')).toHaveCSS('height', '32px');
+});

@@ -14,7 +14,9 @@ on Gestalt. Recorded in PROJECT.md (Expensive decisions).
 Consequences of C:
 
 - Flask becomes a JSON API; the 11 Jinja templates are rewritten as React
-  pages using real Gestalt components (blue/purple theme per PROJECT.md).
+  pages using real Gestalt components (blue/purple theme per PROJECT.md —
+  superseded by the 2026-10-26 handover, which makes the brand Matchacado
+  green; see "Tokens, the bridge and the restyle, 2026-10-29" below).
 - A JS build toolchain (npm, bundler) enters the repo for the first time.
 - JOZ-274 (cards) and JOZ-275 (buttons/messages) fold into the rewrite as
   Gestalt components (Card, Button, Toast) instead of CSS-only passes.
@@ -133,7 +135,7 @@ same thing.
 | Entry | What it is | Rule |
 |---|---|---|
 | Dashed AI label (`AiLabel.jsx`) | `AI-generated` for text a model composed, `AI-extracted` for text it lifted out of the posting | A dashed outline and subtle text, no fill and no colour of its own. A provenance marker is not an owner action, so it must not read like the violet "Needs your input" signal. Replaces `SectionCard`'s plain `label` badge. |
-| Level tag (`LevelTag.jsx`) | One requirement or skill, filled for a must-have and outlined for a nice-to-have | Colour never carries the must/nice difference: both levels use the same neutral container colours and brand blue is never used for either, because blue is this system's primary-action colour. The fill carries it visually, and a visually hidden "Must-have:" / "Nice to have:" prefix carries it for everyone else. |
+| Level tag (`LevelTag.jsx`) | One requirement or skill, filled for a must-have and outlined for a nice-to-have | Colour never carries the must/nice difference: both levels use the same neutral container colours (`--color-background-secondary-base`, transparent, `--color-border-container`) and the brand colour is never used for either, because the brand is this system's primary-action colour. No teal and no blue appears here at all. The fill carries the difference visually, and a visually hidden "Must-have:" / "Nice to have:" prefix carries it for everyone else. |
 | `SectionCard` variant `needs-input` | The one ask a detail page makes of its owner | Violet wash with a violet border, exactly one action set, rendered only when there is something to ask. A page never shows two at once; which ask wins is decided in the backend context, not by section order. |
 | `SectionCard` padding | 24px | Was 16px. |
 | Detail-page content column | 960px (`DETAIL_MAX_WIDTH`) | Was 880px. One constant, shared by the Job, Company and Experience pages. |
@@ -146,8 +148,9 @@ same thing.
 `--color-icon-brand-primary` is rebound to `--color-brand-primary` in
 `frontend/src/design/theme.css`. Gestalt's brand icon token is still
 Pinterest red, so the detail pages' back-link arrow (an `Icon`
-`color="brandPrimary"`) rendered red beside its blue link text. The brand
-here is blue.
+`color="brandPrimary"`) rendered red beside its link text. The brand here
+is Matchacado green (`#008753`); it was blue until the 2026-10-26
+handover, and the rebinding is what makes the arrow follow it either way.
 
 ## Jobs board D7
 
@@ -191,17 +194,24 @@ the board canvas (claude.ai artifact 7PBPPwtEXZEmQdeNXd4b8S). Every
 entry changes a component the app already has. Where the brief and the
 artboard disagreed, the brief won and the entry says so.
 
-### Buttons: the one filled blue element on a screen
+### Buttons: the one filled brand element on a screen
 
-Primary blue is the fill of the one main action on a screen, and never
+The brand fill is the fill of the one main action on a screen, and never
 of a selected state. A selected view, a selected filter and a selected
 toggle are states, not actions.
 
 On the Jobs page that one action is "Add a job". Board and List used to
 be `ButtonToggle`, whose selected state this theme binds to the brand
 fill (`--color-background-button-selected-default`), so choosing a view
-looked like the page's main action and there were three filled blue
+looked like the page's main action and there were three filled brand
 buttons above the board.
+
+Since the rewrite to a `FilterChip` pair, nothing in the app reads
+`--color-background-button-selected-default` and nothing may: a view
+switch is a state and takes the one selected style below (2026-10-29
+brief, A3). The binding is kept so that a `ButtonToggle` added later for
+something that *is* an action lands on the brand rather than on Gestalt's
+near-black `--color-background-selected-base`.
 
 An overlay with its own main action keeps one of its own: the Apply
 button of a filter popover and the "Show N jobs" button of the More
@@ -213,8 +223,9 @@ decoration inside the chip it belongs to.
 
 | Entry | What it is | Rule |
 |---|---|---|
-| `FilterChip` selected | The wash-blue ground with a 2px brand-blue border and the default text colour | One style for every selected toggle in the app: the Board and List pair, Needs attention, Hide closed postings, the Sector, Size and Open jobs filters on Companies, and every later toggle. It is the style the Function filter already had when active. |
-| `FilterChip` unselected | The neutral chip: secondary-base ground, no visible border | The border is present and transparent in this state, so selecting a chip never changes its size and the row never reflows. |
+| `FilterChip` selected | The brand wash (`--color-brand-wash`) with a 2px brand border (`--color-brand-primary`) and the default text colour | One style for every selected toggle in the app: the Board and List pair, Needs attention, Hide closed postings, the Sector, Size and Open jobs filters on Companies, and every later toggle. It is the style the Function filter already had when active. Hover does not move it: a selected chip is already showing the state a hover would announce. |
+| `FilterChip` unselected | The neutral chip: `--color-background-secondary-base` ground, no visible border, darkening to `--color-background-secondary-weak` on hover | The border is present and transparent in this state, so selecting a chip never changes its size and the row never reflows. The brief (2026-10-29, B2) names the hover "fill-secondary-hover"; the ported token set has no such name and `--color-background-secondary-weak` is its one darker partner to the base, so the hover binds to that rather than to a token invented for it. |
+| `FilterChip` metrics (2026-10-29, B2) | 32px high, 14px bold label, pill radius | Was 40px. The two view pairs keep the 44px they are given explicitly, which is the height of the primary button beside them (artboard 2026-10-18); 32px is the chip's own default and therefore the filter row's height. The ground and the border moved out of the component's inline style into `components/FilterChip.css`, because a hover cannot be written inline and an inline declaration would outrank the rule meant to change it. |
 | Board and List pair | Two `FilterChip`s in a `role="group"` labelled "View", each carrying its own `aria-pressed`, 16px to the right of "Add a job" | One pair rather than two independent buttons, because exactly one of them is true. |
 | Tiles and List pair (Companies, 2026-10-19) | The same pair, same group label, same 44px height, as the first row under the title | Companies has no main action, so the pair is the whole of that row; it still never carries the primary fill, because a chosen view is a state (B4). |
 | Filter bar divider | Rendered only when the bar has at least one toggle | Companies' bar has none since B5, and the All jobs tab has one; a rule with nothing after it is a line that means nothing. |
@@ -240,11 +251,11 @@ decoration inside the chip it belongs to.
 | Entry | What it is | Rule |
 |---|---|---|
 | Collapsed lane | 168px wide, the secondary ground, no border, 16px rounding, the full height of the board | The brief's 168px, not the artboard's 120px: three count rows need it. No border, because the ground is what the lane is drawn with. |
-| Lane header | "Ended" and the count on the column titles' own baseline, under a 2px grey rule | The same wrapper a `KanbanBoard` column header uses, so the two titles and their rules land on one line. The rule is grey where a column's is brand blue, because the lane is not one of the statuses being worked. |
+| Lane header | "Ended" and the count on the column titles' own baseline, under a 2px grey rule | The same wrapper a `KanbanBoard` column header uses, so the two titles and their rules land on one line. The rule is grey where a column's is the brand colour, because the lane is not one of the statuses being worked. |
 | Lane counts | Won, Rejected and Stopped, one row each, label left and number right | They used to wrap onto two lines each in a 72px strip. |
 | Lane actions | A white `Show` button, then "Drop a job here to end it" in 12px subtle text | |
 | Lane position | The last cell of the board's outer flex row, a sibling of the scrolling columns area, with `align-self: stretch` | It reserves its own width and the scroller takes what is left, so the columns end before the lane and never slide under it, and `align-self: stretch` still gives the lane the board's full height, which is the height the scroller's columns define. A sticky item inside the scroller passed the height check but painted over the Interview column at 1280px, and an earlier sticky attempt covered the More filters panel; plain flex layout needs no positioning and no z-index. |
-| Lane drag-over | The wash-blue ground, a 2px dashed brand-blue outline, and "Drop to end" | The same dashed outline a column shows. |
+| Lane drag-over | The brand-wash ground (`--color-brand-wash`), a 2px dashed brand outline (`--color-brand-primary`), and "Drop to end" | The same dashed outline a column shows. Dashed, not solid: it is the drop-target language the board already speaks, and the 2026-10-29 brief (B4) fixes the colour and the width, both of which already held. |
 | `KanbanBoard` row | A plain flex row rather than Gestalt's `Flex`, inside a scrolling box that is itself one cell of the board's outer flex row | `Flex` wraps every child in a block div of its own to space them, and a wrapped child cannot be stretched to the row's height. The outer row holds two cells: the scrolling columns area, which grows, and the lane, which does not. |
 
 ### Job card
@@ -254,7 +265,7 @@ decoration inside the chip it belongs to.
 | `JobCard` top row | 32px tall: the "Needs your input" chip on the left when the job is waiting on the owner, the status select on the right | The row keeps its height with no chip in it, so the select sits on one line across a column of cards. |
 | "Needs your input" chip | Violet wash with a violet ring, 24px, 12px bold text | It reads the payload's own `needs_attention`, which is what the filter bar's "Needs attention" chip counts, so the chip and the filter cannot disagree. It replaces the violet `Badge` that used to sit beside the company link on a board card; the list view still shows that badge, having no top row. |
 | `StatusSelect` control | A native button: 112px wide, 32px high, 8px radius, a hairline border, a white ground, 12px bold text, and a chevron | Was a Gestalt `Button color="gray" size="sm"`, which drew a large grey pill with no room for a chevron and read as a filled chip rather than as a select. The dropdown it opens is unchanged. Grown to 44px at phone widths, where a finger is the pointer. |
-| `JobCard` company link | 14px bold in link blue | |
+| `JobCard` company link | 14px bold, ink-black and underlined (`--color-text-link`, `#000000`) | Since the 2026-10-26 handover the underline is what says "this is a link", not the colour. |
 | `JobCard` meta line | One line: a pin and the location, then "Added 14 Oct" | Day and short month, with the year only when it is not the current one (`src/dates.js` `shortDate`). The location shows each part once and leaves Switzerland out while anything else is left (`src/location.js` `displayLocation`); display only, the stored value is never touched. |
 | `JobCard` badge row | Removed | The sector, size, salary and function badges wrapped past the edge of a 320px card, and each of them is a filter above the board or a line on the detail page. The separate "Posted" line went with them: the card says when the job entered the board, which is the date the owner reads it by. |
 | `JobCard` ingest indicator | Kept | Not a badge: a failed read is a visible state with a Try again beside it, and the board has no other route to that retry. |
@@ -305,3 +316,103 @@ absent, the way `/jobs` already falls back) uses no CSS of its own. The
 shared control styles in `careeros/web/ui.py` already cover a label, an
 input and a primary button, so the fallback is a second rendering of one
 page rather than a second visual language.
+
+## Tokens, the bridge and the restyle, 2026-10-29
+
+The 2026-10-26 handover replaced the blue/purple theme with the Matchacado
+green brand on a light ground (`frontend/src/design/tokens.css`). This
+section records the second half of that change: the Gestalt bridge
+(`frontend/src/design/theme.css`) that makes Gestalt's own component
+tokens read the brand, and the restyle of the components the brief names.
+Nothing here is a new component, a new layout or a new behaviour. There is
+no "brand blue" anywhere in this system: the brand is green, and so is the
+informational colour, by owner ruling.
+
+### The brand is the informational colour
+
+`Badge type="info"`, `BannerSlim type="info"` and `BannerCallout
+type="info"` are brand green, not Gestalt's skycicle blue. The
+closed-postings banner on the Jobs board is the visible check, and
+`frontend/tests/theme.spec.js` asserts its rendered ground, its icon, all
+eight info tokens, and that no element on the page is painted in any of
+Gestalt's three info blues.
+
+### Recorded token overrides
+
+Every row is a redeclaration in `frontend/src/design/theme.css`. The three
+from earlier sections (`--color-icon-brand-primary`, the popover trio) are
+still in force and are not repeated here.
+
+| Override | Bound to | Reason |
+|---|---|---|
+| `--color-background-info-{base,strong,weak}` | `--color-brand-primary` / `-strong` / `--color-brand-wash` | The informational colour is the brand (owner ruling, 2026-10-26 handover). |
+| `--color-background-box-info-{base,weak}` | the same three | **Gestalt already aliases these to the names above, and the alias does not hold at runtime.** `DesignTokensProvider` republishes every token as a resolved literal on `:root`, which bypasses it — the same trap recorded for the popover ground. `BannerSlim type="info"` reads `--color-background-box-info-weak` for its ground (`MESSAGING_TYPE_ATTRIBUTES` maps `info` to `Box color="infoWeak"`), so until this binding landed the closed-postings banner was still Gestalt's `#d7edff`. |
+| `--color-background-badge-info-{default,hover}` | `--color-brand-primary` / `-strong` | Same alias, same bypass: every `Badge type="info"` ("AI-generated", the function chips) was still Gestalt's `#0074e8`. |
+| `--color-background-box-{warning,error}-weak` | `--color-background-warning-weak` / `--color-background-error-weak` | A warning banner uses the warning wash and an error banner the error wash. Gestalt's stock light values happen to equal the handover's, so the pairing looked right already; binding it makes the agreement this theme's rather than a coincidence of two palettes. |
+| `--color-icon-{warning,error}` | `--color-text-warning` / `--color-text-error` | The icon in such a banner is the same colour as its text, for the same reason. |
+| `--color-background-button-primary-{default,hover,active}`, scoped to `[role="alertdialog"]` | `--color-text-error` (`#cc0000`), `--color-background-danger-hover` (`#a30000`) ×2 | The one red fill left in the app. Rebinding the primary-button tokens to the brand is what makes every `Button color="red"` green, which is wanted everywhere except on a button that really does destroy a record. Gestalt builds a `ModalAlert`'s primary action as `Button color="red"` and renders the alert as `role="alertdialog"`, so the role **is** the destructive case: the tokens are redeclared on the dialog element, no component grew a prop and no call site changed. A custom property declared on an element beats one inherited from `:root` whatever the root's `!important`, so none of these needs `!important`. |
+| `--color-text-{inverse,default}`, scoped to `[role="alertdialog"] .Il7` | `--color-background-card` | The label on that red fill is the surface colour, measured at 5.25:1. Both names are bound because Gestalt picks between them in JS — see the `.Il7` note in `frontend/BUILD_NOTES.md`. |
+
+`--color-background-button-selected-default` stays bound to the brand and
+stays unread: see "Buttons: the one filled brand element on a screen".
+
+### Links
+
+Links are ink-black (`--color-text-link`, `#000000`) and underlined
+everywhere, in `#root` and in the `Layer` portals alike. The underline is
+what carries "this is a link", not the colour, which is why it is always
+on rather than on hover.
+
+Buttons and chips are excluded. A Gestalt `ButtonLink` is an `<a>` wearing
+a button's chrome — the Experiences page's "Add position" is one — so the
+anchor-wide rule drew an underline through the label of a filled pill. The
+rule now skips `.USg`, the class Gestalt 177.0.12 puts on button chrome
+and on nothing else, and Gestalt's own `text-decoration: none` on the same
+anchor takes over. Chips need no exclusion: every chip in the app is a
+`<button>` or a `<div>`, never an anchor. Nav items are `TapAreaLink`s and
+really are links, so they keep the underline.
+
+### Line heights
+
+Each line height belongs to a font **size**, not to a heading level, and
+the scale is no longer one formula. The pairs, from the 2026-10-26
+handover:
+
+| Font size | Line height | Gestalt scale |
+|---|---|---|
+| 12px | 16px | text-100 / heading-100 |
+| 14px | 20px | text-200 / heading-200 |
+| 16px | 22px | text-300 / heading-300 |
+| 20px | 24px | heading-400 |
+| 28px | 31px | heading-600 |
+| 36px | 40px | heading-700 |
+
+Gestalt classic ships no line height for `Text` or `Heading` at all, so
+the whole scale is declared in `design/theme.css` against Gestalt's own
+typography classes, plus a generic fallback for leaves outside them. Two
+constraints hold it in place, both of them learned the hard way:
+
+- **Leaf elements only.** Declaring a line height on the structural
+  wrappers too perturbs layout enough that Chromium stops starting a
+  native drag on the job cards — no `dragstart` fires and the board's
+  drag-and-drop silently dies. `tests/jobs-board.spec.js` is what caught
+  it.
+- **Portals too.** Gestalt's `Layer` mounts its children in a plain `div`
+  appended to `document.body`, so a `#root`-only rule leaves `Toast` text
+  with no line height at all.
+
+### Messages and popups
+
+| Entry | What it is | Rule |
+|---|---|---|
+| `Message.jsx` (`FloatingMessage`) | A `BannerSlim` inside a bordered, shadowed `Box` | The border is `--color-border-container` (Gestalt's `borderStyle="sm"`) and the shadow `--elevation-floating`. No blue in any state: `info` is the brand wash, `warning` the warning wash with warning text and icon, `error` the error wash with error text and icon. |
+| Popovers and overlays | The card surface (`--color-background-card`) | `--color-background-popover-primary`, `--color-border-popover-primary` and `--color-background-elevation-floating` are bound to it directly, for the alias reason above. Recorded in "Overlays: every popover in a Layer". |
+| `DeleteConfirmModal.jsx` | A `ModalAlert`, the app's one delete confirmation | Its confirm is the only red fill in the app (table above); its "Keep" secondary stays the gray it was. |
+
+### Unchanged, deliberately
+
+The dark token block in `tokens.css` is untouched: launch is light-only
+and a dark rework is its own decision, so the dark set still carries the
+old names (`color-brand-wash-blue`, `-teal`, `color-brand-accent`) and the
+old values. `tests/theme.spec.js` asserts them, so the day dark mode is
+reworked it is a visible change rather than a drift.

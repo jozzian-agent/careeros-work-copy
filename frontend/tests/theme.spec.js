@@ -1,5 +1,14 @@
 import { expect, test } from '@playwright/test';
-import { loadBoardFixture, mockBoard, mockIntake } from './helpers.js';
+import {
+  loadBoardFixture,
+  loadFixture,
+  mockBoard,
+  mockCompanyPage,
+  mockExperiencesPage,
+  mockIntake,
+  mockJobPage,
+  mockJobTaxonomy,
+} from './helpers.js';
 
 const fixture = loadBoardFixture();
 
@@ -18,6 +27,22 @@ const PAGE_LIGHT = 'rgb(246, 253, 245)'; // #f6fdf5
 const CARD_DARK = '#191919';
 const ON_COLOR_DARK = 'rgb(17, 17, 17)'; // #111111, dark foreground for brand fills
 const ON_COLOR_LIGHT = 'rgb(255, 255, 255)';
+const SURFACE = 'rgb(255, 255, 255)'; // #ffffff, --color-background-card
+const INK = 'rgb(0, 0, 0)'; // #000000, --color-text-default
+const DANGER = 'rgb(204, 0, 0)'; // #cc0000, --color-text-error
+const DANGER_HOVER = '#a30000'; // --color-background-danger-hover
+
+// Gestalt 177.0.12's own light info palette (skycicle), which is what the
+// theme has to displace. Named here so the "no blue anywhere" assertions
+// read as what they are rather than as three unexplained triples.
+const GESTALT_INFO_BASE = 'rgb(0, 116, 232)'; // #0074e8
+const GESTALT_INFO_WEAK = 'rgb(215, 237, 255)'; // #d7edff
+const GESTALT_INFO_STRONG = 'rgb(0, 95, 203)'; // #005fcb
+
+const jobFixture = loadFixture('job-detail');
+const taxonomyFixture = loadFixture('job-taxonomy');
+const companyFixture = loadFixture('company-detail');
+const experiencesFixture = loadFixture('experiences-list');
 
 // The app itself is pinned to colorScheme="light" (src/App.jsx), so the
 // dark-mode tests mount tests/theme-harness.html instead, which drives a real
@@ -161,6 +186,225 @@ test('links are ink-black and always underlined, and the page ground is the ligh
     () => getComputedStyle(document.body).backgroundColor,
   );
   expect(pageBackground).toBe(PAGE_LIGHT);
+});
+
+// 2026-10-29 brief, B1: "chips and buttons excluded". A Gestalt ButtonLink
+// is an <a> wearing a button's chrome, so the anchor-wide rule above drew an
+// underline through the label of a filled pill. design/theme.css excludes
+// Gestalt's own button class; this is the pair of assertions that keeps the
+// exclusion exact - the button loses the underline and an ordinary link on
+// the same page keeps it.
+test('a ButtonLink is not underlined, and the links beside it still are', async ({ page }) => {
+  await mockExperiencesPage(page, experiencesFixture);
+  await page.goto('/experiences');
+
+  const addPosition = page.getByRole('link', { name: 'Add position' });
+  await expect(addPosition).toBeVisible();
+  await expect(addPosition).toHaveCSS('text-decoration-line', 'none');
+
+  // The row links on the same page, which are ordinary Gestalt Links.
+  const decorations = await page.evaluate(() =>
+    [...document.querySelectorAll('a[href^="/experiences/"]')]
+      .filter((a) => a.getAttribute('href') !== '/experiences/new')
+      .map((a) => getComputedStyle(a).textDecorationLine),
+  );
+  expect(decorations.length).toBeGreaterThan(0);
+  expect([...new Set(decorations)]).toEqual(['underline']);
+});
+
+// 2026-10-29 brief, A1: the informational colour is the brand, and that has
+// to hold for *every* info token Gestalt reads, not only the three base
+// ones. Gestalt aliases box-info-* and badge-info-* to the base names in its
+// own stylesheet, but DesignTokensProvider republishes every token as a
+// resolved literal on :root, so the alias is not what is in force at
+// runtime: the banner below rendered Gestalt's skycicle blue until all
+// eight names were bound in design/theme.css.
+test('the info banner renders in brand wash, and no info token resolves to blue', async ({
+  page,
+}) => {
+  await openBoard(page);
+
+  // The closed-postings banner is the check the brief names: a BannerSlim
+  // type="info", whose ground is --color-background-box-info-weak.
+  const banner = page.getByTestId('closed-postings-banner');
+  await expect(banner).toBeVisible();
+
+  const rendered = await banner.evaluate((el) => {
+    // BannerSlim paints the ground on its own outermost Box, which is the
+    // first descendant carrying a background at all.
+    const ground = [...el.querySelectorAll('*')].find(
+      (node) => getComputedStyle(node).backgroundColor !== 'rgba(0, 0, 0, 0)',
+    );
+    // The banner's own sentence: the longest leaf in it, so the assertion
+    // does not depend on where BannerSlim puts its action buttons.
+    const text = [...el.querySelectorAll('*')]
+      .filter((node) => node.children.length === 0)
+      .sort((a, b) => b.textContent.trim().length - a.textContent.trim().length)[0];
+    return {
+      ground: getComputedStyle(ground).backgroundColor,
+      icon: getComputedStyle(el.querySelector('svg')).fill,
+      text: getComputedStyle(text).color,
+    };
+  });
+  expect(rendered.ground).toBe(BRAND_WASH);
+  expect(rendered.icon).toBe(BRAND_PRIMARY);
+  // The banner's own message on its own ground, measured rather than
+  // assumed: the info wash has to carry body text at WCAG AA.
+  expect(contrastRatio(rendered.text, rendered.ground)).toBeGreaterThanOrEqual(4.5);
+
+  // All eight names Gestalt can reach for an "info" colour, resolved from
+  // the live document. The five aliased ones are the point of the test.
+  const tokens = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const names = [
+      'background-info-base',
+      'background-info-strong',
+      'background-info-weak',
+      'background-box-info-base',
+      'background-box-info-weak',
+      'background-badge-info-default',
+      'background-badge-info-hover',
+      'icon-info',
+    ];
+    return Object.fromEntries(
+      names.map((name) => [name, cs.getPropertyValue(`--color-${name}`).trim()]),
+    );
+  });
+  expect(tokens).toEqual({
+    'background-info-base': '#008753',
+    'background-info-strong': '#005f3e',
+    'background-info-weak': '#e3fae1',
+    'background-box-info-base': '#008753',
+    'background-box-info-weak': '#e3fae1',
+    'background-badge-info-default': '#008753',
+    'background-badge-info-hover': '#005f3e',
+    'icon-info': '#008753',
+  });
+
+  // And nothing on the page is painted in Gestalt's info blue.
+  const blues = await page.evaluate((palette) => {
+    const hit = (el) => {
+      const cs = getComputedStyle(el);
+      return palette.includes(cs.backgroundColor) || palette.includes(cs.fill);
+    };
+    return [...document.querySelectorAll('*')]
+      .filter(hit)
+      .map((el) => el.textContent.trim().slice(0, 40));
+  }, [GESTALT_INFO_BASE, GESTALT_INFO_WEAK, GESTALT_INFO_STRONG]);
+  expect(blues).toEqual([]);
+});
+
+// 2026-10-29 brief, A2. The primary-button tokens are the brand, so every
+// Button color="red" is green - and the one button that really does destroy
+// a record must not be. design/theme.css redeclares the three fill tokens on
+// the alert dialog itself, which is the only place Gestalt builds a
+// destructive confirmation.
+test('the primary button is brand green and the destructive confirm is the only red fill', async ({
+  page,
+}) => {
+  await mockJobPage(page, jobFixture);
+  await mockJobTaxonomy(page, taxonomyFixture);
+  await mockCompanyPage(page, companyFixture);
+  await page.goto('/jobs/JOB-001');
+  await expect(page.getByRole('heading', { name: jobFixture.job.title })).toBeVisible();
+
+  // Outside the dialog the brand still owns the primary fill: Edit job is
+  // the page's own Button, and the tokens resolve to the brand pair.
+  const outside = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return {
+      fill: cs.getPropertyValue('--color-background-button-primary-default').trim(),
+      hover: cs.getPropertyValue('--color-background-button-primary-hover').trim(),
+    };
+  });
+  expect(outside.fill).toBe('#008753');
+  expect(outside.hover).toBe(BRAND_PRIMARY_STRONG);
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toBeVisible();
+
+  const confirm = await dialog.evaluate((el) => {
+    const read = (label) => {
+      const button = [...el.querySelectorAll('button')].find(
+        (node) => node.textContent.trim() === label,
+      );
+      const leaf = [...button.querySelectorAll('*')].find(
+        (node) => node.children.length === 0 && node.textContent.trim() === label,
+      );
+      return {
+        background: getComputedStyle(button.firstElementChild).backgroundColor,
+        color: getComputedStyle(leaf).color,
+      };
+    };
+    const cs = getComputedStyle(el);
+    return {
+      destructive: read('Delete job'),
+      keep: read('Keep job'),
+      hover: cs.getPropertyValue('--color-background-button-primary-hover').trim(),
+      active: cs.getPropertyValue('--color-background-button-primary-active').trim(),
+    };
+  });
+
+  // The handover's three values: the error red for the fill, the danger
+  // hover under the pointer, and the surface for the label on it.
+  expect(confirm.destructive.background).toBe(DANGER);
+  expect(confirm.destructive.color).toBe(SURFACE);
+  expect(confirm.hover).toBe(DANGER_HOVER);
+  expect(confirm.active).toBe(DANGER_HOVER);
+  expect(contrastRatio(confirm.destructive.color, confirm.destructive.background)).toBeGreaterThanOrEqual(4.5);
+
+  // The red is the confirm's alone: "Keep job" is the gray secondary, and
+  // it is not the brand fill either.
+  expect(confirm.keep.background).not.toBe(DANGER);
+  expect(confirm.keep.background).not.toBe(BRAND_PRIMARY);
+
+  // Nothing else in the dialog carries the red fill.
+  const reds = await dialog.evaluate(
+    (el, danger) =>
+      [...el.querySelectorAll('*')].filter(
+        (node) => getComputedStyle(node).backgroundColor === danger,
+      ).length,
+    DANGER,
+  );
+  expect(reds).toBe(1);
+});
+
+// 2026-10-29 brief: AA for text on the brand wash and on the info wash.
+// They are the same token (--color-brand-wash) by design, so the point of
+// measuring both is that the *rendered* grounds agree: a selected chip and
+// an info banner must not drift apart.
+test('ink text clears WCAG AA on the brand wash and on the info wash alike', async ({ page }) => {
+  await openBoard(page);
+
+  const grounds = await page.evaluate(() => {
+    const chip = document.querySelector('[data-testid="view-chip-board"]');
+    const banner = document.querySelector('[data-testid="closed-postings-banner"]');
+    const bannerGround = [...banner.querySelectorAll('*')].find(
+      (node) => getComputedStyle(node).backgroundColor !== 'rgba(0, 0, 0, 0)',
+    );
+    const chipLabel = [...chip.querySelectorAll('*')].find(
+      (node) => node.children.length === 0 && node.textContent.trim() === 'Board',
+    );
+    const bannerText = [...banner.querySelectorAll('*')]
+      .filter((node) => node.children.length === 0)
+      .sort((a, b) => b.textContent.trim().length - a.textContent.trim().length)[0];
+    return {
+      wash: getComputedStyle(chip).backgroundColor,
+      washText: getComputedStyle(chipLabel).color,
+      infoWash: getComputedStyle(bannerGround).backgroundColor,
+      infoText: getComputedStyle(bannerText).color,
+    };
+  });
+
+  expect(grounds.wash).toBe(BRAND_WASH);
+  expect(grounds.infoWash).toBe(BRAND_WASH);
+  expect(grounds.washText).toBe(INK);
+  expect(contrastRatio(grounds.washText, grounds.wash)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(grounds.infoText, grounds.infoWash)).toBeGreaterThanOrEqual(4.5);
+  // Ink on the wash is the brightest pair in the system; pin it so a wash
+  // that darkens shows up here with its real number.
+  expect(contrastRatio(grounds.washText, grounds.wash)).toBeCloseTo(19.0, 0);
 });
 
 test('the deliberate departures from Gestalt are in force', async ({ page }) => {

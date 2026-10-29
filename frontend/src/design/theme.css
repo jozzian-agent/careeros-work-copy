@@ -61,10 +61,15 @@
   --color-background-primary-strong: var(--color-brand-primary-strong) !important;
   --color-background-primary-weak: var(--color-brand-wash) !important;
 
-  /* ButtonToggle's selected state (Board/List, Needs attention) reads this
-   * token rather than the button-primary-* trio above, whatever its own
-   * Gestalt 177 defaults it to near-black
-   * (--color-background-selected-base); the board wants brand green. */
+  /* ButtonToggle's selected state reads this token rather than the
+   * button-primary-* trio above (Gestalt 177 defaults it to near-black,
+   * --color-background-selected-base). Nothing in the app reads it today
+   * and nothing may: a selected VIEW is a state, not an action, so the
+   * Board/List and Tiles/List pairs are FilterChips in the one selected
+   * style (brand wash + a 2px brand border) and never a brand fill. The
+   * binding is kept only so a future ButtonToggle, if one is ever added
+   * for something that is an action, lands on the brand rather than on
+   * Pinterest's near-black. */
   --color-background-button-selected-default: var(--color-brand-primary) !important;
 
   /* The detail pages' back-link arrow (DetailHeader's Icon
@@ -75,11 +80,50 @@
   --color-icon-brand-primary: var(--color-brand-primary) !important;
 
   /* Informational colour = brand green (Badge type="info": AI-generated,
-   * function chips), per the 2026-10-26 handover. */
+   * function chips; BannerSlim/BannerCallout type="info": the
+   * closed-postings banner), per the 2026-10-26 handover.
+   *
+   * All eight names, not just the three base ones. Gestalt's own
+   * stylesheet already aliases the other five to them --
+   * `--color-background-box-info-weak: var(--color-background-info-weak)`,
+   * `--color-background-badge-info-default: var(--color-background-
+   * info-base)`, `--color-background-badge-info-hover: var(--color-
+   * background-info-strong)` -- so binding the base names LOOKS like
+   * enough. It is not, for the same reason the popover ground above is
+   * bound directly: DesignTokensProvider re-emits every token as a
+   * RESOLVED literal on :root, which bypasses the alias. Until all eight
+   * were bound, Gestalt's skycicle blue still reached the two components
+   * that read the aliased names: BannerSlim type="info" takes its ground
+   * from --color-background-box-info-weak (MESSAGING_TYPE_ATTRIBUTES maps
+   * info to Box color="infoWeak", and `.Am_` in gestalt.css is
+   * `background-color:var(--color-background-box-info-weak)`), and every
+   * Badge type="info" takes its fill from --color-background-badge-info-
+   * default. The closed-postings banner is the check (tests/theme.spec.js,
+   * tests/closed-postings.spec.js). */
   --color-background-info-base: var(--color-brand-primary) !important;
   --color-background-info-strong: var(--color-brand-primary-strong) !important;
   --color-background-info-weak: var(--color-brand-wash) !important;
+  --color-background-box-info-base: var(--color-brand-primary) !important;
+  --color-background-box-info-weak: var(--color-brand-wash) !important;
+  --color-background-badge-info-default: var(--color-brand-primary) !important;
+  --color-background-badge-info-hover: var(--color-brand-primary-strong) !important;
   --color-icon-info: var(--color-brand-primary) !important;
+
+  /* Messages and popups, warning and error (2026-10-29 brief, B5): the
+   * warning wash with warning text, the error wash with error text.
+   *
+   * tokens.css already declares --color-background-{warning,error}-weak
+   * and --color-text-{warning,error} under Gestalt's own names, so a
+   * Banner's ground and icon are already these values -- but only by
+   * coincidence, because Gestalt's stock light palette happens to use the
+   * same four. The box-* aliases are published as resolved literals like
+   * the info ones above, so the agreement is Gestalt's and not this
+   * theme's. Binding them makes the pairing a fact of this file: if the
+   * handover moves the warning wash, the Banner moves with it. */
+  --color-background-box-warning-weak: var(--color-background-warning-weak) !important;
+  --color-background-box-error-weak: var(--color-background-error-weak) !important;
+  --color-icon-warning: var(--color-text-warning) !important;
+  --color-icon-error: var(--color-text-error) !important;
 
   /* Violet (Badge type="recommendation": "Needs your input"). Gestalt uses
    * purple-mysticool-500; the brand uses 600 light / 300 dark. */
@@ -136,6 +180,47 @@
 .Il7 {
   --color-text-inverse: var(--color-brand-on-color);
   --color-text-default: var(--color-brand-on-color);
+}
+
+/* The one red fill left in the app: a destructive confirmation
+ * (2026-10-29 brief, A2).
+ *
+ * Rebinding the primary-button tokens to the brand above is what makes
+ * every `Button color="red"` green, and that is wanted everywhere except
+ * here, where the button really does destroy a record. Gestalt builds a
+ * ModalAlert's primary action as `Button color="red"` (ModalAlertAction,
+ * gestalt.es.js line 18059: `const color = type === 'primary' ? 'red' :
+ * 'gray'`), so the destructive confirm reaches the same tokens as "Add a
+ * job" and would be green too.
+ *
+ * Scoped by role rather than by component or by markup: ModalAlert is the
+ * app's one delete-confirmation template (components/DeleteConfirmModal
+ * .jsx, its only caller), and Gestalt renders it as `role="alertdialog"`
+ * -- the alert dialog IS the destructive case, so no component had to
+ * grow a prop and no call site changed. The tokens are redeclared on the
+ * dialog element, NOT on :root, so they reach only the buttons inside it;
+ * a custom property declared on an element beats one inherited from the
+ * root whatever the root's `!important`, which is the same mechanism the
+ * `.Il7` block above relies on and the reason none of these four lines
+ * needs `!important` of its own.
+ *
+ * The values are the handover's: --color-text-error (#cc0000) for the
+ * fill, --color-background-danger-hover (#a30000) for hover and active,
+ * and the surface (--color-background-card, #ffffff) for the label, which
+ * measures 5.25:1 on the fill. Both label tokens are bound for the reason
+ * the .Il7 block gives: Gestalt picks between them in JS.
+ *
+ * The secondary action ("Keep job") is `Button color="gray"` and reads
+ * none of these, so it is untouched. */
+[role='alertdialog'] {
+  --color-background-button-primary-default: var(--color-text-error);
+  --color-background-button-primary-hover: var(--color-background-danger-hover);
+  --color-background-button-primary-active: var(--color-background-danger-hover);
+}
+
+[role='alertdialog'] .Il7 {
+  --color-text-inverse: var(--color-background-card);
+  --color-text-default: var(--color-background-card);
 }
 
 html {
@@ -211,9 +296,31 @@ body > div:not(#root) .R-d, body > div:not(#root) .X9y {
  * 2026-10-26 handover). Gestalt underlines an inline Link by default but
  * only on hover for a block one, and Text color="link" outside a Link (the
  * card titles) would otherwise render unadorned black text. Scoped to the
- * link token's own class and to anchors, never to arbitrary text. */
-#root a,
-body > div:not(#root) a {
+ * link token's own class and to anchors, never to arbitrary text.
+ *
+ * Buttons are excluded (2026-10-29 brief, B1: "chips and buttons
+ * excluded"). A Gestalt ButtonLink is an <a> wearing a button's chrome --
+ * the Experiences page's "Add position" is one -- so an anchor-wide rule
+ * drew an underline through the label of a filled pill. `.USg`
+ * (`min-width:60px`) is the class Gestalt 177.0.12 puts on exactly that
+ * chrome and nowhere else: it is the `button` entry of both of the
+ * library's button style maps (`styles$U`, used by Button/ButtonLink, and
+ * `styles$E`) and appears in no other map, so it names "this element is a
+ * button" rather than a shape that something else might also want. Once
+ * the rule stops matching, Gestalt's own `.NtY {text-decoration:none}` on
+ * the same anchor takes over, so nothing else has to say it.
+ *
+ * Naming a hashed class is the pinned-version precedent this file already
+ * uses for `.Il7` and the typography classes, and tests/theme.spec.js
+ * asserts the rendered decoration on both an ordinary link and a
+ * ButtonLink, so a class that moved could not pass silently.
+ *
+ * Chips need no exclusion: every chip in the app (FilterChip, FitChip,
+ * QuietChip, AiStatusChip, StatusSelect) is a <button> or a <div>, never
+ * an anchor. Nav items are TapAreaLinks and really are links, so they
+ * keep the underline -- "all links underlined everywhere". */
+#root a:not(.USg),
+body > div:not(#root) a:not(.USg) {
   text-decoration-line: underline;
 }
 
