@@ -96,7 +96,7 @@ h1{font-size:36px;line-height:40px;font-weight:700;text-wrap:balance}
   .hero{padding-top:40px}
 }
 /* FAQ, notices, honeypot */
-.faq{display:flex;flex-direction:column;gap:8px;max-width:760px}
+.faq{display:flex;flex-direction:column;gap:8px}
 .faq details{border:1px solid var(--border);border-radius:16px;background:var(--surface);padding:0 20px}
 .faq summary{cursor:pointer;list-style:none;padding:16px 0;font-weight:700;font-size:16px;line-height:22px}
 .faq summary::-webkit-details-marker{display:none}
