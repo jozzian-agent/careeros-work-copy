@@ -1,0 +1,32 @@
+# Daily purge promised by the landing page's waiting-list notice:
+# entries older than 12 months are deleted permanently. Runs as the
+# collector's own user so it can open the SQLite file; prints only
+# counts (journalctl -u careeros-waitlist-purge). Tested by
+# tests/test_waitlist_collector.py (purge boundary + retention maths).
+
+[Unit]
+Description=Career OS waiting-list purge (older than 12 months)
+Documentation=file:///srv/careeros/app/current/collector/README.md
+
+[Service]
+Type=oneshot
+User=careeros-waitlist
+Group=careeros-waitlist
+ExecStart=/usr/bin/python3 /srv/careeros/app/current/collector/waitlist_collector.py purge --db /srv/careeros/waitlist/data/waitlist.sqlite3 --months 12
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+ReadWritePaths=/srv/careeros/waitlist
