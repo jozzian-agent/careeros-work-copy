@@ -43,13 +43,13 @@ const BASE_STYLE = {
 };
 
 // The one style a selected toggle has, anywhere in the app (brief
-// 2026-10-18, section 1): the wash-blue ground and the blue border the
+// 2026-10-18, section 1): the wash ground and the blue border the
 // Function filter already had when active, with the default text colour.
 // A primary blue FILL is reserved for the one main action on a screen and
 // is never a selected state, which is what Board/List used to look like.
 // Recorded in docs/decisions/design-system.md.
 const SELECTED_TOGGLE_STYLE = {
-  background: 'var(--color-brand-wash-blue)',
+  background: 'var(--color-brand-wash)',
   borderColor: 'var(--color-brand-primary)',
 };
 

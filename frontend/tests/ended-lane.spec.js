@@ -236,7 +236,7 @@ test('the collapsed lane is the grey full-height strip, 168px wide, aligned with
     const cs = getComputedStyle(el);
     return { background: cs.backgroundColor, border: cs.borderTopWidth, radius: cs.borderTopLeftRadius };
   });
-  expect(style.background).toBe('rgb(233, 233, 233)'); // --color-background-secondary-base
+  expect(style.background).toBe('rgb(232, 231, 225)'); // --color-background-secondary-base
   expect(style.border).toBe('0px');
   expect(style.radius).toBe('16px');
 
@@ -260,9 +260,9 @@ test('the collapsed lane is the grey full-height strip, 168px wide, aligned with
   expect(Math.abs(headerBox.y - columnBox.y)).toBeLessThan(2);
   expect(Math.abs(headerBox.height - columnBox.height)).toBeLessThan(2);
   const rule = await header.evaluate((el) => getComputedStyle(el).borderBottomColor);
-  expect(rule).toBe('rgb(205, 205, 205)'); // --color-border-container
+  expect(rule).toBe('rgb(199, 198, 193)'); // --color-border-container
   const columnRule = await firstColumn.evaluate((el) => getComputedStyle(el).borderBottomColor);
-  expect(columnRule).toBe('rgb(0, 95, 203)'); // --color-brand-primary
+  expect(columnRule).toBe('rgb(0, 135, 83)'); // --color-brand-primary
 });
 
 // At either width the owner works at, the lane covers no column once the
@@ -304,7 +304,7 @@ test('dragging a card over the collapsed lane turns it blue and says Drop to end
     const cs = getComputedStyle(el);
     return { background: cs.backgroundColor, outline: cs.outlineStyle, outlineWidth: cs.outlineWidth };
   });
-  expect(dragStyle.background).toBe('rgb(230, 244, 255)'); // --color-brand-wash-blue
+  expect(dragStyle.background).toBe('rgb(227, 250, 225)'); // --color-brand-wash
   expect(dragStyle.outline).toBe('dashed');
   expect(dragStyle.outlineWidth).toBe('2px');
 

@@ -11,6 +11,7 @@ const REMOVE_BUTTON_STYLE = {
   background: 'none',
   cursor: 'pointer',
   fontSize: 16,
+  lineHeight: '22px',
   padding: 0,
 };
 

@@ -355,7 +355,7 @@ export default function JobDetail() {
           <Box
             padding={3}
             rounding={4}
-            dangerouslySetInlineStyle={{ __style: { background: 'var(--color-brand-wash-blue)' } }}
+            dangerouslySetInlineStyle={{ __style: { background: 'var(--color-brand-wash)' } }}
           >
             <Text>Reading the posting now. The sections below fill in as the details arrive.</Text>
           </Box>

@@ -566,26 +566,26 @@ test('Board and List are one pressed pair and the selected style moves with the 
   const list = group.getByRole('button', { name: 'List', exact: true });
 
   const ground = (locator) => locator.evaluate((el) => getComputedStyle(el).backgroundColor);
-  const WASH_BLUE = 'rgb(230, 244, 255)';
-  const NEUTRAL = 'rgb(233, 233, 233)';
+  const WASH = 'rgb(227, 250, 225)'; // --color-brand-wash
+  const NEUTRAL = 'rgb(232, 231, 225)'; // --color-background-secondary-base
 
   await expect(board).toHaveAttribute('aria-pressed', 'true');
   await expect(list).toHaveAttribute('aria-pressed', 'false');
-  expect(await ground(board)).toBe(WASH_BLUE);
+  expect(await ground(board)).toBe(WASH);
   expect(await ground(list)).toBe(NEUTRAL);
 
   await list.click();
   await expect(board).toHaveAttribute('aria-pressed', 'false');
   await expect(list).toHaveAttribute('aria-pressed', 'true');
   expect(await ground(board)).toBe(NEUTRAL);
-  expect(await ground(list)).toBe(WASH_BLUE);
+  expect(await ground(list)).toBe(WASH);
 
   // And a toggle that is on carries the same style as the chosen view.
   const needsAttention = page.getByTestId('filter-chip-needs-attention');
   expect(await ground(needsAttention)).toBe(NEUTRAL);
   await needsAttention.click();
   await expect(needsAttention).toHaveAttribute('aria-pressed', 'true');
-  expect(await ground(needsAttention)).toBe(WASH_BLUE);
+  expect(await ground(needsAttention)).toBe(WASH);
 });
 
 // The pair is 16px to the right of "Add a job" (artboard 2026-10-18).

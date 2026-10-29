@@ -92,7 +92,7 @@ test('dragging a card over a column highlights it, and an empty column invites t
   await card.dispatchEvent('dragstart', { dataTransfer });
   await body.dispatchEvent('dragover', { dataTransfer });
 
-  await expect(body).toHaveCSS('outline-color', 'rgb(0, 95, 203)');
+  await expect(body).toHaveCSS('outline-color', 'rgb(0, 135, 83)');
   await expect(page.getByTestId(`board-column-${emptyStatus}`).getByText('Drop here')).toBeVisible();
 
   await card.dispatchEvent('dragend', { dataTransfer });

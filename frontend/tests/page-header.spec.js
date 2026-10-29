@@ -14,7 +14,7 @@ import {
   mockTaxonomy,
 } from './helpers.js';
 
-const PAGE_GROUND = 'rgb(247, 251, 255)'; // --color-background-page, #f7fbff
+const PAGE_GROUND = 'rgb(246, 253, 245)'; // --color-background-page, #f6fdf5
 const CARD = 'rgb(255, 255, 255)'; // --color-background-card, the band's old fill
 
 const PAGES = [
@@ -63,7 +63,7 @@ for (const { route, title } of PAGES) {
       const cs = getComputedStyle(el);
       return { tag: el.tagName, fontSize: cs.fontSize, lineHeight: cs.lineHeight, weight: cs.fontWeight };
     });
-    expect(type).toEqual({ tag: 'H1', fontSize: '28px', lineHeight: '36px', weight: '700' });
+    expect(type).toEqual({ tag: 'H1', fontSize: '28px', lineHeight: '31px', weight: '700' });
 
     // The title, the header stack's own rows and the main content all
     // start at the same x: one left edge, which is the whole point of
