@@ -7,7 +7,7 @@
 
 [Unit]
 Description=Daily Career OS waiting-list purge timer
-Documentation=file:///srv/careeros/app/current/collector/README.md
+Documentation=file:///opt/careeros-waitlist/README.md
 
 [Timer]
 OnCalendar=*-*-* 03:30:00
