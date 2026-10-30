@@ -1,6 +1,7 @@
 """Protects the gate in `scripts/check_i18n.py`: the real catalog passes,
-and every forbidden shape of value fails with exit 1 and a message naming
-the key that broke.
+ICU is allowed in client keys but fails in `server.*` keys, and the basic
+validity rules (balanced braces, no empty values, no padded keys) hold for
+every key in either namespace.
 
 Run through a subprocess, the way CI and a person run it, so the exit code
 under test is the one the CI step reads. Each case feeds a synthetic
@@ -34,17 +35,39 @@ def check(tmp_path, entries):
 def test_the_real_catalog_passes():
     result = run()
     assert result.returncode == 0, result.stderr
-    assert 'placeholders only, OK' in result.stdout
+    assert 'OK' in result.stdout
 
 
 def test_a_clean_catalog_passes(tmp_path):
     result = check(tmp_path, {
+        'server.mail.greeting': 'Hello {name}, and hello again {name}',
         'shell.logOut': 'Log out',
-        'mail.greeting': 'Hello {name}, and hello again {name}',
         'board.empty': 'Nothing here yet',
     })
     assert result.returncode == 0, result.stderr
 
+
+# ---- client keys may use full ICU ----
+
+@pytest.mark.parametrize('value', [
+    '{count, plural, one {# job} other {# jobs}}',
+    '{gender, select, male {he} female {she} other {they}}',
+    '{place, selectordinal, one {#st} other {#th}}',
+    '{count, number}',
+    '{when, date, short}',
+    '{literal, select, other {a brace}}',
+])
+def test_an_icu_construct_is_allowed_in_a_client_key(tmp_path, value):
+    result = check(tmp_path, {'board.count': value})
+    assert result.returncode == 0, result.stderr
+
+
+def test_apostrophe_quoting_is_allowed_in_a_client_key(tmp_path):
+    result = check(tmp_path, {'board.quote': "It''s {n, plural, one {a job} other {# jobs}}"})
+    assert result.returncode == 0, result.stderr
+
+
+# ---- server.* keys are strict: placeholders only ----
 
 @pytest.mark.parametrize('value', [
     '{count, plural, one {# job} other {# jobs}}',
@@ -54,37 +77,17 @@ def test_a_clean_catalog_passes(tmp_path):
     '{when, date, short}',
     '{name,}',
 ])
-def test_an_icu_construct_fails(tmp_path, value):
-    result = check(tmp_path, {'board.count': value})
+def test_an_icu_construct_fails_in_a_server_key(tmp_path, value):
+    result = check(tmp_path, {'server.mail.count': value})
     assert result.returncode == 1
-    assert 'board.count' in result.stderr
+    assert 'server.mail.count' in result.stderr
     assert 'ICU' in result.stderr
 
 
-def test_an_unbalanced_opening_brace_fails(tmp_path):
-    result = check(tmp_path, {'mail.greeting': 'Hello {name'})
-    assert result.returncode == 1
-    assert 'mail.greeting' in result.stderr
-    assert 'unbalanced opening brace' in result.stderr
-
-
-def test_an_unbalanced_closing_brace_fails(tmp_path):
-    result = check(tmp_path, {'mail.greeting': 'Hello name}'})
-    assert result.returncode == 1
-    assert 'unbalanced closing brace' in result.stderr
-
-
-def test_a_doubled_brace_fails(tmp_path):
-    result = check(tmp_path, {'mail.literal': 'Use {{name}} like this'})
+def test_a_doubled_brace_fails_in_a_server_key(tmp_path):
+    result = check(tmp_path, {'server.mail.literal': 'Use {{name}} like this'})
     assert result.returncode == 1
     assert 'doubled brace' in result.stderr
-
-
-def test_an_empty_value_fails(tmp_path):
-    result = check(tmp_path, {'shell.logOut': ''})
-    assert result.returncode == 1
-    assert 'shell.logOut' in result.stderr
-    assert 'empty' in result.stderr
 
 
 @pytest.mark.parametrize('value', [
@@ -94,28 +97,63 @@ def test_an_empty_value_fails(tmp_path):
     'Hello {}',
     'Hello {name.first}',
 ])
-def test_a_placeholder_that_is_not_an_identifier_fails(tmp_path, value):
-    result = check(tmp_path, {'mail.greeting': value})
+def test_a_server_placeholder_that_is_not_an_identifier_fails(tmp_path, value):
+    result = check(tmp_path, {'server.mail.greeting': value})
     assert result.returncode == 1
     assert 'identifier' in result.stderr
 
 
-def test_a_key_with_surrounding_whitespace_fails(tmp_path):
-    result = check(tmp_path, {' shell.logOut ': 'Log out'})
+def test_a_nested_brace_in_a_server_placeholder_fails(tmp_path):
+    result = check(tmp_path, {'server.mail.greeting': 'Hello {name {x}}'})
+    assert result.returncode == 1
+    assert 'server.mail.greeting' in result.stderr
+
+
+# ---- basic validity holds for every key ----
+
+@pytest.mark.parametrize('key', ['shell.logOut', 'server.mail.greeting'])
+def test_an_unbalanced_opening_brace_fails_in_either_namespace(tmp_path, key):
+    result = check(tmp_path, {key: 'Hello {name'})
+    assert result.returncode == 1
+    assert key in result.stderr
+    assert 'unbalanced opening brace' in result.stderr
+
+
+@pytest.mark.parametrize('key', ['shell.logOut', 'server.mail.greeting'])
+def test_an_unbalanced_closing_brace_fails_in_either_namespace(tmp_path, key):
+    result = check(tmp_path, {key: 'Hello name}'})
+    assert result.returncode == 1
+    assert 'unbalanced closing brace' in result.stderr
+
+
+@pytest.mark.parametrize('key', ['shell.logOut', 'server.mail.greeting'])
+def test_an_empty_value_fails_in_either_namespace(tmp_path, key):
+    result = check(tmp_path, {key: ''})
+    assert result.returncode == 1
+    assert key in result.stderr
+    assert 'empty' in result.stderr
+
+
+@pytest.mark.parametrize('key', [' shell.logOut ', ' server.mail.greeting '])
+def test_a_key_with_surrounding_whitespace_fails_in_either_namespace(tmp_path, key):
+    result = check(tmp_path, {key: 'Log out'})
     assert result.returncode == 1
     assert 'whitespace' in result.stderr
 
 
 def test_every_broken_key_is_named_in_one_run(tmp_path):
     result = check(tmp_path, {
-        'a.plural': '{n, plural, one {#} other {#}}',
+        'server.a.plural': '{n, plural, one {#} other {#}}',
         'b.empty': '',
         'c.fine': 'Fine',
+        'd.plural.fine': '{n, plural, one {#} other {#}}',
     })
     assert result.returncode == 1
-    assert 'a.plural' in result.stderr
+    assert 'server.a.plural' in result.stderr
     assert 'b.empty' in result.stderr
     assert 'c.fine' not in result.stderr
+    # the client plural is legal and must not be named as broken
+    assert 'd.plural.fine' not in result.stderr
 
 
 def test_a_missing_catalog_fails_without_a_traceback(tmp_path):

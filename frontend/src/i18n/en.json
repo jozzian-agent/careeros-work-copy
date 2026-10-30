@@ -1,3 +1,4 @@
 {
+  "server.mail.greeting": "Hello {name}, your Career OS digest is ready",
   "shell.logOut": "Log out"
 }

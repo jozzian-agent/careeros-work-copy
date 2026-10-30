@@ -1,15 +1,15 @@
 ---
 type: Convention
 title: String catalog
-description: State the rules every value in the English string catalog follows, and why the server side forbids ICU.
+description: State the namespace rule every value in the English string catalog follows, and why the server forbids ICU in server.* keys.
 timestamp: 2026-10-30
 ---
 
 # String catalog
 
 `en.json` beside this file is the one catalog of user-visible English
-strings. JSON cannot carry a comment, so the constraint that governs
-every value in it lives here.
+strings. JSON cannot carry a comment, so the rules that govern every
+value in it live here.
 
 ## Who reads the catalog
 
@@ -19,48 +19,59 @@ Both sides of the app read the same file:
 - The server, through `careeros/i18n.py`, for the Flask pages and for
   the body of a mail.
 
-## The rule: placeholders only
+## The namespace rule
 
-A value may contain `{var}` placeholders and nothing else. ICU
-MessageFormat constructs are FORBIDDEN in every key:
+The namespace a key lives in decides which grammar its value may use:
 
-- plurals, meaning `{n, plural, one {...} other {...}}`
-- selects, meaning `{gender, select, ...}` and `selectordinal`
-- number and date skeletons, meaning `{n, number}` or `{d, date, short}`
-- apostrophe quoting, which ICU uses to escape a literal brace
+- **`server.*`** — strings the server renders: Flask pages and mail
+  bodies. Values may contain plain `{var}` placeholders and NOTHING
+  else. ICU MessageFormat constructs are forbidden here:
+  - plurals, meaning `{n, plural, one {...} other {...}}`
+  - selects, meaning `{gender, select, ...}` and `selectordinal`
+  - number and date skeletons, meaning `{n, number}` or `{d, date, short}`
+  - apostrophe quoting, which ICU uses to escape a literal brace
+  Every `{var}` name must be a legal Python identifier.
+- **Every other key** — client strings, rendered by React through
+  react-intl. Full ICU is allowed: plural, select, number, date.
 
-The reason is the server: `careeros.i18n.tr` substitutes with Python
-`str.format`, which knows a placeholder name and nothing more. It cannot
-parse an ICU construct, so a plural in a value would not read as a bad
-translation, it would read as a raised exception in the middle of a page
-render or a mail send.
+The reason for the split is the server grammar: `careeros.i18n.tr`
+substitutes with Python `str.format`, which knows a placeholder name
+and nothing more. It cannot parse an ICU construct, so a plural in a
+`server.*` value would not read as a bad translation, it would read as
+a raised exception in the middle of a page render or a mail send.
+Conversely, `careeros/i18n.py` refuses to load or return ANY key
+outside `server.*` — a server-side caller cannot reach a client string
+even by accident, so ICU in a client key is safe.
 
-Every `{var}` name must also be a legal Python identifier, because
-`str.format` is what resolves it.
+`scripts/check_i18n.py` enforces this, and CI runs it on every pull
+request:
 
-`scripts/check_i18n.py` enforces all of this, and CI runs it on every
-pull request. Run it the same way locally:
+- strict placeholder rule for `server.*` values;
+- basic validity for ALL values: balanced braces, no empty values, no
+  key with leading or trailing whitespace.
+
+Run it the same way locally:
 
 ```
 python scripts/check_i18n.py
 ```
 
-## Client-only keys
+## Moving a string between sides
 
-React may use full ICU in a key that is marked client-only. There are
-none today, and the catalog has no way to mark one, because a mechanism
-with no user would be a thing to maintain for nothing. If a plural is
-ever genuinely needed on the client, the key has to be excluded from the
-server-loaded set explicitly, and the check script and this document are
-the two places that change in the same PR.
+If a string that was client-only turns out to be needed by the server
+too, move it (or add a sibling) under `server.*` and strip its ICU; the
+client can render a plain-placeholder string fine. The other direction
+means the server caller has to give up the string.
 
 ## Keys
 
-Dot-namespaced, first segment naming the surface, for example
-`shell.logOut`. `shell.logOut` is the single entry today: it is an
-example placeholder for the PR that moves the existing strings across,
-and keeping one real entry is what makes the CI check meaningful from
-day one.
+Dot-namespaced, first segment naming the surface. The two entries
+today are the examples that make the CI check meaningful from day one:
+
+- `server.mail.greeting` — a `server.*` key with a `{var}` placeholder.
+- `shell.logOut` — a client key with no placeholder.
+
+Real strings move in later PRs.
 
 ## Open questions
 

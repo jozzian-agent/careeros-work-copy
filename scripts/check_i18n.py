@@ -1,18 +1,23 @@
-"""CI gate: the string catalog holds plain `{var}` placeholders and nothing else.
+"""CI gate: `server.*` keys hold plain `{var}` placeholders; all keys stay valid.
 
 `frontend/src/i18n/en.json` is read by two different runtimes. React reads
 it through react-intl, which speaks full ICU MessageFormat, and the server
-reads it through `careeros.i18n`, which substitutes with Python
-`str.format` and knows a placeholder name and nothing more. The catalog is
-therefore held to the smaller of the two grammars, and this script is what
-holds it there, on every pull request and in front of every local commit.
+reads the `server.*` namespace through `careeros.i18n`, which substitutes
+with Python `str.format` and knows a placeholder name and nothing more.
+The namespace rule splits the grammar accordingly:
 
-An ICU construct in a value is not a cosmetic problem. `str.format` would
-raise on it, so a plural written into a mail body would surface as a
-failed send rather than as a clumsy sentence. The rule and its reasoning
-live in `frontend/src/i18n/README.md`.
+  * `server.*` keys — Flask pages and mail bodies. STRICT: plain `{var}`
+    placeholders only, no ICU.
+  * every other key — client strings. ICU is allowed: plural, select,
+    selectordinal, number, date, apostrophe quoting.
 
-What fails here:
+All keys, in both namespaces, must still be basically valid:
+
+  * balanced braces. An unbalanced brace is a typo in either grammar and
+    breaks react-intl's compile just as surely as it breaks `str.format`.
+  * no empty values, and no key with leading or trailing whitespace.
+
+What additionally fails in a `server.*` value:
 
   * an ICU construct, meaning a comma inside a placeholder. That one rule
     catches every form of it: `{n, plural, ...}`, `{gender, select, ...}`,
@@ -22,11 +27,15 @@ What fails here:
     construct even when its comma is missing.
   * a doubled brace. Python reads `{{` as one literal brace and ICU does
     not, so a value carrying one cannot mean the same thing on both
-    sides. A string that needs a literal brace needs different wording.
-  * an unbalanced brace, opening or closing.
+    sides. A server string that needs a literal brace needs different
+    wording.
   * a placeholder name that is not a legal Python identifier, because
     `str.format` is what resolves it.
-  * an empty value, and a key with leading or trailing whitespace.
+
+An ICU construct in a `server.*` value is not a cosmetic problem:
+`str.format` would raise on it, so a plural written into a mail body
+would surface as a failed send rather than as a clumsy sentence. The
+rule and its reasoning live in `frontend/src/i18n/README.md`.
 
 The same placeholder name twice in one value is fine, and so is a value
 with no placeholder at all.
@@ -58,8 +67,28 @@ def _shown(body):
     return body if len(body) <= _SHOWN else f'{body[:_SHOWN]}...'
 
 
-def value_problems(value):
-    """Every rule the braces in one value break, in reading order.
+def basic_problems(value):
+    """The rules every value follows, ICU or not: braces balance.
+
+    A stack walk rather than a counter, so the failure message can name
+    the position of the brace that broke — a counter knows the string
+    ended wrong but not where it went wrong.
+    """
+    stack = []
+    for index, char in enumerate(value):
+        if char == '{':
+            stack.append(index)
+        elif char == '}':
+            if not stack:
+                return [f'unbalanced closing brace at position {index}']
+            stack.pop()
+    if stack:
+        return [f'unbalanced opening brace at position {stack[0]}']
+    return []
+
+
+def server_value_problems(value):
+    """Every rule a `server.*` value breaks, in reading order.
 
     One pass over the string rather than a regular expression: the thing
     being checked is nesting and balance, which a regular expression
@@ -88,7 +117,9 @@ def value_problems(value):
             return found
         body = value[index + 1:close]
         if ',' in body:
-            found.append(f'{{{_shown(body)}}} is not a plain placeholder: it is {ICU_REASON}')
+            found.append(f'{{{_shown(body)}}} is not a plain placeholder: it is {ICU_REASON}. '
+                         f'Move the string out of the {i18n.SERVER_PREFIX}* namespace if it is '
+                         'a client string, or reword it')
         elif '{' in body:
             found.append(f'{{{_shown(body)}}} nests a brace inside a placeholder: '
                          f'it is the body of {ICU_REASON}')
@@ -114,7 +145,10 @@ def problems(catalog):
         if not value:
             found.append((key, 'value is empty, and a key with no string is not a string'))
             continue
-        found.extend((key, message) for message in value_problems(value))
+        if key.startswith(i18n.SERVER_PREFIX):
+            found.extend((key, message) for message in server_value_problems(value))
+        else:
+            found.extend((key, message) for message in basic_problems(value))
     return found
 
 
@@ -126,7 +160,7 @@ def main(argv=None):
 
     path = Path(args.catalog) if args.catalog else i18n.CATALOG_PATH
     try:
-        catalog = i18n.load_catalog(path)
+        catalog = i18n.load_raw_catalog(path)
     except (OSError, ValueError) as error:
         print(f'{path}: unreadable string catalog: {error}', file=sys.stderr)
         return 1
@@ -136,11 +170,13 @@ def main(argv=None):
         print(f'{path}: {len(found)} problem(s):', file=sys.stderr)
         for key, message in found:
             print(f'  {key}: {message}', file=sys.stderr)
-        print('Every value may carry plain {var} placeholders only. '
+        print(f'{i18n.SERVER_PREFIX}* values may carry plain {{var}} placeholders only; '
+              'all values must balance their braces. '
               'See frontend/src/i18n/README.md.', file=sys.stderr)
         return 1
 
-    print(f'{path}: {len(catalog)} key(s) checked, placeholders only, OK')
+    server_keys = sum(1 for key in catalog if key.startswith(i18n.SERVER_PREFIX))
+    print(f'{path}: {len(catalog)} key(s) checked ({server_keys} {i18n.SERVER_PREFIX}*), OK')
     return 0
 
 
