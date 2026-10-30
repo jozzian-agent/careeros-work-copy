@@ -1,6 +1,12 @@
 # Career OS waiting-list collector (CAREER-99 PR B). Installed by hand
 # (deploy/RUNBOOK.md / collector/README.md) to
-# /etc/systemd/system/careeros-waitlist.service.
+# /etc/systemd/system/careeros-waitlist.service. The script it runs is
+# NOT the release checkout: /opt/careeros-waitlist/waitlist_collector.py
+# is an installed copy (root-owned, 0755, `install -m 0755 -o root
+# -g root` from the stg checkout, collector/README.md step 3). Running
+# out of a release folder would put the process inside paths owned by
+# the app user and move the code with every release; the collector is
+# deliberately independent of the app's release cycle.
 #
 # Separate from the app on purpose: its own system user, its own data
 # directory, no venv (system python3, stdlib only). Port 8003 on
@@ -19,7 +25,7 @@
 
 [Unit]
 Description=Career OS waiting-list collector
-Documentation=file:///srv/careeros/app/current/collector/README.md
+Documentation=file:///opt/careeros-waitlist/README.md
 After=network-online.target
 Wants=network-online.target
 
@@ -27,7 +33,11 @@ Wants=network-online.target
 Type=simple
 User=careeros-waitlist
 Group=careeros-waitlist
-ExecStart=/usr/bin/python3 /srv/careeros/app/current/collector/waitlist_collector.py serve --host 127.0.0.1 --port 8003 --db /srv/careeros/waitlist/data/waitlist.sqlite3
+# /usr/bin/python3: the only python on the box. deploy/setup-vps.sh
+# proves it at RUNBOOK time (`command -v python3`, hard-fails if absent,
+# and version-checks it is >= 3.14 -- it is 3.14.4); Ubuntu 26.04 ships
+# no version-suffixed binary, so /usr/bin/python3 is the real path.
+ExecStart=/usr/bin/python3 /opt/careeros-waitlist/waitlist_collector.py serve --host 127.0.0.1 --port 8003 --db /srv/careeros/waitlist/data/waitlist.sqlite3
 Restart=on-failure
 RestartSec=5s
 MemoryHigh=128M

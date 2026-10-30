@@ -408,3 +408,68 @@ class TestCli:
         Store(str(db)).connect().close()
         r = self._run(["delete", "--db", str(db)], stdin_data="\n")
         assert r.returncode == 2
+
+
+class TestInstalledPaths:
+    """The units and the README must agree on WHERE the collector lives.
+
+    Owner review round 2 (PR #30): the first draft ran the service out of
+    /srv/careeros/app/current/collector -- a path that does not exist
+    (real checkouts are /srv/careeros/{prod,stg}/app/current) and a
+    location that moves with every release under app-user permissions.
+    The installed copy at /opt/careeros-waitlist is the contract now;
+    these tests pin it so a future edit cannot silently reintroduce a
+    release-folder path.
+    """
+
+    SYSTEMD = ROOT / "collector" / "systemd"
+    README = ROOT / "collector" / "README.md"
+
+    def test_both_services_exec_the_installed_copy_only(self):
+        for name in ("careeros-waitlist.service",
+                     "careeros-waitlist-purge.service"):
+            text = (self.SYSTEMD / name).read_text()
+            execs = [l for l in text.splitlines() if l.startswith("ExecStart=")]
+            assert len(execs) == 1, name
+            assert execs[0].startswith(
+                "ExecStart=/usr/bin/python3 "
+                "/opt/careeros-waitlist/waitlist_collector.py "), name
+
+    def test_no_unit_directive_names_a_release_folder(self):
+        """`app/current` in a directive is either the wrong path (it does
+        not exist at /srv/careeros/app/current) or the right-but-
+        forbidden one (the collector must not run from the release tree).
+        Comments may mention it -- the unit header explains why it is
+        NOT used there."""
+        for path in sorted(self.SYSTEMD.iterdir()):
+            for line in path.read_text().splitlines():
+                stripped = line.strip()
+                if stripped.startswith("#") or not stripped:
+                    continue
+                assert "app/current" not in stripped, f"{path.name}: {stripped}"
+
+    def test_documentation_directives_point_at_the_installed_readme(self):
+        for path in sorted(self.SYSTEMD.iterdir()):
+            text = path.read_text()
+            assert "Documentation=file:///opt/careeros-waitlist/README.md" in text, \
+                path.name
+
+    def test_readme_install_copies_from_the_real_stg_checkout(self):
+        text = self.README.read_text()
+        src = "/srv/careeros/stg/app/current/collector"
+        assert f"install -m 0755 -o root -g root \\\n        {src}/waitlist_collector.py" in text
+        assert "/opt/careeros-waitlist" in text
+        assert f"{src}/systemd/careeros-waitlist.service" in text
+        # and the nonexistent bare path is gone from every command line
+        assert "/srv/careeros/app/current" not in text
+
+    def test_readme_operator_commands_use_the_installed_copy(self):
+        text = self.README.read_text()
+        assert "/opt/careeros-waitlist/waitlist_collector.py delete" in text
+
+    def test_readme_backups_names_the_real_prod_vault(self):
+        text = self.README.read_text()
+        assert "/srv/careeros/prod/vault" in text
+        # the wrong bare path must not survive anywhere in the file
+        assert "`/srv/careeros/vault`" not in text
+

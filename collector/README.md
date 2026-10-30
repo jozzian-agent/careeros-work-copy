@@ -32,8 +32,12 @@ third party involved.
 ## Install (owner runs these on the VPS, `ubuntu@ov-5e1fbd`)
 
 All commands below assume the PR is merged and the release containing
-`collector/` is deployed to `/srv/careeros/app/current` (prod
-promote). Run as root (`sudo -i`).
+`collector/` is deployed to staging
+(`/srv/careeros/stg/app/current`). The collector is **not** run out of
+the release folder — the units execute an installed copy at
+`/opt/careeros-waitlist/` (root-owned, 0755), so the collector does not
+move with every release and does not depend on app-user permissions.
+Run as root (`sudo -i`).
 
 1. **System user** (once):
 
@@ -50,17 +54,33 @@ promote). Run as root (`sudo -i`).
    sudo chmod 700 /srv/careeros/waitlist /srv/careeros/waitlist/data
    ```
 
-3. **systemd units** (after the release is deployed):
+3. **Installed copy + systemd units** (after the release is deployed to
+   staging):
 
    ```bash
-   sudo cp /srv/careeros/app/current/collector/systemd/careeros-waitlist.service \
-           /srv/careeros/app/current/collector/systemd/careeros-waitlist-purge.service \
-           /srv/careeros/app/current/collector/systemd/careeros-waitlist-purge.timer \
-           /etc/systemd/system/
+   sudo install -d -m 0755 -o root -g root /opt/careeros-waitlist
+   sudo install -m 0755 -o root -g root \
+        /srv/careeros/stg/app/current/collector/waitlist_collector.py \
+        /srv/careeros/stg/app/current/collector/README.md \
+        /opt/careeros-waitlist/
+   sudo install -m 0644 -o root -g root \
+        /srv/careeros/stg/app/current/collector/systemd/careeros-waitlist.service \
+        /srv/careeros/stg/app/current/collector/systemd/careeros-waitlist-purge.service \
+        /srv/careeros/stg/app/current/collector/systemd/careeros-waitlist-purge.timer \
+        /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now careeros-waitlist.service
    sudo systemctl enable --now careeros-waitlist-purge.timer
    ```
+
+   Interpreter: the units call `/usr/bin/python3`. That is the only
+   python on the VPS — `deploy/setup-vps.sh` proves it at RUNBOOK time
+   (`command -v python3` with a hard fail if absent, plus a
+   `sys.version_info >= (3, 14)` check; it is 3.14.4 there), and Ubuntu
+   26.04 ships no version-suffixed binary.
+
+   Re-run the two `install` lines whenever a new release changes
+   `collector/`, then `sudo systemctl restart careeros-waitlist`.
 
 4. **Caddy** (after the landing files are rsync'd to
    `/srv/careeros/landing`): add the `www.career-os.ch` and
@@ -91,7 +111,7 @@ back):
 
 ```bash
 sudo -u careeros-waitlist python3 \
-     /srv/careeros/app/current/collector/waitlist_collector.py delete \
+     /opt/careeros-waitlist/waitlist_collector.py delete \
      --db /srv/careeros/waitlist/data/waitlist.sqlite3
 # then type the address and press Enter, then Ctrl-D on a new line
 ```
@@ -122,8 +142,8 @@ boundary behaviour is covered by `tests/test_waitlist_collector.py`.
 ## Backups
 
 `/srv/careeros/waitlist` is **outside every backup path this repo
-controls**: `deploy/deploy.sh` archives only `/srv/careeros/vault`
-(prod), nothing touches the waitlist directory. The VPS provider takes
+controls**: `deploy/deploy.sh` archives only `/srv/careeros/prod/vault`,
+nothing touches the waitlist directory. The VPS provider takes
 **no disk snapshots** (owner confirmed 2026-10-29; recovery is a server
 reset), so `secure_delete` deletion is deletion everywhere — the
 12-month promise holds against every copy of the data.

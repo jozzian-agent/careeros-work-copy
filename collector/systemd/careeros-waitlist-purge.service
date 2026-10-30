@@ -6,13 +6,15 @@
 
 [Unit]
 Description=Career OS waiting-list purge (older than 12 months)
-Documentation=file:///srv/careeros/app/current/collector/README.md
+Documentation=file:///opt/careeros-waitlist/README.md
 
 [Service]
 Type=oneshot
 User=careeros-waitlist
 Group=careeros-waitlist
-ExecStart=/usr/bin/python3 /srv/careeros/app/current/collector/waitlist_collector.py purge --db /srv/careeros/waitlist/data/waitlist.sqlite3 --months 12
+# Same installed copy and same interpreter as careeros-waitlist.service
+# (see the comment there for how /usr/bin/python3 was confirmed).
+ExecStart=/usr/bin/python3 /opt/careeros-waitlist/waitlist_collector.py purge --db /srv/careeros/waitlist/data/waitlist.sqlite3 --months 12
 
 NoNewPrivileges=yes
 ProtectSystem=strict
