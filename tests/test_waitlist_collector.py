@@ -6,6 +6,7 @@ server on a free localhost port -- no network leaves the machine.
 """
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -38,6 +39,7 @@ from collector.waitlist_collector import (  # noqa: E402
     WaitlistHandler,
     WaitlistServer,
     handle_submission,
+    main,
     normalize_email,
 )
 
@@ -408,6 +410,67 @@ class TestCli:
         Store(str(db)).connect().close()
         r = self._run(["delete", "--db", str(db)], stdin_data="\n")
         assert r.returncode == 2
+
+    def test_list_cli_prints_rows_with_timestamps(self, tmp_path):
+        """Operator needs the addresses to send invitations: list prints
+        every stored row (address + UTC timestamp) to stdout."""
+        db = tmp_path / "wl.sqlite3"
+        conn = Store(str(db)).connect()
+        now = datetime.now(timezone.utc)
+        Store.submit(conn, "first@example.ch", now=now - timedelta(days=2))
+        Store.submit(conn, "second@example.ch", now=now - timedelta(days=1))
+        conn.close()
+        r = self._run(["list", "--db", str(db)])
+        assert r.returncode == 0
+        assert "first@example.ch" in r.stdout
+        assert "second@example.ch" in r.stdout
+        assert "total: 2" in r.stdout
+        # both rows carry their timestamps; oldest first
+        lines = [l for l in r.stdout.splitlines() if "@example.ch" in l]
+        assert len(lines) == 2
+        stamp1, stamp2 = (l.split()[0] for l in lines)
+        assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", stamp1)
+        assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", stamp2)
+        assert stamp1 < stamp2
+        assert lines[0].endswith("first@example.ch")
+
+    def test_list_cli_writes_nothing_to_the_log(self, tmp_path):
+        """Privacy rule: addresses reach the terminal (stdout) ONLY.
+        logging goes to stderr (basicConfig default; journald captures
+        the service's stderr), so stderr + the logging module must stay
+        clean of every stored address."""
+        import logging
+        db = tmp_path / "wl.sqlite3"
+        conn = Store(str(db)).connect()
+        secret = "list-me-secret@example.ch"
+        Store.submit(conn, secret)
+        conn.close()
+        r = self._run(["list", "--db", str(db)])
+        assert r.returncode == 0
+        assert secret in r.stdout          # the operator sees it...
+        assert secret not in r.stderr      # ...and it is nowhere else.
+        # In-process double check: no record ever reaches the logger.
+        handler_records = []
+
+        class _Spy(logging.Handler):
+            def emit(self, record):
+                handler_records.append(record.getMessage())
+
+        spy = _Spy()
+        logger = logging.getLogger("waitlist")
+        logger.addHandler(spy)
+        try:
+            main(["list", "--db", str(db)])
+        finally:
+            logger.removeHandler(spy)
+        assert all(secret not in m for m in handler_records)
+
+    def test_list_cli_empty_db(self, tmp_path):
+        db = tmp_path / "wl.sqlite3"
+        Store(str(db)).connect().close()
+        r = self._run(["list", "--db", str(db)])
+        assert r.returncode == 0
+        assert "empty" in r.stdout
 
 
 class TestInstalledPaths:
