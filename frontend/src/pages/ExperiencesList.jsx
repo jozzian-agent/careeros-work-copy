@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Box, Button, ButtonLink, Flex, Heading, Link, Text } from 'gestalt';
+import { FormattedMessage, useIntl } from 'react-intl';
 import PageLayout from '../components/PageLayout.jsx';
 import { fetchExperiencesPage } from '../api/experiences.js';
 import { tagLabel } from '../tags.js';
 
 export default function ExperiencesList() {
+  const { formatMessage } = useIntl();
   const [page, setPage] = useState(null);
   const [loadError, setLoadError] = useState(null);
 
@@ -26,7 +28,7 @@ export default function ExperiencesList() {
       <Box padding={6}>
         <Flex direction="column" gap={3} alignItems="start">
           <Text color="error">{loadError}</Text>
-          <Button text="Retry" onClick={load} />
+          <Button text={formatMessage({ id: 'common.retry' })} onClick={load} />
         </Flex>
       </Box>
     );
@@ -34,7 +36,9 @@ export default function ExperiencesList() {
   if (!page) {
     return (
       <Box padding={6}>
-        <Text>Loading experiences…</Text>
+        <Text>
+          <FormattedMessage id="experiences.loading" />
+        </Text>
       </Box>
     );
   }
@@ -43,10 +47,15 @@ export default function ExperiencesList() {
 
   return (
     <PageLayout
-      title="Experiences"
+      title={<FormattedMessage id="experiences.title" />}
       header={
         <Flex gap={2} alignItems="center" wrap>
-          <ButtonLink href="/experiences/new" text="Add position" color="red" target="self" />
+          <ButtonLink
+            href="/experiences/new"
+            text={formatMessage({ id: 'experiences.addPosition' })}
+            color="red"
+            target="self"
+          />
         </Flex>
       }
     >
@@ -57,7 +66,12 @@ export default function ExperiencesList() {
               <Text align="center" color="subtle">
                 {empty}
               </Text>
-              <ButtonLink href="/experiences/new" text="Add position" color="red" target="self" />
+              <ButtonLink
+                href="/experiences/new"
+                text={formatMessage({ id: 'experiences.addPosition' })}
+                color="red"
+                target="self"
+              />
             </Flex>
           </Box>
         ) : (
@@ -79,7 +93,10 @@ export default function ExperiencesList() {
                       <Text>{label}</Text>
                     )}
                     <Text color="subtle">
-                      {exp.start} – {exp.end} · {exp.location}
+                      <FormattedMessage
+                        id="experiences.meta"
+                        values={{ start: exp.start, end: exp.end, location: exp.location }}
+                      />
                     </Text>
                     <Flex gap={2} wrap>
                       {(exp.skills || []).map((skill) => (
@@ -91,15 +108,15 @@ export default function ExperiencesList() {
                           <Flex key={tag} gap={1} alignItems="center">
                             <Badge text={tagLabel(tag, tagLabels)} />
                             {entry?.local ? (
-                              <span title="Local extension, not mapped to an ISCO group">
-                                <Badge text="local" />
+                              <span title={formatMessage({ id: 'experiences.localTagTooltip' })}>
+                                <Badge text={formatMessage({ id: 'experiences.localTag' })} />
                               </span>
                             ) : null}
                           </Flex>
                         );
                       })}
                       {exp.people_led !== null && exp.people_led !== undefined ? (
-                        <Badge text={`Led ${exp.people_led} people`} />
+                        <Badge text={formatMessage({ id: 'experiences.peopleLed' }, { count: exp.people_led })} />
                       ) : null}
                     </Flex>
                   </Flex>

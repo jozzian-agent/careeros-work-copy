@@ -42,8 +42,14 @@ def catalog(tmp_path, monkeypatch):
 
 def test_the_real_catalog_is_the_one_the_front_end_owns():
     assert i18n.CATALOG_PATH == ROOT / 'frontend' / 'src' / 'i18n' / 'en.json'
-    assert i18n.load_catalog()['server.mail.greeting'] == \
-        'Hello {name}, your Career OS digest is ready'
+    # CAREER-116 PR 2 filled the catalog with the front end's own strings
+    # and emptied the `server.*` namespace: the example key that used to
+    # stand in for one became an unused key the moment the sync gate
+    # existed, and the real server strings land with PR 4. `shell.logOut`
+    # is the nav's Log out button, read here through the raw view -- which
+    # is the whole point of this test, that the loader opens the file the
+    # front end owns and not a copy of its own.
+    assert i18n.load_raw_catalog()['shell.logOut'] == 'Log out'
 
 
 def test_the_catalog_is_parsed_once_per_path():
@@ -58,7 +64,7 @@ def test_a_catalog_cannot_be_edited_through_what_the_loader_returns():
 def test_load_catalog_holds_only_server_keys():
     catalog = i18n.load_catalog()
     assert all(key.startswith('server.') for key in catalog)
-    # the client example key is in the file but not in the server view
+    # a client key is in the file but never in the server view
     assert 'shell.logOut' not in catalog
     assert 'shell.logOut' in i18n.load_raw_catalog()
 

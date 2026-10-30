@@ -11,6 +11,7 @@ import {
   Table,
   Text,
 } from 'gestalt';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { fetchBoard, intakeJob, moveJobStatus, promoteJob, retryIngest, updateJob } from '../api/jobs.js';
 import { createNote } from '../api/notes.js';
 import KanbanBoard from '../components/KanbanBoard.jsx';
@@ -40,7 +41,6 @@ const NEEDS_ATTENTION_KEY = 'careerNeedsAttention';
 // single hidden flag, because the banner comes back when ANOTHER job
 // crosses the week (D7), and only the ids can tell those two apart.
 const CLOSED_DISMISSED_KEY = 'careerClosedReviewDismissed';
-const LIST_COLUMNS = ['Title', 'Company', 'Source', 'Status', 'Location', 'Posted', 'Added'];
 const AUTO_REFRESH_AFTER_MS = 30000;
 // CAREER-37: while any job on the board still has a reading owed, the
 // board asks again at this interval. It stops on its own the moment none
@@ -49,8 +49,6 @@ const AI_POLL_MS = 5000;
 // Success toasts auto-hide; error messages stay until the user dismisses
 // them (owner decision, Message README).
 const TOAST_LIFETIME_MS = 4000;
-
-const COULD_NOT_READ_MESSAGE = "Could not read that posting. It's saved, so Try again only retries the read.";
 
 function looksLikeUrl(value) {
   try {
@@ -133,6 +131,9 @@ function jobHref(id) {
   return `/jobs/${encodeURIComponent(id)}`;
 }
 
+// `column` indexes the list view's own columns, in the order ListView
+// below builds them (title, company, source, status, location, posted,
+// added). The two lists are read together and must stay in step.
 function sortEntries(entries, column, ascending) {
   if (column === null) return entries;
   const getField = [
@@ -153,9 +154,25 @@ function sortEntries(entries, column, ascending) {
 // board-only), apart from reading the status words from the payload the
 // way every other surface now does.
 function ListView({ entries, statusLabels, onRetry }) {
+  const { formatMessage } = useIntl();
   const [sortColumn, setSortColumn] = useState(null);
   const [ascending, setAscending] = useState(true);
   const sorted = useMemo(() => sortEntries(entries, sortColumn, ascending), [entries, sortColumn, ascending]);
+  // The columns in order, which is also the order sortEntries() reads its
+  // fields in. Every id is a literal, so scripts/check_i18n.py can see
+  // which catalog keys this file uses.
+  const columns = useMemo(
+    () => [
+      formatMessage({ id: 'board.list.column.title' }),
+      formatMessage({ id: 'board.list.column.company' }),
+      formatMessage({ id: 'board.list.column.source' }),
+      formatMessage({ id: 'board.list.column.status' }),
+      formatMessage({ id: 'board.list.column.location' }),
+      formatMessage({ id: 'board.list.column.posted' }),
+      formatMessage({ id: 'board.list.column.added' }),
+    ],
+    [formatMessage],
+  );
 
   function sortBy(column, direction) {
     setSortColumn(column);
@@ -167,25 +184,33 @@ function ListView({ entries, statusLabels, onRetry }) {
       <Box display="block" mdDisplay="none" marginBottom={3} maxWidth={280}>
         <SelectList
           id="job-sort"
-          label="Sort by"
-          placeholder="Choose order"
+          label={formatMessage({ id: 'board.list.sortBy' })}
+          placeholder={formatMessage({ id: 'board.list.sortPlaceholder' })}
           value={sortColumn === null ? null : `${sortColumn}:${ascending ? 'asc' : 'desc'}`}
           onChange={({ value }) => {
             const [column, direction] = value.split(':');
             sortBy(Number(column), direction === 'asc');
           }}
         >
-          {LIST_COLUMNS.flatMap((label, index) => [
-            <SelectList.Option key={`${index}-asc`} label={`${label} (ascending)`} value={`${index}:asc`} />,
-            <SelectList.Option key={`${index}-desc`} label={`${label} (descending)`} value={`${index}:desc`} />,
+          {columns.flatMap((label, index) => [
+            <SelectList.Option
+              key={`${index}-asc`}
+              label={formatMessage({ id: 'board.list.sortAscending' }, { column: label })}
+              value={`${index}:asc`}
+            />,
+            <SelectList.Option
+              key={`${index}-desc`}
+              label={formatMessage({ id: 'board.list.sortDescending' }, { column: label })}
+              value={`${index}:desc`}
+            />,
           ])}
         </SelectList>
       </Box>
       <Box overflow="auto">
-        <Table accessibilityLabel="My Jobs list">
+        <Table accessibilityLabel={formatMessage({ id: 'board.list.tableLabel' })}>
           <Table.Header>
             <Table.Row>
-              {LIST_COLUMNS.map((label, index) => (
+              {columns.map((label, index) => (
                 <SortableHeaderCell
                   key={label}
                   label={label}
@@ -235,34 +260,43 @@ function ListView({ entries, statusLabels, onRetry }) {
 }
 
 function DuplicateDialog({ duplicate, onCancel, onOpenExisting, onPromote, onAddAnyway }) {
-  const basisText = duplicate.basis === 'same_ats_posting_id' ? 'the same posting ID' : 'the same URL';
+  const { formatMessage } = useIntl();
+  const basisText =
+    duplicate.basis === 'same_ats_posting_id'
+      ? formatMessage({ id: 'board.duplicate.basisPostingId' })
+      : formatMessage({ id: 'board.duplicate.basisUrl' });
   return (
     <Modal
-      accessibilityModalLabel="Possible duplicate job"
-      heading="Possible duplicate"
+      accessibilityModalLabel={formatMessage({ id: 'board.duplicate.modalLabel' })}
+      heading={formatMessage({ id: 'board.duplicate.heading' })}
       onDismiss={onCancel}
       footer={
         <Flex gap={2} justifyContent="end" wrap>
           {duplicate.actions.includes('open_existing') ? (
-            <Button text="Open existing" onClick={onOpenExisting} />
+            <Button text={formatMessage({ id: 'board.duplicate.openExisting' })} onClick={onOpenExisting} />
           ) : null}
-          {duplicate.actions.includes('promote') ? <Button text="Promote to pipeline" onClick={onPromote} /> : null}
+          {duplicate.actions.includes('promote') ? (
+            <Button text={formatMessage({ id: 'board.duplicate.promote' })} onClick={onPromote} />
+          ) : null}
           {duplicate.actions.includes('add_anyway') ? (
-            <Button color="red" text="Add anyway" onClick={onAddAnyway} />
+            <Button color="red" text={formatMessage({ id: 'board.duplicate.addAnyway' })} onClick={onAddAnyway} />
           ) : null}
-          <Button text="Cancel" onClick={onCancel} />
+          <Button text={formatMessage({ id: 'board.duplicate.cancel' })} onClick={onCancel} />
         </Flex>
       }
     >
       <Text>
-        &quot;{duplicate.existing.title}&quot; looks like a job you already have (matched by {basisText}). Nothing
-        is created until you choose.
+        <FormattedMessage
+          id="board.duplicate.body"
+          values={{ title: duplicate.existing.title, basis: basisText }}
+        />
       </Text>
     </Modal>
   );
 }
 
 export default function JobsBoard() {
+  const { formatMessage } = useIntl();
   const [board, setBoard] = useState(null);
   const [loadError, setLoadError] = useState(null);
   // Counts polls attempted, not boards received: see the polling effect.
@@ -534,10 +568,10 @@ export default function JobsBoard() {
       .then(() => {
         if (moveGenerationRef.current[id] !== generation) return;
         const canExplain = reasonSuggestions(toStatus).length > 0;
-        showToast('success', `Moved to ${statusLabel(toStatus)}`, {
-          actionLabel: 'Undo',
+        showToast('success', formatMessage({ id: 'board.toast.movedTo' }, { status: statusLabel(toStatus) }), {
+          actionLabel: formatMessage({ id: 'board.toast.undo' }),
           onAction: () => undoMove(id, generation, fromStatus, toStatus, originalBeforeId, fields),
-          secondaryLabel: canExplain ? 'Add a reason' : undefined,
+          secondaryLabel: canExplain ? formatMessage({ id: 'board.toast.addReason' }) : undefined,
           onSecondaryAction: canExplain ? () => openReason(id) : undefined,
         });
       })
@@ -657,7 +691,7 @@ export default function JobsBoard() {
         ),
       }));
       setReasonForId(null);
-      showToast('success', 'Reason saved');
+      showToast('success', formatMessage({ id: 'board.toast.reasonSaved' }));
     } catch (err) {
       setReasonError(err.message);
     } finally {
@@ -681,7 +715,7 @@ export default function JobsBoard() {
     }));
     try {
       await updateJob(job.id, { closed_reviewed_at: reviewed });
-      showToast('success', `Keeping ${job.title}`);
+      showToast('success', formatMessage({ id: 'board.toast.keeping' }, { title: job.title }));
     } catch (err) {
       setBoard((prev) => ({
         ...prev,
@@ -804,7 +838,7 @@ export default function JobsBoard() {
     try {
       await retryIngest(id);
       await load();
-      showToast('success', 'Retry started');
+      showToast('success', formatMessage({ id: 'board.toast.retryStarted' }));
     } catch (err) {
       showToast('error', err.message);
     }
@@ -842,7 +876,11 @@ export default function JobsBoard() {
       const ingestState = result?.job?.ingest_state;
       if (ingestState === 'fetch_failed' || ingestState === 'extract_failed') {
         setDuplicate(null);
-        setIntakeError({ kind: 'ingest_failed', message: COULD_NOT_READ_MESSAGE, jobId: result.job.id });
+        setIntakeError({
+          kind: 'ingest_failed',
+          message: formatMessage({ id: 'board.couldNotRead' }),
+          jobId: result.job.id,
+        });
         await load();
         return;
       }
@@ -850,7 +888,7 @@ export default function JobsBoard() {
       setIntakeUrl('');
       setAddPopupOpen(false);
       await load();
-      showToast('success', 'Added to New');
+      showToast('success', formatMessage({ id: 'board.toast.addedToNew' }));
     } catch (err) {
       // A 503 from job_intake() (extraction could not start) still saved the
       // stub, carried here as err.jobId (frontend/src/api/jobs.js). That
@@ -858,7 +896,11 @@ export default function JobsBoard() {
       // as the 201-failed-ingest branch above, never a second intake call.
       if (err.jobId) {
         setDuplicate(null);
-        setIntakeError({ kind: 'ingest_failed', message: COULD_NOT_READ_MESSAGE, jobId: err.jobId });
+        setIntakeError({
+          kind: 'ingest_failed',
+          message: formatMessage({ id: 'board.couldNotRead' }),
+          jobId: err.jobId,
+        });
         await load();
         return;
       }
@@ -883,7 +925,7 @@ export default function JobsBoard() {
       setIntakeUrl('');
       setAddPopupOpen(false);
       await load();
-      showToast('success', 'Retry started');
+      showToast('success', formatMessage({ id: 'board.toast.retryStarted' }));
     } catch (err) {
       setIntakeError({ kind: 'ingest_failed', message: err.message, jobId });
     } finally {
@@ -936,7 +978,7 @@ export default function JobsBoard() {
       setDuplicate(null);
       setIntakeUrl('');
       await load();
-      showToast('success', 'Promoted to pipeline');
+      showToast('success', formatMessage({ id: 'board.toast.promoted' }));
     } catch (err) {
       showToast('error', err.message);
     }
@@ -968,7 +1010,7 @@ export default function JobsBoard() {
       <Box padding={6}>
         <Flex direction="column" gap={3} alignItems="start">
           <Text color="error">{loadError}</Text>
-          <Button text="Retry" onClick={load} />
+          <Button text={formatMessage({ id: 'common.retry' })} onClick={load} />
         </Flex>
       </Box>
     );
@@ -977,7 +1019,9 @@ export default function JobsBoard() {
   if (!board) {
     return (
       <Box padding={6}>
-        <Text>Loading jobs…</Text>
+        <Text>
+          <FormattedMessage id="common.jobs.loading" />
+        </Text>
       </Box>
     );
   }
@@ -987,7 +1031,9 @@ export default function JobsBoard() {
   // Defaulted, not assumed, like `size_classes` above: `counts` is a new
   // payload key, and a bundle loaded against a server that predates it
   // must fall back to the plain total, not lose the whole board.
-  const countSummary = board.counts ? `${board.counts.open} open · ${board.counts.ended} ended` : undefined;
+  const countSummary = board.counts
+    ? formatMessage({ id: 'common.jobs.countSummary' }, { open: board.counts.open, ended: board.counts.ended })
+    : undefined;
   const openStatuses = board.statuses.filter((status) => !endedStatuses.includes(status));
   // The payload counts the days a posting has been gone for exactly the
   // jobs whose card must warn rather than inform, so the chip, the banner
@@ -997,7 +1043,9 @@ export default function JobsBoard() {
   const anyGroupFilterActive = Object.values(filters).some((values) => values.length > 0);
   const noMatches = !isEmpty && filteredEntries.length === 0;
   const noMatchesMessage =
-    needsAttention && !anyGroupFilterActive ? 'Nothing needs attention.' : 'No jobs match these filters.';
+    needsAttention && !anyGroupFilterActive
+      ? formatMessage({ id: 'board.nothingNeedsAttention' })
+      : formatMessage({ id: 'common.jobs.noMatches' });
   const needsAttentionCount = board.entries.filter((job) => job.needs_attention).length;
   const closedCount = board.entries.filter((job) => job.closed).length;
   const pendingClosedReview = (board.closed_review || []).filter((row) => !dismissedClosed.includes(row.id));
@@ -1097,11 +1145,20 @@ export default function JobsBoard() {
     <>
       <Flex gap={2} alignItems="center" wrap>
         <Box marginEnd={2}>
-          <Button text="Add a job" color="red" accessibilityHaspopup onClick={() => setAddPopupOpen(true)} />
+          <Button
+            text={formatMessage({ id: 'board.addJob' })}
+            color="red"
+            accessibilityHaspopup
+            onClick={() => setAddPopupOpen(true)}
+          />
         </Box>
-        <div role="group" aria-label="View" style={{ display: 'inline-flex', gap: 4 }}>
+        <div
+          role="group"
+          aria-label={formatMessage({ id: 'common.view.groupLabel' })}
+          style={{ display: 'inline-flex', gap: 4 }}
+        >
           <FilterChip
-            label="Board"
+            label={formatMessage({ id: 'board.view.board' })}
             height={44}
             dataTestId="view-chip-board"
             selected={view === 'board'}
@@ -1109,7 +1166,7 @@ export default function JobsBoard() {
             onClick={() => persistView('board')}
           />
           <FilterChip
-            label="List"
+            label={formatMessage({ id: 'common.view.list' })}
             height={44}
             dataTestId="view-chip-list"
             selected={view === 'list'}
@@ -1129,7 +1186,7 @@ export default function JobsBoard() {
         toggles={[
           {
             key: 'needs-attention',
-            label: 'Needs attention',
+            label: formatMessage({ id: 'board.needsAttention' }),
             count: needsAttentionCount,
             countColor: 'var(--color-brand-violet)',
             pressed: needsAttention,
@@ -1137,7 +1194,7 @@ export default function JobsBoard() {
           },
           {
             key: 'hide-closed',
-            label: 'Hide closed postings',
+            label: formatMessage({ id: 'common.jobs.hideClosed' }),
             count: closedCount,
             pressed: hideClosed,
             onToggle: () => setHideClosed((value) => !value),
@@ -1159,7 +1216,7 @@ export default function JobsBoard() {
   );
 
   const boardUi = (
-    <PageLayout title="My Jobs" header={headerRows}>
+    <PageLayout title={<FormattedMessage id="board.title" />} header={headerRows}>
       {isPhone && view === 'board' && !isEmpty ? (
         <Box marginBottom={4} overflow="scrollX">
           <Flex gap={2} alignItems="center" wrap={false}>
@@ -1175,7 +1232,7 @@ export default function JobsBoard() {
               />
             ))}
             <FilterChip
-              label="Ended"
+              label={formatMessage({ id: 'board.endedChip' })}
               count={lane.total}
               dataTestId="status-chip-ended"
               selected={phoneSelection === 'ended'}

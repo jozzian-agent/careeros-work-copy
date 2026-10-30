@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge, Box, Flex, Heading, Link, Table, Text, Button } from 'gestalt';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { fetchCompaniesPage } from '../api/companies.js';
 import FilterBar from '../components/FilterBar.jsx';
 import FilterChip from '../components/FilterChip.jsx';
@@ -11,19 +12,12 @@ const FILTERS_KEY = 'careerCompaniesFilters';
 // B4 (CAREER-91): which of the two views this browser last chose,
 // remembered the way the Jobs board remembers Board/List.
 const VIEW_KEY = 'careerCompaniesView';
-const FILTER_GROUPS = [
-  { key: 'sector', label: 'Sector' },
-  { key: 'size', label: 'Size' },
-  { key: 'openJobs', label: 'Open jobs' },
-];
+// The one shape of this page's filters, and so the one list of its facet
+// keys: the labels moved into the component with CAREER-116 (they are
+// catalog keys now, which only a hook can resolve), and this object is
+// what tells the stored-filter reader below which keys exist.
 const EMPTY_FILTERS = { sector: [], size: [], openJobs: [] };
-// "Any" is this facet's cleared state: with neither box checked every
-// company matches, so the two boxes say the only two things worth asking
-// for, and Clear (or Clear all) is what "Any" means.
-const OPEN_JOBS_OPTIONS = [
-  { value: 'with', label: 'With open jobs' },
-  { value: 'without', label: 'Without open jobs' },
-];
+const FILTER_KEYS = Object.keys(EMPTY_FILTERS);
 // Owner decision 2026-10-15: at most 30 characters of a name are shown,
 // cut at 30 with one ellipsis character appended, and the full name is the
 // element's tooltip. Display only -- the stored name is never touched.
@@ -40,18 +34,6 @@ const GRID_STYLE = {
   gap: '16px',
 };
 
-// The list view's columns, owner-approved (B4). Name and Open jobs sort;
-// the other three are what the tile already shows, in columns. There is
-// no column saying where a company came from: the owner asked for none,
-// and the list is the same universe whatever the source.
-const LIST_COLUMNS = [
-  { key: 'name', label: 'Name', sortable: true },
-  { key: 'sector', label: 'Sector' },
-  { key: 'size', label: 'Size' },
-  { key: 'location', label: 'Location' },
-  { key: 'openJobs', label: 'Open jobs', sortable: true },
-];
-
 // Counted and cut by character, not by UTF-16 code unit: an astral
 // character (an emoji, some CJK extensions) straddling the limit would
 // otherwise be cut into a lone surrogate and render as a replacement
@@ -61,9 +43,12 @@ function displayName(name) {
   return characters.length > NAME_LIMIT ? `${characters.slice(0, NAME_LIMIT).join('')}…` : name || '';
 }
 
-function openJobsChip(count) {
-  if (count === 0) return { text: 'No open jobs', type: 'neutral' };
-  return { text: `${count} open ${count === 1 ? 'job' : 'jobs'}`, type: 'info' };
+// The chip reads "No open jobs", "1 open job" or "N open jobs". The count
+// variation is real, so the catalog carries it as an ICU plural rather
+// than this function choosing the noun.
+function openJobsChip(formatMessage, count) {
+  if (count === 0) return { text: formatMessage({ id: 'companies.noOpenJobs' }), type: 'neutral' };
+  return { text: formatMessage({ id: 'companies.openJobsChip' }, { count }), type: 'info' };
 }
 
 function companyHref(id) {
@@ -80,7 +65,7 @@ function readStoredFilters() {
   try {
     const stored = JSON.parse(window.localStorage.getItem(FILTERS_KEY) || '{}');
     return Object.fromEntries(
-      FILTER_GROUPS.map(({ key }) => [
+      FILTER_KEYS.map((key) => [
         key,
         (Array.isArray(stored[key]) ? stored[key] : []).filter((value) => typeof value === 'string'),
       ]),
@@ -99,6 +84,7 @@ function readStoredView() {
 }
 
 export default function CompaniesList() {
+  const { formatMessage } = useIntl();
   const [page, setPage] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [filters, setFilters] = useState(readStoredFilters);
@@ -169,8 +155,10 @@ export default function CompaniesList() {
   const sectorLabels = useCallback(
     // Defaulted like counts/isic_sections/size_classes, so a bundle
     // served by a server that predates the key still renders.
-    (company) => ((page?.sector_labels || {})[company.id] || []).join(', ') || 'Sector unknown',
-    [page],
+    (company) =>
+      ((page?.sector_labels || {})[company.id] || []).join(', ') ||
+      formatMessage({ id: 'companies.sectorUnknown' }),
+    [page, formatMessage],
   );
 
   const sectorOptions = useMemo(() => {
@@ -190,8 +178,11 @@ export default function CompaniesList() {
   // A class the vocabulary does not carry falls back to the stored code
   // rather than to a word nothing said.
   const sizeText = useCallback(
-    (company) => (company.size_class ? sizeLabels.get(company.size_class) || company.size_class : 'Size unknown'),
-    [sizeLabels],
+    (company) =>
+      company.size_class
+        ? sizeLabels.get(company.size_class) || company.size_class
+        : formatMessage({ id: 'companies.sizeUnknown' }),
+    [sizeLabels, formatMessage],
   );
 
   const sizeOptions = useMemo(
@@ -199,13 +190,48 @@ export default function CompaniesList() {
     [entries, sizeClasses],
   );
 
+  // The bar's three facet chips, in the order it draws them. Every id is
+  // a literal, so scripts/check_i18n.py can see which keys this file uses.
+  // "Sector", "Size" and "Open jobs" are also the list view's own column
+  // headings, so the two read the same catalog keys rather than two
+  // spellings of one word.
+  const filterGroups = useMemo(
+    () => [
+      { key: 'sector', label: formatMessage({ id: 'companies.field.sector' }) },
+      { key: 'size', label: formatMessage({ id: 'companies.field.size' }) },
+      { key: 'openJobs', label: formatMessage({ id: 'companies.field.openJobs' }) },
+    ],
+    [formatMessage],
+  );
+
+  // The list view's columns, owner-approved (B4). Name and Open jobs sort;
+  // the other three are what the tile already shows, in columns. There is
+  // no column saying where a company came from: the owner asked for none,
+  // and the list is the same universe whatever the source.
+  const listColumns = useMemo(
+    () => [
+      { key: 'name', label: formatMessage({ id: 'companies.field.name' }), sortable: true },
+      { key: 'sector', label: formatMessage({ id: 'companies.field.sector' }) },
+      { key: 'size', label: formatMessage({ id: 'companies.field.size' }) },
+      { key: 'location', label: formatMessage({ id: 'companies.field.location' }) },
+      { key: 'openJobs', label: formatMessage({ id: 'companies.field.openJobs' }), sortable: true },
+    ],
+    [formatMessage],
+  );
+
+  // "Any" is this facet's cleared state: with neither box checked every
+  // company matches, so the two boxes say the only two things worth asking
+  // for, and Clear (or Clear all) is what "Any" means.
   const openJobsOptions = useMemo(
     () =>
-      OPEN_JOBS_OPTIONS.map((option) => ({
+      [
+        { value: 'with', label: formatMessage({ id: 'companies.openJobs.with' }) },
+        { value: 'without', label: formatMessage({ id: 'companies.openJobs.without' }) },
+      ].map((option) => ({
         ...option,
         count: entries.filter((company) => (openJobs(company) > 0) === (option.value === 'with')).length,
       })),
-    [entries, openJobs],
+    [entries, openJobs, formatMessage],
   );
 
   const optionsByGroup = useMemo(
@@ -251,7 +277,7 @@ export default function CompaniesList() {
       <Box padding={6}>
         <Flex direction="column" gap={3} alignItems="start">
           <Text color="error">{loadError}</Text>
-          <Button text="Retry" onClick={load} />
+          <Button text={formatMessage({ id: 'common.retry' })} onClick={load} />
         </Flex>
       </Box>
     );
@@ -259,7 +285,9 @@ export default function CompaniesList() {
   if (!page) {
     return (
       <Box padding={6}>
-        <Text>Loading companies…</Text>
+        <Text>
+          <FormattedMessage id="companies.loading" />
+        </Text>
       </Box>
     );
   }
@@ -273,9 +301,13 @@ export default function CompaniesList() {
   const header = isEmpty ? null : (
     <>
       <Flex gap={2} alignItems="center" wrap>
-        <div role="group" aria-label="View" style={{ display: 'inline-flex', gap: 4 }}>
+        <div
+          role="group"
+          aria-label={formatMessage({ id: 'common.view.groupLabel' })}
+          style={{ display: 'inline-flex', gap: 4 }}
+        >
           <FilterChip
-            label="Tiles"
+            label={formatMessage({ id: 'companies.view.tiles' })}
             height={44}
             dataTestId="view-chip-tiles"
             selected={view === 'tiles'}
@@ -283,7 +315,7 @@ export default function CompaniesList() {
             onClick={() => persistView('tiles')}
           />
           <FilterChip
-            label="List"
+            label={formatMessage({ id: 'common.view.list' })}
             height={44}
             dataTestId="view-chip-list"
             selected={view === 'list'}
@@ -293,7 +325,7 @@ export default function CompaniesList() {
         </div>
       </Flex>
       <FilterBar
-        groups={FILTER_GROUPS}
+        groups={filterGroups}
         countNoun="companies"
         optionsByGroup={optionsByGroup}
         selected={filters}
@@ -309,7 +341,7 @@ export default function CompaniesList() {
   const tiles = (
     <Box dangerouslySetInlineStyle={{ __style: GRID_STYLE }}>
       {filtered.map((company) => {
-        const chip = openJobsChip(openJobs(company));
+        const chip = openJobsChip(formatMessage, openJobs(company));
         return (
           <Link key={company.id} href={companyHref(company.id)} display="block">
             <Box
@@ -348,10 +380,10 @@ export default function CompaniesList() {
 
   const list = (
     <Box overflow="auto">
-      <Table accessibilityLabel="Companies list">
+      <Table accessibilityLabel={formatMessage({ id: 'companies.tableLabel' })}>
         <Table.Header>
           <Table.Row>
-            {LIST_COLUMNS.map(({ key, label, sortable }) =>
+            {listColumns.map(({ key, label, sortable }) =>
               sortable ? (
                 <SortableHeaderCell
                   key={key}
@@ -373,7 +405,7 @@ export default function CompaniesList() {
         </Table.Header>
         <Table.Body>
           {sorted.map((company) => {
-            const chip = openJobsChip(openJobs(company));
+            const chip = openJobsChip(formatMessage, openJobs(company));
             return (
               <Table.Row key={company.id}>
                 <Table.Cell>
@@ -397,7 +429,10 @@ export default function CompaniesList() {
                       profile header joins them. "Location unknown"
                       rather than a blank cell: a column that is
                       sometimes empty says nothing about why. */}
-                  <Text>{(company.locations || []).join(', ') || 'Location unknown'}</Text>
+                  <Text>
+                    {(company.locations || []).join(', ') ||
+                      formatMessage({ id: 'companies.locationUnknown' })}
+                  </Text>
                 </Table.Cell>
                 <Table.Cell>
                   <Badge type={chip.type} text={chip.text} />
@@ -411,11 +446,13 @@ export default function CompaniesList() {
   );
 
   return (
-    <PageLayout title="Companies" header={header}>
+    <PageLayout title={<FormattedMessage id="companies.title" />} header={header}>
       {isEmpty ? (
         <Text color="subtle">{page.empty}</Text>
       ) : noMatches ? (
-        <Text color="subtle">No companies match these filters.</Text>
+        <Text color="subtle">
+          <FormattedMessage id="companies.noMatches" />
+        </Text>
       ) : view === 'list' ? (
         list
       ) : (
