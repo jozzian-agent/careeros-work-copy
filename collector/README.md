@@ -123,8 +123,25 @@ sudo systemctl start careeros-waitlist-purge.service
 journalctl -u careeros-waitlist-purge -n 5    # prints counts only
 ```
 
-**Look at the store** (counts only — do not `cat` the file into a
-terminal you might paste from):
+**List the stored addresses** (to send invitations). Prints
+`ADDED_AT  EMAIL` rows, oldest first, plus a total — to your terminal
+(stdout) only. The addresses are **never written to the log**: the
+service's logging goes to journald, and `list` emits nothing through
+it, so no copy of the addresses lands anywhere outside the 0600 DB
+file. Read access is the file system's: the command must run as the
+collector user (or root), which is exactly who may see the addresses.
+
+```bash
+sudo -u careeros-waitlist python3 \
+     /opt/careeros-waitlist/waitlist_collector.py list \
+     --db /srv/careeros/waitlist/data/waitlist.sqlite3
+```
+
+Terminal hygiene still applies: don't paste the output into shared
+chats/tickets; scroll-back and screen-sharing are on you.
+
+**Count only** (when you just want the number, without revealing any
+address on screen):
 
 ```bash
 sudo -u careeros-waitlist python3 -c \

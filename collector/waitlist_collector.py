@@ -23,6 +23,11 @@ Contract (deploy/../collector/README.md has the operator side):
   are deleted permanently, daily, by the purge timer. One address can be
   deleted on request with the delete subcommand (reads it from stdin,
   so it lands in no shell history and no process list).
+- The list subcommand prints addresses + timestamps to the operator's
+  TERMINAL (stdout) for sending invitations. It never writes them to
+  the log — stdout is not persisted anywhere, journald only captures
+  the service's own logging. Readable only by whoever can read the
+  0600 DB file, i.e. the collector user or root.
 
 Storage file: SQLite, created 0600 inside a 0700 directory owned by the
 collector's own system user. The app users and Caddy cannot read it
@@ -309,6 +314,31 @@ def cmd_delete(args):
     conn.close()
 
 
+def cmd_list(args):
+    """Print stored addresses + timestamps to the operator's terminal.
+
+    The only subcommand that reveals addresses, and it does so ONLY on
+    stdout — never through `log` (logging goes to stderr/journald and
+    would persist the addresses outside the DB). Access control is the
+    file system: the DB is 0600 owned by careeros-waitlist, so this
+    prints rows only for someone who can already read the file (i.e.
+    the collector user via `sudo -u careeros-waitlist`, or root).
+    """
+    conn = Store(args.db).connect()
+    rows = conn.execute(
+        "SELECT email, added_at FROM waitlist ORDER BY added_at, email"
+    ).fetchall()
+    conn.close()
+    if not rows:
+        print("waitlist is empty")
+        return
+    width = max(len(stamp) for _, stamp in rows)
+    print(f"{'ADDED_AT'.ljust(width)}  EMAIL")
+    for email, stamp in rows:
+        print(f"{stamp.ljust(width)}  {email}")
+    print(f"total: {len(rows)}")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="waitlist_collector",
@@ -329,6 +359,12 @@ def main(argv=None):
     p_del = sub.add_parser("delete", help="delete one address read from stdin")
     p_del.add_argument("--db", default="/srv/careeros/waitlist/data/waitlist.sqlite3")
     p_del.set_defaults(func=cmd_delete)
+
+    p_list = sub.add_parser(
+        "list", help="print stored addresses + timestamps to the terminal "
+                     "(stdout only, never logged)")
+    p_list.add_argument("--db", default="/srv/careeros/waitlist/data/waitlist.sqlite3")
+    p_list.set_defaults(func=cmd_list)
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
