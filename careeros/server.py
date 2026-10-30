@@ -2847,6 +2847,29 @@ def create_app(vault: str | Path | None = None) -> Flask:
         return jsonify(jobs.taxonomy_context(app.config['VAULT_PATH'], identifier,
                                              session_owner(), may_edit_shared()))
 
+    @app.get('/api/me')
+    def me_api():
+        """Who this request is signed in as, as much of it as a client may see.
+
+        The safe subset and nothing more: the credential (`password_hash`)
+        and the session machinery (`session_epoch`) are not a client's
+        business, and a field added to the record later does not join this
+        answer by accident because the response is built key by key rather
+        than filtered out of the record.
+
+        `disabled` is absent because it can only ever be false here: the
+        gate turns a disabled account's request into a 401 before this
+        runs, so a `disabled: false` on every answer would be a field no
+        reader could learn anything from.
+
+        Read-only (CAREER-116). Changing the language is a later PR; this
+        is the ground truth a client reads it from.
+        """
+        user = users.request_principal(app.config['VAULT_PATH'])
+        return jsonify(id=user.get('id'), name=user.get('name'),
+                       email=user.get('email'), role=user.get('role'),
+                       locale=users.locale(user))
+
     @app.get('/api/taxonomy')
     def taxonomy_api():
         return jsonify(taxonomy.taxonomy_context(app.config['VAULT_PATH'], session_owner()))

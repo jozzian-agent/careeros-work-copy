@@ -29,7 +29,7 @@ Every field of every stored kind that holds what a person typed, minus the field
 
   * no prompt builder is handed a record of this kind: the only stored records the three take are companies and jobs, so no field of this one can enter a prompt
 
-**users** (7 of them): `created_at`, `disabled`, `email`, `name`, `password_hash`, `role`, `session_epoch`.
+**users** (8 of them): `created_at`, `disabled`, `email`, `locale`, `name`, `password_hash`, `role`, `session_epoch`.
 
   * no prompt builder is handed a record of this kind: the only stored records the three take are companies and jobs, so no field of this one can enter a prompt
 

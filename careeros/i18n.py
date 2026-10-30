@@ -6,9 +6,11 @@ React reads that file through react-intl, and this module is how the
 Python side reads the very same file, so a string has one home rather
 than one per language the app is written in.
 
-Nothing in the web app calls anything here yet. This is the library and
-its tests; the Flask wiring, and the move of the existing strings into
-the catalog, are later PRs.
+The one thing in the app that reads this module today is the `locale`
+field on a user record: `available_locales` below says which languages
+the catalog ships, and `users.validate_user` accepts those and nothing
+else. No page and no mail renders through `tr` yet; that wiring is a
+later PR.
 
 THE NAMESPACE RULE. The catalog has two kinds of keys:
 
@@ -55,6 +57,11 @@ _logger = logging.getLogger(__name__)
 #: from somewhere different, and the file is in the same place for all
 #: three.
 CATALOG_PATH = Path(__file__).resolve().parents[1] / 'frontend' / 'src' / 'i18n' / 'en.json'
+
+#: The language the catalog above is written in, and the one a record
+#: with no language of its own reads as. Taken from the file name rather
+#: than written out a second time, so 'en' is spelled once.
+DEFAULT_LOCALE = CATALOG_PATH.stem
 
 #: The only namespace this module loads. Everything else in the catalog
 #: belongs to the client and may use ICU, which `str.format` cannot parse.
@@ -121,6 +128,21 @@ def load_catalog(path=None):
         _cache[resolved] = MappingProxyType(
             {key: value for key, value in raw.items() if key.startswith(SERVER_PREFIX)})
     return _cache[resolved]
+
+
+def available_locales():
+    """Every language the catalog ships, read off the directory it lives
+    in: one file per locale, named by it.
+
+    Derived and never listed, so the day a translator adds `de.json` the
+    app accepts `de` with no code change -- which is the whole reason the
+    user record's `locale` asks here instead of carrying its own tuple of
+    allowed values (careeros/users.py). Read off `CATALOG_PATH`'s own
+    directory so it moves with the catalog, and not cached: a save of a
+    user record is rare, a directory listing is cheap, and a cache would
+    need clearing the one time it mattered.
+    """
+    return tuple(sorted(path.stem for path in CATALOG_PATH.parent.glob('*.json')))
 
 
 def clear_cache():

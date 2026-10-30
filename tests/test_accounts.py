@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from careeros import server, users
+from careeros import i18n, server, users
 
 PASSWORD = 'correct horse battery staple'
 OTHER_PASSWORD = 'a second phrase entirely'
@@ -27,6 +27,7 @@ API_PATHS = (
     '/api/search?view=page',
     '/api/notes',
     '/api/taxonomy',
+    '/api/me',
 )
 
 # The pages that exist with the React build absent, plus a path that does
@@ -500,8 +501,10 @@ def test_a_password_added_to_a_user_file_by_hand_is_dropped_on_the_next_save(
 
 
 def test_a_stored_user_holds_exactly_the_recorded_fields(vault_root, admin):
-    assert sorted(admin) == ['created_at', 'disabled', 'email', 'id', 'name',
-                             'password_hash', 'role']
+    # `locale` joined the list with CAREER-116: the field is defaulted on
+    # save, so every record written from now on carries it.
+    assert sorted(admin) == ['created_at', 'disabled', 'email', 'id', 'locale',
+                             'name', 'password_hash', 'role']
     path = next(path for path, _ in users._entries(vault_root))
     assert sorted(yaml.safe_load(path.read_text())) == sorted(admin)
 
@@ -516,3 +519,91 @@ def test_a_user_record_refuses_an_unknown_role_and_a_bad_email(vault_root):
                 'password_hash': 'scrypt:1:1:1$salt$hash'}
         with pytest.raises(ValueError, match=message):
             users.save_user(vault_root, base | payload)
+
+
+# --- The language on the record, and GET /api/me (CAREER-116) ------------
+#
+# Which languages exist is the catalog's answer (`i18n.available_locales`
+# reads `frontend/src/i18n/*.json`), so today the allowed set is `en`
+# alone and a record may say nothing else. Nothing sets the field yet:
+# /api/me is the read, and the UI that changes it is a later PR.
+
+def test_a_new_account_is_stored_with_the_catalog_s_own_language(vault_root, admin):
+    assert admin['locale'] == 'en'
+    path = next(path for path, _ in users._entries(vault_root))
+    assert yaml.safe_load(path.read_text())['locale'] == 'en'
+
+
+def test_a_user_record_refuses_a_language_the_catalog_does_not_ship(vault_root, admin):
+    """`de` is a real language and not one this app has strings for, so a
+    record that claimed it would promise a page we cannot render."""
+    with pytest.raises(ValueError, match='Locale must be one of en.'):
+        users.save_user(vault_root, {'locale': 'de'}, admin['id'])
+    # The refused write changed nothing on disk.
+    path = next(path for path, _ in users._entries(vault_root))
+    assert yaml.safe_load(path.read_text())['locale'] == 'en'
+
+    with pytest.raises(ValueError, match='Locale must be one of en.'):
+        users.save_user(vault_root, {'email': 'dee@example.test', 'name': 'Dee',
+                                     'role': 'tester', 'locale': 'de',
+                                     'password_hash': 'scrypt:1:1:1$salt$hash'})
+    assert users.find_by_email(vault_root, 'dee@example.test') is None
+
+    with pytest.raises(ValueError, match='locale must be text'):
+        users.save_user(vault_root, {'locale': ['en']}, admin['id'])
+
+
+def test_a_translation_the_catalog_gains_needs_no_change_to_the_record(
+        vault_root, admin, tmp_path, monkeypatch):
+    """The allowed set is derived, which is the point of deriving it: the
+    day `de.json` lands beside `en.json`, a record may say `de`."""
+    catalog = tmp_path / 'i18n'
+    catalog.mkdir()
+    for locale in ('en', 'de'):
+        (catalog / f'{locale}.json').write_text('{}', encoding='utf-8')
+    monkeypatch.setattr(i18n, 'CATALOG_PATH', catalog / 'en.json')
+    assert i18n.available_locales() == ('de', 'en')
+
+    stored = users.save_user(vault_root, {'locale': 'de'}, admin['id'])
+    assert stored['locale'] == 'de'
+    assert users.locale(users.load_user(vault_root, admin['id'])) == 'de'
+
+
+def test_a_record_written_before_the_field_existed_reads_as_english(vault_root, admin, app):
+    """Every account created before CAREER-116 is a stored record with no
+    `locale` line, and it reads as the catalog's language through the same
+    path /api/me uses -- not only after something saves it again."""
+    path = next(path for path, _ in users._entries(vault_root))
+    stored = yaml.safe_load(path.read_text())
+    del stored['locale']
+    path.write_text(yaml.safe_dump(stored, sort_keys=False))
+    assert 'locale' not in path.read_text()
+
+    assert users.locale(users.load_user(vault_root, admin['id'])) == 'en'
+
+    client = app.test_client()
+    log_in(client)
+    assert client.get('/api/me').get_json()['locale'] == 'en'
+    # Still unsaved: a read does not rewrite the record it read.
+    assert 'locale' not in path.read_text()
+
+
+def test_api_me_carries_the_safe_subset_of_the_signed_in_user(app, admin):
+    client = app.test_client()
+    log_in(client)
+    response = client.get('/api/me')
+    assert response.status_code == 200
+    assert response.get_json() == {'id': admin['id'], 'name': 'Owner',
+                                   'email': 'owner@example.test', 'role': 'admin',
+                                   'locale': 'en'}
+    # Neither the credential nor the session machinery, by name or by value.
+    body = response.get_data(as_text=True)
+    assert 'password_hash' not in body and admin['password_hash'] not in body
+    assert users.SESSION_EPOCH_FIELD not in body and 'disabled' not in body
+
+
+def test_api_me_answers_reads_only(app, admin):
+    client = app.test_client()
+    log_in(client)
+    for method in (client.post, client.put):
+        assert method('/api/me', json={'locale': 'de'}).status_code == 405

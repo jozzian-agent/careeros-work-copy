@@ -100,7 +100,7 @@ Beside the allowlist, a block lists the fields the writer sets itself. Those sit
 ### users
 
 * Stored at: `users/`, one file per record, named `f"{vault.slugify(result['name'])}-{result['id'].lower()}.yaml"` (users.save_user).
-* Allowed fields (users.validate_user defaults): `created_at`, `disabled`, `email`, `name`, `password_hash`, `role`, `session_epoch`.
+* Allowed fields (users.validate_user defaults): `created_at`, `disabled`, `email`, `locale`, `name`, `password_hash`, `role`, `session_epoch`.
 * Fields the writer sets itself, outside the allowlist: `id`.
 * Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. Read on routes whose read access reads: any logged-in user; public, one-time token, rate limited; public, rate limited. Written on routes whose write access reads: public, one-time token, rate limited.
 
@@ -272,6 +272,7 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/jobs/intake` | POST | `job_intake` | notes | owner only | no write on this route | storage layer | `vault.has_notes`, `vault.notes_view` |
 | `/api/jobs/intake` | POST | `job_intake` | tags | any logged-in user | admin only | route code, storage layer | `vault.function_facet_options`, `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
 | `/api/jobs/intake` | POST | `job_intake` | users | any logged-in user | no write on this route | storage layer | `users.admins`, `users.list_users`, `users.load_user` |
+| `/api/me` | GET | `me_api` | none | no record kind on this route | no write on this route |  |  |
 | `/api/notes` | GET | `notes_api` | companies | any logged-in user | no write on this route | route code, storage layer | `vault.list_companies`, `vault.reader_company`, `vault.visible_companies` |
 | `/api/notes` | GET | `notes_api` | experiences | owner only | no write on this route | storage layer | `vault.list_experiences` |
 | `/api/notes` | GET | `notes_api` | jobs | owner only | no write on this route | route code, storage layer | `vault.list_jobs` |
