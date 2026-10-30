@@ -10,6 +10,11 @@ What M2 adds here is the two readings of a user that the rest of the app
 asks for: `owner`, the scope a user's own records are read under, and
 `is_admin`, which decides whether they may change the shared ones.
 
+CAREER-116 adds the one thing in the record that is a preference rather
+than an identity: `locale`, which language this user wants the app in.
+It is stored here because the server is the ground truth for it, and read
+back by `locale` below and by GET /api/me; nothing sets it yet.
+
 A user record never holds the plain password. The only thing stored is a
 werkzeug hash, and the plain text exists for the length of one call: the
 command line hands it to generate_password_hash, and a sign-in hands it
@@ -31,7 +36,7 @@ from pathlib import Path
 from flask import g, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from careeros import vault
+from careeros import i18n, vault
 
 #: The two roles, a fixed list (PROJECT.md Roles). One admin manages
 #: accounts from the command line; a tester signs in and uses the app.
@@ -291,7 +296,8 @@ def validate_user(data, existing=None):
     if 'password' in data:
         raise ValueError('A user record never stores a plain password; pass a password_hash.')
     defaults: dict = dict(email='', name='', role=DEFAULT_ROLE, password_hash='',
-                          created_at='', disabled=False)
+                          created_at='', disabled=False,
+                          locale=i18n.DEFAULT_LOCALE)
     # `session_epoch` is allowed but not defaulted: a record carries it
     # only once something bumped it, so every record written before the
     # field existed keeps its exact shape (and the stored-fields test its
@@ -306,7 +312,7 @@ def validate_user(data, existing=None):
     # ever mentioned it.
     result = {key: value for key, value in (defaults | (existing or {}) | data).items()
               if key in defaults}
-    for key in ('email', 'name', 'role', 'password_hash', 'created_at'):
+    for key in ('email', 'name', 'role', 'password_hash', 'created_at', 'locale'):
         if not isinstance(result[key], str):
             raise ValueError(f'{key} must be text.')
     if SESSION_EPOCH_FIELD in result and type(result[SESSION_EPOCH_FIELD]) is not int:
@@ -319,6 +325,12 @@ def validate_user(data, existing=None):
         raise ValueError('Name is required.')
     if result['role'] not in ROLES:
         raise ValueError('Role must be one of ' + ', '.join(ROLES) + '.')
+    # Which languages exist is the catalog's answer, not a list kept here:
+    # `i18n.available_locales` reads the catalog directory, so adding a
+    # `de.json` widens what a record may say with no change in this file.
+    locales = i18n.available_locales()
+    if result['locale'] not in locales:
+        raise ValueError('Locale must be one of ' + ', '.join(locales) + '.')
     # A hash, never a password. Every werkzeug hash carries its method and
     # salt separated by '$', so a plain password written into this field
     # by mistake is refused here instead of being stored in the clear.
@@ -464,6 +476,28 @@ def is_admin(user):
     stays with the admin, and a tester gets SHARED_READ_ONLY instead.
     """
     return (user or {}).get('role') == 'admin'
+
+
+def locale(user):
+    """Which language this user wants the app in.
+
+    The one place the read default lives. `validate_user` defaults the
+    field on save, so every record written from now on carries it -- but
+    every account created before CAREER-116 is a stored record with no
+    `locale` line until something saves it again, and such a record is
+    not half-configured: it is a user who never chose, which is the
+    catalog's own language. Consumers ask here instead of each repeating
+    a `.get`, so there is one answer to change the day a browser header
+    gets a say.
+
+    A stored value the catalog no longer ships reads as the default for
+    the same reason: a translation that was removed, or a line edited
+    into the file by hand, must not reach a client as a language it has
+    no strings for. Only a save can refuse such a value outright
+    (`validate_user`); a read has a record in front of it already.
+    """
+    chosen = (user or {}).get('locale')
+    return chosen if chosen in i18n.available_locales() else i18n.DEFAULT_LOCALE
 
 
 def owner(user):

@@ -157,3 +157,20 @@ def test_load_raw_sees_every_key(catalog):
     catalog({'server.pages.title': 'Dashboard', 'shell.logOut': 'Log out'})
     raw = i18n.load_raw_catalog()
     assert set(raw) == {'server.pages.title', 'shell.logOut'}
+
+
+def test_the_languages_on_offer_are_the_catalog_s_own_files():
+    """English only today, read off the directory rather than listed, so a
+    translation that lands is on offer the moment its file is there
+    (users.validate_user is what asks)."""
+    assert i18n.DEFAULT_LOCALE == 'en'
+    assert i18n.available_locales() == ('en',)
+
+
+def test_a_second_catalog_file_is_a_second_language(tmp_path, monkeypatch):
+    (tmp_path / 'en.json').write_text('{}', encoding='utf-8')
+    (tmp_path / 'de.json').write_text('{}', encoding='utf-8')
+    # Not a catalog, and not a language either: only `.json` files count.
+    (tmp_path / 'README.md').write_text('how this works', encoding='utf-8')
+    monkeypatch.setattr(i18n, 'CATALOG_PATH', tmp_path / 'en.json')
+    assert i18n.available_locales() == ('de', 'en')

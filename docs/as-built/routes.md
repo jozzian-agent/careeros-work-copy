@@ -57,6 +57,7 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/api/jobs/<identifier>/resolve-review` | POST | `resolve_review` | `careeros.server.resolve_review` | always | login + admin | JSON |
 | `/api/jobs/<identifier>/taxonomy` | GET | `job_taxonomy_api` | `careeros.server.job_taxonomy_api` | always | login + admin | JSON |
 | `/api/jobs/intake` | POST | `job_intake` | `careeros.server.job_intake` | always | login + admin | JSON |
+| `/api/me` | GET | `me_api` | `careeros.server.me_api` | always | login | JSON |
 | `/api/notes` | GET | `notes_api` | `careeros.server.notes_api` | always | login | JSON |
 | `/api/search` | GET, POST | `search_api` | `careeros.server.search_api` | always | login | JSON |
 | `/api/taxonomy` | GET | `taxonomy_api` | `careeros.server.taxonomy_api` | always | login | JSON |
@@ -102,18 +103,18 @@ flowchart LR
   subgraph pages["Flask page routes"]
     f00["/ (react_index)"]
     f02["/all-jobs (react_all_jobs)"]
-    f34["/companies (react_companies)"]
-    f35["/companies/#60;identifier#62; (react_company_detail)"]
-    f36["/experiences (react_experiences)"]
-    f37["/experiences/#60;identifier#62; (react_experience_detail)"]
-    f38["/experiences/#60;identifier#62;/edit (experience_edit)"]
-    f39["/experiences/new (experience_new)"]
-    f41["/jobs (jobs)"]
-    f42["/jobs (react_jobs)"]
-    f43["/jobs/#60;identifier#62; (react_job_detail)"]
-    f44["/jobs/#60;identifier#62;/taxonomy (job_taxonomy)"]
-    f47["/notes (react_notes)"]
-    f50["/taxonomy (react_taxonomy)"]
+    f35["/companies (react_companies)"]
+    f36["/companies/#60;identifier#62; (react_company_detail)"]
+    f37["/experiences (react_experiences)"]
+    f38["/experiences/#60;identifier#62; (react_experience_detail)"]
+    f39["/experiences/#60;identifier#62;/edit (experience_edit)"]
+    f40["/experiences/new (experience_new)"]
+    f42["/jobs (jobs)"]
+    f43["/jobs (react_jobs)"]
+    f44["/jobs/#60;identifier#62; (react_job_detail)"]
+    f45["/jobs/#60;identifier#62;/taxonomy (job_taxonomy)"]
+    f48["/notes (react_notes)"]
+    f51["/taxonomy (react_taxonomy)"]
   end
   subgraph api["Flask JSON API"]
     f03["/api/companies (company_collection)"]
@@ -142,34 +143,35 @@ flowchart LR
     f26["/api/jobs/#60;identifier#62;/resolve-review (resolve_review)"]
     f27["/api/jobs/#60;identifier#62;/taxonomy (job_taxonomy_api)"]
     f28["/api/jobs/intake (job_intake)"]
-    f29["/api/notes (notes_api)"]
-    f30["/api/search (search_api)"]
-    f31["/api/taxonomy (taxonomy_api)"]
-    f32["/api/watch/scan (watch_scan)"]
+    f29["/api/me (me_api)"]
+    f30["/api/notes (notes_api)"]
+    f31["/api/search (search_api)"]
+    f32["/api/taxonomy (taxonomy_api)"]
+    f33["/api/watch/scan (watch_scan)"]
   end
   subgraph auth["Flask auth routes"]
     f01["/accept-invite/#60;token#62; (accept_invite)"]
-    f40["/forgot-password (forgot_password)"]
-    f45["/login (login)"]
-    f46["/logout (logout)"]
-    f48["/reset-password/#60;token#62; (reset_password)"]
+    f41["/forgot-password (forgot_password)"]
+    f46["/login (login)"]
+    f47["/logout (logout)"]
+    f49["/reset-password/#60;token#62; (reset_password)"]
   end
   subgraph assets["Flask build assets"]
-    f33["/assets/#60;path:filename#62; (react_assets)"]
-    f49["/static/#60;path:filename#62; (static)"]
+    f34["/assets/#60;path:filename#62; (react_assets)"]
+    f50["/static/#60;path:filename#62; (static)"]
   end
   r00 --> f00
   r01 --> f02
-  r02 --> f34
-  r03 --> f35
-  r04 --> f36
-  r05 --> f37
-  r06 --> f41
+  r02 --> f35
+  r03 --> f36
+  r04 --> f37
+  r05 --> f38
   r06 --> f42
-  r07 --> f43
-  r08 --> f45
-  r09 --> f47
-  r10 --> f50
+  r06 --> f43
+  r07 --> f44
+  r08 --> f46
+  r09 --> f48
+  r10 --> f51
 ```
 
 ## API paths the sources behind each React page name
