@@ -40,17 +40,80 @@ rule and its reasoning live in `frontend/src/i18n/README.md`.
 The same placeholder name twice in one value is fine, and so is a value
 with no placeholder at all.
 
+The second gate is the sync rule: the catalog and the code that reads it
+must name the same keys, in both directions.
+
+  * every key in the catalog is used somewhere. A dead key is a string
+    nobody reads, and the next translator would pay to translate it.
+  * every key the code asks for is in the catalog. A key that is not
+    there renders as its own id on the page, which react-intl reports to
+    the browser console and nothing else notices.
+
+Both directions are answered by scanning text, not by parsing JavaScript
+or Python, and the limits of that are worth saying out loud:
+
+  * a client key counts as used when its own quoted spelling appears
+    anywhere in a `.js` or `.jsx` file under `frontend/src` (the `i18n`
+    directory itself excluded, since the catalog quotes every key).
+    A key quoted in a comment therefore counts as used, and so would one
+    quoted in dead code. The rule catches the case it is for -- a key
+    nobody renders any more -- and it cannot be fooled into failing a
+    key that IS rendered.
+  * an id the code asks for is read out of a react-intl consumption
+    position, meaning `id="..."` or `id: '...'`, and only literals that
+    look like a catalog key (they carry a dot and no whitespace) are
+    treated as one. That is what keeps `id="login-email"`, a DOM id, out
+    of it. The cost is that an id built at runtime is invisible here,
+    which is why every id in this front end is written as a literal.
+  * a `server.*` key counts as used when `tr('key'` or `tr("key"`
+    appears in a `.py` file anywhere under `careeros/`. The same
+    comment caveat applies.
+
+The sync rule compares a catalog against the tree that reads it, so it
+needs both. `--root` names that tree (default: the repository this script
+lives in) and `--catalog` defaults to that tree's own catalog. A
+`--catalog` given on its own is a file from somewhere else, so only the
+validity rules above run over it.
+
 Usage:
   python scripts/check_i18n.py
   python scripts/check_i18n.py --catalog path/to/other.json
+  python scripts/check_i18n.py --root path/to/tree
 """
 import argparse
+import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(REPO_ROOT))
 
 from careeros import i18n  # noqa: E402
+
+#: Where the two runtimes live inside a tree, relative to its root.
+CLIENT_SOURCE_DIR = Path('frontend') / 'src'
+SERVER_SOURCE_DIR = Path('careeros')
+
+#: The catalog quotes every key it holds, so scanning it for "is this key
+#: used" would answer yes every time. Its whole directory is skipped, named
+#: relative to whichever client source directory is being scanned.
+CLIENT_SKIP_DIRNAME = 'i18n'
+
+CLIENT_SOURCE_GLOBS = ('*.js', '*.jsx')
+
+#: A quoted string that could be a catalog key: it carries a dot and no
+#: whitespace. Deliberately loose for the used-keys scan, where a false
+#: "used" is harmless, and the one filter that keeps a DOM id such as
+#: `login-email` out of the asked-for-ids scan.
+KEY_SHAPED = re.compile(r'''['"]([^'"\s]*\.[^'"\s]*)['"]''')
+
+#: A react-intl consumption position: `id="board.title"`, `id: 'board.title'`.
+#: The lookbehind is what stops `data-testid="a.b"` matching.
+CLIENT_ID = re.compile(r'''(?<![\w-])id\s*[=:]\s*['"]([^'"\s]+)['"]''')
+
+#: `careeros.i18n.tr` is the one way a server string is read.
+SERVER_TR = re.compile(r'''\btr\(\s*['"]([^'"]+)['"]''')
 
 #: Said once here and quoted into each ICU problem, because the message a
 #: contributor reads in CI has to explain why the rule exists, not only
@@ -130,6 +193,90 @@ def server_value_problems(value):
     return found
 
 
+def _source_text(directory, globs, skip=None):
+    """Every file under `directory` matching `globs`, as (path, text) pairs.
+
+    A missing directory reads as no files rather than as an error: a tree
+    that holds only one of the two runtimes is a legitimate thing to check
+    (and is what the unit tests point this at).
+    """
+    if not directory.is_dir():
+        return
+    for glob in globs:
+        for path in sorted(directory.rglob(glob)):
+            if skip is not None and skip in path.parents:
+                continue
+            yield path, path.read_text(encoding='utf-8', errors='replace')
+
+
+def used_client_keys(src_dir):
+    """Every key-shaped quoted literal in the client sources under `src_dir`.
+
+    A set, not a per-file map: the question this answers is only whether a
+    catalog key is spelled anywhere in the code at all. See the module
+    docstring for what this scan cannot see.
+    """
+    skip = src_dir / CLIENT_SKIP_DIRNAME
+    found = set()
+    for _path, text in _source_text(src_dir, CLIENT_SOURCE_GLOBS, skip=skip):
+        found.update(KEY_SHAPED.findall(text))
+    return found
+
+
+def asked_client_ids(src_dir):
+    """Every key-shaped id the client sources ask react-intl for.
+
+    `(id, path)` pairs, because a failure here has to name the file that
+    asks for the missing key -- "board.ttile is not in the catalog" is
+    only half an answer.
+    """
+    found = []
+    skip = src_dir / CLIENT_SKIP_DIRNAME
+    for path, text in _source_text(src_dir, CLIENT_SOURCE_GLOBS, skip=skip):
+        for candidate in CLIENT_ID.findall(text):
+            if '.' in candidate:
+                found.append((candidate, path))
+    return found
+
+
+def used_server_keys(py_dir):
+    """Every key passed to `tr()` in the Python sources under `py_dir`."""
+    found = set()
+    for _path, text in _source_text(py_dir, ('*.py',)):
+        found.update(SERVER_TR.findall(text))
+    return found
+
+
+def unused_problems(catalog, client_used, server_used):
+    """Every catalog key nothing reads, as `(key, message)` pairs."""
+    found = []
+    for key in catalog:
+        if key.startswith(i18n.SERVER_PREFIX):
+            if key not in server_used:
+                found.append((key, f'nothing reads this key: no tr({key!r}) call under '
+                                   f'{SERVER_SOURCE_DIR}/. Delete the key, or use it'))
+        elif key not in client_used:
+            found.append((key, f'nothing reads this key: it is not quoted anywhere under '
+                               f'{CLIENT_SOURCE_DIR}/. Delete the key, or use it'))
+    return found
+
+
+def missing_from_catalog(catalog, asked):
+    """Every id the code asks for that the catalog does not hold."""
+    return [(key, f'{path}: asks react-intl for this id, and the catalog has no such key')
+            for key, path in asked if key not in catalog]
+
+
+def sync_problems(catalog, root):
+    """Both directions of the sync rule over one tree, in reading order."""
+    src_dir = root / CLIENT_SOURCE_DIR
+    found = unused_problems(catalog,
+                            used_client_keys(src_dir),
+                            used_server_keys(root / SERVER_SOURCE_DIR))
+    found.extend(missing_from_catalog(catalog, asked_client_ids(src_dir)))
+    return found
+
+
 def problems(catalog):
     """Every problem in a whole catalog as `(key, message)` pairs.
 
@@ -155,10 +302,18 @@ def problems(catalog):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--catalog',
-                        help='catalog to check (default: frontend/src/i18n/en.json)')
+                        help='catalog to check (default: the tree\'s own '
+                             'frontend/src/i18n/en.json). Given on its own, only the '
+                             'validity rules run: a catalog from elsewhere has no code '
+                             'tree to be in sync with')
+    parser.add_argument('--root',
+                        help='tree whose code the sync rules read '
+                             '(default: this script\'s own repository)')
     args = parser.parse_args(argv)
 
-    path = Path(args.catalog) if args.catalog else i18n.CATALOG_PATH
+    root = Path(args.root).resolve() if args.root else REPO_ROOT
+    path = Path(args.catalog) if args.catalog else root / CLIENT_SOURCE_DIR / 'i18n' / 'en.json'
+    checks_sync = args.root is not None or args.catalog is None
     try:
         catalog = i18n.load_raw_catalog(path)
     except (OSError, ValueError) as error:
@@ -166,17 +321,22 @@ def main(argv=None):
         return 1
 
     found = problems(catalog)
+    if checks_sync:
+        found.extend(sync_problems(catalog, root))
     if found:
         print(f'{path}: {len(found)} problem(s):', file=sys.stderr)
         for key, message in found:
             print(f'  {key}: {message}', file=sys.stderr)
         print(f'{i18n.SERVER_PREFIX}* values may carry plain {{var}} placeholders only; '
-              'all values must balance their braces. '
+              'all values must balance their braces; and every key must be used by the '
+              'code exactly as the code names it. '
               'See frontend/src/i18n/README.md.', file=sys.stderr)
         return 1
 
     server_keys = sum(1 for key in catalog if key.startswith(i18n.SERVER_PREFIX))
-    print(f'{path}: {len(catalog)} key(s) checked ({server_keys} {i18n.SERVER_PREFIX}*), OK')
+    sync = 'all used' if checks_sync else 'sync rules skipped (no tree for this catalog)'
+    print(f'{path}: {len(catalog)} key(s) checked '
+          f'({server_keys} {i18n.SERVER_PREFIX}*), {sync}, OK')
     return 0
 
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Box, Button, Flex, Layer, Text } from 'gestalt';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { fetchUniverse, moveJobStatus, promoteJob } from '../api/jobs.js';
 import JobCard from '../components/JobCard.jsx';
 import FilterBar from '../components/FilterBar.jsx';
@@ -28,6 +29,7 @@ const GRID_STYLE = {
 const TOAST_LIFETIME_MS = 4000;
 
 export default function AllJobs() {
+  const { formatMessage } = useIntl();
   const [payload, setPayload] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [filters, setFilters] = useState(EMPTY_JOB_FILTERS);
@@ -91,7 +93,7 @@ export default function AllJobs() {
     try {
       await promoteJob(job.id);
       await load();
-      showToast('success', `Added ${job.title} to New`);
+      showToast('success', formatMessage({ id: 'allJobs.toast.added' }, { title: job.title }));
     } catch (err) {
       showToast('error', err.message);
     } finally {
@@ -118,7 +120,7 @@ export default function AllJobs() {
       <Box padding={6}>
         <Flex direction="column" gap={3} alignItems="start">
           <Text color="error">{loadError}</Text>
-          <Button text="Retry" onClick={load} />
+          <Button text={formatMessage({ id: 'common.retry' })} onClick={load} />
         </Flex>
       </Box>
     );
@@ -126,7 +128,9 @@ export default function AllJobs() {
   if (!payload) {
     return (
       <Box padding={6}>
-        <Text>Loading jobs…</Text>
+        <Text>
+          <FormattedMessage id="common.jobs.loading" />
+        </Text>
       </Box>
     );
   }
@@ -139,7 +143,10 @@ export default function AllJobs() {
   );
   // The same split the board shows, over the universe's jobs.
   const summaryText = payload.counts
-    ? `${payload.counts.open} open · ${payload.counts.ended} ended`
+    ? formatMessage(
+        { id: 'common.jobs.countSummary' },
+        { open: payload.counts.open, ended: payload.counts.ended },
+      )
     : undefined;
 
   // No main action on this page, so the header stack is the filter bar
@@ -156,7 +163,7 @@ export default function AllJobs() {
       toggles={[
         {
           key: 'hide-closed',
-          label: 'Hide closed postings',
+          label: formatMessage({ id: 'common.jobs.hideClosed' }),
           count: closedCount,
           pressed: hideClosed,
           onToggle: () => setHideClosed((value) => !value),
@@ -169,11 +176,13 @@ export default function AllJobs() {
   );
 
   return (
-    <PageLayout title="All jobs" header={header}>
+    <PageLayout title={<FormattedMessage id="allJobs.title" />} header={header}>
       {isEmpty ? (
         <Text color="subtle">{payload.empty}</Text>
       ) : noMatches ? (
-        <Text color="subtle">No jobs match these filters.</Text>
+        <Text color="subtle">
+          <FormattedMessage id="common.jobs.noMatches" />
+        </Text>
       ) : (
         <Box dangerouslySetInlineStyle={{ __style: GRID_STYLE }}>
           {filtered.map((job) => (

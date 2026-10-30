@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BannerSlim, Box, Button, Flex, Heading, Link, Text, TextField } from 'gestalt';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { logIn } from '../api/client.js';
 
 // The one page a person can reach without a session (M1). Plain fields and
@@ -10,6 +11,7 @@ import { logIn } from '../api/client.js';
 // straight back here, and it shows one message for every failed attempt,
 // so it cannot be used to find out who has an account.
 export default function Login() {
+  const { formatMessage } = useIntl();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
@@ -37,14 +39,16 @@ export default function Login() {
         <form onSubmit={submit}>
           <Flex direction="column" gap={4}>
             <Heading size="500" accessibilityLevel={1}>
-              Log in
+              <FormattedMessage id="login.title" />
             </Heading>
-            <Text color="subtle">CareerOS is invitation only. Ask the owner for an account.</Text>
+            <Text color="subtle">
+              <FormattedMessage id="login.invitationOnly" />
+            </Text>
             {error ? <BannerSlim type="error" message={error} /> : null}
             <TextField
               id="login-email"
               type="email"
-              label="Email"
+              label={formatMessage({ id: 'login.email' })}
               autoComplete="username"
               value={email}
               onChange={({ value }) => setEmail(value)}
@@ -52,12 +56,18 @@ export default function Login() {
             <TextField
               id="login-password"
               type="password"
-              label="Password"
+              label={formatMessage({ id: 'login.password' })}
               autoComplete="current-password"
               value={password}
               onChange={({ value }) => setPassword(value)}
             />
-            <Button type="submit" color="red" text="Log in" disabled={busy} fullWidth />
+            <Button
+              type="submit"
+              color="red"
+              text={formatMessage({ id: 'login.submit' })}
+              disabled={busy}
+              fullWidth
+            />
             {/* CAREER-97: the mailed-link pages (forgot password, invites,
                 reset) are deliberately server-rendered, not React routes,
                 so this is a plain same-origin anchor that does a full page
@@ -65,7 +75,9 @@ export default function Login() {
                 login page, which has carried this link since it shipped. */}
             <Flex justifyContent="center">
               <Link href="/forgot-password" display="inlineBlock">
-                <Text size="200" color="subtle">Forgot password?</Text>
+                <Text size="200" color="subtle">
+                  <FormattedMessage id="login.forgotPassword" />
+                </Text>
               </Link>
             </Flex>
           </Flex>
