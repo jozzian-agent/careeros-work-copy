@@ -97,6 +97,15 @@ jobs:
           shellcheck deploy/*.sh
           for script in deploy/*.sh; do bash -n "$script"; done
 
+      - name: i18n catalog check
+        # frontend/src/i18n/en.json is read by react-intl on the client
+        # and by careeros/i18n.py on the server, and the server side
+        # substitutes with str.format. An ICU construct in a value would
+        # raise there rather than read as a bad translation, so the
+        # catalog is held to plain {var} placeholders and this is the
+        # gate that holds it (frontend/src/i18n/README.md).
+        run: python scripts/check_i18n.py
+
       - name: gitleaks
         # Runs on the checkout that is already here, with no
         # GITLEAKS_LICENSE: the free scan is what Part 1 of the deploy
