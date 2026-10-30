@@ -13,9 +13,16 @@ page or feature.
 ## Internal links
 
 A link to another page inside the same application gets no extra class. It
-inherits the default anchor color token, `--accent-violet`, and opens in the
-current tab. Use this for navigation between the application's own pages,
-such as a job pointing at its linked company profile.
+inherits the default anchor color token, `--accent-violet`, and is
+underlined, and it opens in the current tab. Use this for navigation between
+the application's own pages, such as a job pointing at its linked company
+profile.
+
+Since CAREER-115 that token carries the brand's link colour, black
+(`--color-text-link` in `frontend/src/design/tokens.css`), on the light
+ground these pages now use; the name is historical and the colour is no
+longer violet. An underline rather than colour alone is what keeps the link
+distinguishable, because black is also the body text colour.
 
 ## External links
 
@@ -46,10 +53,14 @@ Both treatments are driven by CSS custom properties defined once in the
 shared theme module, not by literal color values in templates or page
 styles:
 
-| Token | Purpose |
-| --- | --- |
-| `--accent-violet` | Default anchor color, used by internal links |
-| `--link-external` | Muted color for the `external` class |
+| Token | Purpose | Brand source |
+| --- | --- | --- |
+| `--accent-violet` | Default anchor color, used by internal links | `--color-text-link` |
+| `--link-external` | Muted color for the `external` class | `--color-text-subtle`, via `--text-muted` |
+
+Both values are held to `frontend/src/design/tokens.css` by
+`tests/test_light_theme.py`, which also checks that each one clears WCAG AA
+against the page and card grounds.
 
 A new page or a new tool built on this pattern should reuse these two
 tokens rather than introducing its own link colors, so that internal and

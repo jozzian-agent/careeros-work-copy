@@ -24,7 +24,7 @@ The single-page app owns these paths (frontend/src/App.jsx). The main nav shows 
 
 ## Flask routes
 
-Every rule the server registers, read from the url map of an app built on a throwaway vault. HEAD and OPTIONS are left out: Flask adds them to every rule. The last three columns are derived, by the method the scripts/gen_docs.py docstring sets out, and read as follows. `always` means the rule is registered in both configurations of CAREEROS_REACT_UI, and the other two values name the one configuration that registers it. `login + admin` means the handler consults the admin rule somewhere, not that every method on the route is admin-only. `not derived` means the handler names none of the tokens the response rule reads, which is the answer for a handler that renders through a helper; it does not mean the route answers nothing. Serving a file from disk counts as HTML, because that is how the single-page shell is served, so the two asset routes say HTML as well.
+Every rule the server registers, read from the url map of an app built on a throwaway vault. HEAD and OPTIONS are left out: Flask adds them to every rule. The last three columns are derived, by the method the scripts/gen_docs.py docstring sets out, and read as follows. `always` means the rule is registered in both configurations of CAREEROS_REACT_UI, and the other two values name the one configuration that registers it. `login + admin` means the handler consults the admin rule somewhere, not that every method on the route is admin-only. `not derived` means the handler names none of the tokens the response rule reads, which is the answer for a handler that renders through a helper; it does not mean the route answers nothing. Serving a file from disk counts as HTML, because that is how the single-page shell is served, so the three asset routes say HTML as well, including the one that serves a woff2.
 
 | Path | Methods | Endpoint | Handler | Served when | Auth | Response |
 |---|---|---|---|---|---|---|
@@ -69,6 +69,7 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/experiences/<identifier>` | GET | `react_experience_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences/<identifier>/edit` | GET | `experience_edit` | `careeros.web.pages.experiences.form` | always | login | not derived |
 | `/experiences/new` | GET | `experience_new` | `careeros.web.pages.experiences.form` | always | login | not derived |
+| `/fonts/<filename>` | GET | `fonts` | `careeros.server.<lambda>` | always | public | HTML |
 | `/forgot-password` | GET, POST | `forgot_password` | `careeros.server.forgot_password` | always | public | not derived |
 | `/jobs` | GET | `jobs` | `careeros.web.pages.jobs.build_page` | React UI off | login | not derived |
 | `/jobs` | GET | `react_jobs` | `careeros.server.<lambda>` | React UI on | login | HTML |
@@ -109,12 +110,12 @@ flowchart LR
     f38["/experiences/#60;identifier#62; (react_experience_detail)"]
     f39["/experiences/#60;identifier#62;/edit (experience_edit)"]
     f40["/experiences/new (experience_new)"]
-    f42["/jobs (jobs)"]
-    f43["/jobs (react_jobs)"]
-    f44["/jobs/#60;identifier#62; (react_job_detail)"]
-    f45["/jobs/#60;identifier#62;/taxonomy (job_taxonomy)"]
-    f48["/notes (react_notes)"]
-    f51["/taxonomy (react_taxonomy)"]
+    f43["/jobs (jobs)"]
+    f44["/jobs (react_jobs)"]
+    f45["/jobs/#60;identifier#62; (react_job_detail)"]
+    f46["/jobs/#60;identifier#62;/taxonomy (job_taxonomy)"]
+    f49["/notes (react_notes)"]
+    f52["/taxonomy (react_taxonomy)"]
   end
   subgraph api["Flask JSON API"]
     f03["/api/companies (company_collection)"]
@@ -151,14 +152,15 @@ flowchart LR
   end
   subgraph auth["Flask auth routes"]
     f01["/accept-invite/#60;token#62; (accept_invite)"]
-    f41["/forgot-password (forgot_password)"]
-    f46["/login (login)"]
-    f47["/logout (logout)"]
-    f49["/reset-password/#60;token#62; (reset_password)"]
+    f42["/forgot-password (forgot_password)"]
+    f47["/login (login)"]
+    f48["/logout (logout)"]
+    f50["/reset-password/#60;token#62; (reset_password)"]
   end
-  subgraph assets["Flask build assets"]
+  subgraph assets["Flask asset routes"]
     f34["/assets/#60;path:filename#62; (react_assets)"]
-    f50["/static/#60;path:filename#62; (static)"]
+    f41["/fonts/#60;filename#62; (fonts)"]
+    f51["/static/#60;path:filename#62; (static)"]
   end
   r00 --> f00
   r01 --> f02
@@ -166,12 +168,12 @@ flowchart LR
   r03 --> f36
   r04 --> f37
   r05 --> f38
-  r06 --> f42
   r06 --> f43
-  r07 --> f44
-  r08 --> f46
-  r09 --> f48
-  r10 --> f51
+  r06 --> f44
+  r07 --> f45
+  r08 --> f47
+  r09 --> f49
+  r10 --> f52
 ```
 
 ## API paths the sources behind each React page name

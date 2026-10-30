@@ -301,6 +301,7 @@ The access columns say what the request gate and the admin rule let through on t
 | `/experiences/new` | GET | `experience_new` | experiences | owner only | no write on this route | route code, storage layer | `vault.list_experiences`, `vault.load_experience` |
 | `/experiences/new` | GET | `experience_new` | jobs | owner only | no write on this route | storage layer | `vault.list_jobs` |
 | `/experiences/new` | GET | `experience_new` | tags | any logged-in user | no write on this route | route code | `vault.load_tags` |
+| `/fonts/<filename>` | GET | `fonts` | none | no record kind on this route | no write on this route |  |  |
 | `/forgot-password` | GET, POST | `forgot_password` | mail send count | public, rate limited | public, rate limited | storage layer | `mail.send`, `mail.sent_today` |
 | `/forgot-password` | GET, POST | `forgot_password` | password resets | no read on this route | public, rate limited | route code | `password_reset.request_reset` |
 | `/forgot-password` | GET, POST | `forgot_password` | rate-limit windows | no read on this route | public, rate limited | route code | `ratelimit.register` |

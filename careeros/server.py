@@ -452,8 +452,12 @@ AFTER_LOGIN = '/jobs'
 # person following a link from their mailbox has no session by
 # definition, and a gate that swallowed these pages would make every
 # mailed link a dead one. Each is rate-limited and token-gated instead.
+# 'fonts' is the third asset route (CAREER-115): the shared shell's
+# @font-face rules point at it, so a login page behind the gate here
+# would render in a fallback face. It serves two vendored woff2 files out
+# of a fixed directory and reads no record, like the other two.
 PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets',
-                              'accept_invite', 'forgot_password',
+                              'fonts', 'accept_invite', 'forgot_password',
                               'reset_password'})
 
 
@@ -582,6 +586,20 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # is missing (a fresh clone has no dist/ until `npm run build`).
     react_dist = Path(os.environ.get('CAREEROS_REACT_DIST') or Path(__file__).resolve().parent.parent / 'frontend' / 'dist')
     react_ui = os.environ.get('CAREEROS_REACT_UI') == '1' and (react_dist / 'index.html').is_file()
+    # CAREER-115: the two vendored Atkinson Hyperlegible faces the shared
+    # shell's @font-face rules name (careeros/web/theme.py FONT_FACE_CSS).
+    # Registered unconditionally, unlike the React asset route below,
+    # because the pages that need it most -- the login fallback and the
+    # three mailed-link pages -- are exactly the pages served when there is
+    # no React build. The directory is the design system's own, so the font
+    # files live in one place for both front ends.
+    # send_from_directory resolves the name underneath that directory and
+    # 404s anything that escapes it; the rule takes a single path segment,
+    # so a name cannot carry a slash in the first place. No path is ever
+    # built by string concatenation here.
+    fonts_dir = Path(__file__).resolve().parent.parent / 'frontend' / 'src' / 'design' / 'fonts'
+    app.add_url_rule('/fonts/<filename>', 'fonts',
+                     lambda filename: send_from_directory(fonts_dir, filename))
     if not react_ui:
         app.add_url_rule('/jobs', 'jobs', jobs.build_page)
     # JOZ-280/JOZ-283: the detail-page skeleton (Job, Experience, Company,
