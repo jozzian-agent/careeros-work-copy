@@ -1,0 +1,18 @@
+<!-- @dsCard group="Feedback" height=150 subtitle="Error and status message with two actions" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans);display:flex;flex-direction:column;gap:12px;max-width:520px;color:var(--ink)}
+.msg{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 16px;border-radius:var(--radius-400);font:400 14px/20px var(--font-sans)}
+.err{background:var(--error-weak);color:var(--text-error)}
+.ok{background:var(--fill-secondary)}
+a{color:var(--ink);font-weight:700;text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="msg err" role="alert">That email or password is not right.</div>
+<div class="msg ok" role="status">Moved to Stopped. <a href="#r">Add a reason</a> <a href="#u">Undo</a></div>
+</body>
+</html>

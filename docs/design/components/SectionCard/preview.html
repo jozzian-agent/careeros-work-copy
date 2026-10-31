@@ -1,0 +1,24 @@
+<!-- @dsCard group="Detail pages" height=260 subtitle="Standard, needs-input and empty state" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans);display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;color:var(--ink)}
+.card{box-sizing:border-box;width:260px;display:flex;flex-direction:column;gap:12px;padding:24px;border:1px solid var(--border-decorative);border-radius:var(--radius-400);background:var(--surface)}
+.card.ask{background:var(--violet-wash);border-color:var(--violet)}
+.head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+h3{margin:0;font:700 20px/24px var(--font-sans)}
+p{margin:0;font:400 16px/22px var(--font-sans);color:var(--text-neutral)}
+.ai{display:inline-flex;align-items:center;height:24px;padding:0 8px;border:1px dashed var(--text-subtle);border-radius:var(--radius-100);font:700 12px/16px var(--font-sans);color:var(--text-subtle)}
+.btn{align-self:flex-start;min-height:48px;padding:8px 20px;border:0;border-radius:var(--radius-400);background:var(--brand);color:var(--on-brand);font:700 16px/19px var(--font-sans);cursor:pointer}
+.btn.g{background:var(--fill-secondary);color:var(--ink);min-height:32px;padding:4px 12px}
+.empty{border:1px dashed var(--border-interactive);border-radius:var(--radius-400);padding:16px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+</style>
+</head>
+<body>
+<div class="card"><div class="head"><h3>Summary</h3><span class="ai">AI-generated</span></div><p>The role owns experimentation and lifecycle marketing.</p></div>
+<div class="card ask"><h3>Needs your input</h3><p>Is this the right company?</p><button class="btn">Review company</button></div>
+<div class="card"><h3>Notes</h3><div class="empty"><p>No notes yet.</p><button class="btn g">Add a note</button></div></div>
+</body>
+</html>

@@ -1,0 +1,21 @@
+<!-- @dsCard group="Forms" height=170 subtitle="Default and disabled, label inside" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans);display:flex;flex-wrap:wrap;gap:16px}
+.field{position:relative;width:260px}
+.field label{position:absolute;top:8px;left:17px;font:700 12px/16px var(--font-sans);color:var(--text-subtle);pointer-events:none}
+.field input{width:100%;height:56px;padding:24px 16px 6px;border:1px solid var(--border-interactive);border-radius:var(--radius-400);background:var(--surface);color:var(--ink);font:400 16px/19px var(--font-sans);box-sizing:border-box}
+.field input:hover{border-color:#626260}
+.field input:focus-visible{outline:none;box-shadow:0 0 0 2px #fff,0 0 0 4px var(--focus-ring)}
+.field.off label{color:var(--text-disabled)}
+.field.off input{background:var(--fill-secondary);border-color:var(--border-decorative)}
+</style>
+</head>
+<body>
+<div class="field"><label for="p-email">Email address</label><input id="p-email" type="email" value="name@example.com"></div>
+<div class="field off"><label for="p-pass">Password</label><input id="p-pass" type="password" disabled></div>
+</body>
+</html>

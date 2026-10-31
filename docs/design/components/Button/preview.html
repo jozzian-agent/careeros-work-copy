@@ -1,0 +1,29 @@
+<!-- @dsCard group="Actions" height=170 subtitle="Primary, secondary, inverse, disabled" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans);display:flex;flex-direction:column;gap:16px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:8px 20px;border:0;border-radius:var(--radius-400);font:700 16px/19px var(--font-sans);cursor:pointer}
+.primary{background:var(--brand);color:var(--on-brand)}
+.primary:hover{background:var(--brand-hover)}
+.secondary{background:var(--fill-secondary);color:var(--ink)}
+.secondary:hover{background:var(--fill-secondary-hover)}
+.inverse{background:var(--surface);color:var(--ink)}
+.inverse:hover{background:var(--fill-secondary)}
+.disabled{background:var(--fill-secondary);color:var(--text-disabled);cursor:default}
+.onbrand{background:var(--brand);padding:12px;border-radius:var(--radius-600)}
+.btn:focus-visible{outline:none;box-shadow:0 0 0 2px #fff,0 0 0 4px var(--focus-ring)}
+</style>
+</head>
+<body>
+<div class="row">
+  <button class="btn primary">Join the waiting list</button>
+  <button class="btn secondary">Log in</button>
+  <button class="btn disabled" disabled>Log in</button>
+</div>
+<div class="row"><div class="onbrand"><button class="btn inverse">Join the waiting list</button></div></div>
+</body>
+</html>
