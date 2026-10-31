@@ -14,9 +14,10 @@ on Gestalt. Recorded in PROJECT.md (Expensive decisions).
 Consequences of C:
 
 - Flask becomes a JSON API; the 11 Jinja templates are rewritten as React
-  pages using real Gestalt components (blue/purple theme per PROJECT.md —
-  superseded by the 2026-10-26 handover, which makes the brand Matchacado
-  green; see "Tokens, the bridge and the restyle, 2026-10-29" below).
+  pages using real Gestalt components (the theme they were rewritten under
+  was superseded by the 2026-10-26 handover, which makes the brand
+  Matchacado green; see "Tokens, the bridge and the restyle, 2026-10-29"
+  below).
 - A JS build toolchain (npm, bundler) enters the repo for the first time.
 - JOZ-274 (cards) and JOZ-275 (buttons/messages) fold into the rewrite as
   Gestalt components (Card, Button, Toast) instead of CSS-only passes.
@@ -26,84 +27,62 @@ Consequences of C:
 - Batches A–D remain the source of truth for behavior; the rewrite must
   preserve every owner-approved interaction.
 
-## The situation
+## The situation at the time of the decision (2026-10-10)
 
-The app is server-rendered Jinja with plain CSS and vanilla JS. There is no
-build step, no npm, no React anywhere. Styling already lives in one place
+Historical: this describes the app *before* the decision. The repo today is
+the React SPA the decision produced (`frontend/`, npm build, Gestalt
+components); the Jinja templates and their component classes named here are
+gone from the front end.
+
+The app was server-rendered Jinja with plain CSS and vanilla JS. There was
+no build step, no npm, no React anywhere. Styling lived in one place
 (`careeros/web/theme.py` + `ui.py`) as a small CSS-variable token layer
-(`--bg-page`, `--accent-indigo`, `--status-success`, ...) plus component
-classes (`.card`, `.chip`, `.toast`, `dialog`).
+plus component classes (`.card`, `.chip`, `.toast`, `dialog`).
 
 Gestalt (gestalt.pinterest.systems) ships as React components + a design
 token package. Its tokens are plain CSS variables and can be used without
 React; its components cannot.
 
-## What exists today (registry seed)
+The pre-decision options comparison and the inventory of Jinja component
+classes that used to stand here were removed by CAREER-119: the decision
+is recorded above, the planned component-registry doc never materialised
+(the fewest-elements rule below is what governs component choice instead),
+and keeping the superseded argument made the note contradict the repo it
+describes.
 
-| Component | Class/markup in use | Count across templates |
-|---|---|---|
-| Card | `.card` (+ `.wide`, `.ai-summary`) | 32 |
-| Button | `<button>` + `.primary` / `.danger` | ~20 |
-| Chip | `.chip` (+ `.chip-local`, `.company-review-chip`) | 29 |
-| Toast/message | `.toast` (+ `.toast.error`) | 1 helper |
-| Input/label | `label input`, `label textarea` | many |
-| Dialog | native `<dialog>` styled once | 2 |
-| Layout | `.grid`, `.row`, `.stack`, `.spaced` | 75+ |
+## The decision as the repo is today (updated 2026-10-31, CAREER-119)
 
-Ad-hoc variants that the migrations (JOZ-274/275) must absorb:
-`.position` (job-card variant of `.card`), `.empty-state`, `.salary-badge`,
-`.retry-ingest`, `.ingest-failed`, `.external`.
-
-## Options
-
-### A) Gestalt tokens + patterns, no React — RECOMMENDED
-
-Adopt Gestalt's design token values (colors, spacing, radii, typography
-scale) mapped onto the existing CSS variables, and copy Gestalt's component
-*patterns* (card, button, chip, toast states) into the existing CSS
-classes. One registry doc lists every component class; new UI picks from
-it first.
-
-- Cost: smallest. No new dependency, no build step, no runtime JS added.
-  One token-mapping pass in theme.py + registry doc.
-- Risk: "visual parity" is pattern-level, not pixel-level; Gestalt updates
-  must be ported by hand (we rarely want them anyway).
-- Fit: matches AGENTS.md reuse ladder — extends the existing token layer
-  (step 3) instead of adding a stack (step 7).
-- JOZ-274/275 become pure CSS/markup consolidation passes.
-
-### B) React islands with real Gestalt components
-
-Keep Jinja pages but mount React on interactive spots (edit mode, dialogs,
-toasts) using actual Gestalt components.
-
-- Cost: high. npm + bundler into a repo with zero JS build today; two
-  rendering models on one page; every migration touches both stacks.
-- Risk: mixed-stack complexity contradicts the one-principle (more
-  elements, not fewer); Gestalt's React components assume their own layout
-  system.
-- Fit: only if we expect the interactive surface to grow a lot.
-
-### C) Full React front end on Gestalt
-
-Rewrite all 11 templates as a React SPA against a JSON API.
-
-- Cost: largest by far; every page, every test, every UI smoke-script step
-  rewritten. Weeks, not a batch.
-- Risk: throws away working, tested, owner-approved surfaces (batches A–D).
-- Fit: none at current scale. Park unless the product direction changes.
-
-## Recommendation
-
-Option A. It is the only option that removes elements rather than adding
-them, it builds on the token layer that already exists, and it unblocks
-JOZ-274/275 immediately as CSS-only passes.
-
-## If A is chosen, the registry section will name these first
-
-card, button, message/toast, input — plus chip, dialog, layout
-primitives, each with its allowed variants and the rule: new UI picks from
-the registry first; additions need a recorded reason.
+- **Full React front end on Gestalt** (option C, owner decision
+  2026-10-10). Flask is a JSON API; the pages are React components in
+  `frontend/src` built on Gestalt, with a design package imported under
+  `docs/design/` (CAREER-120).
+- **Brand tokens live in `frontend/src/design/tokens.css`**: Matchacado
+  green `#008753` (`--color-brand-primary`) on ground `#f6fdf5`
+  (`--color-background-page`), light theme only at launch; the dark block
+  still carries the old palette deliberately (see "Unchanged, deliberately"
+  below). The Gestalt bridge (`frontend/src/design/theme.css`) binds the
+  **informational** colour to the brand (owner ruling, 2026-10-26
+  handover); warning and error are *not* brand colours — they keep their
+  own wash and text tokens, bound through
+  `--color-background-box-{warning,error}-weak` and
+  `--color-icon-{warning,error}` so banners read from this theme rather
+  than from Gestalt's stock palette by coincidence.
+- **Gestalt is pinned at exactly `177.0.12`** (`frontend/package.json` +
+  `package-lock.json`, installed with `npm ci`), and a hashed class
+  (`.Il7`, Gestalt's primary-button fill) ties `theme.css` to that version.
+  A version bump cannot pass silently: `frontend/tests/theme.spec.js`
+  asserts rendered colours and computed contrast ratios, so a class or
+  palette that moved under the theme fails the suite loudly.
+- **Fewest-elements rule** (owner directive): one `Button` (Gestalt's), one
+  `Message` (`frontend/src/components/Message.jsx`), and `JobCard` as the
+  one card on the jobs pages — one component per class, applied everywhere,
+  never per-page variants. The planned shared pieces (SegmentedControl,
+  CollectionPage, the Dialog pattern, CompanyTile, the fixed-height card
+  rule) are tracked in CAREER-118 and specified under `docs/design/`.
+- **The Flask-rendered pages carry the same palette** (CAREER-115):
+  `careeros/web/theme.py` holds a copy of the light `:root` block of
+  `tokens.css`, and `tests/test_light_theme.py` pins the token-to-token
+  mapping, so neither file can move without the other failing the suite.
 
 ## Badge usage
 
@@ -236,7 +215,7 @@ decoration inside the chip it belongs to.
 |---|---|---|
 | `PageLayout.jsx` | The frame every list page sits in: an H1 on the page ground, the header rows under it, then `main` | Replaces Gestalt's `PageHeader` on Jobs, Companies, Experiences, Notes, Taxonomy and Search. `PageHeader` draws a white band with its own horizontal padding, so the title sat in a box and further in from the left than the content under it. The left edge is a property of this one component, which is what keeps the title, the toolbar and the content sharing it. |
 | Header stack metrics | 24px top, 32px sides, 16px bottom, 16px between rows | From the artboard. `main` is 32px sides and 32px bottom with no top padding of its own, because the stack's bottom padding is the gap between them. |
-| Page title | `Heading size="600" accessibilityLevel={1}`: 28px bold, 36px line height | Gestalt maps size 600 to an h2 by default, and this is the page's one top-level heading. |
+| Page title | `Heading size="600" accessibilityLevel={1}`: 28px bold, 31px line height | Gestalt maps size 600 to an h2 by default, and this is the page's one top-level heading. |
 
 ### Overlays: every popover in a Layer
 
