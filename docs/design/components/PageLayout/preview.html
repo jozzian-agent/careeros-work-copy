@@ -1,0 +1,20 @@
+<!-- @dsCard group="Layout" height=200 subtitle="Title, main action, view pair" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;background:var(--ground);font-family:var(--font-sans);color:var(--ink)}
+.head{padding:24px 32px 16px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font:700 28px/31px var(--font-sans)}
+.row{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+.btn{min-height:48px;padding:8px 20px;border:0;border-radius:var(--radius-400);background:var(--brand);color:var(--on-brand);font:700 16px/19px var(--font-sans)}
+.chip{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:var(--radius-pill);border:2px solid transparent;background:var(--fill-secondary);font:700 14px/20px var(--font-sans)}
+.chip.on{background:var(--brand-wash);border-color:var(--brand)}
+.pair{display:flex;gap:8px}
+</style>
+</head>
+<body>
+<div class="head"><h1>My Jobs</h1><div class="row"><button class="btn">Add a job</button><div class="pair" role="group" aria-label="View"><span class="chip on">Board</span><span class="chip">List</span></div></div></div>
+</body>
+</html>

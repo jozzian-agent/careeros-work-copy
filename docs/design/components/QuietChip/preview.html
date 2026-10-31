@@ -1,0 +1,18 @@
+<!-- @dsCard group="Status" height=100 subtitle="Quiet and warning closed-posting chips" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans);display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:0 10px;border-radius:var(--radius-pill);font:700 12px/16px var(--font-sans)}
+.quiet{background:var(--fill-secondary);color:var(--text-subtle)}
+.warn{background:var(--warning-weak);color:var(--text-warning)}
+</style>
+</head>
+<body>
+<span class="chip quiet">Posting closed</span>
+<span class="chip quiet">Details filling in</span>
+<span class="chip warn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg>Closed 9 days ago</span>
+</body>
+</html>

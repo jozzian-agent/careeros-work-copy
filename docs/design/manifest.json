@@ -1,0 +1,185 @@
+{
+  "manifestVersion": 3,
+  "name": "CareerOS Design System",
+  "namespace": "CareerOS",
+  "files": [
+    "BLUEPRINT.md",
+    "HANDOVER.md",
+    "components/AccountMenu/README.md",
+    "components/AiLabel/README.md",
+    "components/Badge/README.md",
+    "components/Button/README.md",
+    "components/Card/README.md",
+    "components/CollectionPage/README.md",
+    "components/CompanyTile/README.md",
+    "components/DetailHeader/README.md",
+    "components/Dialog/README.md",
+    "components/Divider/README.md",
+    "components/EndedLane/README.md",
+    "components/FilterBar/README.md",
+    "components/FilterChip/README.md",
+    "components/FitChip/README.md",
+    "components/FloatingPopover/README.md",
+    "components/GlobalSearch/README.md",
+    "components/JobCard/README.md",
+    "components/KanbanBoard/README.md",
+    "components/LevelTag/README.md",
+    "components/Link/README.md",
+    "components/Message/README.md",
+    "components/NeedsInputChip/README.md",
+    "components/OnboardingImport/README.md",
+    "components/PageLayout/README.md",
+    "components/QuietChip/README.md",
+    "components/SearchBand/README.md",
+    "components/SectionCard/README.md",
+    "components/SegmentedControl/README.md",
+    "components/StatusSelect/README.md",
+    "components/TextField/README.md",
+    "tokens.css"
+  ],
+  "libraries": [],
+  "components": [
+    {
+      "name": "AccountMenu",
+      "summary": "The Account button in the header and the pages behind it."
+    },
+    {
+      "name": "AiLabel",
+      "group": "Status",
+      "summary": "A provenance marker."
+    },
+    {
+      "name": "Badge",
+      "group": "Status",
+      "summary": "Gestalt Badge, adapted for readability: 24px high (Gestalt default 20px), 8px horizontal padding, 4px radius, 14px bold text."
+    },
+    {
+      "name": "Button",
+      "group": "Actions",
+      "summary": "Gestalt Button, large (48px)."
+    },
+    {
+      "name": "Card",
+      "group": "Surfaces",
+      "summary": "A Gestalt Box used as a surface."
+    },
+    {
+      "name": "CollectionPage",
+      "group": "Layout",
+      "summary": "The layout every list page shares: Companies, All jobs, My Jobs, Notes and Experiences."
+    },
+    {
+      "name": "CompanyTile",
+      "summary": "A company in the Companies grid. surface, 1px border-decorative, radius-400, 16px padding, 320px wide, fixed height 208px."
+    },
+    {
+      "name": "DetailHeader",
+      "summary": "The header of the Job, Company and Experience detail pages: a back link with a brand-coloured arrow, the title, meta, and the Edit and Delete actions."
+    },
+    {
+      "name": "Dialog",
+      "summary": "Every popup in the app (Gestalt Modal)."
+    },
+    {
+      "name": "Divider",
+      "group": "Surfaces",
+      "summary": "Gestalt Divider."
+    },
+    {
+      "name": "EndedLane",
+      "group": "Jobs board",
+      "summary": "A collapsible lane pinned to the right edge of the board for jobs that are Won, Rejected or Stopped."
+    },
+    {
+      "name": "FilterBar",
+      "group": "Filters",
+      "summary": "The row of filters above a list page: facet filters (Function, Location, More filters), a divider, toggle chips and a count."
+    },
+    {
+      "name": "FilterChip",
+      "group": "Filters",
+      "summary": "The one selected style for every filter and toggle chip: Needs attention, Hide closed postings, Following, and the facet filters."
+    },
+    {
+      "name": "FitChip",
+      "summary": "Fit is not calculated, so the chip is read-only: \"Not calculated yet\" in neutral colours (fill-secondary ground, text-subtle text)."
+    },
+    {
+      "name": "FloatingPopover",
+      "summary": "Gestalt's Popover inside a Layer."
+    },
+    {
+      "name": "GlobalSearch",
+      "summary": "The search field in the header of every signed-in page, between the main links and the Account button."
+    },
+    {
+      "name": "JobCard",
+      "group": "Jobs board",
+      "summary": "A job on the board or in the All jobs grid."
+    },
+    {
+      "name": "KanbanBoard",
+      "group": "Jobs board",
+      "summary": "The Jobs board: five open columns of 320px each, in payload order, scrolling horizontally, with the Ended lane as the last cell of the outer row."
+    },
+    {
+      "name": "LevelTag",
+      "group": "Detail pages",
+      "summary": "One requirement or skill."
+    },
+    {
+      "name": "Link",
+      "group": "Actions",
+      "summary": "Gestalt Link."
+    },
+    {
+      "name": "Message",
+      "group": "Feedback",
+      "summary": "The banner for outcomes and errors (Gestalt BannerSlim)."
+    },
+    {
+      "name": "NeedsInputChip",
+      "group": "Status",
+      "summary": "The owner-action signal."
+    },
+    {
+      "name": "OnboardingImport",
+      "summary": "How a new person gets their background into CareerOS."
+    },
+    {
+      "name": "PageLayout",
+      "group": "Layout",
+      "summary": "The frame every list page sits in: an H1 on the page ground, header rows under it, then main."
+    },
+    {
+      "name": "QuietChip",
+      "group": "Status",
+      "summary": "A chip that must never alarm."
+    },
+    {
+      "name": "SearchBand",
+      "summary": "The search block at the top of All jobs, built to look for things."
+    },
+    {
+      "name": "SectionCard",
+      "group": "Detail pages",
+      "summary": "The card every detail page section sits in."
+    },
+    {
+      "name": "SegmentedControl",
+      "group": "Actions",
+      "summary": "Gestalt SegmentedControl."
+    },
+    {
+      "name": "StatusSelect",
+      "group": "Jobs board",
+      "summary": "A native button that opens the status list: 112px wide, 32px high, radius-200, a hairline border-interactive border, surface ground, 12px bold text and a chevr…"
+    },
+    {
+      "name": "TextField",
+      "group": "Forms",
+      "summary": "Gestalt TextField, large, with the label inside the field (visual-refresh style): 56px high, 16px radius, 1px border-interactive border."
+    }
+  ],
+  "assetGroups": []
+}

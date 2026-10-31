@@ -1,0 +1,18 @@
+<!-- @dsCard group="Filters" height=110 subtitle="Facets, divider, toggles and count" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans);color:var(--ink)}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.chip{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:var(--radius-pill);border:2px solid transparent;background:var(--fill-secondary);color:var(--ink);font:700 14px/20px var(--font-sans)}
+.chip.on{background:var(--brand-wash);border-color:var(--brand)}
+.div{width:1px;height:24px;background:var(--border-decorative);margin:0 8px}
+.count{font:400 14px/20px var(--font-sans);color:var(--text-subtle);margin-left:8px}
+</style>
+</head>
+<body>
+<div class="bar"><span class="chip">Function</span><span class="chip">Location</span><span class="chip">More filters</span><span class="div"></span><span class="chip on">Needs attention</span><span class="chip">Hide closed postings</span><span class="count">2 open · 0 ended</span></div>
+</body>
+</html>

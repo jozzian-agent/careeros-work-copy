@@ -1,0 +1,22 @@
+<!-- @dsCard group="Filters" height=100 subtitle="Selected and unselected" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chip{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:var(--radius-pill);border:2px solid transparent;background:var(--fill-secondary);color:var(--ink);font:700 14px/20px var(--font-sans);cursor:pointer}
+.chip:hover{background:var(--fill-secondary-hover)}
+.chip[aria-pressed="true"]{background:var(--brand-wash);border-color:var(--brand)}
+.chip:focus-visible{outline:none;box-shadow:0 0 0 2px var(--ground),0 0 0 4px var(--focus-ring)}
+</style>
+</head>
+<body>
+<div class="row" role="group" aria-label="View">
+<button class="chip" aria-pressed="true">Board</button>
+<button class="chip" aria-pressed="false">List</button>
+<button class="chip" aria-pressed="false">Needs attention</button>
+</div>
+</body>
+</html>

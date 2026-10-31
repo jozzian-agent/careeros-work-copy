@@ -1,0 +1,22 @@
+<!-- @dsCard group="Layout" height=220 subtitle="Heading, one toolbar row, content" -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+body{margin:0;padding:24px;background:var(--ground);font-family:var(--font-sans);color:var(--ink)}
+.r{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+h1{margin:0;font:700 28px/31px var(--font-sans)}
+.p{background:var(--brand);color:var(--on-brand);border-radius:16px;padding:8px 20px;font:700 16px/19px var(--font-sans)}
+.c{display:inline-flex;align-items:center;min-height:32px;padding:2px 12px;border:2px solid transparent;border-radius:999px;background:var(--fill-secondary);font:700 14px/17px var(--font-sans);margin-right:8px}
+.c.on{background:var(--brand-wash);border-color:var(--brand)}
+.n{font:400 14px/20px var(--font-sans);color:var(--text-neutral)}
+.g{display:flex;gap:12px}.k{flex:1;height:56px;background:var(--surface);border:1px solid var(--border-decorative);border-radius:16px}
+</style>
+</head>
+<body>
+<div class="r"><h1>Notes</h1><span class="p">Add a note</span></div>
+<div class="r"><div><span class="c">Company</span><span class="c">Newest first</span><span class="n">3 notes</span></div><div><span class="c on">Tiles</span><span class="c" style="margin:0">List</span></div></div>
+<div class="g"><div class="k"></div><div class="k"></div><div class="k"></div></div>
+</body>
+</html>
