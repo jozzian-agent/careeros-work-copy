@@ -355,14 +355,47 @@ def test_the_font_route_serves_both_faces_and_nothing_else(client):
         response = client.get(f'/fonts/{name}')
         assert response.status_code == 200, name
         assert response.get_data()[:4] == b'wOF2', f'{name} is not a woff2 file'
-    # Outside the directory, or not in it at all: nothing is served. The
-    # rule takes one path segment, so the traversal shapes never reach the
-    # handler; send_from_directory refuses them if a later rule ever does.
+        assert response.mimetype == 'font/woff2', name
+        assert 'max-age=31536000' in response.headers.get('Cache-Control', ''), name
+        assert 'immutable' in response.headers.get('Cache-Control', ''), name
+    # Everything else is a 404 — names that do not exist, traversal shapes,
+    # encoded variants, and files that DO exist on disk but are not on the
+    # allowlist. The route answers from an exact two-name allowlist before
+    # any filesystem lookup happens.
     for path in ('/fonts/missing.woff2', '/fonts/../server.py',
-                 '/fonts/..%2F..%2Fcareeros%2Fserver.py'):
+                 '/fonts/..%2F..%2Fcareeros%2Fserver.py',
+                 '/fonts/..%252F..%252Fcareeros%252Fserver.py',
+                 '/fonts/%2e%2e%2fserver.py',
+                 '/fonts/atkinson-hyperlegible-latin-400-normal.woff2%00',
+                 '/fonts/',
+                 '/fonts/..',
+                 '/fonts/README.md',
+                 '/fonts/atkinson-hyperlegible-latin-400-normal.woff'):
         response = client.get(path)
-        assert response.status_code != 200, path
+        assert response.status_code == 404, path
         assert b'def create_app' not in response.get_data(), path
+
+
+def test_the_font_route_serves_only_the_allowlisted_vendored_files():
+    """A file dropped into the fonts directory is NOT served unless it is
+    named in the allowlist — the route serves the two vendored faces and
+    nothing else, whatever else the directory happens to hold."""
+    from careeros import server
+    assert server.FONT_FILES == frozenset({
+        'atkinson-hyperlegible-latin-400-normal.woff2',
+        'atkinson-hyperlegible-latin-700-normal.woff2',
+    })
+
+
+def test_fonts_is_the_only_addition_to_public_endpoints():
+    """The CAREER-115 font route is the sole new entry in
+    PUBLIC_ENDPOINTS relative to the pre-change gate set. Any further
+    addition must be a deliberate, reviewed change to this test."""
+    from careeros import server
+    assert server.PUBLIC_ENDPOINTS == frozenset({
+        'login', 'health', 'static', 'react_assets',
+        'accept_invite', 'forgot_password', 'reset_password',
+    }) | {'fonts'}
 
 
 def test_the_font_route_is_reachable_without_a_session():

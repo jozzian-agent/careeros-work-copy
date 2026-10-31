@@ -8,7 +8,7 @@ from threading import RLock, Thread
 from pathlib import Path
 from urllib.parse import urlsplit, unquote
 
-from flask import Flask, request, jsonify, redirect, send_from_directory, url_for
+from flask import Flask, request, jsonify, redirect, send_from_directory, url_for, abort
 from careeros import vault as storage
 from careeros import intake
 from careeros import ingest
@@ -460,6 +460,14 @@ PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets',
                               'fonts', 'accept_invite', 'forgot_password',
                               'reset_password'})
 
+# The only names the /fonts route will serve — an exact allowlist of the
+# two vendored Atkinson Hyperlegible woff2 files. Anything else, including
+# files that exist in the directory but are not listed here, 404s.
+FONT_FILES = frozenset({
+    'atkinson-hyperlegible-latin-400-normal.woff2',
+    'atkinson-hyperlegible-latin-700-normal.woff2',
+})
+
 
 #: The methods that only ever read. Flask answers HEAD on every rule
 #: that allows GET, and it answers it by running the same handler with
@@ -593,13 +601,25 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # three mailed-link pages -- are exactly the pages served when there is
     # no React build. The directory is the design system's own, so the font
     # files live in one place for both front ends.
-    # send_from_directory resolves the name underneath that directory and
-    # 404s anything that escapes it; the rule takes a single path segment,
-    # so a name cannot carry a slash in the first place. No path is ever
-    # built by string concatenation here.
+    # Hardened on owner review (CAREER-115 follow-up): the route serves an
+    # exact two-name allowlist of the vendored woff2 files. Any other name
+    # -- present on disk or not, traversal or encoded -- 404s before any
+    # filesystem lookup; the name is only ever passed to
+    # send_from_directory after the allowlist check, never joined into a
+    # path by hand. Explicit font/woff2 content type and a one-year
+    # immutable cache header: the filenames embed the weights and the
+    # files change only when the design system re-vendors them.
     fonts_dir = Path(__file__).resolve().parent.parent / 'frontend' / 'src' / 'design' / 'fonts'
-    app.add_url_rule('/fonts/<filename>', 'fonts',
-                     lambda filename: send_from_directory(fonts_dir, filename))
+
+    def serve_font(filename):
+        if filename not in FONT_FILES:
+            abort(404)
+        response = send_from_directory(fonts_dir, filename,
+                                       mimetype='font/woff2')
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return response
+
+    app.add_url_rule('/fonts/<filename>', 'fonts', serve_font)
     if not react_ui:
         app.add_url_rule('/jobs', 'jobs', jobs.build_page)
     # JOZ-280/JOZ-283: the detail-page skeleton (Job, Experience, Company,

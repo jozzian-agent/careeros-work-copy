@@ -69,7 +69,7 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/experiences/<identifier>` | GET | `react_experience_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences/<identifier>/edit` | GET | `experience_edit` | `careeros.web.pages.experiences.form` | always | login | not derived |
 | `/experiences/new` | GET | `experience_new` | `careeros.web.pages.experiences.form` | always | login | not derived |
-| `/fonts/<filename>` | GET | `fonts` | `careeros.server.<lambda>` | always | public | HTML |
+| `/fonts/<filename>` | GET | `fonts` | `careeros.server.serve_font` | always | public | HTML |
 | `/forgot-password` | GET, POST | `forgot_password` | `careeros.server.forgot_password` | always | public | not derived |
 | `/jobs` | GET | `jobs` | `careeros.web.pages.jobs.build_page` | React UI off | login | not derived |
 | `/jobs` | GET | `react_jobs` | `careeros.server.<lambda>` | React UI on | login | HTML |
