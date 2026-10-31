@@ -1,4 +1,4 @@
-"""Linear-dark design tokens and the shared HTML shell for the web dashboard pages."""
+"""CareerOS light brand tokens and the shared HTML shell for the web dashboard pages."""
 
 from __future__ import annotations
 
@@ -29,32 +29,77 @@ NAV_PAGES = (
     ("companies", "Companies"),
 )
 
-#: CSS custom properties for the Linear dark palette (shared with life-os; token
-#: changes must be applied to BOTH repos).
+#: CSS custom properties for the CareerOS light brand palette (CAREER-115).
+#:
+#: Every value is copied from the :root light block of
+#: frontend/src/design/tokens.css, which is the one source of truth for the
+#: brand; nothing here is picked by eye. tests/test_light_theme.py holds the
+#: token-to-token mapping table and fails if either file moves without the
+#: other, so this list cannot drift from the React app's palette.
+#:
+#: The NAMES are the ones BASE_CSS, SCROLLBAR_CSS and ui.CSS already
+#: consume, so this is a value remap and not a rename. Two of them are
+#: historical and no longer describe their own value: --accent-indigo is the
+#: primary action colour (now the brand green) and --accent-violet is the
+#: default anchor colour (now black). They keep their names because ui.CSS
+#: names them twelve times over and a rename buys nothing a reader of the
+#: mapping table does not already get.
+#:
+#: The dark block in tokens.css is deliberately not read here: these pages
+#: are light only, like the landing site (landing/style.css).
 CSS_VARS = """
 :root {
-  --bg-page: #08090a;
-  --bg-panel: #0f1011;
-  --bg-elevated: #191a1b;
-  --text-primary: #f7f8f8;
-  --text-secondary: #d0d6e0;
-  --text-muted: #8a8f98;
-  --text-faint: #62666d;
-  --accent-indigo: #5e6ad2;
-  --accent-violet: #7170ff;
+  --bg-page: #f6fdf5;
+  --bg-panel: #ffffff;
+  --bg-elevated: #e8e7e1;
+  --text-primary: #000000;
+  --text-secondary: #4c4c4a;
+  --text-muted: #636361;
+  --text-faint: #636361;
+  --text-on-accent: #ffffff;
+  --accent-indigo: #008753;
+  --accent-indigo-strong: #005f3e;
+  --accent-violet: #000000;
   --link-external: var(--text-muted);
-  --status-success: #27a644;
-  --status-emerald: #10b981;
-  --status-fail: #e5484d;
-  --status-warn: #f5a623;
-  --border-standard: rgba(255,255,255,0.08);
-  --border-subtle: rgba(255,255,255,0.05);
-  --card-bg: rgba(255,255,255,0.03);
-  --card-bg-elevated: rgba(255,255,255,0.05);
+  --status-success: #008753;
+  --status-fail: #cc0000;
+  --status-warn: #bd5b00;
+  --border-standard: #c7c6c1;
+  --border-control: #757570;
+  --border-focus: #007db8;
+  --card-bg: #ffffff;
+  --card-bg-elevated: #e3fae1;
+  --radius-control: 16px;
+  --font-sans: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 """
 
-FONT_LINKS = ""
+#: The two vendored Atkinson Hyperlegible faces, declared here and served by
+#: the app's own /fonts route (careeros/server.py create_app) out of
+#: frontend/src/design/fonts. Inlined into the shell's one <style> tag
+#: rather than linked from a font CDN: a page a person reaches without a
+#: session must make no third-party request at all, and
+#: tests/test_light_theme.py asserts the served HTML names no external
+#: origin. `local()` first, so a visitor who already has the face installed
+#: fetches nothing.
+FONT_FACE_CSS = """
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: local('Atkinson Hyperlegible'),
+       url('/fonts/atkinson-hyperlegible-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Atkinson Hyperlegible';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: local('Atkinson Hyperlegible Bold'),
+       url('/fonts/atkinson-hyperlegible-latin-700-normal.woff2') format('woff2');
+}
+"""
 
 #: Shared base styles every page starts from; pages layer page-specific CSS on
 #: top. The max-width token is substituted in (rather than an f-string) so
@@ -68,8 +113,7 @@ html, body {
   max-width: __CONTENT_MAX_WIDTH__px;
   margin-left: auto;
   margin-right: auto;
-  font-family: 'Inter', -apple-system, Helvetica, Arial, sans-serif;
-  font-feature-settings: 'cv01', 'ss03';
+  font-family: var(--font-sans);
   font-weight: 400;
 }
 .mono { font-family: 'JetBrains Mono', monospace; }
@@ -95,7 +139,7 @@ h2 { font-size: 15px; color: var(--text-secondary); font-weight: 510; }
   height: 20px;
   border-radius: 5px;
 }
-a { color: var(--accent-violet); }
+a { color: var(--accent-violet); text-decoration: underline; }
 a.external { color: var(--link-external); }
 a.external::after { content: ' \\2197'; display: inline-block; }
 .goal-annotation { color: var(--text-faint); font-size: 0.85em; font-weight: 400; }
@@ -106,14 +150,14 @@ a.external::after { content: ' \\2197'; display: inline-block; }
 .stat-row b { color: var(--text-primary); font-weight: 510; }
 .status-chip {
   display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 510;
-  background: rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.06);
 }
 .filter-row { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; font-size: 12.5px; }
 .filter-btn {
-  background: var(--card-bg); border: 1px solid var(--border-standard); color: var(--text-secondary);
-  border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
+  background: var(--card-bg); border: 1px solid var(--border-control); color: var(--text-secondary);
+  border-radius: var(--radius-control); padding: 4px 10px; font-size: 12px; cursor: pointer; font-family: inherit;
 }
-.filter-btn.active { background: var(--accent-indigo); border-color: var(--accent-indigo); color: var(--text-primary); }
+.filter-btn.active { background: var(--accent-indigo); border-color: var(--accent-indigo); color: var(--text-on-accent); }
 .icon-legend { display: flex; gap: 16px; margin-top: 8px; }
 .src-icon { font-size: 11px; }
 .chart-title-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -122,7 +166,7 @@ a.external::after { content: ' \\2197'; display: inline-block; }
 .wordmark { color: var(--text-primary); font-size: 20px; font-weight: 590; text-decoration: none; letter-spacing: -0.02em; }
 .page-nav { flex-wrap: wrap; gap: 12px 24px; border-bottom: 1px solid var(--border-standard); padding-bottom: 16px; }
 .page-nav a.active { text-decoration: underline; text-decoration-color: var(--accent-indigo); text-underline-offset: 17px; }
-a:focus-visible { outline: 2px solid var(--accent-indigo); outline-offset: 5px; border-radius: 2px; }
+a:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 5px; border-radius: 2px; }
 .empty-state { padding: 32px; min-height: 180px; }
 .empty-state p { font-size: 14px; line-height: 1.7; margin: 12px 0 0; max-width: 640px; }
 @media (max-width: __MOBILE_BREAKPOINT__px) {
@@ -197,7 +241,7 @@ LOGOUT_FORM = ("<form class='logout' method='post' action='/logout'>"
 
 def page_shell(title: str, current_page: str, body: str, extra_css: str = "",
                logout: bool = False, nav: bool = True) -> str:
-    """Wrap already-escaped page body HTML in the shared Linear-dark head/shell.
+    """Wrap already-escaped page body HTML in the shared light-brand head/shell.
 
     ``title`` is escaped for the document title. ``current_page`` is a slug from NAV_PAGES, highlighted in the nav.
     ``logout`` adds the logout affordance; it is off by default so the one
@@ -210,8 +254,7 @@ def page_shell(title: str, current_page: str, body: str, extra_css: str = "",
         "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         f"<title>{escape(title)} · CareerOS</title>"
-        f"{FONT_LINKS}"
-        f"<style>{CSS_VARS}{BASE_CSS}{SCROLLBAR_CSS}{extra_css}</style>"
+        f"<style>{FONT_FACE_CSS}{CSS_VARS}{BASE_CSS}{SCROLLBAR_CSS}{extra_css}</style>"
         "</head><body>"
         "<div class='page'><header class='app-header'>"
         + ("<a class='wordmark' href='/'>CareerOS</a>" if nav

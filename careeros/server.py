@@ -8,7 +8,7 @@ from threading import RLock, Thread
 from pathlib import Path
 from urllib.parse import urlsplit, unquote
 
-from flask import Flask, request, jsonify, redirect, send_from_directory, url_for
+from flask import Flask, request, jsonify, redirect, send_from_directory, url_for, abort
 from careeros import vault as storage
 from careeros import intake
 from careeros import ingest
@@ -452,9 +452,21 @@ AFTER_LOGIN = '/jobs'
 # person following a link from their mailbox has no session by
 # definition, and a gate that swallowed these pages would make every
 # mailed link a dead one. Each is rate-limited and token-gated instead.
+# 'fonts' is the third asset route (CAREER-115): the shared shell's
+# @font-face rules point at it, so a login page behind the gate here
+# would render in a fallback face. It serves two vendored woff2 files out
+# of a fixed directory and reads no record, like the other two.
 PUBLIC_ENDPOINTS = frozenset({'login', 'health', 'static', 'react_assets',
-                              'accept_invite', 'forgot_password',
+                              'fonts', 'accept_invite', 'forgot_password',
                               'reset_password'})
+
+# The only names the /fonts route will serve — an exact allowlist of the
+# two vendored Atkinson Hyperlegible woff2 files. Anything else, including
+# files that exist in the directory but are not listed here, 404s.
+FONT_FILES = frozenset({
+    'atkinson-hyperlegible-latin-400-normal.woff2',
+    'atkinson-hyperlegible-latin-700-normal.woff2',
+})
 
 
 #: The methods that only ever read. Flask answers HEAD on every rule
@@ -582,6 +594,32 @@ def create_app(vault: str | Path | None = None) -> Flask:
     # is missing (a fresh clone has no dist/ until `npm run build`).
     react_dist = Path(os.environ.get('CAREEROS_REACT_DIST') or Path(__file__).resolve().parent.parent / 'frontend' / 'dist')
     react_ui = os.environ.get('CAREEROS_REACT_UI') == '1' and (react_dist / 'index.html').is_file()
+    # CAREER-115: the two vendored Atkinson Hyperlegible faces the shared
+    # shell's @font-face rules name (careeros/web/theme.py FONT_FACE_CSS).
+    # Registered unconditionally, unlike the React asset route below,
+    # because the pages that need it most -- the login fallback and the
+    # three mailed-link pages -- are exactly the pages served when there is
+    # no React build. The directory is the design system's own, so the font
+    # files live in one place for both front ends.
+    # Hardened on owner review (CAREER-115 follow-up): the route serves an
+    # exact two-name allowlist of the vendored woff2 files. Any other name
+    # -- present on disk or not, traversal or encoded -- 404s before any
+    # filesystem lookup; the name is only ever passed to
+    # send_from_directory after the allowlist check, never joined into a
+    # path by hand. Explicit font/woff2 content type and a one-year
+    # immutable cache header: the filenames embed the weights and the
+    # files change only when the design system re-vendors them.
+    fonts_dir = Path(__file__).resolve().parent.parent / 'frontend' / 'src' / 'design' / 'fonts'
+
+    def serve_font(filename):
+        if filename not in FONT_FILES:
+            abort(404)
+        response = send_from_directory(fonts_dir, filename,
+                                       mimetype='font/woff2')
+        response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return response
+
+    app.add_url_rule('/fonts/<filename>', 'fonts', serve_font)
     if not react_ui:
         app.add_url_rule('/jobs', 'jobs', jobs.build_page)
     # JOZ-280/JOZ-283: the detail-page skeleton (Job, Experience, Company,

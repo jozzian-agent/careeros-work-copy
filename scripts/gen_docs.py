@@ -57,8 +57,8 @@ handler that renders through a helper (`careeros.web.ui.page`, or the mailed
 link pages) names none of the tokens in its own source, so it says
 `not derived` rather than a guess. `send_from_directory` is counted as HTML
 because it is how the single-page shell is served; the rule reads tokens and
-not the file that is served, so the two routes that serve build assets
-report HTML as well.
+not the file that is served, so the three asset routes report HTML as well --
+including `/fonts/<filename>`, which serves a woff2.
 
 **API paths each page names.** For each page component, the generator walks
 the relative imports of its module and of every `frontend/src` module those
@@ -549,13 +549,13 @@ def group_of(rule):
     """Which sitemap group a Flask rule belongs to.
 
     Read off the rule rather than off a list that could go stale: anything
-    under /api is the JSON API, anything that serves a file from disk is a
-    build asset, and the auth group is every public endpoint left over plus
+    under /api is the JSON API, anything that serves a file from disk is an
+    asset, and the auth group is every public endpoint left over plus
     /logout, which ends a session it does not need to be public to end.
     """
     if rule['path'].startswith('/api/'):
         return 'api'
-    if rule['endpoint'] in ('static', 'react_assets'):
+    if rule['endpoint'] in ('static', 'react_assets', 'fonts'):
         return 'assets'
     if rule['endpoint'] == 'logout' or rule['endpoint'] in server.PUBLIC_ENDPOINTS:
         return 'auth'
@@ -613,7 +613,8 @@ def flask_section(rules):
         '`not derived` means the handler names none of the tokens the response rule reads, '
         'which is the answer for a handler that renders through a helper; it does not mean '
         'the route answers nothing. Serving a file from disk counts as HTML, because that '
-        'is how the single-page shell is served, so the two asset routes say HTML as well.',
+        'is how the single-page shell is served, so the three asset routes say HTML as well, '
+        'including the one that serves a woff2.',
         '',
     ]
     rows = [(code(rule['path']), ', '.join(rule['methods']), code(rule['endpoint']),
@@ -628,7 +629,7 @@ GROUP_TITLES = (
     ('pages', 'Flask page routes'),
     ('api', 'Flask JSON API'),
     ('auth', 'Flask auth routes'),
-    ('assets', 'Flask build assets'),
+    ('assets', 'Flask asset routes'),
 )
 
 

@@ -75,8 +75,12 @@ def test_empty_or_missing_vault(tmp_path, exists):
 def test_theme_is_domain_free():
     source = Path(theme.__file__).read_text()
     assert not re.search(r'(?:from|import)\s+dashboard\b|HRV|TrendBadge|Sphere|Topic|WATCH_ICON|PENCIL_ICON', source)
-    assert '--bg-page: #08090a;' in theme.CSS_VARS
-    assert '--accent-indigo: #5e6ad2;' in theme.CSS_VARS
+    # CAREER-115: the light brand palette. tests/test_light_theme.py is
+    # what holds these values to frontend/src/design/tokens.css; the two
+    # pinned here are the page ground and the primary action colour, so a
+    # palette swap cannot pass unnoticed.
+    assert '--bg-page: #f6fdf5;' in theme.CSS_VARS
+    assert '--accent-indigo: #008753;' in theme.CSS_VARS
     assert 'font-weight: 700' not in theme.BASE_CSS
 
 
