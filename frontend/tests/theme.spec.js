@@ -113,30 +113,37 @@ function readPrimaryButton(page) {
 // selected toggle is a STATE, so it gets the wash ground and the brand border
 // the Function filter always had, never the brand FILL. The fill belongs to
 // the one main action on the screen, and "Add a job" is it.
+//
+// The toggle measured here is the "Needs attention" filter rather than the
+// Board/List pair: since CAREER-118 PR 1 that pair is a SegmentedControl,
+// whose selected item is a surface pill, and the wash is now the filters'
+// alone. What the test is about -- a selected state is a wash, never a
+// fill -- is unchanged.
 test('a selected toggle is brand wash with a brand border, and only the main action is filled', async ({
   page,
 }) => {
-  const boardButton = await openBoard(page);
+  await openBoard(page);
+  const toggle = page.getByTestId('filter-chip-needs-attention');
 
-  const selected = await boardButton.evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { background: cs.backgroundColor, border: cs.borderTopColor, width: cs.borderTopWidth };
-  });
-  expect(selected.background).toBe(BRAND_WASH);
-  expect(selected.border).toBe(BRAND_PRIMARY);
-  expect(selected.width).toBe('2px');
-
-  // The unselected half of the pair keeps the neutral chip ground, and
-  // its border is transparent so selecting one never reflows the row.
-  const unselected = await page
-    .getByRole('button', { name: 'List', exact: true })
-    .evaluate((el) => {
+  const readState = (locator) =>
+    locator.evaluate((el) => {
       const cs = getComputedStyle(el);
       return { background: cs.backgroundColor, border: cs.borderTopColor, width: cs.borderTopWidth };
     });
+
+  // Off: the neutral chip ground, and the border is transparent rather
+  // than absent so turning the toggle on never reflows the row.
+  const unselected = await readState(toggle);
   expect(unselected.background).toBe(SECONDARY_BASE);
   expect(unselected.border).toBe('rgba(0, 0, 0, 0)');
   expect(unselected.width).toBe('2px');
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  const selected = await readState(toggle);
+  expect(selected.background).toBe(BRAND_WASH);
+  expect(selected.border).toBe(BRAND_PRIMARY);
+  expect(selected.width).toBe('2px');
 
   // Nothing a person can act on above the board carries the brand fill
   // except "Add a job". A chip's count pill is left out on purpose: it is
@@ -374,17 +381,24 @@ test('the primary button is brand green and the destructive confirm is the only 
 // They are the same token (--color-brand-wash) by design, so the point of
 // measuring both is that the *rendered* grounds agree: a selected chip and
 // an info banner must not drift apart.
+//
+// The wash is sampled from a selected FilterChip: the Board/List pair it
+// used to come from is a SegmentedControl since CAREER-118 PR 1 and does
+// not carry the wash any more.
 test('ink text clears WCAG AA on the brand wash and on the info wash alike', async ({ page }) => {
   await openBoard(page);
+  const toggle = page.getByTestId('filter-chip-needs-attention');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
   const grounds = await page.evaluate(() => {
-    const chip = document.querySelector('[data-testid="view-chip-board"]');
+    const chip = document.querySelector('[data-testid="filter-chip-needs-attention"]');
     const banner = document.querySelector('[data-testid="closed-postings-banner"]');
     const bannerGround = [...banner.querySelectorAll('*')].find(
       (node) => getComputedStyle(node).backgroundColor !== 'rgba(0, 0, 0, 0)',
     );
     const chipLabel = [...chip.querySelectorAll('*')].find(
-      (node) => node.children.length === 0 && node.textContent.trim() === 'Board',
+      (node) => node.children.length === 0 && node.textContent.trim() === 'Needs attention',
     );
     const bannerText = [...banner.querySelectorAll('*')]
       .filter((node) => node.children.length === 0)

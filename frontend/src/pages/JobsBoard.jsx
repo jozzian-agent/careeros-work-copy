@@ -20,6 +20,7 @@ import FloatingMessage from '../components/Message.jsx';
 import AddJobPopup from '../components/AddJobPopup.jsx';
 import FilterBar from '../components/FilterBar.jsx';
 import FilterChip from '../components/FilterChip.jsx';
+import SegmentedControl from '../components/SegmentedControl.jsx';
 import PageLayout from '../components/PageLayout.jsx';
 import { EndingChooser, ReasonPopup, WonConfirm } from '../components/EndJobFlow.jsx';
 import { ClosedPostingsBanner, ClosedPostingsReview } from '../components/ClosedPostings.jsx';
@@ -1133,12 +1134,14 @@ export default function JobsBoard() {
   // (PageLayout's own H1), then "Add a job" with the Board/List pair,
   // then the filter bar, then the closed-postings banner.
   //
-  // Board and List are one FilterChip pair in a labelled group rather
+  // Board and List are one SegmentedControl in a labelled group rather
   // than two ButtonToggles (brief 2026-10-18, section 1): a selected view
   // is a state, and ButtonToggle's selected state is a primary brand
   // fill, which made the view look like the page's main action. "Add a
   // job" stays the only brand fill above the board. Nothing here reads
   // --color-background-button-selected-default (2026-10-29 brief, A3).
+  // The pair was two FilterChips until CAREER-118 PR 1; it is the view
+  // switch, not a filter, so it no longer carries the filter's wash.
   // The 16px between the button and the pair is the row's own 8px gap
   // plus 8px on the button.
   const headerRows = (
@@ -1152,28 +1155,23 @@ export default function JobsBoard() {
             onClick={() => setAddPopupOpen(true)}
           />
         </Box>
-        <div
-          role="group"
-          aria-label={formatMessage({ id: 'common.view.groupLabel' })}
-          style={{ display: 'inline-flex', gap: 4 }}
-        >
-          <FilterChip
-            label={formatMessage({ id: 'board.view.board' })}
-            height={44}
-            dataTestId="view-chip-board"
-            selected={view === 'board'}
-            pressed={view === 'board'}
-            onClick={() => persistView('board')}
-          />
-          <FilterChip
-            label={formatMessage({ id: 'common.view.list' })}
-            height={44}
-            dataTestId="view-chip-list"
-            selected={view === 'list'}
-            pressed={view === 'list'}
-            onClick={() => persistView('list')}
-          />
-        </div>
+        <SegmentedControl
+          ariaLabel={formatMessage({ id: 'common.view.groupLabel' })}
+          value={view}
+          onChange={persistView}
+          items={[
+            {
+              value: 'board',
+              label: formatMessage({ id: 'board.view.board' }),
+              dataTestId: 'view-chip-board',
+            },
+            {
+              value: 'list',
+              label: formatMessage({ id: 'common.view.list' }),
+              dataTestId: 'view-chip-list',
+            },
+          ]}
+        />
       </Flex>
       <FilterBar
         groups={JOB_FILTER_GROUPS}
