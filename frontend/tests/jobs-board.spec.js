@@ -557,6 +557,11 @@ test('load failure (including background refresh) shows the error with a Retry t
 // Brief 2026-10-18, section 1: Board and List are one pair, each with its
 // own aria-pressed, and the selected STYLE moves with the choice rather
 // than one of them looking like the page's main action.
+//
+// Since CAREER-118 PR 1 the pair is a SegmentedControl, so the style that
+// moves is the export's one: the chosen item is a `surface` pill on the
+// track, the other is transparent and the track shows through. The wash
+// stays with the filters, which is the second half of this test.
 test('Board and List are one pressed pair and the selected style moves with the view', async ({
   page,
 }) => {
@@ -568,19 +573,26 @@ test('Board and List are one pressed pair and the selected style moves with the 
   const ground = (locator) => locator.evaluate((el) => getComputedStyle(el).backgroundColor);
   const WASH = 'rgb(227, 250, 225)'; // --color-brand-wash
   const NEUTRAL = 'rgb(232, 231, 225)'; // --color-background-secondary-base
+  const SURFACE = 'rgb(255, 255, 255)'; // --color-background-card
+  const TRANSPARENT = 'rgba(0, 0, 0, 0)'; // the track's own ground shows
 
   await expect(board).toHaveAttribute('aria-pressed', 'true');
   await expect(list).toHaveAttribute('aria-pressed', 'false');
-  expect(await ground(board)).toBe(WASH);
-  expect(await ground(list)).toBe(NEUTRAL);
+  expect(await ground(board)).toBe(SURFACE);
+  expect(await ground(list)).toBe(TRANSPARENT);
 
   await list.click();
   await expect(board).toHaveAttribute('aria-pressed', 'false');
   await expect(list).toHaveAttribute('aria-pressed', 'true');
-  expect(await ground(board)).toBe(NEUTRAL);
-  expect(await ground(list)).toBe(WASH);
+  expect(await ground(board)).toBe(TRANSPARENT);
+  expect(await ground(list)).toBe(SURFACE);
 
-  // And a toggle that is on carries the same style as the chosen view.
+  // The track behind them is the neutral pill, so the unselected item
+  // reads as a chip-ground label and not as a hole in the row.
+  expect(await ground(group)).toBe(NEUTRAL);
+
+  // And a filter that is on still carries the wash: the view switch and a
+  // filter are different kinds of control and must not look alike.
   const needsAttention = page.getByTestId('filter-chip-needs-attention');
   expect(await ground(needsAttention)).toBe(NEUTRAL);
   await needsAttention.click();

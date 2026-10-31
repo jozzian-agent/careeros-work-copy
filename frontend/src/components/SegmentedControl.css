@@ -1,0 +1,35 @@
+/* The track and the item's two states, per the export
+ * (docs/design/components/SegmentedControl/README.md and preview.html).
+ *
+ * They live here rather than in the component's inline style for the
+ * reason FilterChip.css gives: an inline declaration beats every rule in
+ * a stylesheet, so a ground set inline could not be overridden from here
+ * for the selected state. The geometry stays inline in
+ * SegmentedControl.jsx, where the height depends on the viewport. */
+
+/* The export's `fill-secondary` pill track with 4px of inside padding,
+   which is what makes the selected item read as sitting *in* a groove. */
+.segmented-control {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--color-background-secondary-base);
+}
+
+/* Unselected: nothing but the label. The track is the ground. */
+.segmented-control-item {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* Selected: the export's `surface` pill with a 1px `border-interactive`
+   outline -- --color-background-card and --color-border-default in this
+   repo's token names (docs/design/HANDOVER.md, PR 1 table).
+   The shadow is the export's literal (preview.html `.i.on`); the repo's
+   --elevation-* tokens are all larger than this and would lift the item
+   off the track instead of seating it in the groove. */
+.segmented-control-item-selected {
+  background: var(--color-background-card);
+  border-color: var(--color-border-default);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}

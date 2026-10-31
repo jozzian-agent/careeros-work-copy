@@ -397,12 +397,17 @@ test('a filter chip is 32px, 14px bold and a pill, and its ground follows the st
   await expect(chip).toHaveCSS('height', '32px');
 });
 
-// The Board/List pair keeps the 44px it was given to match the height of
-// the primary button beside it (artboard 2026-10-18); the brief's 32px is
-// the chip's own default, which the filter row uses.
-test('the view pair keeps its 44px while the filter row is 32px', async ({ page }) => {
+// CAREER-118 PR 1: the view pair is a SegmentedControl now, and the
+// export puts its items at 32px -- the same height as the filter row, no
+// longer the 44px the FilterChip pair borrowed from the button beside it.
+// 44px comes back at phone width, where every target is 44px.
+test('the view items are 32px like the filter row, and 44px at phone width', async ({ page }) => {
   await page.goto('/jobs');
+  await expect(page.getByTestId('view-chip-board')).toHaveCSS('height', '32px');
+  await expect(page.getByTestId('view-chip-list')).toHaveCSS('height', '32px');
+  await expect(page.getByTestId('filter-chip-function')).toHaveCSS('height', '32px');
+
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByTestId('view-chip-board')).toHaveCSS('height', '44px');
   await expect(page.getByTestId('view-chip-list')).toHaveCSS('height', '44px');
-  await expect(page.getByTestId('filter-chip-function')).toHaveCSS('height', '32px');
 });

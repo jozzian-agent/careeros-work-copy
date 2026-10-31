@@ -3,7 +3,7 @@ import { Badge, Box, Flex, Heading, Link, Table, Text, Button } from 'gestalt';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { fetchCompaniesPage } from '../api/companies.js';
 import FilterBar from '../components/FilterBar.jsx';
-import FilterChip from '../components/FilterChip.jsx';
+import SegmentedControl from '../components/SegmentedControl.jsx';
 import PageLayout from '../components/PageLayout.jsx';
 import SortableHeaderCell from '../components/SortableHeaderCell.jsx';
 import { countBy, labelPairs, presentOptions, sortedOptions } from '../filters.js';
@@ -297,32 +297,28 @@ export default function CompaniesList() {
 
   // Companies has no main action, so its header stack is the view pair
   // and the filter bar (brief 2026-10-18, section 3). The pair sits where
-  // Board and List sit on Jobs, in the same selected style (A1).
+  // Board and List sit on Jobs, and is the same control as there: one
+  // SegmentedControl since CAREER-118 PR 1.
   const header = isEmpty ? null : (
     <>
       <Flex gap={2} alignItems="center" wrap>
-        <div
-          role="group"
-          aria-label={formatMessage({ id: 'common.view.groupLabel' })}
-          style={{ display: 'inline-flex', gap: 4 }}
-        >
-          <FilterChip
-            label={formatMessage({ id: 'companies.view.tiles' })}
-            height={44}
-            dataTestId="view-chip-tiles"
-            selected={view === 'tiles'}
-            pressed={view === 'tiles'}
-            onClick={() => persistView('tiles')}
-          />
-          <FilterChip
-            label={formatMessage({ id: 'common.view.list' })}
-            height={44}
-            dataTestId="view-chip-list"
-            selected={view === 'list'}
-            pressed={view === 'list'}
-            onClick={() => persistView('list')}
-          />
-        </div>
+        <SegmentedControl
+          ariaLabel={formatMessage({ id: 'common.view.groupLabel' })}
+          value={view}
+          onChange={persistView}
+          items={[
+            {
+              value: 'tiles',
+              label: formatMessage({ id: 'companies.view.tiles' }),
+              dataTestId: 'view-chip-tiles',
+            },
+            {
+              value: 'list',
+              label: formatMessage({ id: 'common.view.list' }),
+              dataTestId: 'view-chip-list',
+            },
+          ]}
+        />
       </Flex>
       <FilterBar
         groups={filterGroups}
