@@ -1130,9 +1130,16 @@ export default function JobsBoard() {
   const columns = isPhone ? allColumns.filter((column) => column.status === phoneSelection) : allColumns;
   const laneProps = isPhone ? (phoneSelection === 'ended' ? lane : null) : lane;
 
-  // The page header stack, in the order the artboard draws it: the title
-  // (PageLayout's own H1), then "Add a job" with the Board/List pair,
-  // then the filter bar, then the closed-postings banner.
+  // The page header stack: the title (PageLayout's own H1), then "Add a
+  // job", then ONE toolbar row -- the filter chips and the plain count at
+  // the left, the Board/List pair at the right -- then the closed-postings
+  // banner.
+  //
+  // The pair used to share the action's row, which is the "two toolbar
+  // rows for these controls" the CollectionPage README rules out: it is
+  // the bar's `right` item now (CAREER-118 PR 3, the same move PR 2 made
+  // on Companies). "Add a job" stays in the action row, because it is the
+  // page's one primary action and the heading keeps it.
   //
   // Board and List are one SegmentedControl in a labelled group rather
   // than two ButtonToggles (brief 2026-10-18, section 1): a selected view
@@ -1142,66 +1149,76 @@ export default function JobsBoard() {
   // --color-background-button-selected-default (2026-10-29 brief, A3).
   // The pair was two FilterChips until CAREER-118 PR 1; it is the view
   // switch, not a filter, so it no longer carries the filter's wash.
-  // The 16px between the button and the pair is the row's own 8px gap
-  // plus 8px on the button.
   const headerRows = (
     <>
-      <Flex gap={2} alignItems="center" wrap>
-        <Box marginEnd={2}>
-          <Button
-            text={formatMessage({ id: 'board.addJob' })}
-            color="red"
-            accessibilityHaspopup
-            onClick={() => setAddPopupOpen(true)}
-          />
-        </Box>
-        <SegmentedControl
-          ariaLabel={formatMessage({ id: 'common.view.groupLabel' })}
-          value={view}
-          onChange={persistView}
-          items={[
-            {
-              value: 'board',
-              label: formatMessage({ id: 'board.view.board' }),
-              dataTestId: 'view-chip-board',
-            },
-            {
-              value: 'list',
-              label: formatMessage({ id: 'common.view.list' }),
-              dataTestId: 'view-chip-list',
-            },
-          ]}
+      {/* The row is one button wide now that the view pair has left it,
+          and it stays a Flex so the button keeps its own width: the
+          header stack is a column, which would otherwise stretch a bare
+          child across the page (see components/PageLayout.jsx). */}
+      <Flex alignItems="center">
+        <Button
+          text={formatMessage({ id: 'board.addJob' })}
+          color="red"
+          accessibilityHaspopup
+          onClick={() => setAddPopupOpen(true)}
         />
       </Flex>
-      <FilterBar
-        groups={JOB_FILTER_GROUPS}
-        countNoun="jobs"
-        optionsByGroup={optionsByGroup}
-        selected={filters}
-        onToggleValue={toggleFilterValue}
-        onClearGroup={clearFilterGroup}
-        onClearGroups={clearFilterGroups}
-        toggles={[
-          {
-            key: 'needs-attention',
-            label: formatMessage({ id: 'board.needsAttention' }),
-            count: needsAttentionCount,
-            countColor: 'var(--color-brand-violet)',
-            pressed: needsAttention,
-            onToggle: toggleNeedsAttention,
-          },
-          {
-            key: 'hide-closed',
-            label: formatMessage({ id: 'common.jobs.hideClosed' }),
-            count: closedCount,
-            pressed: hideClosed,
-            onToggle: () => setHideClosed((value) => !value),
-          },
-        ]}
-        summaryText={countSummary}
-        resultCount={filteredEntries.length}
-        totalCount={board.entries.length}
-      />
+      {/* The toolbar stays away while the vault is empty, the way it does
+          on Companies and All jobs: there is nothing to filter, nothing to
+          count and no board to switch views of, so the empty box below
+          stands alone under the action row. "Nothing matches" keeps the
+          toolbar -- the chips are what put the owner there, and taking
+          them away would leave no way back. */}
+      {isEmpty ? null : (
+        <FilterBar
+          groups={JOB_FILTER_GROUPS}
+          countNoun="jobs"
+          optionsByGroup={optionsByGroup}
+          selected={filters}
+          onToggleValue={toggleFilterValue}
+          onClearGroup={clearFilterGroup}
+          onClearGroups={clearFilterGroups}
+          toggles={[
+            {
+              key: 'needs-attention',
+              label: formatMessage({ id: 'board.needsAttention' }),
+              count: needsAttentionCount,
+              countColor: 'var(--color-brand-violet)',
+              pressed: needsAttention,
+              onToggle: toggleNeedsAttention,
+            },
+            {
+              key: 'hide-closed',
+              label: formatMessage({ id: 'common.jobs.hideClosed' }),
+              count: closedCount,
+              pressed: hideClosed,
+              onToggle: () => setHideClosed((value) => !value),
+            },
+          ]}
+          summaryText={countSummary}
+          resultCount={filteredEntries.length}
+          totalCount={board.entries.length}
+          right={
+            <SegmentedControl
+              ariaLabel={formatMessage({ id: 'common.view.groupLabel' })}
+              value={view}
+              onChange={persistView}
+              items={[
+                {
+                  value: 'board',
+                  label: formatMessage({ id: 'board.view.board' }),
+                  dataTestId: 'view-chip-board',
+                },
+                {
+                  value: 'list',
+                  label: formatMessage({ id: 'common.view.list' }),
+                  dataTestId: 'view-chip-list',
+                },
+              ]}
+            />
+          }
+        />
+      )}
       {pendingClosedReview.length > 0 ? (
         <ClosedPostingsBanner
           count={pendingClosedReview.length}
@@ -1211,6 +1228,33 @@ export default function JobsBoard() {
         />
       ) : null}
     </>
+  );
+
+  // The empty vault, per the CollectionPage README: one SectionCard-style
+  // box -- the card surface, a 1px container border, 16px rounding,
+  // written as the Gestalt props that resolve to those tokens, the way
+  // the Companies box is -- holding the sentence the payload already
+  // sends and "a gray button repeating the action". Gray and not the
+  // brand fill: the "Add a job" in the action row above is the page's one
+  // primary fill, and this button runs the same popup it does.
+  //
+  // Only the empty vault gets the box. "Nothing matches" is the other
+  // answer and keeps its plain line (below): the jobs are there, the
+  // filters are hiding them, so there is nothing to add -- which is the
+  // distinction this page has always drawn between `isEmpty` and
+  // `noMatches` and the box does not blur it.
+  const emptyState = (
+    <Box data-testid="board-empty" color="default" borderStyle="sm" rounding={4} padding={6}>
+      <Flex direction="column" gap={3} alignItems="start">
+        <Text color="subtle">{board.empty}</Text>
+        <Button
+          text={formatMessage({ id: 'board.addJob' })}
+          color="gray"
+          accessibilityHaspopup
+          onClick={() => setAddPopupOpen(true)}
+        />
+      </Flex>
+    </Box>
   );
 
   const boardUi = (
@@ -1241,7 +1285,7 @@ export default function JobsBoard() {
         </Box>
       ) : null}
       {isEmpty ? (
-        <Text color="subtle">{board.empty}</Text>
+        emptyState
       ) : noMatches ? (
         <Text color="subtle">{noMatchesMessage}</Text>
       ) : view === 'board' ? (

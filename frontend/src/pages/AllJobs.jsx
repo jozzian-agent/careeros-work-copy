@@ -150,7 +150,18 @@ export default function AllJobs() {
     : undefined;
 
   // No main action on this page, so the header stack is the filter bar
-  // alone (brief 2026-10-18, section 3).
+  // alone (brief 2026-10-18, section 3) -- and that bar is already the
+  // one toolbar row the CollectionPage README asks for: the chips and the
+  // plain count at the left, and nothing hung off its right end, because
+  // this page has no View switch to put there (CAREER-118 PR 3; adding
+  // one would be a new element, which needs the design gate).
+  //
+  // The CollectionPage README says the heading row carries "the one
+  // primary action". Here that action does not exist: intake lives on My
+  // Jobs (see the note at the top of this file), so there is nothing for
+  // a primary button to do. Same reading as Companies, owner decision
+  // 2026-11-01. Please do not "fix" this by adding an "Add a job" button;
+  // all-jobs.spec.js pins its absence.
   const header = isEmpty ? null : (
     <FilterBar
       groups={JOB_FILTER_GROUPS}
@@ -178,7 +189,16 @@ export default function AllJobs() {
   return (
     <PageLayout title={<FormattedMessage id="allJobs.title" />} header={header}>
       {isEmpty ? (
-        <Text color="subtle">{payload.empty}</Text>
+        // The empty universe, per the CollectionPage README: one
+        // SectionCard-style box -- the card surface, a 1px container
+        // border, 16px rounding, as the Gestalt props that resolve to
+        // those tokens -- around the sentence the payload already sends,
+        // rather than the bare line of subtle text this used to be. No
+        // button in it: the README's "gray button repeating the action"
+        // would repeat the primary action this page does not have.
+        <Box data-testid="all-jobs-empty" color="default" borderStyle="sm" rounding={4} padding={6}>
+          <Text color="subtle">{payload.empty}</Text>
+        </Box>
       ) : noMatches ? (
         <Text color="subtle">
           <FormattedMessage id="common.jobs.noMatches" />

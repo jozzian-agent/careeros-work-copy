@@ -32,13 +32,17 @@ import MoreFiltersPanel from './MoreFiltersPanel.jsx';
 // layout is "filter chips and a plain count at the left, the View switch
 // at the right", one toolbar row and never two).
 //
-// A bar with no `right` is left exactly as it was, down to the count's
-// `marginStart="auto"`. That margin does nothing: Gestalt's Flex wraps
-// every child in a Flex.Item of its own, so the margin applies to a block
-// inside the wrapper rather than to the flex item, and the board's count
-// has in fact always sat next to its chips rather than at the right edge
-// the README describes. Moving it would change the board's toolbar, which
-// is outside this PR -- so the bug is recorded here and left alone.
+// The count is this row's slack, with a `right` item or without one: it
+// keeps its place beside the chips and its own flex item takes the space
+// left over, which is what pushes `right` to the far end. CAREER-118 PR 2
+// recorded a bug here and left it -- a bar with no `right` put the count
+// in a Box with `marginStart="auto"`, which does nothing, because
+// Gestalt's Flex wraps every child that is not already a Flex.Item in one
+// and the margin then applies to a block inside that wrapper rather than
+// to the flex item. So the count never sat at the right end the FilterBar
+// README described; it has always sat beside the chips, which is what the
+// CollectionPage layout asks for. PR 3 drops the dead margin and the
+// second branch with it, and the README says "beside the chips" now.
 export default function FilterBar({
   groups,
   countNoun,
@@ -127,28 +131,20 @@ export default function FilterBar({
             onClick={toggle.onToggle}
           />
         ))}
-        {/* With a `right` item the count is the row's slack: it keeps its
-            place beside the chips and its own flex item takes the space
-            left over, which is what pushes `right` to the far end. It has
-            to be a Flex.Item rather than a Box with an auto margin --
-            Gestalt's Flex wraps every child that is not already a
-            Flex.Item in one, so a margin set on the child lands inside
-            that wrapper and moves nothing.
+        {/* The count is the row's slack: it keeps its place beside the
+            chips and its own flex item takes the space left over, which
+            is what pushes `right` to the far end. It has to be a
+            Flex.Item rather than a Box with an auto margin -- Gestalt's
+            Flex wraps every child that is not already a Flex.Item in one,
+            so a margin set on the child lands inside that wrapper and
+            moves nothing (see the note above the component).
             The row still wraps, so at a narrow width the `right` item
             drops to a second line instead of forcing a sideways scroll. */}
-        {right ? (
-          <Flex.Item flex="grow">
-            <Text color="subtle" size="200">
-              {countText}
-            </Text>
-          </Flex.Item>
-        ) : (
-          <Box marginStart="auto">
-            <Text color="subtle" size="200">
-              {countText}
-            </Text>
-          </Box>
-        )}
+        <Flex.Item flex="grow">
+          <Text color="subtle" size="200">
+            {countText}
+          </Text>
+        </Flex.Item>
         {right}
       </Flex>
 

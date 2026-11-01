@@ -45,6 +45,30 @@ test('empty library shows the empty message and Add position instead of the list
   await expect(page.getByRole('heading', { name: 'Platform Lead' })).toHaveCount(0);
 });
 
+// CAREER-118 PR 3, CollectionPage README: the box repeats the action in
+// gray, and the heading row keeps the page's one primary fill. Two "Add
+// position" links on an empty page -- the heading row's and the box's --
+// and only the first is the brand green.
+test('the empty-state Add position is gray, and only the heading row carries the primary fill', async ({ page }) => {
+  await mockExperiencesPage(page, { ...fixture, entries: [] });
+  await page.goto('/experiences');
+
+  const links = page.getByRole('link', { name: 'Add position' });
+  await expect(links).toHaveCount(2);
+  // Gestalt paints a ButtonLink's ground on the anchor itself or on its
+  // inner element depending on the variant, so this reads whichever of
+  // the two actually carries one rather than assuming the nesting.
+  const ground = (locator) =>
+    locator.evaluate((el) => {
+      const painted = [el, ...el.querySelectorAll('*')]
+        .map((node) => getComputedStyle(node).backgroundColor)
+        .filter((color) => color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent');
+      return painted[0] || 'rgba(0, 0, 0, 0)';
+    });
+  expect(await ground(links.nth(0))).toBe('rgb(0, 135, 83)'); // --color-brand-primary
+  expect(await ground(links.nth(1))).not.toBe('rgb(0, 135, 83)');
+});
+
 test('a load failure shows a visible error with Retry', async ({ page }) => {
   await page.route('**/api/experiences?view=page', (route) => route.fulfill({ status: 500, json: { error: 'nope' } }));
   await page.goto('/experiences');
