@@ -2129,7 +2129,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
         user name_variant identifier on the chosen company (owner decision
         3.A), so the same fuzzy case never asks twice, then links the job
         and clears the review state -- the same invariant the generic PUT
-        bypass fix enforces."""
+        bypass fix enforces.
+
+        Also settles a pending link, which the page asks about since the
+        owner ruling of 2026-11-01 and which carries no review block;
+        see the token note below."""
         root = app.config['VAULT_PATH']
         with write_lock:
             job = storage.load_job(root, identifier, session_owner())
@@ -2141,7 +2145,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # Every choice consumes one active review revision, including empty candidate lists.
             review = job.get('company_review')
             submitted_token = payload.get('review_token')
-            if not submitted_token or review is None or review.get('token') != submitted_token:
+            # Owner ruling 2026-11-01: the page now also asks about a
+            # pending link (careeros/web/pages/jobs.pending_company_ask),
+            # which has no review block and therefore no token to submit
+            # and no revision to be stale against. Refusing it for a
+            # missing token would make that ask unanswerable. A job that
+            # does carry a review block is unchanged: it still needs the
+            # token the decision was made against, so a concurrent
+            # resolution is still refused rather than first-winning.
+            unreviewed = review is None and job.get('company_link_state') == 'pending'
+            if not unreviewed and (not submitted_token or review is None
+                                   or review.get('token') != submitted_token):
                 return jsonify(error='This review is out of date. Reload and try again.'), 409
             # M2 (D3): picking one of the candidates this review offers is
             # a write to the owner's own job. Creating a company instead
@@ -2182,7 +2196,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
                     url=job.get('url'), link_reason=job.get('company_link_reason'),
                     employer_name=job.get('employer_named_in_posting'),
                     record_id=payload.get('company_id'), create=payload.get('create'),
-                    token=submitted_token, current_token=review['token'])
+                    token=submitted_token,
+                    # Omitting current_token is apply_review's own way of
+                    # saying this caller has no token to check, so the
+                    # pending case reuses the whole rest of it: the
+                    # identifier writes, the created record, the
+                    # name_variant a review resolution would have taught.
+                    current_token=None if unreviewed else review['token'])
             except ValueError as error:
                 raise ValueError(str(error).replace('Record', 'Company').replace('record', 'company')) from error
             company = result['record']

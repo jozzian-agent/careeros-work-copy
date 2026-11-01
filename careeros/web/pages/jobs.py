@@ -38,10 +38,35 @@ BEFORE_APPLIED = vault.OPEN_STATUSES[:vault.OPEN_STATUSES.index('applied')]
 # Interested, and you cannot win a job you never applied to.
 APPLIED_OR_LATER = tuple(vault.OPEN_STATUSES[vault.OPEN_STATUSES.index('applied'):]) + ('won',)
 
+def pending_company_ask(job):
+    """Whether a pending company link is something the owner can actually
+    settle, which is the one case the page asks them about (owner ruling
+    2026-11-01).
+
+    A pending link means the resolution ladder finished without a company
+    and without an ambiguity to review, so there is no review block and
+    nothing on the page said so: the subtitle link needs a resolved
+    company record and the needs_review ask does not cover this state.
+
+    All three conditions are needed. Without an extracted employer name
+    there is nothing to ask about, because the owner would be naming a
+    company the posting never named. And a job whose extraction has not
+    finished may yet resolve itself, so the ask waits for `complete`
+    rather than interrupting a reading that is still queued or running,
+    or doubling up on a reading that failed.
+    """
+    return (job.get('company_link_state') == 'pending'
+            and bool((job.get('employer_named_in_posting') or '').strip())
+            and job.get('ingest_state') == 'complete')
+
+
 def needs_attention(job):
     """M1 audit batch B: a job needs owner action when the company link is
     unresolved or ingest got stuck, mirroring company_link_state/ingest_state
     as already stored on the entry dict (no separate recompute in JS).
+
+    An unresolved link is either of the two the page asks about: the
+    reviewable one, and the pending one `pending_company_ask` settles.
 
     2026-10-18 adds the third case the owner found: a posting whose
     heading was its careers page and not a role, so the job carries a
@@ -56,6 +81,7 @@ def needs_attention(job):
     which jobs they mean.
     """
     return (job.get('company_link_state') == 'needs_review'
+            or pending_company_ask(job)
             or job.get('ingest_state') in ('fetch_failed', 'extract_failed')
             or 'title' in (job.get('field_status_reason') or {}))
 
@@ -362,6 +388,13 @@ def job_needs_input(job):
     page then offers creating a company) rather than fall through to a
     read failure, which is not what the owner has to decide.
 
+    A pending link `pending_company_ask` accepts raises that same
+    null-review company ask, for the same reason: the company is
+    unresolved, the posting named an employer, and the create form is
+    exactly the choice left. needs_review keeps precedence over it, and
+    the read failure under both can never apply to a pending ask, whose
+    own condition is an extraction that completed.
+
     Stored posting text settles a failed fetch and not a failed
     extraction. Text that arrived is all a fetch was ever for, so there is
     nothing left to ask. An extraction that failed read that same text and
@@ -370,6 +403,8 @@ def job_needs_input(job):
     """
     if job.get('company_link_state') == 'needs_review':
         return {'kind': 'company', 'review': job.get('company_review')}
+    if pending_company_ask(job):
+        return {'kind': 'company', 'review': None}
     description = (job.get('description') or '').strip()
     state = job.get('ingest_state')
     if state == 'extract_failed' or (state == 'fetch_failed' and not description):
