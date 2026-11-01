@@ -107,11 +107,12 @@ test('the Jobs header stack is the title, the action row, the filter bar, then t
   expect(order).toEqual(['title', 'action row', 'filter bar', 'banner']);
 });
 
-// A page with no main action shows the title row, its view pair and its
-// filters -- and no primary button. Companies gained the Tiles and List
-// pair in B4, placed where Board and List sit on Jobs, so its header
-// stack is the same three rows minus the action.
-test('Companies shows its view pair and filter bar under the title, with no main action', async ({ page }) => {
+// A page with no main action shows the title row and one toolbar row --
+// and no primary button. Companies gained the Tiles and List pair in B4;
+// CAREER-118 PR 2 moved it from a row of its own into the filter bar's
+// row, per the CollectionPage layout, so the stack is now two rows: the
+// title, then the one toolbar carrying the chips, the count and the pair.
+test('Companies shows one toolbar row with its filters and view pair under the title, with no main action', async ({ page }) => {
   await page.goto('/companies');
   const stack = page.getByTestId('page-header');
   await expect(stack.getByTestId('filter-chip-sector')).toBeVisible();
@@ -120,10 +121,45 @@ test('Companies shows its view pair and filter bar under the title, with no main
     const header = document.querySelector('[data-testid="page-header"]');
     return [...header.children].map((row) => {
       if (row.tagName === 'H1') return 'title';
-      if (row.querySelector('[role="group"][aria-label="View"]')) return 'view row';
-      if (row.querySelector('[data-testid^="filter-chip-"]')) return 'filter bar';
+      const hasView = Boolean(row.querySelector('[role="group"][aria-label="View"]'));
+      const hasChips = Boolean(row.querySelector('[data-testid^="filter-chip-"]'));
+      if (hasView && hasChips) return 'toolbar';
+      if (hasView) return 'view row';
+      if (hasChips) return 'filter bar';
       return row.tagName;
     });
   });
-  expect(order).toEqual(['title', 'view row', 'filter bar']);
+  // One toolbar, not a "view row" and a "filter bar": the two names the
+  // old stack had are exactly what must not come back.
+  expect(order).toEqual(['title', 'toolbar']);
+
+  // The chips and the count at the left, the view pair at the right, all
+  // on one line -- which is the layout rule, not just the DOM nesting.
+  const geometry = await page.evaluate(() => {
+    const chip = document.querySelector('[data-testid="filter-chip-sector"]');
+    const count = [...document.querySelectorAll('[data-testid="page-header"] *')].find(
+      (node) => node.children.length === 0 && /^\d+ companies$/.test(node.textContent.trim()),
+    );
+    const viewPair = document.querySelector('[role="group"][aria-label="View"]');
+    const box = (el) => el.getBoundingClientRect();
+    return {
+      chip: box(chip),
+      count: box(count),
+      view: box(viewPair),
+      toolbarWidth: box(chip.closest('[data-testid="page-header"] > *')).width,
+    };
+  });
+  // Same line: every one of the three overlaps the others vertically.
+  const sameLine = (a, b) => a.top < b.bottom && b.top < a.bottom;
+  expect(sameLine(geometry.chip, geometry.count)).toBe(true);
+  expect(sameLine(geometry.chip, geometry.view)).toBe(true);
+  // Left to right: chip, then the count, then the pair pushed to the end.
+  expect(geometry.count.left).toBeGreaterThan(geometry.chip.left);
+  expect(geometry.view.left).toBeGreaterThan(geometry.count.right);
+  // "At the right" means at the row's right edge, not merely last.
+  expect(geometry.view.right).toBeGreaterThan(geometry.chip.left + geometry.toolbarWidth * 0.8);
+
+  // No primary action anywhere on the page: Companies has none (A1, and
+  // owner decision 2026-11-01 -- a company is created from a job).
+  await expect(page.getByRole('button', { name: /Add a company/i })).toHaveCount(0);
 });

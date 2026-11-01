@@ -219,11 +219,98 @@ test('a filter combination that matches nothing says so', async ({ page }) => {
   await expect(page.getByText(`0 of ${TOTAL} companies`, { exact: true })).toBeVisible();
 });
 
-test('an empty directory shows the empty message with no filter controls', async ({ page }) => {
+// CAREER-118 PR 2: the empty directory is one SectionCard-style box with
+// one sentence in it, and the sentence is the catalog's rather than the
+// payload's `empty` line -- it names why a directory is empty, which is
+// the one thing a person seeing this screen needs told.
+//
+// The toolbar stays away while there is nothing to filter (the behaviour
+// this test has always pinned): heading, then the box, and no chips, no
+// count and no view pair. The empty state carries no button either,
+// because the action it would repeat is the primary action this page does
+// not have.
+test('an empty directory shows the empty-state card with no filter controls', async ({ page }) => {
   await mockCompaniesPage(page, { ...fixture, entries: [] });
   await page.goto('/companies');
-  await expect(page.getByText(fixture.empty)).toBeVisible();
+
+  await expect(page.getByRole('heading', { name: 'Companies', level: 1 })).toBeVisible();
+  const box = page.getByTestId('companies-empty');
+  await expect(box).toBeVisible();
+  expect((await box.innerText()).trim()).toBe('No companies yet. Companies appear when you add a job.');
+  // The payload still sends its own line; this page renders its own.
+  await expect(page.getByText(fixture.empty)).toHaveCount(0);
+
+  // The card frame: the surface behind a 1px container border at the
+  // 16px rounding SectionCard and the job card use.
+  const frame = await box.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      background: cs.backgroundColor,
+      borderWidth: cs.borderTopWidth,
+      borderColor: cs.borderTopColor,
+      radius: cs.borderTopLeftRadius,
+    };
+  });
+  expect(frame).toEqual({
+    background: 'rgb(255, 255, 255)', // --color-background-card
+    borderWidth: '1px',
+    borderColor: 'rgb(199, 198, 193)', // --color-border-container, #c7c6c1
+    radius: '16px',
+  });
+
   await expect(page.locator('[data-testid^="filter-chip-"]')).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'View' })).toHaveCount(0);
+  await expect(box.getByRole('button')).toHaveCount(0);
+});
+
+// The CollectionPage layout, pinned on the page that PR 2 moved to it:
+// the chips, the count and the view pair are ONE row. The pair used to be
+// a row of its own above the bar.
+test('the chips, the count and the view pair share one toolbar row', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/companies');
+
+  // Measured through locators, which wait for the toolbar to be there:
+  // the page renders its "Loading companies…" line first, so reading the
+  // geometry straight after goto() measures nothing.
+  const box = async (locator) => {
+    await expect(locator).toBeVisible();
+    const rect = await locator.boundingBox();
+    return { top: rect.y, bottom: rect.y + rect.height, left: rect.x, right: rect.x + rect.width };
+  };
+  const first = await box(page.getByTestId('filter-chip-sector'));
+  const last = await box(page.getByTestId('filter-chip-openJobs'));
+  const view = await box(page.getByRole('group', { name: 'View', exact: true }));
+  const count = await box(page.getByText(`${TOTAL} companies`, { exact: true }));
+
+  // One line: each of them overlaps the others vertically.
+  const sameLine = (a, b) => a.top < b.bottom && b.top < a.bottom;
+  expect(sameLine(first, last)).toBe(true);
+  expect(sameLine(first, count)).toBe(true);
+  expect(sameLine(first, view)).toBe(true);
+
+  // Left to right: the chips, then the count beside them, then the pair
+  // at the right end -- not the count holding the right edge any more.
+  expect(count.left).toBeGreaterThan(last.right);
+  expect(view.left).toBeGreaterThan(count.right);
+  // "At the right" is the row's right edge, not merely last in order: the
+  // page's content edge is 32px in, so the pair ends near 1280 - 32.
+  expect(view.right).toBeGreaterThan(1280 - 48);
+});
+
+test('at 390px the toolbar wraps instead of scrolling sideways, and the view items are 44px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/companies');
+
+  await expect(page.getByTestId('view-chip-tiles')).toHaveCSS('height', '44px');
+  await expect(page.getByTestId('view-chip-list')).toHaveCSS('height', '44px');
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBeLessThanOrEqual(0);
+  // Still usable after wrapping: the pair switches the view from there.
+  await page.getByTestId('view-chip-list').click();
+  await expect(page.getByRole('table')).toBeVisible();
 });
 
 
