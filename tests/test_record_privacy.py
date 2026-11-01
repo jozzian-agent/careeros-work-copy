@@ -1018,6 +1018,22 @@ def test_a_tester_cannot_create_a_company_from_a_job_review(clients, records, ro
     assert {c['id'] for c in vault.list_companies(root)} == before
 
 
+def test_a_tester_cannot_create_a_company_from_a_pending_link(clients, records, root):
+    """The pending company ask (owner ruling 2026-11-01) reaches the same
+    create rung with no review token at all, so it needs the same gate."""
+    job = vault.save_job(root, {
+        'title': 'Pending Link', 'url': 'https://example.test/pending',
+        'employer_named_in_posting': 'Pending Employer Text',
+        vault.OWNER_FIELD: records['jobs']['two'][vault.OWNER_FIELD]})
+    assert job['company_link_state'] == 'pending' and job['company_review'] is None
+    before = {c['id'] for c in vault.list_companies(root)}
+    response = clients['two'].post(f"/api/jobs/{job['id']}/resolve-review",
+                                   json={'create': {'name': 'Pending Made This'}})
+    assert response.status_code == 403
+    assert response.get_json() == {'error': users.SHARED_READ_ONLY}
+    assert {c['id'] for c in vault.list_companies(root)} == before
+
+
 def test_re_resolving_a_testers_job_creates_no_company(clients, records, root):
     """POST /resolve runs the same ladder, so it needs the same gate."""
     job = vault.save_job(root, {

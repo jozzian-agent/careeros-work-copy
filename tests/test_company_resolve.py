@@ -707,6 +707,87 @@ def test_r3_tokenless_and_double_pick(client):
     assert not any(i['value'] == 'Acme' for i in vault.load_company(root, second['id'])['identifiers'])
 
 
+# --- The pending company ask (owner ruling 2026-11-01) ----------------------
+#
+# A pending link carries no review block, so there is no token to submit
+# and no revision to be stale against. The same endpoint settles it, and
+# every other guard on it is unchanged.
+
+def pending_job(root, **fields):
+    """A job whose resolution finished with no company and no ambiguity:
+    pending, no review block, employer name extracted, reading done. Every
+    one of those is a vault default except the name."""
+    return vault.save_job(root, {
+        'title': 'Pending Link', 'url': 'https://pending.example/jobs/1',
+        'employer_named_in_posting': 'Pending Employer AG'} | fields)
+
+
+def test_a_pending_link_is_created_and_linked_without_a_review_token(client):
+    root = client.application.config['VAULT_PATH']
+    job = pending_job(root)
+    assert job['company_link_state'] == 'pending' and job['company_review'] is None
+    before = {c['id'] for c in vault.list_companies(root)}
+    response = client.post('/api/jobs/' + job['id'] + '/resolve-review',
+                           json={'create': {'name': 'Pending Employer AG'}})
+    assert response.status_code == 200
+    created, = {c['id'] for c in vault.list_companies(root)} - before
+    assert response.json['company_id'] == created
+    assert response.json['company_link_state'] == 'linked'
+    assert response.json['company_link_reason'] == 'manual'
+    assert response.json['company_review'] is None
+    assert response.json['field_provenance']['company_id'] == 'user'
+    # The name_variant apply_review teaches on the way through, which is
+    # what keeps the next posting naming this employer from asking again.
+    assert {'type': 'name_variant', 'value': 'Pending Employer AG',
+            'provenance': 'user'} in vault.load_company(root, created)['identifiers']
+
+
+def test_a_pending_link_can_pick_a_company_that_already_exists(client):
+    root = client.application.config['VAULT_PATH']
+    company = vault.save_company(root, {'name': 'Pending Employer AG'})
+    job = pending_job(root)
+    response = client.post('/api/jobs/' + job['id'] + '/resolve-review',
+                           json={'company_id': company['id']})
+    assert response.status_code == 200
+    assert response.json['company_id'] == company['id']
+    assert response.json['company_link_state'] == 'linked'
+
+
+def test_a_pending_link_still_refuses_a_company_that_cannot_be_linked(client):
+    """The validation before the write is unchanged: a retired id and one
+    that was never there are the same request with the same outcome, and
+    neither mutates anything."""
+    root = client.application.config['VAULT_PATH']
+    retired = vault.save_company(root, {'name': 'Retired Employer AG'})
+    assert client.delete('/api/companies/' + retired['id']).status_code == 200
+    job = pending_job(root)
+    for company_id in (retired['id'], 'CO-404'):
+        response = client.post('/api/jobs/' + job['id'] + '/resolve-review',
+                               json={'company_id': company_id})
+        assert response.status_code == 400
+        assert response.json == {'error': 'Company not found.'}
+    stored = vault.load_job(root, job['id'])
+    assert stored['company_id'] is None
+    assert stored['company_link_state'] == 'pending'
+    assert 'Pending Employer AG' not in str(vault.list_companies(root))
+
+
+def test_a_stale_token_on_a_real_review_is_still_refused(client):
+    """The tokenless path belongs to the pending link alone. A job that
+    does carry a review block still has a revision to be stale against,
+    and neither a wrong token nor a missing one gets past it."""
+    root = client.application.config['VAULT_PATH']
+    company = vault.save_company(root, {'name': 'Acme GmbH'})
+    job = vault.save_job(root, {
+        'title': 'Review', 'url': 'https://probe.example/job',
+        'employer_named_in_posting': 'Acme', 'company_link_state': 'needs_review',
+        'company_review': {'candidates': [], 'at': '2026-11-01', 'token': 'current'}})
+    url = '/api/jobs/' + job['id'] + '/resolve-review'
+    assert client.post(url, json={'company_id': company['id'], 'review_token': 'stale'}).status_code == 409
+    assert client.post(url, json={'company_id': company['id']}).status_code == 409
+    assert vault.load_job(root, job['id'])['company_link_state'] == 'needs_review'
+
+
 def test_r4_domain_fuzzy_includes_current_and_exact_reason(root):
     company = vault.save_company(root, {'name': 'Acme GmbH', 'identifiers': [
         {'type': 'domain', 'value': 'acme.example', 'provenance': 'scrape'}]})

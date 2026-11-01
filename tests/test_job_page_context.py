@@ -121,6 +121,68 @@ def test_needs_input_null_on_a_healthy_job():
     assert context({'description': 'text', 'company_link_state': 'linked'})['needs_input'] is None
 
 
+# --- needs_input: the pending company ask (owner ruling 2026-11-01) -------
+#
+# A pending link resolved to nothing and to no ambiguity, so it carries no
+# review block and used to render no company surface at all: the subtitle
+# link needs a resolved company and the needs_review ask did not cover it.
+
+#: The one record that raises the new ask, which every case below varies
+#: by exactly one field.
+PENDING = {'company_link_state': 'pending', 'employer_named_in_posting': 'Northwind AG',
+           'ingest_state': 'complete', 'description': 'The real posting text.'}
+
+
+def test_needs_input_company_ask_on_a_pending_link():
+    """The null-review company ask, which is the create-a-company form the
+    page already renders for a needs_review record without candidates."""
+    assert context(PENDING)['needs_input'] == {'kind': 'company', 'review': None}
+
+
+def test_no_pending_ask_without_an_employer_name():
+    """Nothing to ask about: the owner would be naming a company this
+    posting never named. Blank text counts as no name, and so does a
+    record that never carried the field."""
+    assert context(PENDING | {'employer_named_in_posting': None})['needs_input'] is None
+    assert context(PENDING | {'employer_named_in_posting': '   '})['needs_input'] is None
+    assert context({k: v for k, v in PENDING.items()
+                    if k != 'employer_named_in_posting'})['needs_input'] is None
+
+
+def test_no_pending_ask_while_the_posting_is_still_being_read():
+    """Queued and running are both readings that may yet resolve the link
+    themselves, so the ask waits for them rather than interrupting."""
+    for state in ('stub', 'fetched'):
+        assert context(PENDING | {'ingest_state': state})['needs_input'] is None
+
+
+def test_a_failed_read_wins_over_the_pending_ask():
+    """The two asks cannot both apply: the pending ask wants an extraction
+    that completed, and this one failed. One ask per page, unchanged."""
+    result = context(PENDING | {'ingest_state': 'extract_failed',
+                                'ingest_error': {'stage': 'extract', 'reason': 'empty_content', 'at': 'x'}})
+    assert result['needs_input'] == {'kind': 'read_failed', 'error_reason': 'empty_content'}
+
+
+def test_no_pending_ask_on_a_linked_job():
+    """A resolved company is the thing the ask is for, so a linked job
+    with an employer name on it asks nothing."""
+    assert context(PENDING | {'company_link_state': 'linked'})['needs_input'] is None
+
+
+# --- needs_attention mirrors the company ask ------------------------------
+#
+# The board chip and the "Needs attention" filter both read
+# needs_attention, which its docstring promises agrees with the page's own
+# ask. Tested here beside that ask so the pair cannot drift apart.
+
+def test_needs_attention_mirrors_the_pending_company_ask():
+    assert jobs.needs_attention(PENDING) is True
+    assert jobs.needs_attention(PENDING | {'employer_named_in_posting': None}) is False
+    for state in ('stub', 'fetched'):
+        assert jobs.needs_attention(PENDING | {'ingest_state': state}) is False
+
+
 # --- reading --------------------------------------------------------------
 
 def test_reading_while_the_extractor_runs():
