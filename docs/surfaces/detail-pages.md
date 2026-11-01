@@ -17,6 +17,22 @@ removed, page and JSON endpoint both. Everything below about that
 sub-page is history. The job and company detail JSON contracts the pages
 read are in [JSON page contracts](json-api.md).
 
+2026-11-01 (company requests): the company ask has two shapes now,
+decided by whether the reader may write a shared company
+(`can_edit_shared` on the page payload). The admin's is unchanged:
+"Create and link", which creates the company and links the job. For
+everybody else the same form's action reads "Ask to add company" (and
+"None of these, ask to add" where there are candidates to pick from) and
+files a company request ([schemas](../schemas.md)) instead of a company,
+because a company is shared and admin-write and that button used to
+answer 403. While a request is open the card is a state with no control
+in it at all: the name that was asked for and the line "Asked. We check
+company requests overnight." The ask itself stays, because the company
+is still unresolved, and the header shows the requested name as plain
+muted text rather than the company link a resolved company gets, since
+there is no company record to link to. The resolution itself, nightly,
+is a later change.
+
 2026-10-14 (package 2, requirement groups): the Requirements section
 renders the grouped shape package 1 built it for. A job stores
 `requirement_groups` ([schemas](../schemas.md)) as of this round; a job

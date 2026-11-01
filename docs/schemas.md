@@ -17,9 +17,11 @@ A company is never deleted out from under another user's record: see
 `retired` below, and `vault.retire_company`.
 
 Since M2 (CAREER-39, 2026-10-18) a record is either private or shared.
-Jobs and experiences are private: each carries `owner_id`, the id of the
-one user it belongs to, and no other user can read or write it by any
-path. Companies, `tags.yaml` and `search.yaml` carry no owner: companies
+Jobs, experiences and company requests are private: each carries
+`owner_id`, the id of the one user it belongs to, and no other user can
+read or write it by any path. A company request is private with one
+widening, because it is addressed to the admin: see its own section
+below. Companies, `tags.yaml` and `search.yaml` carry no owner: companies
 and the tag vocabulary are shared universe that every user reads and the
 admin alone changes (decision D3), and `search.yaml` is shared because
 the M2 split did not cover it (PROJECT.md open question).
@@ -506,3 +508,42 @@ Intake and enrichment fill sector, size_class and locations only when the
 selected company's field is empty/missing, regardless of name_source.
 Nonempty owner values always win. Company selection and name/website provenance rules remain
 unchanged; hiringOrganization.address does not replace the job's location.
+
+## `company_requests/<name>-<id>.yaml`
+
+One user asking for the company their posting names (owner ruling
+2026-11-01). A company is shared and only the admin may write one, so
+the create form on the job page's company ask answered 403 for every
+other user and left them at a dead end on their own job. The ask is
+answered by filing one of these instead; resolving it into a company and
+a link is a separate change, and nothing but the admin ever writes the
+shared companies record.
+
+| Field | Type / meaning |
+| --- | --- |
+| id | Allocated `CR-###`, from the same monotonic counter every numbered kind uses |
+| owner_id | String `USER-###` or null. Who filed it, stamped by the endpoint from the session and never accepted from a client |
+| job_id | Nonempty string. The job the request came from |
+| name | The requested company name, as `vault.validate_company_name` accepts it: stripped, 2 to 200 characters, no control characters, no `<` or `>`, and something left after punctuation is collapsed. The one gate on what a resolution may turn into a shared company name |
+| created_at | ISO date the request was filed, server-local |
+| status | One of `filed`, `linked`, `created`, `needs_admin`, `rejected`. Only `filed` is written today, and it is the one that counts as open |
+| resolved_company_id | `CO-###` or null. The company the request ended up pointing at; nothing writes it yet |
+| resolution_note | String. Why the resolution went the way it did; nothing writes it yet |
+
+POST `/api/jobs/<id>/company-request` with `{"name": "..."}` files one.
+It is open to every signed-in user, the admin included, and it touches no
+company: the endpoint reaches no company read or write at all. The job
+has to be one the caller owns (404 otherwise, the answer a job that does
+not exist gets) and has to be asking about its company (409 otherwise,
+read off the page's own ask). A refused name answers 400 with the
+message the gate gives. A second filing for the same job updates the one
+open request rather than creating a second one, so there is at most one
+open request per job. Past `server.COMPANY_REQUEST_DAILY_CAP` filings in
+one day, counted by the filer's own `owner_id` and `created_at`, a new
+filing answers 429; updating the request already open still works, and
+the budget returns the next day with no stored window to expire.
+
+Requests are read through `vault.Owner` like a job, with one widening:
+the admin reads every request, because they are the one person who can
+resolve one. Nobody else reads anybody else's, and a request this reader
+may not see answers exactly as one that is not there.

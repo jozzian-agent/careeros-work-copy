@@ -17,6 +17,12 @@ Beside the allowlist, a block lists the fields the writer sets itself. Those sit
 * Fields the writer sets itself, outside the allowlist: `id`.
 * Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. Read on routes whose read access reads: any logged-in user. Written on routes whose write access reads: admin only; any logged-in user.
 
+### company_requests
+
+* Stored at: `company_requests/`, one file per record, named `f"{slugify(result['name'])}-{result['id'].lower()}.yaml"` (vault.save_company_request).
+* Allowed fields (vault.validate_company_request defaults): `created_at`, `job_id`, `name`, `owner_id`, `resolution_note`, `resolved_company_id`, `status`.
+* Scope: per user, by `owner_id`. Read through `vault.Owner`, which answers for somebody else's record exactly as it answers for one that does not exist.
+
 ### experiences
 
 * Stored at: `experiences/`, one file per record, named `f"{slugify(result['company'] + ' ' + result['title'])}-{result['id'].lower()}.yaml"` (vault.save_experience).
@@ -33,7 +39,7 @@ Beside the allowlist, a block lists the fields the writer sets itself. Those sit
 ### id counters
 
 * Stored at: `ids.yaml` (vault._allocate).
-* Allowed fields (vault.ID_PREFIXES): `companies`, `experiences`, `jobs`, `users`.
+* Allowed fields (vault.ID_PREFIXES): `companies`, `company_requests`, `experiences`, `jobs`, `users`.
 * Scope: no owner or author field in its allowlist, so nothing in the record says whose it is. No Flask route reads it. Written on routes whose write access reads: admin only; any logged-in user; public, one-time token, rate limited.
 
 ### id reservations
@@ -194,12 +200,16 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/jobs` | GET | `job_collection` | jobs | owner only | no write on this route | route code, storage layer | `vault.list_jobs`, `vault.list_universe_jobs` |
 | `/api/jobs` | GET | `job_collection` | tags | any logged-in user | no write on this route | route code, storage layer | `vault.function_facet_options`, `vault.function_label_map`, `vault.load_tags` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | companies | any logged-in user | admin only | route code, storage layer | `vault.linkable_company`, `vault.load_company`, `vault.reader_company`, `vault.save_company` |
+| `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | company_requests | owner only | no write on this route | route code, storage layer | `vault.active_company_request`, `vault.list_company_requests` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | history events | owner only | owner only | route code, storage layer | `history.label_for`, `history.resolve`, `vault.append_event` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | id counters | no read on this route | admin only | storage layer | `vault._allocate`, `vault.retain_id_high_water` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | id reservations | no read on this route | admin only | storage layer | `vault.reserve_id` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | jobs | owner only | owner only | route code, storage layer | `vault.delete_job`, `vault.list_jobs`, `vault.load_job`, `vault.save_job` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | notes | owner only | no write on this route | route code, storage layer | `vault.has_notes`, `vault.notes_view` |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | tags | any logged-in user | admin only | route code, storage layer | `vault.function_facet_options`, `vault.function_label_map`, `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.unregistered_tags`, `vault.validate_tags` |
+| `/api/jobs/<identifier>/company-request` | POST | `company_request` | company_requests | owner only | owner only | route code, storage layer | `vault.active_company_request`, `vault.company_requests_filed_on`, `vault.list_company_requests`, `vault.save_company_request` |
+| `/api/jobs/<identifier>/company-request` | POST | `company_request` | id counters | no read on this route | any logged-in user | storage layer | `vault._allocate` |
+| `/api/jobs/<identifier>/company-request` | POST | `company_request` | jobs | owner only | no write on this route | route code | `vault.load_job` |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | companies | any logged-in user | any logged-in user | route code, storage layer | `vault.linkable_company`, `vault.list_companies`, `vault.load_company`, `vault.save_company` |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | id counters | no read on this route | any logged-in user | storage layer | `vault._allocate` |
@@ -389,7 +399,7 @@ Every event type a record's `history` may carry, from `careeros.history REGISTRY
 
 ## How the kinds link
 
-An arrow is a field one kind holds that points at another, read off the field names in the allowlists above: the singular of a record directory names the kind it points at (`company_id` points at `companies`), and the three fields that hold a user record id are named in the generator and checked against the code that reads them. A kind whose records live inside another kind's field is drawn the same way, with the field that contains them. The `id counters` and `id reservations` arrows are the four numbered kinds of `vault.ID_PREFIXES`, which is bookkeeping about numbers rather than a reference between records.
+An arrow is a field one kind holds that points at another, read off the field names in the allowlists above: the singular of a record directory names the kind it points at (`company_id` points at `companies`), and the few fields whose name does not carry the kind are named in the generator, the three that hold a user record id checked against the code that reads them. A kind whose records live inside another kind's field is drawn the same way, with the field that contains them. The `id counters` and `id reservations` arrows are every numbered kind of `vault.ID_PREFIXES`, which is bookkeeping about numbers rather than a reference between records.
 
 The blind spots of that method are worth stating. It sees a link only where a field name carries the kind, so an association made by something other than an id field is not here: an invite and a reset record find their account by `email` and not by id, and the job a feed posting came from is matched by `normalized_url`. In the other direction, a field that looks like a link and points at no record kind is reported and not guessed at: `ats_posting_id` on jobs, `source_id` on jobs.
 
@@ -400,19 +410,24 @@ erDiagram
     rate_limit_windows
     session_signing_key
     tags
+    companies ||--o{ company_requests : "resolved_company_id"
     companies ||--o{ experiences : "company_id"
     companies ||--o{ jobs : "company_id"
     companies ||--o{ notes : "note_list (contained)"
     id_counters ||--o{ companies : "next number"
+    id_counters ||--o{ company_requests : "next number"
     id_counters ||--o{ experiences : "next number"
     id_counters ||--o{ jobs : "next number"
     id_counters ||--o{ users : "next number"
     id_reservations ||--o{ companies : "number taken out"
+    id_reservations ||--o{ company_requests : "number taken out"
     id_reservations ||--o{ experiences : "number taken out"
     id_reservations ||--o{ jobs : "number taken out"
     id_reservations ||--o{ users : "number taken out"
+    jobs ||--o{ company_requests : "job_id"
     jobs ||--o{ history_events : "history (contained)"
     jobs ||--o{ notes : "note_list (contained)"
+    users ||--o{ company_requests : "owner_id"
     users ||--o{ experiences : "owner_id"
     users ||--o{ jobs : "owner_id"
     users ||--o{ notes : "author_id"

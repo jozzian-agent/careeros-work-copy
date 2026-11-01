@@ -373,7 +373,22 @@ def classification_sector(job, company, isic_labels):
     return {'value': None, 'source': None}
 
 
-def job_needs_input(job):
+def company_ask(review, company_request=None):
+    """The company ask, in the one shape the card renders.
+
+    `review` is the stored review block or None, which is what decides
+    whether the card offers candidates to pick from. `request` is absent
+    unless the owner has an open request for this job, so a payload
+    written before requests existed and a job with no request are the
+    same answer.
+    """
+    ask = {'kind': 'company', 'review': review}
+    if company_request is not None:
+        ask['request'] = {'name': company_request.get('name'), 'filed': True}
+    return ask
+
+
+def job_needs_input(job, company_request=None):
     """The ONE thing the page asks the owner for, or None.
 
     At most one ask is rendered, so precedence is decided here rather
@@ -395,6 +410,17 @@ def job_needs_input(job):
     the read failure under both can never apply to a pending ask, whose
     own condition is an extraction that completed.
 
+    `company_request` is the owner's open request for this job, where
+    they have one (`vault.active_company_request`). It rides along on the
+    company ask as a `request` block, which is what turns the ask from
+    something to answer into something already asked: the name they
+    asked for, and the fact that it is filed. The ask itself stays, so
+    the page keeps saying the company is unresolved, and the card offers
+    no action because there is none left until the request is resolved. A
+    request is only ever read onto the ask it belongs to -- a read
+    failure is not a company question -- so the block cannot appear
+    beside the wrong kind.
+
     Stored posting text settles a failed fetch and not a failed
     extraction. Text that arrived is all a fetch was ever for, so there is
     nothing left to ask. An extraction that failed read that same text and
@@ -402,9 +428,9 @@ def job_needs_input(job):
     so the ask stands however much text is stored.
     """
     if job.get('company_link_state') == 'needs_review':
-        return {'kind': 'company', 'review': job.get('company_review')}
+        return company_ask(job.get('company_review'), company_request)
     if pending_company_ask(job):
-        return {'kind': 'company', 'review': None}
+        return company_ask(None, company_request)
     description = (job.get('description') or '').strip()
     state = job.get('ingest_state')
     if state == 'extract_failed' or (state == 'fetch_failed' and not description):
@@ -413,7 +439,7 @@ def job_needs_input(job):
     return None
 
 
-def detail_context(root, identifier, llm_pending=False, owner=None):
+def detail_context(root, identifier, llm_pending=False, owner=None, can_edit_shared=True):
     job = vault.load_job(root, identifier, owner)
     if job is None:
         abort(404)
@@ -423,9 +449,12 @@ def detail_context(root, identifier, llm_pending=False, owner=None):
     return job_context(job, vault.reader_company(vault.load_company(root, job.get('company_id')),
                                                  owner),
                        vault.function_label_map(root), llm_pending,
-                       isic_sections=sectors.load_isic_sections())
+                       isic_sections=sectors.load_isic_sections(),
+                       company_request=vault.active_company_request(root, job['id'], owner),
+                       can_edit_shared=can_edit_shared)
 
-def job_context(job, company, function_labels, llm_pending=False, isic_sections=None):
+def job_context(job, company, function_labels, llm_pending=False, isic_sections=None,
+                company_request=None, can_edit_shared=True):
     """Build detail data from an explicit record snapshot."""
     description = job.get('description') or ''
     isic_labels = {s['code']: s['label'] for s in isic_sections or []}
@@ -454,7 +483,13 @@ def job_context(job, company, function_labels, llm_pending=False, isic_sections=
             function=job.get('function') or [],
             tags=job.get('tags') or [],
         ),
-        needs_input=job_needs_input(job),
+        needs_input=job_needs_input(job, company_request),
+        # M2 (D3): whether this user may write the shared companies
+        # record. The company ask offers them the create form when they
+        # may and filing a company request when they may not, rather
+        # than a button that answers 403. Same flag and same name the
+        # company profile and the classification popup already read.
+        can_edit_shared=can_edit_shared,
         # True while the posting is still on its way in: the extractor
         # running in this process, or a record parked in one of the two
         # intake states that has not reached a result yet. A stub whose

@@ -941,6 +941,7 @@ open question.
 | Owner of a record | Which user a job or an experience belongs to: the `owner_id` field holding a user record id (`vault.OWNER_FIELD`). Stamped by the path that creates the record and never moved. Added M2, 2026-10-18. | none |
 | Shared universe | The records every user reads and the admin alone changes: companies and the tag vocabulary. Added M2, 2026-10-18. | Universe (a backend word that never appears in the interface) |
 | All jobs | What a person reads the job half of that universe as: every job not private to another user. The tab's name, and the only user-facing word for it -- "universe" stays backend. Added B2, 2026-10-19. | none |
+| Company request | One user asking for the company their posting names, because a company is shared and the admin alone writes one. A private record of its own (`company_requests`, [schemas](docs/schemas.md)), filed from the job page's company ask, resolved into a company and a link by a later change. Added 2026-11-01. | none |
 
 ### Statuses
 
@@ -1006,6 +1007,7 @@ Interviews is removed from the navigation until it exists. Tab order is My Jobs,
 | Change a job's status | One control on the card | Everyone |
 | Retry | On the card or company, visible after a failed or exhausted step | Owner |
 | Resolve a company match | The review card | Owner |
+| Ask to add a company | The company ask on a job, for a user who may not write a shared company: the same form, filing a company request instead of creating the company. One open request per job, ten filings a day. Added 2026-11-01 | Everyone |
 | Add to my jobs | On a card of the All jobs tab that is not on my board; the existing promote action under the user's word. It creates my own copy of the posting in New and never moves the record it copied (B2, 2026-10-19) | Everyone |
 | Remove from my board | On the card | Everyone |
 | Edit preferences | One edit mode on Search (proposed name: Preferences); Edit criteria → Done / Cancel, batch D | Everyone |
@@ -1100,6 +1102,12 @@ the interface does not offer them the control. In force since M2,
   `vault.REJECTED_REASONS`).
   Won has none. Free text the owner adds beside a reason is a dated note
   on the job, under `vault.END_NOTE_TITLE`, not a second field.
+- Company request status. Filed, linked, created, needs admin, rejected
+  (`vault.COMPANY_REQUEST_STATUSES`, owner ruling 2026-11-01). `filed` is
+  the only one anything writes today and the one that counts as open
+  (`vault.COMPANY_REQUEST_OPEN`); the other four are what resolving a
+  request will record, and the list is whole from the first day so a
+  resolution is a change to one module rather than to the schema.
 
 ### Fixed lists, to settle in milestone M1
 

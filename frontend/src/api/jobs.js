@@ -148,6 +148,28 @@ export async function resolveReview(id, payload) {
   return data;
 }
 
+// POST /api/jobs/<id>/company-request: the other half of the company ask
+// (careeros/server.py company_request). A company is shared and only the
+// admin writes one, so everybody else asks for the company their posting
+// names and a later resolution links it. Answers with the request record;
+// a second call for the same job updates the name on the one request
+// instead of filing another. The 400 (the name), the 409 (the job is not
+// asking) and the 429 (too many filings today) all carry a message the
+// owner can act on, so the error is the server's words and not a fixed
+// sentence here.
+export async function requestCompany(id, name) {
+  const response = await apiFetch(`/api/jobs/${encodeURIComponent(id)}/company-request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || 'Could not ask about that company.');
+  }
+  return data;
+}
+
 // POST /api/jobs/<id>/paste-description: the fetch_failed "paste posting
 // text manually" resume path (careeros/server.py paste_description).
 // Resumes extraction through the same worker /extract uses.

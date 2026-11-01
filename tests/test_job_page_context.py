@@ -183,6 +183,69 @@ def test_needs_attention_mirrors_the_pending_company_ask():
         assert jobs.needs_attention(PENDING | {'ingest_state': state}) is False
 
 
+# --- needs_input: the company ask, already asked -------------------------
+#
+# A company is shared and admin-write, so a user who may not write one
+# files a company request instead (owner ruling 2026-11-01). The ask then
+# stays -- the company is still unresolved -- and carries the request, so
+# the card can say it was asked instead of offering the form again.
+
+#: One open request, in the shape `vault.active_company_request` answers
+#: with. Only the name reaches the page: the rest of the record is the
+#: resolver's business and no part of the ask.
+REQUEST = {'id': 'CR-001', 'job_id': 'JOB-001', 'name': 'Northwind AG',
+           'status': 'filed', 'owner_id': 'USER-001'}
+
+
+def test_the_pending_ask_carries_an_open_request():
+    assert context(PENDING, company_request=REQUEST)['needs_input'] == {
+        'kind': 'company', 'review': None, 'request': {'name': 'Northwind AG', 'filed': True}}
+
+
+def test_the_review_ask_carries_an_open_request_too():
+    """The two shapes of one ask. A review keeps its candidates, which is
+    what the card picks from, and gains the same request block."""
+    review = {'candidates': [{'company_id': 'CO-001', 'name': 'Northwind'}],
+              'at': '2026-11-01', 'token': 'current'}
+    result = context({'company_link_state': 'needs_review', 'company_review': review},
+                     company_request=REQUEST)['needs_input']
+    assert result == {'kind': 'company', 'review': review,
+                      'request': {'name': 'Northwind AG', 'filed': True}}
+
+
+def test_no_request_block_without_a_request():
+    """A job with no request, and a payload written before requests
+    existed, are the same answer: the key is absent rather than null, so
+    nothing has to tell them apart."""
+    assert 'request' not in context(PENDING)['needs_input']
+    assert 'request' not in context(PENDING, company_request=None)['needs_input']
+
+
+def test_a_read_failure_carries_no_request_block():
+    """A request belongs to the company ask alone, so it cannot turn up
+    beside an ask it has nothing to do with."""
+    result = context(PENDING | {'ingest_state': 'extract_failed'},
+                     company_request=REQUEST)['needs_input']
+    assert result == {'kind': 'read_failed', 'error_reason': None}
+
+
+def test_a_healthy_job_asks_nothing_even_with_a_request_on_file():
+    """The ask is what carries the request, so a job whose company is
+    resolved says nothing about one."""
+    assert context({'description': 'text', 'company_link_state': 'linked'},
+                   company_request=REQUEST)['needs_input'] is None
+
+
+# --- can_edit_shared ------------------------------------------------------
+
+def test_the_page_says_whether_this_reader_may_write_a_company():
+    """The flag the company ask reads to decide whether its create action
+    creates the company or asks for it. Defaults to the admin's answer,
+    which is what every caller that does not pass one is."""
+    assert context(PENDING)['can_edit_shared'] is True
+    assert context(PENDING, can_edit_shared=False)['can_edit_shared'] is False
+
+
 # --- reading --------------------------------------------------------------
 
 def test_reading_while_the_extractor_runs():
@@ -274,6 +337,28 @@ def test_history_is_resolved_not_raw(tmp_path):
         {'ts': entry['ts'], 'label': label, 'detail': entry['detail']}
         for entry, label in zip(vault.load_job(root, job['id'])['history'],
                                 ['Job added', 'Status changed from New to Interested'])]
+
+
+def test_detail_context_reads_the_open_request_off_the_vault(tmp_path):
+    """The wiring the pure context cannot show: the route hands the page
+    the reader's own open request for this job, and nothing else's."""
+    root = tmp_path / 'vault'
+    owner = vault.Owner('USER-001')
+    job = vault.save_job(root, {'title': 'Builder', 'url': 'https://example.com/jobs/1',
+                                'employer_named_in_posting': 'Northwind AG',
+                                vault.OWNER_FIELD: 'USER-001'})
+    other = vault.save_job(root, {'title': 'Other', 'url': 'https://example.com/jobs/2',
+                                  'employer_named_in_posting': 'Southwind AG',
+                                  vault.OWNER_FIELD: 'USER-001'})
+    vault.save_company_request(root, {'job_id': other['id'], 'name': 'Southwind AG',
+                                      vault.OWNER_FIELD: 'USER-001'})
+
+    assert 'request' not in jobs.detail_context(root, job['id'], owner=owner)['needs_input']
+
+    vault.save_company_request(root, {'job_id': job['id'], 'name': 'Northwind AG',
+                                      vault.OWNER_FIELD: 'USER-001'})
+    result = jobs.detail_context(root, job['id'], owner=owner)
+    assert result['needs_input']['request'] == {'name': 'Northwind AG', 'filed': True}
 
 
 def test_detail_context_loads_isic_labels_for_the_company_sector(tmp_path):
