@@ -66,10 +66,14 @@ export default function ExperiencesList() {
               <Text align="center" color="subtle">
                 {empty}
               </Text>
+              {/* Gray, not the brand fill (CollectionPage README,
+                  CAREER-118 PR 3): the "Add position" in the heading row
+                  above is this page's one primary action and keeps the
+                  only primary fill, and this button just repeats it. */}
               <ButtonLink
                 href="/experiences/new"
                 text={formatMessage({ id: 'experiences.addPosition' })}
-                color="red"
+                color="gray"
                 target="self"
               />
             </Flex>

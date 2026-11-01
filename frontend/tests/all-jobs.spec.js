@@ -134,9 +134,35 @@ test('the tab offers no intake of its own', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Add a job' })).toHaveCount(0);
 });
 
-test('an empty universe says so', async ({ page }) => {
+// CAREER-118 PR 3: the sentence is the payload's, as it has always been,
+// but it sits in one SectionCard-style box now (CollectionPage README)
+// instead of a bare line of subtle text. No button in that box: the
+// action it would repeat is the primary action this page does not have.
+// The toolbar stays away while there is nothing to filter.
+test('an empty universe says so, in a card with no button', async ({ page }) => {
   await mockUniverse(page, { ...fixture, entries: [] });
   await page.goto('/all-jobs');
-  await expect(page.getByText(fixture.empty)).toBeVisible();
+
+  const box = page.getByTestId('all-jobs-empty');
+  await expect(box).toBeVisible();
+  await expect(box.getByText(fixture.empty)).toBeVisible();
+
+  const frame = await box.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      background: cs.backgroundColor,
+      borderWidth: cs.borderTopWidth,
+      borderColor: cs.borderTopColor,
+      radius: cs.borderTopLeftRadius,
+    };
+  });
+  expect(frame).toEqual({
+    background: 'rgb(255, 255, 255)', // --color-background-card
+    borderWidth: '1px',
+    borderColor: 'rgb(199, 198, 193)', // --color-border-container, #c7c6c1
+    radius: '16px',
+  });
+
+  await expect(box.getByRole('button')).toHaveCount(0);
   await expect(page.locator('[data-testid^="filter-chip-"]')).toHaveCount(0);
 });

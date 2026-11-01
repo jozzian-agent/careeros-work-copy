@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Box, Button, Flex, Link, Text } from 'gestalt';
 import { fetchNotes } from '../api/notes.js';
-import { DividerList, EmptyState } from '../components/SectionCard.jsx';
+import { DividerList } from '../components/SectionCard.jsx';
 import { localDate } from '../dates.js';
 import PageLayout from '../components/PageLayout.jsx';
 
@@ -90,7 +90,30 @@ export default function Notes() {
             )}
           />
         ) : (
-          <EmptyState text={empty} />
+          // The empty list, per the CollectionPage README: one
+          // SectionCard-style box -- the card surface, a 1px container
+          // border, 16px rounding, written as the Gestalt props that
+          // resolve to those tokens, the way the Companies box is --
+          // around the sentence the payload already sends, rather than
+          // the shared dashed EmptyState this used to be.
+          //
+          // No button in it. The README's "gray button repeating the
+          // action" would repeat a primary action this page does not
+          // have: a note is written in its own window on the page of the
+          // record that holds it, so this page is read-only by design
+          // (see the note at the top of this file). Same reading as
+          // Companies and All jobs, owner decision 2026-11-01. The
+          // "Add a note" the README names for this page is planned work,
+          // not a gap to fill here (docs/design/HANDOVER.md, PR 7);
+          // notes.spec.js pins the button's absence meanwhile.
+          //
+          // SectionCard's own EmptyState is deliberately left alone: the
+          // detail pages' empty sections still use its dashed pattern,
+          // which is what the design system asks of a section inside a
+          // card rather than of a whole collection page.
+          <Box data-testid="notes-empty" color="default" borderStyle="sm" rounding={4} padding={6}>
+            <Text color="subtle">{empty}</Text>
+          </Box>
         )}
       </Flex>
     </PageLayout>

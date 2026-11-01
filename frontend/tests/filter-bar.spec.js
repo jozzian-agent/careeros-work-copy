@@ -1,6 +1,9 @@
 // Protects the board's filter bar: which chips it offers, that a choice
 // filters the board and shows a removable active-filter Tag, and that the
-// count on the right tells the open/ended split until a filter is on.
+// count beside the chips tells the open/ended split until a filter is on.
+// Since CAREER-118 PR 3 this bar's row is the board's one toolbar row:
+// the Board/List pair is its `right` item, which is why the view items
+// are on the same line as the chips the tests below drive.
 import { expect, test } from '@playwright/test';
 import { loadBoardFixture, mockBoard } from './helpers.js';
 

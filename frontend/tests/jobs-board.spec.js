@@ -137,12 +137,83 @@ test('the board shows the jobs the API answered with and no others', async ({ pa
   }
 });
 
-test('empty state renders the empty message from the API', async ({ page }) => {
+// CAREER-118 PR 3: the empty vault is one SectionCard-style box holding
+// the API's own `empty` sentence and a gray button repeating the page's
+// one action (CollectionPage README). The sentence is still the payload's
+// -- this page has always rendered what the backend sends -- and the
+// button opens the same "Add a job" popup the action row does, in gray,
+// because the action row keeps the only brand fill.
+test('empty state renders the empty message from the API in a card with a gray Add a job', async ({ page }) => {
   const emptyBoard = { ...fixture, entries: [], empty: 'No jobs match this test fixture.' };
   await mockBoard(page, emptyBoard);
   await page.goto('/jobs');
-  await expect(page.getByText('No jobs match this test fixture.')).toBeVisible();
+
+  const box = page.getByTestId('board-empty');
+  await expect(box).toBeVisible();
+  await expect(box.getByText('No jobs match this test fixture.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+
+  // The card frame: the surface behind a 1px container border at the
+  // 16px rounding SectionCard, the job card and the Companies box use.
+  const frame = await box.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      background: cs.backgroundColor,
+      borderWidth: cs.borderTopWidth,
+      borderColor: cs.borderTopColor,
+      radius: cs.borderTopLeftRadius,
+    };
+  });
+  expect(frame).toEqual({
+    background: 'rgb(255, 255, 255)', // --color-background-card
+    borderWidth: '1px',
+    borderColor: 'rgb(199, 198, 193)', // --color-border-container, #c7c6c1
+    radius: '16px',
+  });
+
+  // The button in the box repeats the action and is NOT the brand fill:
+  // the one in the action row above is the page's only primary.
+  const inBox = box.getByRole('button', { name: 'Add a job', exact: true });
+  await expect(inBox).toBeVisible();
+  const grounds = await page.evaluate(() => {
+    // Gestalt paints a Button's ground on its own inner element, which
+    // is what theme.spec.js reads too.
+    const read = (el) => getComputedStyle(el.firstElementChild || el).backgroundColor;
+    const buttons = [...document.querySelectorAll('button')].filter(
+      (el) => el.textContent.trim() === 'Add a job',
+    );
+    return buttons.map(read);
+  });
+  expect(grounds).toHaveLength(2);
+  expect(grounds[0]).toBe('rgb(0, 135, 83)'); // --color-brand-primary, the action row
+  expect(grounds[1]).not.toBe('rgb(0, 135, 83)');
+
+  // The toolbar row stays away while there is nothing to filter, the way
+  // it does on Companies and All jobs, so the box stands alone under the
+  // action row: no chips, no toggles, no count and no view pair. "Add a
+  // job" is the one control left above it.
+  await expect(page.locator('[data-testid^="filter-chip-"]')).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'View', exact: true })).toHaveCount(0);
+
+  // And it opens the same popup the action row's button does.
+  await inBox.click();
+  await expect(page.getByRole('dialog', { name: 'Add a job' })).toBeVisible();
+});
+
+// The other answer keeps its toolbar: the jobs are there and a filter is
+// hiding them, so the chips that put the owner here must stay, or there
+// is no way back, and there is nothing to add either -- which is why
+// "Nothing matches" gets no box (CAREER-118 PR 3).
+test('nothing matches keeps the toolbar row and gets no empty-state box', async ({ page }) => {
+  // Every posting closed, so "Hide closed postings" hides the whole
+  // board: a filtered-to-nothing board, not an empty vault.
+  await mockBoard(page, { ...fixture, entries: fixture.entries.map((entry) => ({ ...entry, closed: true })) });
+  await page.goto('/jobs');
+  await page.getByRole('button', { name: 'Hide closed postings', exact: true }).click();
+
+  await expect(page.getByTestId('board-empty')).toHaveCount(0);
+  await expect(page.getByTestId('filter-chip-hide-closed')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'View', exact: true })).toBeVisible();
 });
 
 // Per-record scoped assertions: each fixture entry gets its own test, and
@@ -600,16 +671,45 @@ test('Board and List are one pressed pair and the selected style moves with the 
   expect(await ground(needsAttention)).toBe(WASH);
 });
 
-// The pair is 16px to the right of "Add a job" (artboard 2026-10-18).
-test('the view pair sits 16px to the right of Add a job', async ({ page }) => {
+// CAREER-118 PR 3: the pair sat 16px to the right of "Add a job" until
+// this PR, which is the layout the CollectionPage README replaces -- the
+// chips and the count and the pair are ONE toolbar row now, with the pair
+// at its right end, and the action row above holds the button alone. The
+// same rule companies-list.spec.js pins on Companies, on the page that
+// also has a primary action.
+test('the chips, the count and the view pair share one toolbar row, with the action row above', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/jobs');
   await expect(page.getByRole('group', { name: 'View', exact: true })).toBeVisible();
-  const gap = await page.evaluate(() => {
-    const add = [...document.querySelectorAll('button')].find(
-      (el) => el.textContent.trim() === 'Add a job',
+
+  const geometry = await page.evaluate(() => {
+    const chip = document.querySelector('[data-testid="filter-chip-function"]');
+    const count = [...document.querySelectorAll('[data-testid="page-header"] *')].find(
+      (node) => node.children.length === 0 && /ended$/.test(node.textContent.trim()),
     );
-    const group = document.querySelector('[role="group"][aria-label="View"]');
-    return Math.round(group.getBoundingClientRect().left - add.getBoundingClientRect().right);
+    const viewPair = document.querySelector('[role="group"][aria-label="View"]');
+    const add = [...document.querySelectorAll('button')].find((el) => el.textContent.trim() === 'Add a job');
+    const box = (el) => el.getBoundingClientRect();
+    return {
+      chip: box(chip),
+      count: box(count),
+      view: box(viewPair),
+      add: box(add),
+      toolbarWidth: box(chip.closest('[data-testid="page-header"] > *')).width,
+    };
   });
-  expect(gap).toBe(16);
+
+  // Same line: the chips, the count and the pair all overlap vertically.
+  const sameLine = (a, b) => a.top < b.bottom && b.top < a.bottom;
+  expect(sameLine(geometry.chip, geometry.count)).toBe(true);
+  expect(sameLine(geometry.chip, geometry.view)).toBe(true);
+  // Left to right: chip, then the count, then the pair at the row's end.
+  expect(geometry.count.left).toBeGreaterThan(geometry.chip.left);
+  expect(geometry.view.left).toBeGreaterThan(geometry.count.right);
+  expect(geometry.view.right).toBeGreaterThan(geometry.chip.left + geometry.toolbarWidth * 0.8);
+  // And "Add a job" is on its own row above, not on the toolbar line.
+  expect(sameLine(geometry.add, geometry.chip)).toBe(false);
+  expect(geometry.add.bottom).toBeLessThanOrEqual(geometry.chip.top);
 });

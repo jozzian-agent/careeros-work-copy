@@ -88,8 +88,13 @@ for (const { route, title } of PAGES) {
   });
 }
 
-// Jobs is the page the brief draws in full, top to bottom.
-test('the Jobs header stack is the title, the action row, the filter bar, then the banner', async ({
+// Jobs is the page the brief draws in full, top to bottom. CAREER-118
+// PR 3 moved the Board/List pair out of the action row and into the
+// filter bar's own row, so the stack is the title, the row that carries
+// the one primary action, the ONE toolbar row (chips, count, pair), then
+// the banner -- and "action row" is now the row with the button in it,
+// not the row with the View group.
+test('the Jobs header stack is the title, the action row, one toolbar row, then the banner', async ({
   page,
 }) => {
   await page.goto('/jobs');
@@ -98,13 +103,24 @@ test('the Jobs header stack is the title, the action row, the filter bar, then t
     const stack = document.querySelector('[data-testid="page-header"]');
     return [...stack.children].map((row) => {
       if (row.tagName === 'H1') return 'title';
-      if (row.querySelector('[role="group"][aria-label="View"]')) return 'action row';
-      if (row.querySelector('[data-testid^="filter-chip-"]')) return 'filter bar';
+      const hasView = Boolean(row.querySelector('[role="group"][aria-label="View"]'));
+      const hasChips = Boolean(row.querySelector('[data-testid^="filter-chip-"]'));
+      if (hasView && hasChips) return 'toolbar';
+      if (hasView) return 'view row';
+      if (hasChips) return 'filter bar';
       if (row.dataset.testid === 'closed-postings-banner') return 'banner';
+      if (row.querySelector('button')) return 'action row';
       return row.tagName;
     });
   });
-  expect(order).toEqual(['title', 'action row', 'filter bar', 'banner']);
+  // One toolbar, not a "view row" and a "filter bar": the two names the
+  // old stack had are exactly what must not come back.
+  expect(order).toEqual(['title', 'action row', 'toolbar', 'banner']);
+
+  // The action row holds the primary action and nothing else.
+  const actionRow = page.getByTestId('page-header').locator('> div').first();
+  await expect(actionRow.getByRole('button')).toHaveCount(1);
+  await expect(actionRow.getByRole('button', { name: 'Add a job', exact: true })).toBeVisible();
 });
 
 // A page with no main action shows the title row and one toolbar row --

@@ -53,10 +53,42 @@ test('the page is read-only: nothing here edits a note', async ({ page }) => {
   }
 });
 
-test('no notes anywhere shows the backend message and where notes come from', async ({ page }) => {
+// CAREER-118 PR 3: the sentence is still the payload's, as it has always
+// been, but it sits in one SectionCard-style box now (CollectionPage
+// README) instead of the shared dashed EmptyState. No button in that box:
+// the action it would repeat is the primary action this read-only page
+// does not have.
+test('no notes anywhere shows the backend message in a card with no button', async ({ page }) => {
   await mockNotesPage(page, { notes: [], empty: fixture.empty });
   await page.goto('/notes');
-  await expect(page.getByText(fixture.empty)).toBeVisible();
+
+  const box = page.getByTestId('notes-empty');
+  await expect(box).toBeVisible();
+  await expect(box.getByText(fixture.empty)).toBeVisible();
+
+  // The card frame: the surface behind a 1px container border at the 16px
+  // rounding SectionCard, the job card and the Companies box use -- not
+  // the 2px dashed outline the detail pages' sections still carry.
+  const frame = await box.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      background: cs.backgroundColor,
+      borderStyle: cs.borderTopStyle,
+      borderWidth: cs.borderTopWidth,
+      borderColor: cs.borderTopColor,
+      radius: cs.borderTopLeftRadius,
+    };
+  });
+  expect(frame).toEqual({
+    background: 'rgb(255, 255, 255)', // --color-background-card
+    borderStyle: 'solid',
+    borderWidth: '1px',
+    borderColor: 'rgb(199, 198, 193)', // --color-border-container, #c7c6c1
+    radius: '16px',
+  });
+
+  await expect(box.getByRole('button')).toHaveCount(0);
+  await expect(box.getByRole('link')).toHaveCount(0);
 });
 
 test('a load failure shows a visible error with Retry', async ({ page }) => {
