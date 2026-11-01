@@ -293,14 +293,7 @@ The access columns say what the request gate and the admin rule let through on t
 | `/companies/<identifier>` | GET | `react_company_detail` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences` | GET | `react_experiences` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences/<identifier>` | GET | `react_experience_detail` | none | no record kind on this route | no write on this route |  |  |
-| `/experiences/<identifier>/edit` | GET | `experience_edit` | companies | any logged-in user | no write on this route | route code, storage layer | `vault.list_companies`, `vault.reader_company`, `vault.visible_companies` |
-| `/experiences/<identifier>/edit` | GET | `experience_edit` | experiences | owner only | no write on this route | route code, storage layer | `vault.list_experiences`, `vault.load_experience` |
-| `/experiences/<identifier>/edit` | GET | `experience_edit` | jobs | owner only | no write on this route | storage layer | `vault.list_jobs` |
-| `/experiences/<identifier>/edit` | GET | `experience_edit` | tags | any logged-in user | no write on this route | route code | `vault.load_tags` |
-| `/experiences/new` | GET | `experience_new` | companies | any logged-in user | no write on this route | route code, storage layer | `vault.list_companies`, `vault.reader_company`, `vault.visible_companies` |
-| `/experiences/new` | GET | `experience_new` | experiences | owner only | no write on this route | route code, storage layer | `vault.list_experiences`, `vault.load_experience` |
-| `/experiences/new` | GET | `experience_new` | jobs | owner only | no write on this route | storage layer | `vault.list_jobs` |
-| `/experiences/new` | GET | `experience_new` | tags | any logged-in user | no write on this route | route code | `vault.load_tags` |
+| `/experiences/new` | GET | `react_experience_new` | none | no record kind on this route | no write on this route |  |  |
 | `/fonts/<filename>` | GET | `fonts` | none | no record kind on this route | no write on this route |  |  |
 | `/forgot-password` | GET, POST | `forgot_password` | mail send count | public, rate limited | public, rate limited | storage layer | `mail.send`, `mail.sent_today` |
 | `/forgot-password` | GET, POST | `forgot_password` | password resets | no read on this route | public, rate limited | route code | `password_reset.request_reset` |
@@ -312,9 +305,6 @@ The access columns say what the request gate and the admin rule let through on t
 | `/jobs` | GET | `jobs` | tags | any logged-in user | no write on this route | route code, storage layer | `vault.function_facet_options`, `vault.function_label_map`, `vault.load_tags` |
 | `/jobs` | GET | `react_jobs` | none | no record kind on this route | no write on this route |  |  |
 | `/jobs/<identifier>` | GET | `react_job_detail` | none | no record kind on this route | no write on this route |  |  |
-| `/jobs/<identifier>/taxonomy` | GET | `job_taxonomy` | companies | any logged-in user | no write on this route | route code | `vault.load_company`, `vault.reader_company` |
-| `/jobs/<identifier>/taxonomy` | GET | `job_taxonomy` | jobs | owner only | no write on this route | route code | `vault.load_job` |
-| `/jobs/<identifier>/taxonomy` | GET | `job_taxonomy` | tags | any logged-in user | no write on this route | route code, storage layer | `vault.function_facet_options`, `vault.function_label_map`, `vault.load_tags`, `vault.tag_label_map` |
 | `/login` | GET, POST | `login` | rate-limit windows | public, rate limited | public, rate limited | route code, storage layer | `ratelimit.allowed`, `ratelimit.check`, `ratelimit.register` |
 | `/login` | GET, POST | `login` | users | public, rate limited | no write on this route | route code, storage layer | `users.authenticate`, `users.find_by_email` |
 | `/logout` | POST | `logout` | none | no record kind on this route | no write on this route |  |  |

@@ -18,6 +18,7 @@ import {
   mockCompaniesPage,
   mockCompanyPage,
   mockExperiencePage,
+  mockExperienceTagsRegistry,
   mockExperiencesPage,
   mockJobPage,
   mockNotesPage,
@@ -27,7 +28,8 @@ import {
 } from './helpers.js';
 
 const ROUTES = ['/', '/jobs', '/all-jobs', '/jobs/JOB-001', '/companies', '/companies/CO-001',
-                '/experiences', '/experiences/EXP-001', '/notes', '/taxonomy', '/login'];
+                '/experiences', '/experiences/EXP-001', '/experiences/new', '/notes',
+                '/taxonomy', '/login'];
 
 // Every route shows the shared nav except the login page, which carries
 // none: a person without a session has nowhere to navigate to (M1).
@@ -46,6 +48,7 @@ test.beforeEach(async ({ page }) => {
   await mockCompanyPage(page, loadFixture('company-detail'));
   await mockExperiencesPage(page, loadFixture('experiences-list'));
   await mockExperiencePage(page, loadFixture('experience-detail'));
+  await mockExperienceTagsRegistry(page, loadFixture('experience-form'));
   await mockNotesPage(page, loadFixture('notes'));
   await mockTaxonomy(page, loadFixture('taxonomy'));
 });

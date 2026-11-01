@@ -7,6 +7,7 @@ import AllJobs from './pages/AllJobs.jsx';
 import JobDetail from './pages/JobDetail.jsx';
 import ExperiencesList from './pages/ExperiencesList.jsx';
 import ExperienceDetail from './pages/ExperienceDetail.jsx';
+import AddPosition from './pages/AddPosition.jsx';
 import CompaniesList from './pages/CompaniesList.jsx';
 import CompanyDetail from './pages/CompanyDetail.jsx';
 import Notes from './pages/Notes.jsx';
@@ -41,6 +42,10 @@ function App() {
             would read /jobs/all as a job id. */}
         <Route path="/all-jobs" element={<Page currentPage="all-jobs"><AllJobs /></Page>} />
         <Route path="/experiences" element={<Page currentPage="experiences"><ExperiencesList /></Page>} />
+        {/* Before /experiences/:id, which would otherwise read "new" as a
+            record id. react-router 7 ranks a static segment above a
+            dynamic one whatever the order, and the order says so too. */}
+        <Route path="/experiences/new" element={<Page currentPage="experiences"><AddPosition /></Page>} />
         <Route path="/experiences/:id" element={<Page currentPage="experiences"><ExperienceDetail /></Page>} />
         <Route path="/companies" element={<Page currentPage="companies"><CompaniesList /></Page>} />
         <Route path="/companies/:id" element={<Page currentPage="companies"><CompanyDetail /></Page>} />

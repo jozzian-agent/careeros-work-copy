@@ -221,14 +221,32 @@ def test_unlinked_experience_falls_back_to_cached_company_text(client, root):
     assert library['labels'][exp['id']] == 'Cached Text Co'
 
 
-# --- Engineering item 7: experience form company combobox + create-inline -
+# --- Engineering item 7: experience form company match-or-create ----------
+#
+# The Jinja form this used to read the markup of was replaced by the React
+# Add position page on 2026-11-01, so what is checked here is the contract
+# that page's company field is built on: the form context names every
+# company the reader may see, which is the list it matches a typed name
+# against, and a name that matches none is created through the
+# link-company endpoint rather than by a company_id the form picked.
+# Which controls the page draws from it is
+# frontend/tests/add-position.spec.js.
 
-def test_experience_form_renders_company_combobox_and_create_inline(client, root):
-    vault.save_company(root, {'name': 'Fiction Co'})
-    html = client.get('/experiences/new').text
-    assert 'id="company-input"' in html and 'list="company-options"' in html
-    assert 'id="company-id-field"' in html
-    assert 'id="create-company-btn"' in html
-    assert '<option value="Fiction Co">' in html
-    # The old direct-select bypass of the link-company endpoint is gone.
-    assert 'Link to company record' not in html
+def test_experience_form_context_carries_the_companies_to_match_against(client, root):
+    company = vault.save_company(root, {'name': 'Fiction Co'})
+    companies = client.get('/api/experiences/new').json['companies']
+    assert company['id'] in [c['id'] for c in companies]
+    assert 'Fiction Co' in [c['name'] for c in companies]
+    # Every entry carries the one field the page matches a typed name on.
+    assert all(c.get('name') for c in companies)
+
+
+def test_a_company_the_form_cannot_match_is_created_through_link_company(client, root):
+    exp = vault.save_experience(root, {'company': 'Brand New Co', 'title': 'Builder',
+                                       'start': '2020-01', 'end': 'present'})
+    names = [c['name'] for c in client.get('/api/experiences/new').json['companies']]
+    assert 'Brand New Co' not in names
+    created = client.post(f'/api/experiences/{exp["id"]}/link-company',
+                          json={'create': {'name': 'Brand New Co'}, 'confirm_create': True})
+    assert created.status_code == 201
+    assert vault.load_experience(root, exp['id'])['company_id'] == created.json['company_id']

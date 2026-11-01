@@ -34,18 +34,44 @@ export async function updateExperience(id, payload) {
   return data;
 }
 
-// GET /api/experiences/new: reused for its `tags` registry (the same
-// facet/value list experience_form.html populates its Skills checkboxes
-// from) and, since M2, for whether this user may add a value to that
-// registry at all, so the Edit position popup can offer the same options
-// without a new backend endpoint.
-export async function fetchExperienceTagsRegistry() {
+// GET /api/experiences/new: the form context -- the visible companies, the
+// shared tag registry, and whether this user may add a value to that
+// registry at all (M2). One request, two readers, so the failure message
+// is the caller's: the Add position page could not load its form, and the
+// Edit position popup could not load the registry it came for.
+async function formContext(failure) {
   const response = await apiFetch('/api/experiences/new');
   if (!response.ok) {
-    throw new Error('Could not load the tag registry.');
+    throw new Error(failure);
   }
-  const data = await response.json();
+  return response.json();
+}
+
+// The whole context, for the Add position page.
+export function fetchExperienceFormContext() {
+  return formContext('Could not load the position form.');
+}
+
+// The registry half of it, shaped for the Edit position popup, which
+// already has the record and the companies from its own page payload.
+export async function fetchExperienceTagsRegistry() {
+  const data = await formContext('Could not load the tag registry.');
   return { tags: data.tags, canEditShared: Boolean(data.can_edit_shared) };
+}
+
+// POST /api/experiences: creates one position and stamps the caller as its
+// owner. The one and only path that creates one (M2, decision D4).
+export async function createExperience(payload) {
+  const response = await apiFetch('/api/experiences', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || 'Could not save that position.');
+  }
+  return data;
 }
 
 export async function deleteExperience(id) {

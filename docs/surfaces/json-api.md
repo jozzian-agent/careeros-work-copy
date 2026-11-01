@@ -26,6 +26,14 @@ contracts below are, likewise, now read by React pages instead of Jinja
 as JOZ-280; see [Search](preferences.md), [Experiences list](experiences.md)
 and [Companies list](companies.md)). No contract field changed.
 
+2026-11-01 (Add position): the last three HTML routes these contracts
+mirrored are gone — the Jinja experience add/edit form and the job
+classification sub-page — so `GET /api/experiences/new`,
+`GET /api/experiences/<id>/edit` and `GET /api/jobs/<id>/taxonomy` are now
+read only by React (the Add position page and the two Edit classification /
+Edit position popups). No contract field changed, and the three endpoints
+stay exactly as they are; what moved is the renderer.
+
 2026-10-15 (Companies list rework): two additive keys, no field removed.
 The board gains `size_classes`, the one company-size scale, so the board's
 Company size facet reads the same vocabulary the Companies page already
@@ -93,8 +101,9 @@ no record was migrated — this is what a class is SHOWN as.
 The existing Jobs, Search, Companies and Experiences flows. Page views extend
 existing routes because their default record responses are already consumed by
 scripts and Jinja JavaScript. No new product concept, dependency or stored field
-is introduced. Separate taxonomy and form routes mirror existing HTML routes;
-record endpoints cannot supply their choices and derived labels alone.
+is introduced. Separate taxonomy and form routes exist because a record
+endpoint cannot supply their choices and derived labels alone; they
+mirrored HTML routes until 2026-11-01 and are read only by React now.
 
 ## Minimal contents
 

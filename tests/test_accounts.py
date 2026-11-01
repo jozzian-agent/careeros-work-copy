@@ -30,8 +30,10 @@ API_PATHS = (
     '/api/me',
 )
 
-# The pages that exist with the React build absent, plus a path that does
-# not exist at all: a stranger must not be able to tell those apart.
+# The one page that exists with the React build absent (/jobs keeps its
+# JOZ-273 dual-mode fallback), a React-only page that does not, and a path
+# that does not exist at all: a stranger must not be able to tell the
+# three apart.
 PAGE_PATHS = ('/jobs', '/experiences/new', '/missing')
 
 

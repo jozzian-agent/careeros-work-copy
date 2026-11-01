@@ -68,10 +68,57 @@ def test_flag_on_serves_react_for_every_detail_route(tmp_path, monkeypatch):
         assert '<div id="root">' in response.get_data(as_text=True)
 
 
-def test_company_taxonomy_route_is_gone(tmp_path, monkeypatch):
-    """B6: the standalone Company Classification page is retired, flag on
-    or off. The classification popup on the company detail page replaces
-    it, and the jobs taxonomy endpoint it shared a shape with stays."""
+# 2026-11-01: Add position is the React page that replaced the Jinja
+# add/edit form, so /experiences/new follows the same no-coexist rule --
+# it exists only behind the flag, and the static segment beats the detail
+# page's own <identifier> rule rather than being read as a record id.
+def test_flag_decides_whether_add_position_exists(tmp_path, monkeypatch):
+    import shutil
+    from pathlib import Path
+
+    monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))
+    vault_root = tmp_path / 'vault'
+    shutil.copytree(Path(__file__).resolve().parents[1] / 'sample/vault', vault_root)
+
+    monkeypatch.setenv('CAREEROS_REACT_UI', '1')
+    app = server.create_app(vault_root)
+    client = app.test_client()
+    assert '<div id="root">' in client.get('/experiences/new').get_data(as_text=True)
+    assert app.url_map.bind('localhost').match('/experiences/new')[0] == 'react_experience_new'
+    # Its data endpoint is a JSON API like every other one, so the flag
+    # does not decide whether it answers.
+    assert client.get('/api/experiences/new').status_code == 200
+
+    monkeypatch.delenv('CAREEROS_REACT_UI')
+    flagged_off = server.create_app(vault_root).test_client()
+    assert flagged_off.get('/experiences/new').status_code == 404
+    assert flagged_off.get('/api/experiences/new').status_code == 200
+
+
+def test_the_jinja_experience_form_is_gone(tmp_path, monkeypatch):
+    """The add form's own URL now serves the SPA, and the edit form's URL
+    -- which nothing in the React app ever linked to -- answers 404. The
+    JSON context behind both stays: `GET /api/experiences/<id>/edit` is
+    what the Edit position popup reads."""
+    import shutil
+    from pathlib import Path
+
+    monkeypatch.setenv('CAREEROS_REACT_UI', '1')
+    monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))
+    vault_root = tmp_path / 'vault'
+    shutil.copytree(Path(__file__).resolve().parents[1] / 'sample/vault', vault_root)
+    client = server.create_app(vault_root).test_client()
+    assert client.get('/experiences/EXP-001/edit').status_code == 404
+    assert client.get('/api/experiences/EXP-001/edit').status_code == 200
+    body = client.get('/experiences/new').get_data(as_text=True)
+    assert '<h1>Add position</h1>' not in body
+    assert '<div id="root">' in body
+
+
+def test_taxonomy_pages_are_gone_and_their_endpoints_stay(tmp_path, monkeypatch):
+    """B6 and 2026-11-01: neither standalone classification page exists any
+    more, flag on or off. The Edit classification popup on the React
+    detail pages replaces both, and the JSON endpoint it reads stays."""
     import shutil
     from pathlib import Path
 
@@ -82,6 +129,7 @@ def test_company_taxonomy_route_is_gone(tmp_path, monkeypatch):
     client = server.create_app(vault_root).test_client()
     assert client.get('/companies/CO-001/taxonomy').status_code == 404
     assert client.get('/api/companies/CO-001/taxonomy').status_code == 404
+    assert client.get('/jobs/JOB-001/taxonomy').status_code == 404
     assert client.get('/api/jobs/JOB-001/taxonomy').status_code == 200
 
 
@@ -97,10 +145,12 @@ def test_flag_off_detail_routes_404_with_no_jinja_fallback(tmp_path, monkeypatch
     client = app.test_client()
     for path in ('/jobs/JOB-001', '/experiences/EXP-001', '/companies/CO-001'):
         assert client.get(path).status_code == 404
-    # The job classification sub-page is not part of this cutover (the
-    # React Job detail page edits it via a popup instead); it stays Jinja
-    # regardless of the flag.
-    assert client.get('/jobs/JOB-001/taxonomy').status_code == 200
+    # The job classification sub-page was the last Jinja page that still
+    # answered with the flag off. It is gone (2026-11-01), so with no
+    # React build the app serves /jobs and the sign-in pages and nothing
+    # else.
+    assert client.get('/jobs/JOB-001/taxonomy').status_code == 404
+    assert client.get('/jobs').status_code == 200
 
 
 # JOZ-283: Search (home), Experiences list and Companies list have the same
@@ -147,32 +197,19 @@ def test_flag_off_search_experiences_and_companies_lists_404_with_no_jinja_fallb
     assert client.get('/jobs').status_code == 200
 
 
-# JOZ-283 fix round (cross-review F5): the react_ui flag only changes the
-# three routes above. The retained Jinja routes (the Experiences add/edit
-# form and the Job taxonomy sub-page) must still serve their real Jinja
-# content with the flag ON, not the SPA index.
-def test_flag_on_retained_jinja_routes_still_serve_jinja(tmp_path, monkeypatch):
-    import shutil
+# 2026-11-01: there is no Jinja page left that the flag has to spare.
+# /jobs keeps its own JOZ-273 dual-mode fallback and the sign-in set is
+# rendered in Python rather than from a template, so every remaining
+# template belongs to /jobs.
+def test_only_the_jobs_templates_are_left(tmp_path, monkeypatch):
     from pathlib import Path
 
     monkeypatch.setenv('CAREEROS_REACT_UI', '1')
     monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))
-    vault_root = tmp_path / 'vault'
-    shutil.copytree(Path(__file__).resolve().parents[1] / 'sample/vault', vault_root)
-    app = server.create_app(vault_root)
-    client = app.test_client()
-
-    new_form = client.get('/experiences/new').get_data(as_text=True)
-    assert '<div id="root">' not in new_form
-    assert '/assets/app.js' not in new_form
-    assert '<h1>Add position</h1>' in new_form
-
-    edit_form = client.get('/experiences/EXP-001/edit').get_data(as_text=True)
-    assert '<div id="root">' not in edit_form
-    assert '/assets/app.js' not in edit_form
-    assert '<h1>Edit position</h1>' in edit_form
-
-    taxonomy = client.get('/jobs/JOB-001/taxonomy').get_data(as_text=True)
-    assert '<div id="root">' not in taxonomy
-    assert '/assets/app.js' not in taxonomy
-    assert '<h1>Classification</h1>' in taxonomy
+    app = server.create_app(tmp_path / 'vault')
+    templates = Path(app.root_path) / 'templates'
+    assert sorted(path.name for path in templates.glob('*.html')) == [
+        'job_cards.html', 'jobs.html']
+    # The one Jinja page the flag still has to spare is none: with the
+    # flag on, /jobs is the SPA too.
+    assert '<div id="root">' in _jobs_body(app)

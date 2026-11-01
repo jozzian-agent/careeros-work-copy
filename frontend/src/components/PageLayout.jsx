@@ -1,4 +1,4 @@
-import { Heading } from 'gestalt';
+import { Flex, Heading, Icon, Link, Text } from 'gestalt';
 
 // The shared frame every list page sits in: Jobs, Companies, Experiences,
 // Notes, Taxonomy and Search.
@@ -19,6 +19,13 @@ import { Heading } from 'gestalt';
 // `header` is the rows under the title (the main action, the view pair,
 // the filter bar, a banner). A page with no main action simply passes its
 // filters, or nothing at all.
+//
+// `backLink` is `{href, label}` for a page that is reached from one other
+// page and goes back to it -- the Add position form, per its own artboard.
+// It renders above the title, inside the same header stack, so it shares
+// the one left edge like every other row. The same back link the detail
+// pages draw in `DetailHeader`, which no list page has, and which is why
+// it is an optional row here rather than a second header component.
 const HEADER_STYLE = {
   display: 'flex',
   flexDirection: 'column',
@@ -28,10 +35,24 @@ const HEADER_STYLE = {
 
 const BODY_STYLE = { padding: '0 32px 32px' };
 
-export default function PageLayout({ title, header, children }) {
+export default function PageLayout({ title, header, backLink, children }) {
   return (
     <>
       <div data-testid="page-header" style={HEADER_STYLE}>
+        {backLink ? (
+          <Link
+            href={backLink.href}
+            display="inlineBlock"
+            accessibilityLabel={`Back to ${backLink.label}`}
+          >
+            <Flex gap={1} alignItems="center">
+              <Icon icon="arrow-back" accessibilityLabel="" color="brandPrimary" size={12} />
+              <Text color="link" weight="bold">
+                {backLink.label}
+              </Text>
+            </Flex>
+          </Link>
+        ) : null}
         {/* accessibilityLevel is explicit: Gestalt maps size 600 to an h2
             by default, and this is the page's one top-level heading. */}
         <Heading accessibilityLevel={1} size="600">

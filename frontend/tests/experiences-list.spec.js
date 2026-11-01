@@ -32,7 +32,7 @@ test('a local tag renders its label chip plus a visible local marker', async ({ 
   await expect(marker.getByText('local', { exact: true })).toBeVisible();
 });
 
-test('Add position links to the existing new-position form', async ({ page }) => {
+test('Add position links to the Add position page', async ({ page }) => {
   await page.goto('/experiences');
   const addButtons = page.getByRole('link', { name: 'Add position' });
   await expect(addButtons.first()).toHaveAttribute('href', '/experiences/new');

@@ -16,6 +16,7 @@ The single-page app owns these paths (frontend/src/App.jsx). The main nav shows 
 | `/companies/:id` | `CompanyDetail` | reachable only |
 | `/experiences` | `ExperiencesList` | Experiences |
 | `/experiences/:id` | `ExperienceDetail` | reachable only |
+| `/experiences/new` | `AddPosition` | reachable only |
 | `/jobs` | `JobsBoard` | My Jobs |
 | `/jobs/:id` | `JobDetail` | reachable only |
 | `/login` | `Login` | reachable only |
@@ -67,14 +68,12 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/companies/<identifier>` | GET | `react_company_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences` | GET | `react_experiences` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences/<identifier>` | GET | `react_experience_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
-| `/experiences/<identifier>/edit` | GET | `experience_edit` | `careeros.web.pages.experiences.form` | always | login | not derived |
-| `/experiences/new` | GET | `experience_new` | `careeros.web.pages.experiences.form` | always | login | not derived |
+| `/experiences/new` | GET | `react_experience_new` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/fonts/<filename>` | GET | `fonts` | `careeros.server.serve_font` | always | public | HTML |
 | `/forgot-password` | GET, POST | `forgot_password` | `careeros.server.forgot_password` | always | public | not derived |
 | `/jobs` | GET | `jobs` | `careeros.web.pages.jobs.build_page` | React UI off | login | not derived |
 | `/jobs` | GET | `react_jobs` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/jobs/<identifier>` | GET | `react_job_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
-| `/jobs/<identifier>/taxonomy` | GET | `job_taxonomy` | `careeros.web.pages.jobs.taxonomy` | always | login | not derived |
 | `/login` | GET, POST | `login` | `careeros.server.login` | always | public | HTML + JSON |
 | `/logout` | POST | `logout` | `careeros.server.logout` | always | login | JSON |
 | `/notes` | GET | `react_notes` | `careeros.server.<lambda>` | React UI on | login | HTML |
@@ -95,11 +94,12 @@ flowchart LR
     r03["/companies/:id (reachable only)"]
     r04["/experiences (nav: Experiences)"]
     r05["/experiences/:id (reachable only)"]
-    r06["/jobs (nav: My Jobs)"]
-    r07["/jobs/:id (reachable only)"]
-    r08["/login (reachable only)"]
-    r09["/notes (nav: Notes)"]
-    r10["/taxonomy (nav: Taxonomy)"]
+    r06["/experiences/new (reachable only)"]
+    r07["/jobs (nav: My Jobs)"]
+    r08["/jobs/:id (reachable only)"]
+    r09["/login (reachable only)"]
+    r10["/notes (nav: Notes)"]
+    r11["/taxonomy (nav: Taxonomy)"]
   end
   subgraph pages["Flask page routes"]
     f00["/ (react_index)"]
@@ -108,14 +108,12 @@ flowchart LR
     f36["/companies/#60;identifier#62; (react_company_detail)"]
     f37["/experiences (react_experiences)"]
     f38["/experiences/#60;identifier#62; (react_experience_detail)"]
-    f39["/experiences/#60;identifier#62;/edit (experience_edit)"]
-    f40["/experiences/new (experience_new)"]
-    f43["/jobs (jobs)"]
-    f44["/jobs (react_jobs)"]
-    f45["/jobs/#60;identifier#62; (react_job_detail)"]
-    f46["/jobs/#60;identifier#62;/taxonomy (job_taxonomy)"]
-    f49["/notes (react_notes)"]
-    f52["/taxonomy (react_taxonomy)"]
+    f39["/experiences/new (react_experience_new)"]
+    f42["/jobs (jobs)"]
+    f43["/jobs (react_jobs)"]
+    f44["/jobs/#60;identifier#62; (react_job_detail)"]
+    f47["/notes (react_notes)"]
+    f50["/taxonomy (react_taxonomy)"]
   end
   subgraph api["Flask JSON API"]
     f03["/api/companies (company_collection)"]
@@ -152,15 +150,15 @@ flowchart LR
   end
   subgraph auth["Flask auth routes"]
     f01["/accept-invite/#60;token#62; (accept_invite)"]
-    f42["/forgot-password (forgot_password)"]
-    f47["/login (login)"]
-    f48["/logout (logout)"]
-    f50["/reset-password/#60;token#62; (reset_password)"]
+    f41["/forgot-password (forgot_password)"]
+    f45["/login (login)"]
+    f46["/logout (logout)"]
+    f48["/reset-password/#60;token#62; (reset_password)"]
   end
   subgraph assets["Flask asset routes"]
     f34["/assets/#60;path:filename#62; (react_assets)"]
-    f41["/fonts/#60;filename#62; (fonts)"]
-    f51["/static/#60;path:filename#62; (static)"]
+    f40["/fonts/#60;filename#62; (fonts)"]
+    f49["/static/#60;path:filename#62; (static)"]
   end
   r00 --> f00
   r01 --> f02
@@ -168,12 +166,13 @@ flowchart LR
   r03 --> f36
   r04 --> f37
   r05 --> f38
-  r06 --> f43
-  r06 --> f44
-  r07 --> f45
-  r08 --> f47
-  r09 --> f49
-  r10 --> f52
+  r06 --> f39
+  r07 --> f42
+  r07 --> f43
+  r08 --> f44
+  r09 --> f45
+  r10 --> f47
+  r11 --> f50
 ```
 
 ## API paths the sources behind each React page name
@@ -182,6 +181,12 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 
 | Page component | API path |
 |---|---|
+| `AddPosition` | `/api/experiences` |
+| `AddPosition` | `/api/experiences/<id>` |
+| `AddPosition` | `/api/experiences/<id>/link-company` |
+| `AddPosition` | `/api/experiences/<id>?view=page` |
+| `AddPosition` | `/api/experiences/new` |
+| `AddPosition` | `/api/experiences?view=page` |
 | `AllJobs` | `/api/jobs/<id>` |
 | `AllJobs` | `/api/jobs/<id>/extract` |
 | `AllJobs` | `/api/jobs/<id>/paste-description` |
@@ -205,11 +210,13 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `CompanyDetail` | `/api/companies?view=page` |
 | `CompanyDetail` | `/api/jobs/<id>` |
 | `CompanyDetail` | `/api/notes` |
+| `ExperienceDetail` | `/api/experiences` |
 | `ExperienceDetail` | `/api/experiences/<id>` |
 | `ExperienceDetail` | `/api/experiences/<id>/link-company` |
 | `ExperienceDetail` | `/api/experiences/<id>?view=page` |
 | `ExperienceDetail` | `/api/experiences/new` |
 | `ExperienceDetail` | `/api/experiences?view=page` |
+| `ExperiencesList` | `/api/experiences` |
 | `ExperiencesList` | `/api/experiences/<id>` |
 | `ExperiencesList` | `/api/experiences/<id>/link-company` |
 | `ExperiencesList` | `/api/experiences/<id>?view=page` |

@@ -54,7 +54,9 @@ def test_crud(client, root):
     assert client.get('/api/experiences/'+new['id']).json == new
     page = client.get('/api/experiences/'+new['id']+'?view=page').json
     assert page['exp']['custom'] == {'Distinct field': '<script>bad</script>', 'Nested': {'a': [1, 2]}}
-    assert client.get('/experiences/'+new['id']+'/edit').status_code == 200
+    # The form context the Add/Edit position surfaces read, rather than a
+    # Jinja form page: both were removed 2026-11-01.
+    assert client.get('/api/experiences/'+new['id']+'/edit').status_code == 200
     new['company'] = 'Another Invented Company'
     assert client.put('/api/experiences/'+new['id'], json=new).status_code == 200
     assert len(list((root/'experiences').glob('*.yaml'))) == 4
@@ -83,7 +85,10 @@ def test_empty_ui_and_env(tmp_path, monkeypatch):
     client = app.test_client()
     assert client.get('/api/search?view=page').json['data'] is None
     assert client.get('/api/experiences?view=page').json['entries'] == []
-    assert client.get('/experiences/new').status_code == 200
+    # An empty vault still answers the Add position page's own context,
+    # with no companies and the seeded tag registry.
+    empty_form = client.get('/api/experiences/new').json
+    assert empty_form['companies'] == [] and 'experience-type' in empty_form['tags']['facets']
     assert create_app(tmp_path).config['VAULT_PATH'] == tmp_path
 
 def test_samples_and_sort(root, client):

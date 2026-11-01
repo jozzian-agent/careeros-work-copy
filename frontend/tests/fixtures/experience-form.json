@@ -1,0 +1,40 @@
+{
+  "exp": {},
+  "can_edit_shared": true,
+  "companies": [
+    { "id": "CO-001", "name": "Renamed Harbor Labs" },
+    { "id": "CO-002", "name": "Fictional University" }
+  ],
+  "tags": {
+    "facets": {
+      "skill/capability": {
+        "label": "Capability",
+        "values": [
+          { "id": "public-speaking", "label": "Public speaking" },
+          { "id": "stakeholder-management", "label": "Stakeholder management" }
+        ]
+      },
+      "skill/domain": {
+        "label": "Domain knowledge",
+        "values": [{ "id": "fintech", "label": "Fintech" }]
+      },
+      "function": {
+        "label": "Job function",
+        "values": [{ "id": "platform-lead", "label": "Platform lead" }]
+      },
+      "experience-type": {
+        "label": "Experience type",
+        "values": [
+          { "id": "employment", "label": "Employment" },
+          { "id": "guest-lecture", "label": "Guest lecture / teaching" },
+          { "id": "volunteer", "label": "Volunteer" }
+        ]
+      },
+      "tool": {
+        "label": "Tool",
+        "values": [{ "id": "python", "label": "Python" }]
+      }
+    },
+    "updated": "2026-11-01"
+  }
+}
