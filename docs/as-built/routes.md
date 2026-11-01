@@ -71,6 +71,7 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/assets/<path:filename>` | GET | `react_assets` | `careeros.server.<lambda>` | React UI on | public | HTML |
 | `/companies` | GET | `react_companies` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/companies/<identifier>` | GET | `react_company_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
+| `/company-requests` | GET | `react_company_requests` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences` | GET | `react_experiences` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences/<identifier>` | GET | `react_experience_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences/new` | GET | `react_experience_new` | `careeros.server.<lambda>` | React UI on | login | HTML |
@@ -112,14 +113,15 @@ flowchart LR
     f02["/all-jobs (react_all_jobs)"]
     f39["/companies (react_companies)"]
     f40["/companies/#60;identifier#62; (react_company_detail)"]
-    f41["/experiences (react_experiences)"]
-    f42["/experiences/#60;identifier#62; (react_experience_detail)"]
-    f43["/experiences/new (react_experience_new)"]
-    f46["/jobs (jobs)"]
-    f47["/jobs (react_jobs)"]
-    f48["/jobs/#60;identifier#62; (react_job_detail)"]
-    f51["/notes (react_notes)"]
-    f54["/taxonomy (react_taxonomy)"]
+    f41["/company-requests (react_company_requests)"]
+    f42["/experiences (react_experiences)"]
+    f43["/experiences/#60;identifier#62; (react_experience_detail)"]
+    f44["/experiences/new (react_experience_new)"]
+    f47["/jobs (jobs)"]
+    f48["/jobs (react_jobs)"]
+    f49["/jobs/#60;identifier#62; (react_job_detail)"]
+    f52["/notes (react_notes)"]
+    f55["/taxonomy (react_taxonomy)"]
   end
   subgraph api["Flask JSON API"]
     f03["/api/companies (company_collection)"]
@@ -160,29 +162,30 @@ flowchart LR
   end
   subgraph auth["Flask auth routes"]
     f01["/accept-invite/#60;token#62; (accept_invite)"]
-    f45["/forgot-password (forgot_password)"]
-    f49["/login (login)"]
-    f50["/logout (logout)"]
-    f52["/reset-password/#60;token#62; (reset_password)"]
+    f46["/forgot-password (forgot_password)"]
+    f50["/login (login)"]
+    f51["/logout (logout)"]
+    f53["/reset-password/#60;token#62; (reset_password)"]
   end
   subgraph assets["Flask asset routes"]
     f38["/assets/#60;path:filename#62; (react_assets)"]
-    f44["/fonts/#60;filename#62; (fonts)"]
-    f53["/static/#60;path:filename#62; (static)"]
+    f45["/fonts/#60;filename#62; (fonts)"]
+    f54["/static/#60;path:filename#62; (static)"]
   end
   r00 --> f00
   r01 --> f02
   r02 --> f39
   r03 --> f40
-  r05 --> f41
-  r06 --> f42
-  r07 --> f43
-  r08 --> f46
+  r04 --> f41
+  r05 --> f42
+  r06 --> f43
+  r07 --> f44
   r08 --> f47
-  r09 --> f48
-  r10 --> f49
-  r11 --> f51
-  r12 --> f54
+  r08 --> f48
+  r09 --> f49
+  r10 --> f50
+  r11 --> f52
+  r12 --> f55
 ```
 
 ## API paths the sources behind each React page name

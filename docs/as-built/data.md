@@ -314,6 +314,7 @@ The access columns say what the request gate and the admin rule let through on t
 | `/assets/<path:filename>` | GET | `react_assets` | none | no record kind on this route | no write on this route |  |  |
 | `/companies` | GET | `react_companies` | none | no record kind on this route | no write on this route |  |  |
 | `/companies/<identifier>` | GET | `react_company_detail` | none | no record kind on this route | no write on this route |  |  |
+| `/company-requests` | GET | `react_company_requests` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences` | GET | `react_experiences` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences/<identifier>` | GET | `react_experience_detail` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences/new` | GET | `react_experience_new` | none | no record kind on this route | no write on this route |  |  |
