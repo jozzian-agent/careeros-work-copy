@@ -27,6 +27,7 @@ timestamp: 2026-10-15
 - [Give a vault's jobs their coded value records](runbooks/migrate-job-value-records.md): Back up a vault, run the CAREER-57 classification migration against it, verify it, roll it back, and know what the second step still owes.
 - [Move a vault onto the D7 status list](runbooks/migrate-board-d7.md): Back up a vault, run the one-time D7 status migration against it, verify it and roll it back.
 - [Seed the function facet in a vault](runbooks/seed-function-facet.md): Run the one-time function-facet seed against a live vault and verify it.
+- [Scheduled jobs: the one overview](runbooks/scheduled-jobs.md): Every job that runs on its own — LAN-host cron and VPS systemd timers — with schedule, output, who hears about it, and how to enable the by-hand ones.
 - [Vault schemas — Chunk 3](schemas.md): Describe vault records and their JSON API representation.
 - [Job](surfaces/job.md): Describe the approved summary-first job detail page.
 - [Jobs](surfaces/jobs.md): Describe the approved React Jobs board and its acceptance state.
