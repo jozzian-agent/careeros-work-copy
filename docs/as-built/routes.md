@@ -14,6 +14,7 @@ The single-page app owns these paths (frontend/src/App.jsx). The main nav shows 
 | `/all-jobs` | `AllJobs` | All jobs |
 | `/companies` | `CompaniesList` | Companies |
 | `/companies/:id` | `CompanyDetail` | reachable only |
+| `/company-requests` | `CompanyRequests` | Company requests |
 | `/experiences` | `ExperiencesList` | Experiences |
 | `/experiences/:id` | `ExperienceDetail` | reachable only |
 | `/experiences/new` | `AddPosition` | reachable only |
@@ -39,13 +40,16 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/api/companies/<identifier>/notes/<note_id>` | DELETE, PATCH | `note_api` | `careeros.server.note_api` | always | login | JSON |
 | `/api/companies/<identifier>/retry` | POST | `retry_company` | `careeros.server.retry_company` | always | login + admin | JSON |
 | `/api/companies/backfill-sector-size` | POST | `backfill_sector_size` | `careeros.server.backfill_sector_size` | always | login + admin | JSON |
+| `/api/company-requests` | GET | `company_request_collection` | `careeros.server.company_request_collection` | always | login + admin | JSON |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | `careeros.server.approve_company_request` | always | login + admin | JSON |
+| `/api/company-requests/<identifier>/reject` | POST | `reject_company_request` | `careeros.server.reject_company_request` | always | login + admin | JSON |
 | `/api/experiences` | GET, POST | `experience_collection` | `careeros.server.experience_collection` | always | login + admin | JSON |
 | `/api/experiences/<identifier>` | DELETE, GET, POST, PUT | `experience_api` | `careeros.server.experience_api` | always | login + admin | JSON |
 | `/api/experiences/<identifier>/edit` | GET | `experience_form_api` | `careeros.server.experience_form_api` | always | login + admin | JSON |
 | `/api/experiences/<identifier>/link-company` | POST | `link_experience_company` | `careeros.server.link_experience_company` | always | login + admin | JSON |
 | `/api/experiences/new` | GET | `experience_form_api` | `careeros.server.experience_form_api` | always | login + admin | JSON |
 | `/api/health` | GET | `health` | `careeros.server.health` | always | public | JSON |
-| `/api/jobs` | GET | `job_collection` | `careeros.server.job_collection` | always | login | JSON |
+| `/api/jobs` | GET | `job_collection` | `careeros.server.job_collection` | always | login + admin | JSON |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | `careeros.server.job_api` | always | login + admin | JSON |
 | `/api/jobs/<identifier>/company-request` | POST | `company_request` | `careeros.server.company_request` | always | login | JSON |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | `careeros.server.enrich_job` | always | login | JSON |
@@ -67,6 +71,7 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/assets/<path:filename>` | GET | `react_assets` | `careeros.server.<lambda>` | React UI on | public | HTML |
 | `/companies` | GET | `react_companies` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/companies/<identifier>` | GET | `react_company_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
+| `/company-requests` | GET | `react_company_requests` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences` | GET | `react_experiences` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences/<identifier>` | GET | `react_experience_detail` | `careeros.server.<lambda>` | React UI on | login | HTML |
 | `/experiences/new` | GET | `react_experience_new` | `careeros.server.<lambda>` | React UI on | login | HTML |
@@ -93,28 +98,30 @@ flowchart LR
     r01["/all-jobs (nav: All jobs)"]
     r02["/companies (nav: Companies)"]
     r03["/companies/:id (reachable only)"]
-    r04["/experiences (nav: Experiences)"]
-    r05["/experiences/:id (reachable only)"]
-    r06["/experiences/new (reachable only)"]
-    r07["/jobs (nav: My Jobs)"]
-    r08["/jobs/:id (reachable only)"]
-    r09["/login (reachable only)"]
-    r10["/notes (nav: Notes)"]
-    r11["/taxonomy (nav: Taxonomy)"]
+    r04["/company-requests (nav: Company requests)"]
+    r05["/experiences (nav: Experiences)"]
+    r06["/experiences/:id (reachable only)"]
+    r07["/experiences/new (reachable only)"]
+    r08["/jobs (nav: My Jobs)"]
+    r09["/jobs/:id (reachable only)"]
+    r10["/login (reachable only)"]
+    r11["/notes (nav: Notes)"]
+    r12["/taxonomy (nav: Taxonomy)"]
   end
   subgraph pages["Flask page routes"]
     f00["/ (react_index)"]
     f02["/all-jobs (react_all_jobs)"]
-    f36["/companies (react_companies)"]
-    f37["/companies/#60;identifier#62; (react_company_detail)"]
-    f38["/experiences (react_experiences)"]
-    f39["/experiences/#60;identifier#62; (react_experience_detail)"]
-    f40["/experiences/new (react_experience_new)"]
-    f43["/jobs (jobs)"]
-    f44["/jobs (react_jobs)"]
-    f45["/jobs/#60;identifier#62; (react_job_detail)"]
-    f48["/notes (react_notes)"]
-    f51["/taxonomy (react_taxonomy)"]
+    f39["/companies (react_companies)"]
+    f40["/companies/#60;identifier#62; (react_company_detail)"]
+    f41["/company-requests (react_company_requests)"]
+    f42["/experiences (react_experiences)"]
+    f43["/experiences/#60;identifier#62; (react_experience_detail)"]
+    f44["/experiences/new (react_experience_new)"]
+    f47["/jobs (jobs)"]
+    f48["/jobs (react_jobs)"]
+    f49["/jobs/#60;identifier#62; (react_job_detail)"]
+    f52["/notes (react_notes)"]
+    f55["/taxonomy (react_taxonomy)"]
   end
   subgraph api["Flask JSON API"]
     f03["/api/companies (company_collection)"]
@@ -124,57 +131,61 @@ flowchart LR
     f07["/api/companies/#60;identifier#62;/notes/#60;note_id#62; (note_api)"]
     f08["/api/companies/#60;identifier#62;/retry (retry_company)"]
     f09["/api/companies/backfill-sector-size (backfill_sector_size)"]
-    f10["/api/experiences (experience_collection)"]
-    f11["/api/experiences/#60;identifier#62; (experience_api)"]
-    f12["/api/experiences/#60;identifier#62;/edit (experience_form_api)"]
-    f13["/api/experiences/#60;identifier#62;/link-company (link_experience_company)"]
-    f14["/api/experiences/new (experience_form_api)"]
-    f15["/api/health (health)"]
-    f16["/api/jobs (job_collection)"]
-    f17["/api/jobs/#60;identifier#62; (job_api)"]
-    f18["/api/jobs/#60;identifier#62;/company-request (company_request)"]
-    f19["/api/jobs/#60;identifier#62;/enrich (enrich_job)"]
-    f20["/api/jobs/#60;identifier#62;/extract (extract_job)"]
-    f21["/api/jobs/#60;identifier#62;/notes (create_note)"]
-    f22["/api/jobs/#60;identifier#62;/notes/#60;note_id#62; (note_api)"]
-    f23["/api/jobs/#60;identifier#62;/paste-description (paste_description)"]
-    f24["/api/jobs/#60;identifier#62;/promote (promote_job)"]
-    f25["/api/jobs/#60;identifier#62;/re-extract (re_extract_job)"]
-    f26["/api/jobs/#60;identifier#62;/resolve (rerun_resolution)"]
-    f27["/api/jobs/#60;identifier#62;/resolve-review (resolve_review)"]
-    f28["/api/jobs/#60;identifier#62;/taxonomy (job_taxonomy_api)"]
-    f29["/api/jobs/intake (job_intake)"]
-    f30["/api/me (me_api)"]
-    f31["/api/notes (notes_api)"]
-    f32["/api/search (search_api)"]
-    f33["/api/taxonomy (taxonomy_api)"]
-    f34["/api/watch/scan (watch_scan)"]
+    f10["/api/company-requests (company_request_collection)"]
+    f11["/api/company-requests/#60;identifier#62;/approve (approve_company_request)"]
+    f12["/api/company-requests/#60;identifier#62;/reject (reject_company_request)"]
+    f13["/api/experiences (experience_collection)"]
+    f14["/api/experiences/#60;identifier#62; (experience_api)"]
+    f15["/api/experiences/#60;identifier#62;/edit (experience_form_api)"]
+    f16["/api/experiences/#60;identifier#62;/link-company (link_experience_company)"]
+    f17["/api/experiences/new (experience_form_api)"]
+    f18["/api/health (health)"]
+    f19["/api/jobs (job_collection)"]
+    f20["/api/jobs/#60;identifier#62; (job_api)"]
+    f21["/api/jobs/#60;identifier#62;/company-request (company_request)"]
+    f22["/api/jobs/#60;identifier#62;/enrich (enrich_job)"]
+    f23["/api/jobs/#60;identifier#62;/extract (extract_job)"]
+    f24["/api/jobs/#60;identifier#62;/notes (create_note)"]
+    f25["/api/jobs/#60;identifier#62;/notes/#60;note_id#62; (note_api)"]
+    f26["/api/jobs/#60;identifier#62;/paste-description (paste_description)"]
+    f27["/api/jobs/#60;identifier#62;/promote (promote_job)"]
+    f28["/api/jobs/#60;identifier#62;/re-extract (re_extract_job)"]
+    f29["/api/jobs/#60;identifier#62;/resolve (rerun_resolution)"]
+    f30["/api/jobs/#60;identifier#62;/resolve-review (resolve_review)"]
+    f31["/api/jobs/#60;identifier#62;/taxonomy (job_taxonomy_api)"]
+    f32["/api/jobs/intake (job_intake)"]
+    f33["/api/me (me_api)"]
+    f34["/api/notes (notes_api)"]
+    f35["/api/search (search_api)"]
+    f36["/api/taxonomy (taxonomy_api)"]
+    f37["/api/watch/scan (watch_scan)"]
   end
   subgraph auth["Flask auth routes"]
     f01["/accept-invite/#60;token#62; (accept_invite)"]
-    f42["/forgot-password (forgot_password)"]
-    f46["/login (login)"]
-    f47["/logout (logout)"]
-    f49["/reset-password/#60;token#62; (reset_password)"]
+    f46["/forgot-password (forgot_password)"]
+    f50["/login (login)"]
+    f51["/logout (logout)"]
+    f53["/reset-password/#60;token#62; (reset_password)"]
   end
   subgraph assets["Flask asset routes"]
-    f35["/assets/#60;path:filename#62; (react_assets)"]
-    f41["/fonts/#60;filename#62; (fonts)"]
-    f50["/static/#60;path:filename#62; (static)"]
+    f38["/assets/#60;path:filename#62; (react_assets)"]
+    f45["/fonts/#60;filename#62; (fonts)"]
+    f54["/static/#60;path:filename#62; (static)"]
   end
   r00 --> f00
   r01 --> f02
-  r02 --> f36
-  r03 --> f37
-  r04 --> f38
-  r05 --> f39
-  r06 --> f40
-  r07 --> f43
+  r02 --> f39
+  r03 --> f40
+  r04 --> f41
+  r05 --> f42
+  r06 --> f43
   r07 --> f44
-  r08 --> f45
-  r09 --> f46
-  r10 --> f48
-  r11 --> f51
+  r08 --> f47
+  r08 --> f48
+  r09 --> f49
+  r10 --> f50
+  r11 --> f52
+  r12 --> f55
 ```
 
 ## API paths the sources behind each React page name
@@ -189,6 +200,7 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `AddPosition` | `/api/experiences/<id>?view=page` |
 | `AddPosition` | `/api/experiences/new` |
 | `AddPosition` | `/api/experiences?view=page` |
+| `AddPosition` | `/api/me` |
 | `AllJobs` | `/api/jobs/<id>` |
 | `AllJobs` | `/api/jobs/<id>/company-request` |
 | `AllJobs` | `/api/jobs/<id>/extract` |
@@ -201,30 +213,39 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `AllJobs` | `/api/jobs/intake` |
 | `AllJobs` | `/api/jobs?view=board` |
 | `AllJobs` | `/api/jobs?view=universe` |
+| `AllJobs` | `/api/me` |
 | `AllJobs` | `/api/watch/scan?job=<id>` |
 | `CompaniesList` | `/api/companies/<id>` |
 | `CompaniesList` | `/api/companies/<id>/retry` |
 | `CompaniesList` | `/api/companies/<id>?view=page` |
 | `CompaniesList` | `/api/companies?view=page` |
+| `CompaniesList` | `/api/me` |
 | `CompanyDetail` | `/api/<kind>/<recordId>/notes` |
 | `CompanyDetail` | `/api/companies/<id>` |
 | `CompanyDetail` | `/api/companies/<id>/retry` |
 | `CompanyDetail` | `/api/companies/<id>?view=page` |
 | `CompanyDetail` | `/api/companies?view=page` |
 | `CompanyDetail` | `/api/jobs/<id>` |
+| `CompanyDetail` | `/api/me` |
 | `CompanyDetail` | `/api/notes` |
+| `CompanyRequests` | `/api/company-requests` |
+| `CompanyRequests` | `/api/company-requests/<id>/approve` |
+| `CompanyRequests` | `/api/company-requests/<id>/reject` |
+| `CompanyRequests` | `/api/me` |
 | `ExperienceDetail` | `/api/experiences` |
 | `ExperienceDetail` | `/api/experiences/<id>` |
 | `ExperienceDetail` | `/api/experiences/<id>/link-company` |
 | `ExperienceDetail` | `/api/experiences/<id>?view=page` |
 | `ExperienceDetail` | `/api/experiences/new` |
 | `ExperienceDetail` | `/api/experiences?view=page` |
+| `ExperienceDetail` | `/api/me` |
 | `ExperiencesList` | `/api/experiences` |
 | `ExperiencesList` | `/api/experiences/<id>` |
 | `ExperiencesList` | `/api/experiences/<id>/link-company` |
 | `ExperiencesList` | `/api/experiences/<id>?view=page` |
 | `ExperiencesList` | `/api/experiences/new` |
 | `ExperiencesList` | `/api/experiences?view=page` |
+| `ExperiencesList` | `/api/me` |
 | `JobDetail` | `/api/<kind>/<recordId>/notes` |
 | `JobDetail` | `/api/companies/<id>` |
 | `JobDetail` | `/api/jobs/<id>` |
@@ -239,6 +260,7 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `JobDetail` | `/api/jobs/intake` |
 | `JobDetail` | `/api/jobs?view=board` |
 | `JobDetail` | `/api/jobs?view=universe` |
+| `JobDetail` | `/api/me` |
 | `JobDetail` | `/api/notes` |
 | `JobDetail` | `/api/watch/scan?job=<id>` |
 | `JobsBoard` | `/api/<kind>/<recordId>/notes` |
@@ -254,11 +276,15 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `JobsBoard` | `/api/jobs/intake` |
 | `JobsBoard` | `/api/jobs?view=board` |
 | `JobsBoard` | `/api/jobs?view=universe` |
+| `JobsBoard` | `/api/me` |
 | `JobsBoard` | `/api/notes` |
 | `JobsBoard` | `/api/watch/scan?job=<id>` |
-| `Login` | no /api path found |
+| `Login` | `/api/me` |
 | `Notes` | `/api/<kind>/<recordId>/notes` |
+| `Notes` | `/api/me` |
 | `Notes` | `/api/notes` |
+| `SearchCriteria` | `/api/me` |
 | `SearchCriteria` | `/api/search` |
 | `SearchCriteria` | `/api/search?view=page` |
+| `Taxonomy` | `/api/me` |
 | `Taxonomy` | `/api/taxonomy` |

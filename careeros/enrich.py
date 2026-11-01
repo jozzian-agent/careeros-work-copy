@@ -456,6 +456,115 @@ def apply_backfill(root, plan):
     return updated
 
 
+def run_cascade(root, company_id, lock):
+    """One company's sector/size cascade, network phase outside the lock.
+
+    This body used to be a closure inside `careeros.server.create_app`
+    (`run_company_cascade`), where the write lock was in scope. It moved
+    here unchanged so a caller with no Flask app can run it: the nightly
+    company-request resolver creates a company and owes it the same
+    cascade an intake-created company gets, and it runs off a request
+    thread with no server closure to reach into. The server's own
+    `run_company_cascade` is now one line that passes its lock in, so
+    neither caller has a cascade of its own.
+
+    `lock` is the caller's `vault.WriteLock`. The caller must NOT be
+    holding it: the network phase runs first and unlocked, because a
+    caller holding the lock across network I/O would starve every other
+    writer, and the lock is taken here only to apply the result.
+
+    Same sectors_cascade/size_cascade entry points `backfill_sector_size`
+    uses; `org_enrich.py` itself stays unmodified. Returns
+    (company, applied) where company is the saved record (or the
+    unmodified record, possibly None, when there is nothing eligible to
+    run) and applied lists the cascade field names ('sectors'/'size')
+    this invocation actually wrote. applied is call-fresh by
+    construction: stored field_states can carry an older run's
+    applied_fields when a concurrent edit or an owner-set value makes
+    this invocation skip a field, so UI code must use this list, never
+    the stored states, to decide whether the retry changed anything.
+    """
+    from careeros import vault
+    from careeros.org_store import VaultOrganisationStore
+    from org_intake import identity
+
+    company = vault.load_company(root, company_id)
+    if company is None or company.get('kind', 'employer') != 'employer':
+        return company, []
+    collector = org_enrich.BackfillAccounting()
+    options = classification_options()
+    new_sectors, sector_flag = org_enrich.classify_sector(company, collector=collector, signals=SECTOR_SIGNALS, **options)
+    size_changes, size_flag = org_enrich.classify_size(company, collector=collector, signals=SIZE_SIGNALS, **options)
+    identifiers = []
+    if isinstance(new_sectors, dict):
+        identifiers.extend(new_sectors.get('identifiers', []))
+        new_sectors = new_sectors.get('sectors')
+    if size_changes and 'identifiers' in size_changes:
+        identifiers.extend(size_changes['identifiers'])
+        size_changes = {k: v for k, v in size_changes.items() if k != 'identifiers'}
+    # The cascade proposes the class alone: the numeric range is the
+    # scale the class retired (owner decision 2026-10-15), and since
+    # 2026-10-16 the capability no longer derives it for writing, so
+    # there is nothing to strip off here. The accounting below reports
+    # what it filled, and a value no write persists would have
+    # reported a fill that did not happen.
+    with lock:
+        current = vault.load_company(root, company_id)
+        if current is None or current.get('kind', 'employer') != 'employer':
+            return current, []
+        # A completed cascade invalidates older results, including state and accounting.
+        if current.get('enrichment', {}).get('attempted_at') != company.get('enrichment', {}).get('attempted_at'):
+            return current, []
+        for identifier_entry in identifiers:
+            # Writable on purpose: every caller of this function is
+            # admin-gated (the company Retry endpoint,
+            # schedule_company_cascade, which only fires when the
+            # driving job may write the shared half, and the company
+            # request resolver, which is the admin's own queue).
+            current = identity.add_identifier(VaultOrganisationStore(root), current,
+                identifier_entry['type'], identifier_entry['value'], identifier_entry['provenance'])
+        provenance = current.get('field_provenance', {})
+        changes = {}
+        applied = []
+        flags = current.get('review_flags', [])
+        states = dict(current.get('enrichment', {}).get('field_states', {}))
+        # `keys` is every field this signal's evidence was read
+        # against, so a stale or owner-touched one stops the write.
+        # `stored_keys` is the subset the product persists, which is
+        # what "this field is filled" can honestly mean: a company
+        # with a size_class and no size_range has a known size, since
+        # the range is the scale the class retired.
+        for field, keys, stored_keys, proposed, flag, resolved in (
+            ('sectors', ('sectors',), ('sectors',), {'sectors': new_sectors} if new_sectors else {},
+             sector_flag, (org_enrich.FLAG_SECTOR_AMBIGUOUS, org_enrich.FLAG_SECTOR_CONFLICT)),
+            ('size', ('size_range', 'size_class'), ('size_class',), size_changes or {}, size_flag,
+             (org_enrich.FLAG_SIZE_INCONSISTENT,)),
+        ):
+            # Size is a consistency-checked pair: discard stale evidence if either changed.
+            if any(current.get(k) != company.get(k) or provenance.get(k) == 'user' for k in keys):
+                continue
+            eligible = {k: v for k, v in proposed.items() if not current.get(k)}
+            changes.update(eligible)
+            if eligible:
+                applied.append(field)
+                flags = _clear_flags(flags, resolved)
+            elif flag:
+                flags = _merge_flags(flags, flag)
+            states[field] = {
+                'state': 'filled' if eligible or all(current.get(k) for k in stored_keys)
+                         else 'flagged' if flag else 'exhausted',
+                'attempted_at': vault.timestamp(),
+                # Preserve BackfillAccounting's event/summary shape, including empty outcomes.
+                'events': [e for e in company_events(collector) if e['field'] == field],
+                'applied_fields': list(eligible),
+            }
+        changes['review_flags'] = flags
+        changes['enrichment'] = {**current.get('enrichment', {}), 'field_states': states,
+                                'attempted_at': vault.timestamp(),
+                                'events': company_events(collector), 'summary': collector.summary()}
+        return vault.save_company(root, changes, company_id), applied
+
+
 def backfill(root, sector_signals=SECTOR_SIGNALS, size_signals=SIZE_SIGNALS, fetch=None, collector=None):
     """Explicit, owner-triggered backfill (decision 27). Scoped to
     kind == 'employer'; sectors and size run as independent per-field

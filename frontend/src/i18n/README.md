@@ -111,7 +111,9 @@ Dot-namespaced, first segment naming the surface. The surfaces that own
 keys today:
 
 - `shell.*` — the app header: the nav tabs, the nav landmark label and
-  Log out.
+  Log out. `shell.nav.companyRequests` labels a tab only the admin sees;
+  the nav still spells its id out as a literal like every other tab, so
+  the check can see it whether or not it is drawn.
 - `login.*` — the login page.
 - `board.*` — My Jobs: the title, the action and view row, the list
   view's columns and sort options, the duplicate dialog, and the board's
@@ -144,8 +146,9 @@ Not every string the app renders is here. Out of the catalog on purpose:
   server's words, not the catalog's, and translating them is the
   server's job.
 - the `CareerOS` wordmark, which is the product's name.
-- the detail pages, Notes, Search criteria and Taxonomy, and the shared
-  components under `src/components/`. They keep their English inline
+- the detail pages, Notes, Search criteria, Taxonomy and Company
+  requests, and the shared components under `src/components/`. They keep
+  their English inline
   until their own change moves it, which is why `FilterBar`'s
   `countNoun` ("jobs", "companies") is still a literal prop: extracting
   half of "4 of 12 jobs" would put a bare noun in the catalog and leave

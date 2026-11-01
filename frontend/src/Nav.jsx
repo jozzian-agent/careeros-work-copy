@@ -1,6 +1,7 @@
+import { useEffect, useState } from 'react';
 import { Box, Button, Flex, Text, TapAreaLink } from 'gestalt';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { LOGIN_PATH, logOut } from './api/client.js';
+import { fetchMe, LOGIN_PATH, logOut } from './api/client.js';
 
 // The nav order, the slugs and the tab labels. This list used to be
 // src/nav.js, a module that existed to hold the labels; CAREER-116 made the
@@ -34,7 +35,18 @@ const NAV_PAGES = [
   ['companies', <FormattedMessage key="companies" id="shell.nav.companies" />],
   ['notes', <FormattedMessage key="notes" id="shell.nav.notes" />],
   ['taxonomy', <FormattedMessage key="taxonomy" id="shell.nav.taxonomy" />],
+  ['company-requests', <FormattedMessage key="company-requests" id="shell.nav.companyRequests" />],
 ];
+
+// The tabs that are not everybody's. Company requests is the admin's
+// queue: a request is answered by writing a shared company, which is the
+// admin's alone (M2, decision D3), so for anybody else the tab would lead
+// to a page whose every endpoint answers 403.
+//
+// Hiding it is not the rule, it is the courtesy. The rule is on the
+// server, where all three endpoints are gated, so a tab drawn by a stale
+// bundle still reaches nothing.
+const ADMIN_SLUGS = ['company-requests'];
 
 // The shared app header: wordmark plus the CareerOS nav links, carried over
 // from careeros/web/theme.py nav_html()/page_shell() so the React Jobs board
@@ -45,6 +57,25 @@ const NAV_PAGES = [
 // one action.
 export default function Nav({ currentPage }) {
   const { formatMessage } = useIntl();
+  // Starts false, so the admin tab appears once the answer is in rather
+  // than flashing and disappearing for everybody else. `fetchMe` answers
+  // null on any failure, which reads as not-admin: the nav is chrome on
+  // every page and must not be able to break one.
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    fetchMe().then((me) => {
+      if (live) {
+        setIsAdmin(me?.role === 'admin');
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  const pages = NAV_PAGES.filter(([slug]) => isAdmin || !ADMIN_SLUGS.includes(slug));
 
   async function handleLogOut() {
     // Clearing the session is the server's act, so there is nothing to
@@ -68,7 +99,7 @@ export default function Nav({ currentPage }) {
         <Flex.Item flex="grow">
           <nav aria-label={formatMessage({ id: 'shell.nav.ariaLabel' })}>
             <Flex gap={4} wrap>
-              {NAV_PAGES.map(([slug, label]) => {
+              {pages.map(([slug, label]) => {
                 const isCurrent = slug === currentPage;
                 // The Search tab's page lives at "/". Unlike every other
                 // tab, its slug does not double as its own URL segment.

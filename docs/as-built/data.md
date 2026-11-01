@@ -168,6 +168,19 @@ The access columns say what the request gate and the admin rule let through on t
 | `/api/companies/backfill-sector-size` | POST | `backfill_sector_size` | id counters | no read on this route | admin only | storage layer | `vault._allocate` |
 | `/api/companies/backfill-sector-size` | POST | `backfill_sector_size` | notes | owner only | no write on this route | storage layer | `vault.has_notes`, `vault.notes_view` |
 | `/api/companies/backfill-sector-size` | POST | `backfill_sector_size` | tags | any logged-in user | admin only | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
+| `/api/company-requests` | GET | `company_request_collection` | companies | any logged-in user | no write on this route | storage layer | `vault.list_companies` |
+| `/api/company-requests` | GET | `company_request_collection` | company_requests | owner only | no write on this route | storage layer | `vault.list_company_requests` |
+| `/api/company-requests` | GET | `company_request_collection` | jobs | owner only | no write on this route | storage layer | `vault.load_job` |
+| `/api/company-requests` | GET | `company_request_collection` | users | any logged-in user | no write on this route | storage layer | `users.load_user` |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | companies | any logged-in user | admin only | route code, storage layer | `vault.linkable_company`, `vault.load_company`, `vault.save_company` |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | company_requests | owner only | owner only | route code, storage layer | `vault.list_company_requests`, `vault.load_company_request`, `vault.save_company_request` |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | history events | no read on this route | owner only | storage layer | `vault.append_event` |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | id counters | no read on this route | admin only | storage layer | `vault._allocate` |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | jobs | owner only | owner only | storage layer | `vault.list_jobs`, `vault.load_job`, `vault.save_job` |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | notes | owner only | no write on this route | storage layer | `vault.has_notes`, `vault.notes_view` |
+| `/api/company-requests/<identifier>/approve` | POST | `approve_company_request` | tags | any logged-in user | admin only | storage layer | `vault.known_function_ids`, `vault.load_tags`, `vault.save_tags`, `vault.validate_tags` |
+| `/api/company-requests/<identifier>/reject` | POST | `reject_company_request` | company_requests | owner only | owner only | route code, storage layer | `vault.list_company_requests`, `vault.load_company_request`, `vault.save_company_request` |
+| `/api/company-requests/<identifier>/reject` | POST | `reject_company_request` | id counters | no read on this route | admin only | storage layer | `vault._allocate` |
 | `/api/experiences` | GET, POST | `experience_collection` | companies | any logged-in user | no write on this route | route code, storage layer | `vault.linkable_company`, `vault.list_companies`, `vault.load_company`, `vault.reader_company`, `vault.visible_companies` |
 | `/api/experiences` | GET, POST | `experience_collection` | experiences | owner only | owner only | route code, storage layer | `vault.list_experiences`, `vault.save_experience` |
 | `/api/experiences` | GET, POST | `experience_collection` | id counters | no read on this route | admin only | storage layer | `vault._allocate` |
@@ -301,6 +314,7 @@ The access columns say what the request gate and the admin rule let through on t
 | `/assets/<path:filename>` | GET | `react_assets` | none | no record kind on this route | no write on this route |  |  |
 | `/companies` | GET | `react_companies` | none | no record kind on this route | no write on this route |  |  |
 | `/companies/<identifier>` | GET | `react_company_detail` | none | no record kind on this route | no write on this route |  |  |
+| `/company-requests` | GET | `react_company_requests` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences` | GET | `react_experiences` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences/<identifier>` | GET | `react_experience_detail` | none | no record kind on this route | no write on this route |  |  |
 | `/experiences/new` | GET | `react_experience_new` | none | no record kind on this route | no write on this route |  |  |

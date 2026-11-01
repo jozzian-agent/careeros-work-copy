@@ -314,7 +314,7 @@ def test_closed_review_and_search_so_far_never_count_a_universe_only_record(root
         vault.save_job(root, {'closed': True, 'closed_at': long_ago,
                               'status': 'interviewing'}, job['id'])
     for key, owner in owners.items():
-        universe = jobs_page.universe_context(root, owner)
+        universe = jobs_page.universe_context(root, owner, is_admin=True)
         assert universe['closed_review'] == [], key
         assert universe['search_so_far'] == {'applied_to': 0, 'interviews': 0, 'offers': 0}, key
         # And the open/ended split, which IS about the postings in front

@@ -941,7 +941,8 @@ open question.
 | Owner of a record | Which user a job or an experience belongs to: the `owner_id` field holding a user record id (`vault.OWNER_FIELD`). Stamped by the path that creates the record and never moved. Added M2, 2026-10-18. | none |
 | Shared universe | The records every user reads and the admin alone changes: companies and the tag vocabulary. Added M2, 2026-10-18. | Universe (a backend word that never appears in the interface) |
 | All jobs | What a person reads the job half of that universe as: every job not private to another user. The tab's name, and the only user-facing word for it -- "universe" stays backend. Added B2, 2026-10-19. | none |
-| Company request | One user asking for the company their posting names, because a company is shared and the admin alone writes one. A private record of its own (`company_requests`, [schemas](docs/schemas.md)), filed from the job page's company ask, resolved into a company and a link by a later change. Added 2026-11-01. | none |
+| Company request | One user asking for the company their posting names, because a company is shared and the admin alone writes one. A private record of its own (`company_requests`, [schemas](docs/schemas.md)), filed from the job page's company ask, and answered by the nightly pass or by the admin on the Company requests page. Added 2026-11-01. | none |
+| Needs your input | The one chip and the one filter for a job waiting on somebody. The admin's alone since the owner ruling of 2026-11-01: every reason it fires is a company link or a reading that nobody else can move on, so for a non-admin the server answers it false on every entry and the filter chip is not drawn. The job page's own company ask stays for everybody, because asking for a company IS the non-admin's action. | none |
 
 ### Statuses
 
@@ -986,6 +987,8 @@ state survives a restart.
 | Experiences | Bring yourself |
 | Preferences | Bring yourself |
 | Notes | Reading a job, company browse; every note in one place, each linked to its record ([surface](docs/surfaces/notes.md)) |
+| Company requests | Company browse, the admin's half: the requests the nightly pass could not match, each with the name that was asked for, who asked, the posting it came from and scored suggestions to link to instead. Admin only, in the navigation and on the server. Added 2026-11-01 ([surface](docs/surfaces/company-requests.md), [contracts](docs/surfaces/json-api.md)) |
+| Company request pass | Company browse, nightly: one pass answers every filed request it can match by name, links the jobs, and parks the rest for the admin surface above. Runs on the VPS on a timer, and by hand. Added 2026-11-01 ([surface](docs/surfaces/company-requests.md)) |
 | Log in | The way into every other surface. Email, password, one message for a refused attempt. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [contracts](docs/surfaces/json-api.md)) |
 | Add position | Bring yourself. The one place a position is written: a page rather than a dialog, because the field set is three cards long. Added 2026-11-01, replacing the Jinja form ([surface](docs/surfaces/experiences.md)) |
 | JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md). Every one of them is read by React since 2026-11-01; none mirrors an HTML route any more |
@@ -1008,6 +1011,7 @@ Interviews is removed from the navigation until it exists. Tab order is My Jobs,
 | Retry | On the card or company, visible after a failed or exhausted step | Owner |
 | Resolve a company match | The review card | Owner |
 | Ask to add a company | The company ask on a job, for a user who may not write a shared company: the same form, filing a company request instead of creating the company. One open request per job, ten filings a day. Added 2026-11-01 | Everyone |
+| Answer a company request | The Company requests page: approve, which links the chosen company or creates one with the requested name, or reject with a note. Either answer settles every open request asking for that same company. Added 2026-11-01 | Admin |
 | Add to my jobs | On a card of the All jobs tab that is not on my board; the existing promote action under the user's word. It creates my own copy of the posting in New and never moves the record it copied (B2, 2026-10-19) | Everyone |
 | Remove from my board | On the card | Everyone |
 | Edit preferences | One edit mode on Search (proposed name: Preferences); Edit criteria → Done / Cancel, batch D | Everyone |
@@ -1104,10 +1108,14 @@ the interface does not offer them the control. In force since M2,
   on the job, under `vault.END_NOTE_TITLE`, not a second field.
 - Company request status. Filed, linked, created, needs admin, rejected
   (`vault.COMPANY_REQUEST_STATUSES`, owner ruling 2026-11-01). `filed` is
-  the only one anything writes today and the one that counts as open
-  (`vault.COMPANY_REQUEST_OPEN`); the other four are what resolving a
-  request will record, and the list is whole from the first day so a
-  resolution is a change to one module rather than to the schema.
+  what a filing writes and the one that counts as open
+  (`vault.COMPANY_REQUEST_OPEN`). Since 2026-11-01 the resolver writes
+  the other four: `linked` for a name that matched a company on file,
+  `created` for one the pass or the admin brought into existence,
+  `needs_admin` for a name nothing matched or more than one company
+  matched, and `rejected` for a request whose job was deleted or that the
+  admin refused. `needs_admin` is the only one the admin surface lists,
+  and the three settled ones are never touched again.
 
 ### Fixed lists, to settle in milestone M1
 

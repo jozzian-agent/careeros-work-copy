@@ -484,6 +484,28 @@ unresolved company link, an ingest that got stuck, and a posting whose
 heading was its careers page rather than a role, so the job has only a
 provisional title (see "Stored text" below).
 
+2026-11-01 (owner ruling): **needs-attention is the admin's alone.**
+"Needs your input should not be displayed to non-admins at all. Not on
+cards, not on the filter and so on." Every one of those three reasons is
+a company link or a reading that nobody but the admin can move on, so
+for anybody else the chip is an alarm about work they cannot do.
+
+The server answers it, not the browser: `jobs.board_context` sets
+`needs_attention` False on every entry for a non-admin and sends
+`is_admin: false` beside it, so a client that reads the payload and
+draws its own chip still draws nothing. The front end adds one thing,
+leaving the "Needs attention" filter chip out of the bar entirely rather
+than rendering it with a count of zero. The remembered toggle is folded
+into that too: somebody who had it on before the ruling would otherwise
+hold a filter they can no longer see against a flag that is now always
+False, which is an empty board with nothing on screen explaining it.
+
+The job detail page's own company ask is NOT covered by the ruling and
+stays for everybody. It carries "Ask to add company", which is the
+non-admin's one real action on an unresolved company (PR #44), so "not
+on cards" is read as the board card's chip. The admin's own board is
+exactly as it was.
+
 ### Stored text
 
 Three defects the owner found by reading their own board, all fixed at

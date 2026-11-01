@@ -106,7 +106,10 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
  'closed_review': [],
  # top_stopped_reason is absent while no stopped job carries a reason,
  # which is this fixture.
- 'search_so_far': {'applied_to': 'int', 'interviews': 'int', 'offers': 'int'}}
+ 'search_so_far': {'applied_to': 'int', 'interviews': 'int', 'offers': 'int'},
+ # Owner ruling 2026-11-01: whether needs-attention exists for this
+ # reader. True here, because the suite user is the admin.
+ 'is_admin': 'bool'}
 
 # B2 (CAREER-89): the All jobs tab reads the board's own payload, so the
 # contract is that shape plus one key per entry -- whether the job is on

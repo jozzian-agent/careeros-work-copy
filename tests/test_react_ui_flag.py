@@ -115,6 +115,23 @@ def test_the_jinja_experience_form_is_gone(tmp_path, monkeypatch):
     assert '<div id="root">' in body
 
 
+def test_company_requests_route_serves_react_index(tmp_path, monkeypatch):
+    """CAREER-121 scope C: the admin review list is a React-only page, so
+    the server must answer its URL with the SPA index. Without the route
+    the nav's hard navigation lands on the Jinja catch-all 404 (found in
+    owner click-testing, 2026-11-01)."""
+    import shutil
+    from pathlib import Path
+
+    monkeypatch.setenv('CAREEROS_REACT_UI', '1')
+    monkeypatch.setenv('CAREEROS_REACT_DIST', str(_fake_dist(tmp_path)))
+    vault_root = tmp_path / 'vault'
+    shutil.copytree(Path(__file__).resolve().parents[1] / 'sample/vault', vault_root)
+    client = server.create_app(vault_root).test_client()
+    body = client.get('/company-requests').get_data(as_text=True)
+    assert '<div id="root">' in body
+
+
 def test_taxonomy_pages_are_gone_and_their_endpoints_stay(tmp_path, monkeypatch):
     """B6 and 2026-11-01: neither standalone classification page exists any
     more, flag on or off. The Edit classification popup on the React

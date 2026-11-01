@@ -109,6 +109,55 @@ that answers 403), and `request` inside `needs_input`, present only
 while that reader has an open request for this job and carrying
 `{name, filed}`. No key was removed and no existing key changed shape.
 
+2026-11-01 (answering a company request): three new admin-only
+endpoints, and one additive key on both board views.
+
+`GET /api/company-requests` answers `{"requests": [...]}`, the requests
+the nightly pass parked as `needs_admin`, oldest first. One row:
+
+```json
+{
+  "id": "CR-001",
+  "name": "Northwind AG",
+  "created_at": "2026-10-30",
+  "requester": {"id": "USER-002", "name": "Tester One"},
+  "job": {"id": "JOB-007", "title": null},
+  "suggestions": [{"company_id": "CO-004", "name": "Northwind Systems", "score": 0.82}]
+}
+```
+
+`job.title` is null unless the job loads under the reader's own
+ownership scope. A request comes from somebody else's private posting,
+and decision D3 is that the admin reaches no part of one, so the row
+names the posting by the id that is already on the request record they
+do read. `suggestions` is `org_intake.identity.fuzzy_candidates`, scored
+and read-only: a hint the admin clicks, never something the pass would
+have linked on (rule 4 of the identity ladder).
+
+`POST /api/company-requests/<id>/approve` takes an optional
+`{"company_id": "CO-004"}`, linking to that company; with no body it
+creates a company with the requested name. Either way it answers every
+unresolved request asking for the same company and links every one of
+their waiting jobs, then returns the named request as stored.
+
+`POST /api/company-requests/<id>/reject` takes an optional
+`{"note": "..."}` and settles that one request alone.
+
+All three answer a non-admin the standard `shared_denied` 403 and its
+message. Both writes answer 404 for an id that is not there and 409 for
+one already resolved; an unlinkable `company_id` (retired, or never
+existed) answers 400 `Company not found.` before anything is written,
+the same answer and the same ordering `resolve-review` gives. What they
+write is in [schemas](../schemas.md); the surface is
+[Company requests](company-requests.md).
+
+The board key is `is_admin`, on `GET /api/jobs?view=board` and
+`?view=universe`. Owner ruling 2026-11-01: needs-attention is the
+admin's alone, so for everybody else `needs_attention` is False on every
+entry and this flag says which reader it is. The board reads it to leave
+the "Needs attention" filter chip out altogether, because a chip with a
+count of zero would still render. Admins get exactly today's answer.
+
 ## Appears in
 
 The existing Jobs, Search, Companies and Experiences flows. Page views extend
@@ -138,6 +187,8 @@ mirrored HTML routes until 2026-11-01 and are read only by React now.
 | GET | `/api/notes` | Notes | New |
 | POST | `/api/jobs/<id>/re-extract` | Job detail | New |
 | POST | `/api/jobs/<id>/company-request` | Job detail | New |
+| GET | `/api/company-requests` | Company requests | New, admin only |
+| POST | `/api/company-requests/<id>/approve`, `/api/company-requests/<id>/reject` | Company requests | New, admin only |
 | POST | `/api/jobs/<id>/notes`, `/api/companies/<id>/notes` | Job and Company detail | New |
 | PATCH, DELETE | `/api/jobs/<id>/notes/<note_id>`, `/api/companies/<id>/notes/<note_id>` | Job and Company detail | New |
 | GET | `/api/health` | None | New, M1, unauthenticated |

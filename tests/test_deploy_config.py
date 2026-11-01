@@ -252,6 +252,20 @@ def test_timers_have_no_persistent_and_cover_a_reboot_with_onbootsec(environment
     assert any(l.startswith('OnUnitActiveSec=') for l in lines)
 
 
+#: The unit files setup-vps.sh deliberately does not place, listed here so
+#: the carve-out below is a decision and not a hole in the check.
+#:
+#: The company request resolver is the owner's to install and to turn on.
+#: setup-vps.sh runs on a box that has no release yet, and draining the
+#: request queue on a timer is a decision about live records -- the same
+#: reason production itself is installed and left unstarted. The commands
+#: are in the pull request that added the pair.
+INSTALLED_BY_HAND = {
+    'careeros-company-requests.service',
+    'careeros-company-requests.timer',
+}
+
+
 def test_setup_installs_exactly_the_unit_files_that_exist():
     """The script's own lists, against the directory. A unit file added
     here and not listed there is a file nobody installs; a name listed
@@ -262,7 +276,76 @@ def test_setup_installs_exactly_the_unit_files_that_exist():
     for name in ('UNITS', 'TIMERS'):
         body = re.search(rf'^{name}=\((.*?)\)$', text, re.M | re.S).group(1)
         listed |= set(body.split())
-    assert listed == {path.name for path in UNITS.iterdir()}
+    assert listed == {path.name for path in UNITS.iterdir()} - INSTALLED_BY_HAND
+
+
+def test_the_resolver_unit_is_not_installed_or_enabled_by_anything_here():
+    """The owner installs this pair by hand, so no script in deploy/ may
+    name either file: a unit this repository places is a unit that
+    arrives on the box without the owner deciding it should."""
+    named = []
+    for path in sorted([SETUP, *DEPLOY.glob('*.sh')]):
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if any(unit in line for unit in INSTALLED_BY_HAND):
+                named.append(f'{path.name}:{number}')
+    assert named == [], named
+
+
+# --- the company request resolver pair ------------------------------------
+#
+# A daily pass that answers the company requests users file (PR B/C). It
+# runs as the production app account because it writes the same records
+# through the same vault writer, and it is the one unit in here whose
+# ExecStart is a script in the release rather than a server.
+
+RESOLVER_SERVICE = 'careeros-company-requests.service'
+RESOLVER_TIMER = 'careeros-company-requests.timer'
+
+
+def test_the_resolver_unit_runs_the_script_this_repository_really_has():
+    """The ExecStart names a path inside the release. A unit pointing at a
+    script that is not there is a nightly failure the owner only finds in
+    a journal, so the file is checked against the repository."""
+    lines = directives(RESOLVER_SERVICE)
+    expected = ('ExecStart=/srv/careeros/prod/app/current/.venv/bin/python '
+                '/srv/careeros/prod/app/current/scripts/resolve_company_requests.py')
+    assert expected in lines
+    assert (ROOT / 'scripts' / 'resolve_company_requests.py').is_file()
+    assert 'Type=oneshot' in lines, 'the pass ends; it is not a service that stays up'
+
+
+def test_the_resolver_runs_as_the_app_account_and_writes_only_its_vault():
+    """It writes the records the app writes, so it has to run as the
+    account that owns those files: a pass running as root would leave
+    vault files the app user cannot rewrite."""
+    lines = directives(RESOLVER_SERVICE)
+    assert 'User=careeros-prod' in lines
+    assert 'Group=careeros-prod' in lines
+    assert [line for line in lines if line.startswith('ReadWritePaths=')] == \
+        ['ReadWritePaths=/srv/careeros/prod/vault']
+    assert [d for d in HARDENING if d not in lines] == []
+
+
+def test_the_resolver_unit_has_the_last_word_on_the_vault():
+    """Same rule as careeros-prod.service, same reason: the env file is
+    the owner's, and which vault a pass opens is not negotiable from it."""
+    lines = directives(RESOLVER_SERVICE)
+    assert lines.index('EnvironmentFile=/etc/careeros/prod.env') < \
+        lines.index('Environment=CAREEROS_VAULT=/srv/careeros/prod/vault')
+
+
+def test_the_resolver_timer_is_nightly_with_jitter_and_catches_up():
+    """Persistent= does apply here, unlike on the two interval timers: an
+    OnCalendar schedule missed because the box was off is run once it is
+    back, so a night is not simply skipped. The jitter keeps the pass off
+    the same second as everything else pinned to 03:30, and it takes the
+    vault write lock."""
+    lines = directives(RESOLVER_TIMER)
+    assert f'Unit={RESOLVER_SERVICE}' in lines
+    assert 'OnCalendar=*-*-* 03:30:00' in lines
+    assert 'RandomizedDelaySec=30min' in lines
+    assert 'Persistent=true' in lines
+    assert 'WantedBy=timers.target' in lines
 
 
 def test_nothing_is_enabled_or_started_by_setup():

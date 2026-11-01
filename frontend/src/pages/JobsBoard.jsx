@@ -1001,9 +1001,22 @@ export default function JobsBoard() {
 
   const optionsByGroup = useMemo(() => jobFilterOptions(board), [board]);
 
+  // Owner ruling 2026-11-01: needs-attention does not exist for a
+  // non-admin -- not on a card, not on the filter bar. The payload says
+  // which reader this is (careeros/web/pages/jobs.board_context), and a
+  // payload that predates the key reads as admin so an older bundle is
+  // not silently stripped of a control the server still fills.
+  const needsAttentionOffered = !board || board.is_admin !== false;
+  // Folded into the filter rather than only hidden: the toggle is
+  // remembered in localStorage, so a reader who had it on before the
+  // ruling would otherwise hold a filter they can no longer see, against
+  // a flag the server now answers False -- an empty board with nothing
+  // on screen explaining it.
+  const needsAttentionActive = needsAttention && needsAttentionOffered;
+
   const filteredEntries = useMemo(
-    () => (board ? filterJobs(board.entries, filters, { needsAttention, hideClosed }) : []),
-    [board, filters, needsAttention, hideClosed],
+    () => (board ? filterJobs(board.entries, filters, { needsAttention: needsAttentionActive, hideClosed }) : []),
+    [board, filters, needsAttentionActive, hideClosed],
   );
 
   if (loadError) {
@@ -1044,7 +1057,7 @@ export default function JobsBoard() {
   const anyGroupFilterActive = Object.values(filters).some((values) => values.length > 0);
   const noMatches = !isEmpty && filteredEntries.length === 0;
   const noMatchesMessage =
-    needsAttention && !anyGroupFilterActive
+    needsAttentionActive && !anyGroupFilterActive
       ? formatMessage({ id: 'board.nothingNeedsAttention' })
       : formatMessage({ id: 'common.jobs.noMatches' });
   const needsAttentionCount = board.entries.filter((job) => job.needs_attention).length;
@@ -1179,14 +1192,18 @@ export default function JobsBoard() {
           onClearGroup={clearFilterGroup}
           onClearGroups={clearFilterGroups}
           toggles={[
-            {
+            // Left out entirely for a non-admin, not rendered with a
+            // count of zero: the count IS zero for them, because the
+            // server answers needs_attention False on every entry, and a
+            // chip that can never match anything is a control that lies.
+            ...(needsAttentionOffered ? [{
               key: 'needs-attention',
               label: formatMessage({ id: 'board.needsAttention' }),
               count: needsAttentionCount,
               countColor: 'var(--color-brand-violet)',
               pressed: needsAttention,
               onToggle: toggleNeedsAttention,
-            },
+            }] : []),
             {
               key: 'hide-closed',
               label: formatMessage({ id: 'common.jobs.hideClosed' }),
