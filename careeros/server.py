@@ -679,6 +679,10 @@ def create_app(vault: str | Path | None = None) -> Flask:
         # job or company it belongs to. React-only, like /taxonomy, so it
         # has no Jinja route and no entry in theme.py's NAV_PAGES.
         app.add_url_rule('/notes', 'react_notes', react_index)
+        # Company requests (CAREER-121 scope C): the admin review list.
+        # React-only page like /notes; without this rule the nav's hard
+        # navigation lands on the Jinja catch-all 404.
+        app.add_url_rule('/company-requests', 'react_company_requests', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
     # 2026-11-01: the last three Jinja pages that were not the sign-in set
