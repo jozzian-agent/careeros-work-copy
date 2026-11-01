@@ -295,13 +295,33 @@ export default function CompaniesList() {
   const isEmpty = entries.length === 0;
   const noMatches = !isEmpty && filtered.length === 0;
 
-  // Companies has no main action, so its header stack is the view pair
-  // and the filter bar (brief 2026-10-18, section 3). The pair sits where
-  // Board and List sit on Jobs, and is the same control as there: one
-  // SegmentedControl since CAREER-118 PR 1.
+  // Companies has NO primary action, and the heading row is therefore the
+  // title alone. Owner decision 2026-11-01: a company is created from a
+  // job, there is no create-company feature and no design for one, so
+  // there is nothing for a primary button to do. The CollectionPage README
+  // says the heading row carries "the one primary action" -- here that one
+  // action does not exist. Please do not "fix" this by adding an "Add a
+  // company" button; companies-list.spec.js pins its absence.
+  //
+  // The header stack is one toolbar row, which is the whole of CAREER-118
+  // PR 2: the filter chips and the plain count at the left and the View
+  // switch at the right, on the same line (CollectionPage README, "Toolbar
+  // row, one line: ... Never two toolbar rows for these controls"). The
+  // pair used to be its own row above the bar; it is passed into the bar's
+  // row now as its `right` item. The bar's active-filters Tag row is its
+  // own second row and stays where it is -- that is not a second toolbar.
   const header = isEmpty ? null : (
-    <>
-      <Flex gap={2} alignItems="center" wrap>
+    <FilterBar
+      groups={filterGroups}
+      countNoun="companies"
+      optionsByGroup={optionsByGroup}
+      selected={filters}
+      onToggleValue={toggleFilterValue}
+      onClearGroup={clearFilterGroup}
+      onClearGroups={clearFilterGroups}
+      resultCount={filtered.length}
+      totalCount={entries.length}
+      right={
         <SegmentedControl
           ariaLabel={formatMessage({ id: 'common.view.groupLabel' })}
           value={view}
@@ -319,19 +339,37 @@ export default function CompaniesList() {
             },
           ]}
         />
-      </Flex>
-      <FilterBar
-        groups={filterGroups}
-        countNoun="companies"
-        optionsByGroup={optionsByGroup}
-        selected={filters}
-        onToggleValue={toggleFilterValue}
-        onClearGroup={clearFilterGroup}
-        onClearGroups={clearFilterGroups}
-        resultCount={filtered.length}
-        totalCount={entries.length}
-      />
-    </>
+      }
+    />
+  );
+
+  // The empty directory, per the CollectionPage README: one SectionCard-
+  // style box with a sentence in it, rather than the bare line of subtle
+  // text this used to be. Same frame as the SectionCard and the job card
+  // -- the card surface, a 1px container border, 16px rounding -- written
+  // as the Gestalt props that resolve to those tokens, so there is no
+  // second spelling of the frame to keep in step.
+  //
+  // The README's "gray button repeating the action" is deliberately not
+  // here: the action it would repeat is the primary action this page does
+  // not have (see the header comment above).
+  //
+  // The sentence is the catalog's, not the payload's: `page.empty` is
+  // still sent and is still what the other list pages render, but this
+  // one names the reason a directory is empty ("Companies appear when you
+  // add a job"), which is a client string and belongs in en.json.
+  const emptyState = (
+    <Box
+      data-testid="companies-empty"
+      color="default"
+      borderStyle="sm"
+      rounding={4}
+      padding={6}
+    >
+      <Text color="subtle">
+        <FormattedMessage id="companies.empty" />
+      </Text>
+    </Box>
   );
 
   const tiles = (
@@ -444,7 +482,7 @@ export default function CompaniesList() {
   return (
     <PageLayout title={<FormattedMessage id="companies.title" />} header={header}>
       {isEmpty ? (
-        <Text color="subtle">{page.empty}</Text>
+        emptyState
       ) : noMatches ? (
         <Text color="subtle">
           <FormattedMessage id="companies.noMatches" />

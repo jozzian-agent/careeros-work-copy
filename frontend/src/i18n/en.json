@@ -44,6 +44,7 @@
   "common.retry": "Retry",
   "common.view.groupLabel": "View",
   "common.view.list": "List",
+  "companies.empty": "No companies yet. Companies appear when you add a job.",
   "companies.field.location": "Location",
   "companies.field.name": "Name",
   "companies.field.openJobs": "Open jobs",
