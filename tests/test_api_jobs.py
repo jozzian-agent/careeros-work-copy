@@ -164,6 +164,11 @@ DETAIL_SHAPE = {'company': {'contact_email': 'str',
              'size_range': 'NoneType',
              'sources': [],
              'website': 'NoneType'},
+ # Whether this reader may write the shared companies record, which is
+ # what decides whether the company ask offers creating the company or
+ # asking for it (owner ruling 2026-11-01). The same key the company
+ # detail and job classification contracts already carry.
+ 'can_edit_shared': 'bool',
  'classification': {'function': ['str'],
                     'sector': {'source': 'str', 'value': 'str'},
                     'tags': ['str']},

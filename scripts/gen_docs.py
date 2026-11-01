@@ -730,6 +730,11 @@ STORAGE_SYMBOLS = {
     'careeros.vault.load_experience': ('experiences', 'read'),
     'careeros.vault.save_experience': ('experiences', 'write'),
     'careeros.vault.delete_experience': ('experiences', 'write'),
+    'careeros.vault.list_company_requests': ('company_requests', 'read'),
+    'careeros.vault.load_company_request': ('company_requests', 'read'),
+    'careeros.vault.active_company_request': ('company_requests', 'read'),
+    'careeros.vault.company_requests_filed_on': ('company_requests', 'read'),
+    'careeros.vault.save_company_request': ('company_requests', 'write'),
     'careeros.vault.notes_view': ('notes', 'read'),
     'careeros.vault.notes_payload': ('notes', 'read'),
     'careeros.vault.has_notes': ('notes', 'read'),
@@ -816,11 +821,16 @@ CONTAINED_KINDS = (('jobs', 'notes', 'note_list'),
                    ('companies', 'notes', 'note_list'),
                    ('jobs', 'history events', 'history'))
 
-#: A link field whose name does not carry the kind it points at. All three
-#: hold a user record id: `vault.OWNER_FIELD`, the `author_id` that
+#: A link field whose name does not carry the kind it points at. Three of
+#: them hold a user record id: `vault.OWNER_FIELD`, the `author_id` that
 #: `vault.Owner.owns_note` compares, and the `user_id` a reset record names
-#: its account by. Each is checked against the code that reads it below.
-NAMED_LINKS = {vault.OWNER_FIELD: 'users', AUTHOR_FIELD: 'users', 'user_id': 'users'}
+#: its account by. Each of those is checked against the code that reads it
+#: below. The fourth is the company a resolved company request ended up
+#: pointing at, which is a `companies` id under a name the singular rule
+#: cannot see; it is named here rather than reported as a field that
+#: points at nothing, which is what the unplaced list is for.
+NAMED_LINKS = {vault.OWNER_FIELD: 'users', AUTHOR_FIELD: 'users', 'user_id': 'users',
+               'resolved_company_id': 'companies'}
 
 _TREES = {}
 #: Parsed definitions and resolved references, per function. The walk below
@@ -1288,6 +1298,7 @@ def kind_fields():
         'jobs': tuple(sorted(vault.job_field_names())),
         'companies': tuple(sorted(vault.company_field_names())),
         'experiences': tuple(dict_keys(vault.validate_experience, 'defaults')),
+        'company_requests': tuple(dict_keys(vault.validate_company_request, 'defaults')),
         'notes': tuple(sorted(vault.NOTE_FIELDS)),
         'history events': tuple(dict_keys(vault.append_event, 'entry')),
         'search criteria': tuple(sorted(vault.blank_search())),
@@ -1309,6 +1320,7 @@ FIELD_SOURCES = {
     'jobs': 'vault.job_field_names',
     'companies': 'vault.company_field_names',
     'experiences': 'vault.validate_experience defaults',
+    'company_requests': 'vault.validate_company_request defaults',
     'notes': 'vault.NOTE_FIELDS',
     'history events': 'vault.append_event entry',
     'search criteria': 'vault.blank_search',
@@ -1332,6 +1344,7 @@ def kind_locations():
                 for kind, writer in (('jobs', vault._save_record),
                                      ('companies', vault._save_record),
                                      ('experiences', vault.save_experience),
+                                     ('company_requests', vault.save_company_request),
                                      ('users', users.save_user))}
     for kind in numbered:
         if kind not in vault.ID_PREFIXES:
@@ -1364,6 +1377,7 @@ LOCATION_SOURCES = {
     'jobs': 'vault._save_record',
     'companies': 'vault._save_record',
     'experiences': 'vault.save_experience',
+    'company_requests': 'vault.save_company_request',
     'users': 'users.save_user',
     'notes': 'vault.notes_view, vault.notes_payload',
     'history events': 'vault.append_event',
@@ -1741,11 +1755,12 @@ def er_section(fields):
         '',
         'An arrow is a field one kind holds that points at another, read off the field '
         'names in the allowlists above: the singular of a record directory names the kind '
-        'it points at (`company_id` points at `companies`), and the three fields that '
-        'hold a user record id are named in the generator and checked against the code '
-        'that reads them. A kind whose records live inside another kind\'s field is drawn '
+        'it points at (`company_id` points at `companies`), and the few fields whose name '
+        'does not carry the kind are named in the generator, the three that hold a user '
+        'record id checked against the code that reads them. A kind whose records live '
+        'inside another kind\'s field is drawn '
         'the same way, with the field that contains them. The `id counters` and '
-        '`id reservations` arrows are the four numbered kinds of `vault.ID_PREFIXES`, '
+        '`id reservations` arrows are every numbered kind of `vault.ID_PREFIXES`, '
         'which is bookkeeping about numbers rather than a reference between records.',
         '',
         'The blind spots of that method are worth stating. It sees a link only where a '

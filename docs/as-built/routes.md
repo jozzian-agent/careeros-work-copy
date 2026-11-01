@@ -47,6 +47,7 @@ Every rule the server registers, read from the url map of an app built on a thro
 | `/api/health` | GET | `health` | `careeros.server.health` | always | public | JSON |
 | `/api/jobs` | GET | `job_collection` | `careeros.server.job_collection` | always | login | JSON |
 | `/api/jobs/<identifier>` | DELETE, GET, PUT | `job_api` | `careeros.server.job_api` | always | login + admin | JSON |
+| `/api/jobs/<identifier>/company-request` | POST | `company_request` | `careeros.server.company_request` | always | login | JSON |
 | `/api/jobs/<identifier>/enrich` | POST | `enrich_job` | `careeros.server.enrich_job` | always | login | JSON |
 | `/api/jobs/<identifier>/extract` | POST | `extract_job` | `careeros.server.extract_job` | always | login | JSON |
 | `/api/jobs/<identifier>/notes` | POST | `create_note` | `careeros.server.create_note` | always | login | JSON |
@@ -104,16 +105,16 @@ flowchart LR
   subgraph pages["Flask page routes"]
     f00["/ (react_index)"]
     f02["/all-jobs (react_all_jobs)"]
-    f35["/companies (react_companies)"]
-    f36["/companies/#60;identifier#62; (react_company_detail)"]
-    f37["/experiences (react_experiences)"]
-    f38["/experiences/#60;identifier#62; (react_experience_detail)"]
-    f39["/experiences/new (react_experience_new)"]
-    f42["/jobs (jobs)"]
-    f43["/jobs (react_jobs)"]
-    f44["/jobs/#60;identifier#62; (react_job_detail)"]
-    f47["/notes (react_notes)"]
-    f50["/taxonomy (react_taxonomy)"]
+    f36["/companies (react_companies)"]
+    f37["/companies/#60;identifier#62; (react_company_detail)"]
+    f38["/experiences (react_experiences)"]
+    f39["/experiences/#60;identifier#62; (react_experience_detail)"]
+    f40["/experiences/new (react_experience_new)"]
+    f43["/jobs (jobs)"]
+    f44["/jobs (react_jobs)"]
+    f45["/jobs/#60;identifier#62; (react_job_detail)"]
+    f48["/notes (react_notes)"]
+    f51["/taxonomy (react_taxonomy)"]
   end
   subgraph api["Flask JSON API"]
     f03["/api/companies (company_collection)"]
@@ -131,48 +132,49 @@ flowchart LR
     f15["/api/health (health)"]
     f16["/api/jobs (job_collection)"]
     f17["/api/jobs/#60;identifier#62; (job_api)"]
-    f18["/api/jobs/#60;identifier#62;/enrich (enrich_job)"]
-    f19["/api/jobs/#60;identifier#62;/extract (extract_job)"]
-    f20["/api/jobs/#60;identifier#62;/notes (create_note)"]
-    f21["/api/jobs/#60;identifier#62;/notes/#60;note_id#62; (note_api)"]
-    f22["/api/jobs/#60;identifier#62;/paste-description (paste_description)"]
-    f23["/api/jobs/#60;identifier#62;/promote (promote_job)"]
-    f24["/api/jobs/#60;identifier#62;/re-extract (re_extract_job)"]
-    f25["/api/jobs/#60;identifier#62;/resolve (rerun_resolution)"]
-    f26["/api/jobs/#60;identifier#62;/resolve-review (resolve_review)"]
-    f27["/api/jobs/#60;identifier#62;/taxonomy (job_taxonomy_api)"]
-    f28["/api/jobs/intake (job_intake)"]
-    f29["/api/me (me_api)"]
-    f30["/api/notes (notes_api)"]
-    f31["/api/search (search_api)"]
-    f32["/api/taxonomy (taxonomy_api)"]
-    f33["/api/watch/scan (watch_scan)"]
+    f18["/api/jobs/#60;identifier#62;/company-request (company_request)"]
+    f19["/api/jobs/#60;identifier#62;/enrich (enrich_job)"]
+    f20["/api/jobs/#60;identifier#62;/extract (extract_job)"]
+    f21["/api/jobs/#60;identifier#62;/notes (create_note)"]
+    f22["/api/jobs/#60;identifier#62;/notes/#60;note_id#62; (note_api)"]
+    f23["/api/jobs/#60;identifier#62;/paste-description (paste_description)"]
+    f24["/api/jobs/#60;identifier#62;/promote (promote_job)"]
+    f25["/api/jobs/#60;identifier#62;/re-extract (re_extract_job)"]
+    f26["/api/jobs/#60;identifier#62;/resolve (rerun_resolution)"]
+    f27["/api/jobs/#60;identifier#62;/resolve-review (resolve_review)"]
+    f28["/api/jobs/#60;identifier#62;/taxonomy (job_taxonomy_api)"]
+    f29["/api/jobs/intake (job_intake)"]
+    f30["/api/me (me_api)"]
+    f31["/api/notes (notes_api)"]
+    f32["/api/search (search_api)"]
+    f33["/api/taxonomy (taxonomy_api)"]
+    f34["/api/watch/scan (watch_scan)"]
   end
   subgraph auth["Flask auth routes"]
     f01["/accept-invite/#60;token#62; (accept_invite)"]
-    f41["/forgot-password (forgot_password)"]
-    f45["/login (login)"]
-    f46["/logout (logout)"]
-    f48["/reset-password/#60;token#62; (reset_password)"]
+    f42["/forgot-password (forgot_password)"]
+    f46["/login (login)"]
+    f47["/logout (logout)"]
+    f49["/reset-password/#60;token#62; (reset_password)"]
   end
   subgraph assets["Flask asset routes"]
-    f34["/assets/#60;path:filename#62; (react_assets)"]
-    f40["/fonts/#60;filename#62; (fonts)"]
-    f49["/static/#60;path:filename#62; (static)"]
+    f35["/assets/#60;path:filename#62; (react_assets)"]
+    f41["/fonts/#60;filename#62; (fonts)"]
+    f50["/static/#60;path:filename#62; (static)"]
   end
   r00 --> f00
   r01 --> f02
-  r02 --> f35
-  r03 --> f36
-  r04 --> f37
-  r05 --> f38
-  r06 --> f39
-  r07 --> f42
+  r02 --> f36
+  r03 --> f37
+  r04 --> f38
+  r05 --> f39
+  r06 --> f40
   r07 --> f43
-  r08 --> f44
-  r09 --> f45
-  r10 --> f47
-  r11 --> f50
+  r07 --> f44
+  r08 --> f45
+  r09 --> f46
+  r10 --> f48
+  r11 --> f51
 ```
 
 ## API paths the sources behind each React page name
@@ -188,6 +190,7 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `AddPosition` | `/api/experiences/new` |
 | `AddPosition` | `/api/experiences?view=page` |
 | `AllJobs` | `/api/jobs/<id>` |
+| `AllJobs` | `/api/jobs/<id>/company-request` |
 | `AllJobs` | `/api/jobs/<id>/extract` |
 | `AllJobs` | `/api/jobs/<id>/paste-description` |
 | `AllJobs` | `/api/jobs/<id>/promote` |
@@ -225,6 +228,7 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `JobDetail` | `/api/<kind>/<recordId>/notes` |
 | `JobDetail` | `/api/companies/<id>` |
 | `JobDetail` | `/api/jobs/<id>` |
+| `JobDetail` | `/api/jobs/<id>/company-request` |
 | `JobDetail` | `/api/jobs/<id>/extract` |
 | `JobDetail` | `/api/jobs/<id>/paste-description` |
 | `JobDetail` | `/api/jobs/<id>/promote` |
@@ -239,6 +243,7 @@ The `/api/...` string literals in a page component and in every frontend/src mod
 | `JobDetail` | `/api/watch/scan?job=<id>` |
 | `JobsBoard` | `/api/<kind>/<recordId>/notes` |
 | `JobsBoard` | `/api/jobs/<id>` |
+| `JobsBoard` | `/api/jobs/<id>/company-request` |
 | `JobsBoard` | `/api/jobs/<id>/extract` |
 | `JobsBoard` | `/api/jobs/<id>/paste-description` |
 | `JobsBoard` | `/api/jobs/<id>/promote` |
