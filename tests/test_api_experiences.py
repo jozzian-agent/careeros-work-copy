@@ -259,3 +259,62 @@ def test_live_company_label_and_raw_contracts(api_client, assert_json_shape):
     assert api_client.delete(route).get_json() == {'deleted': 'EXP-001'}
     assert api_client.get(route + '?view=page').status_code == 404
     assert api_client.get('/api/experiences?view=page').get_json()['entries'] == []
+
+
+# The payload the React Add position page sends (2026-11-01). Pinned here
+# because that page is the only writer of a new position and the endpoint
+# it writes through is unchanged: the two things no artboard mentions and
+# a create would silently drop -- the custom fields and a proposed tag --
+# have to survive the one and only path that creates a position.
+ADD_POSITION_PAYLOAD = {
+    'title': 'Platform Lead',
+    'company': 'Contract Studio',
+    'company_id': None,
+    'start': '2022-01',
+    'end': 'present',
+    'location': 'Zurich',
+    'people_led': 6,
+    'summary': 'Ran the platform team.',
+    'highlights': ['Shipped the thing', 'Hired four people'],
+    'detail': '**Bold** detail.',
+    'tags': ['experience-type:employment', 'tool:terraform-cloud'],
+    'proposed_tags': ['tool:terraform-cloud'],
+    'custom': {'Clearance': 'None', 'Nested': {'a': [1, 2]}},
+}
+
+
+def test_add_position_payload_creates_a_position_with_everything_it_sent(api_client):
+    from careeros import vault
+    root = api_client.application.config['VAULT_PATH']
+    response = api_client.post('/api/experiences', json=ADD_POSITION_PAYLOAD)
+    assert response.status_code == 201
+    created = response.get_json()
+    stored = vault.load_experience(root, created['id'])
+    for field in ('title', 'start', 'end', 'location', 'people_led', 'summary',
+                  'highlights', 'detail', 'custom'):
+        assert stored[field] == ADD_POSITION_PAYLOAD[field], field
+    # The free-text company label is kept even with no record behind it:
+    # the page creates the company through link-company afterwards.
+    assert stored['company'] == 'Contract Studio' and stored['company_id'] is None
+    assert stored['tags'] == ADD_POSITION_PAYLOAD['tags']
+    # The proposed value joined the shared registry, which is what makes
+    # the tag valid on the record at all.
+    registry = vault.load_tags(root)
+    assert any(value['id'] == 'terraform-cloud'
+               for value in registry['facets']['tool']['values'])
+    # Salary is never written by this page, and the record says so rather
+    # than carrying whatever a client sent (the field is owner-only).
+    assert stored['salary'] is None
+
+
+def test_add_position_then_link_company_is_the_two_step_the_page_takes(api_client):
+    from careeros import vault
+    root = api_client.application.config['VAULT_PATH']
+    created = api_client.post('/api/experiences',
+                              json=dict(ADD_POSITION_PAYLOAD, company='Brand New Co')).get_json()
+    linked = api_client.post(f"/api/experiences/{created['id']}/link-company",
+                             json={'create': {'name': 'Brand New Co'}, 'confirm_create': True})
+    assert linked.status_code == 201
+    stored = vault.load_experience(root, created['id'])
+    assert stored['company_id'] == linked.get_json()['company_id']
+    assert vault.load_company(root, stored['company_id'])['name'] == 'Brand New Co'

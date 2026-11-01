@@ -1,14 +1,18 @@
-"""Experience library, detail and shared add/edit form.
+"""Experience library, detail and form contexts for the JSON API.
 
 M2 (CAREER-39): an experience belongs to one user (decision D3), so
 every read here takes the session user's `vault.Owner` and somebody
 else's position answers 404, the same as one that is not there.
+
+2026-11-01: this module renders no page any more. The Jinja add/edit
+form (`experience_form.html`) was replaced by the React Add position
+page, so what is left is the three contexts `careeros/server.py` answers
+GET /api/experiences, /<id> and /new (or /<id>/edit) with.
 """
-from flask import abort, current_app
+from flask import abort
 from markupsafe import Markup
-from careeros import users, vault
+from careeros import vault
 from careeros.web.markdown import render_markdown
-from careeros.web.ui import page
 
 EMPTY_STATE = 'No positions yet — add your first one'
 
@@ -71,11 +75,3 @@ def editor_context(data, companies, tags, can_edit_shared=True):
     # control only when they may; picking a registered tag is a write to
     # the position itself and stays open to everybody.
     return dict(exp=data, companies=companies, tags=tags, can_edit_shared=can_edit_shared)
-
-def form(identifier=None):
-    root = current_app.config['VAULT_PATH']
-    # Finding 8: the request's one principal, and a refusal rather than
-    # an unscoped read when there is none.
-    user = users.request_principal(root)
-    context = form_context(root, identifier, users.owner(user), users.is_admin(user))
-    return page('Edit position' if identifier else 'Add position', 'experiences', 'experience_form.html', **context)

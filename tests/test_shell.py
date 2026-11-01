@@ -104,7 +104,11 @@ def test_mobile_breakpoint_css_in_served_stylesheet(client):
     html = response.get_data(as_text=True)
     assert f'@media (max-width: {theme.MOBILE_BREAKPOINT}px)' in html
     assert f'@media(max-width:{theme.MOBILE_BREAKPOINT}px)' in html
-    assert '.grid {grid-template-columns:1fr;}' in html
+    # One rule out of that block, so the breakpoint is proven to carry
+    # something. The form grid it used to name went with the Jinja
+    # experience form (2026-11-01); the board's phone layout is what the
+    # one remaining Jinja page actually needs it for.
+    assert '.kanban {flex-direction:column;}' in html
 
 
 def test_no_hardcoded_colors_in_mobile_css():

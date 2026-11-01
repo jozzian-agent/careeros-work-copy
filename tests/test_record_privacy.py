@@ -629,7 +629,8 @@ def test_the_directory_count_is_the_universe_and_not_another_users_board(clients
         assert counts == {company['id']: 2}, key
 
 
-# --- The pages rendered without a React build follow the same rules ----
+# --- The one page rendered without a React build, and the classification
+# --- contexts the React surfaces read, follow the same rules ------------
 
 def test_the_jinja_board_is_headed_my_jobs_and_holds_only_the_readers_own(clients, records):
     """`/jobs` falls back to a Jinja rendering when there is no React
@@ -642,29 +643,31 @@ def test_the_jinja_board_is_headed_my_jobs_and_holds_only_the_readers_own(client
             assert (title in html) is (other == key)
 
 
-def test_the_jinja_pages_offer_a_new_tag_to_the_admin_only(clients, records):
+def test_the_classification_contexts_offer_a_new_tag_to_the_admin_only(clients, records):
+    """2026-11-01: the two Jinja pages this used to read the markup of (the
+    job classification sub-page and the experience add/edit form) are gone,
+    replaced by the Edit classification and Add position surfaces that read
+    the JSON below. The rule is the same one and it lives in the same
+    place: `can_edit_shared` on the context, which is what decides whether
+    a surface draws the propose-a-new-tag control at all."""
     job = {key: records['jobs'][key]['id'] for key in ('admin', 'one')}
     position = {key: records['positions'][key]['id'] for key in ('admin', 'one')}
-    # The control's own markup, not the bare id: both pages' inline
-    # scripts name the same ids, so a substring check would match the
-    # script whether or not the control is rendered.
-    for key, present in (('admin', True), ('one', False)):
-        taxonomy = body(clients[key].get(f'/jobs/{job[key]}/taxonomy'))
-        assert ('<input id="new-tag-input"' in taxonomy) is present
-        assert ('<select id="new-tag-facet"' in taxonomy) is present
-        assert ('propose a new value' in taxonomy) is present
-        assert ('Only the admin adds new values' in taxonomy) is not present
-        # Adding a tag the registry already holds stays available to
-        # everybody, so the button and the registry select never go.
-        assert 'id="add-tag"' in taxonomy and 'id="tag-select"' in taxonomy
-        form = body(clients[key].get(f'/experiences/{position[key]}/edit'))
-        assert ('<input data-new-tag=' in form) is present
+    for key, may in (('admin', True), ('one', False)):
+        taxonomy = clients[key].get(f'/api/jobs/{job[key]}/taxonomy').get_json()
+        assert taxonomy['can_edit_shared'] is may
+        # Picking a value the registry already holds stays available to
+        # everybody, so the registry itself is always sent.
+        assert 'facets' in taxonomy['tag_registry']
+        form = clients[key].get(f'/api/experiences/{position[key]}/edit').get_json()
+        assert form['can_edit_shared'] is may
+        assert 'facets' in form['tags']
 
 
-def test_the_jinja_pages_404_on_another_users_record(clients, records):
-    assert clients['two'].get(f"/jobs/{records['jobs']['one']['id']}/taxonomy").status_code == 404
+def test_the_classification_contexts_404_on_another_users_record(clients, records):
     assert clients['two'].get(
-        f"/experiences/{records['positions']['one']['id']}/edit").status_code == 404
+        f"/api/jobs/{records['jobs']['one']['id']}/taxonomy").status_code == 404
+    assert clients['two'].get(
+        f"/api/experiences/{records['positions']['one']['id']}/edit").status_code == 404
 
 
 # --- A record with no owner is the admin's, which is what the migration

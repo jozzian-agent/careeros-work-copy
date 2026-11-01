@@ -39,9 +39,42 @@ export async function mockExperiencePage(page, body) {
   await page.route('**/api/experiences/*?view=page', (route) => route.fulfill({ json: body }));
 }
 
-// Mocks GET /api/experiences/new (the Edit position popup's tag registry).
+// Mocks GET /api/experiences/new, which is one payload with two readers:
+// the Edit position popup's tag registry and the whole Add position form
+// context (companies, registry, can_edit_shared).
 export async function mockExperienceTagsRegistry(page, body) {
   await page.route('**/api/experiences/new', (route) => route.fulfill({ json: body }));
+}
+
+// Mocks POST /api/experiences (Add position's Save), recording each
+// request's parsed body. The glob is the bare collection URL, so the list
+// page's own `?view=page` read is untouched.
+export async function mockCreateExperience(page, { status = 201, body = { id: 'EXP-009' } } = {}) {
+  const requests = [];
+  await page.route('**/api/experiences', (route) => {
+    if (route.request().method() !== 'POST') {
+      route.fallback();
+      return;
+    }
+    requests.push(route.request().postDataJSON());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
+// Mocks POST /api/experiences/<id>/link-company. `responses` is consumed in
+// order, one per call, so a spec can script "answers with a suggestion,
+// then creates" the way the real endpoint does.
+export async function mockLinkCompany(page, responses) {
+  let call = 0;
+  const requests = [];
+  await page.route('**/api/experiences/*/link-company', (route) => {
+    const next = responses[Math.min(call, responses.length - 1)];
+    call += 1;
+    requests.push({ url: route.request().url(), body: route.request().postDataJSON() });
+    route.fulfill({ status: next.status ?? 200, json: next.body });
+  });
+  return requests;
 }
 
 // Mocks GET /api/companies?view=page (the Companies list page). The glob

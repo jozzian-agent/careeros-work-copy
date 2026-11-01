@@ -119,6 +119,11 @@ keys today:
 - `allJobs.*` — the All jobs tab.
 - `companies.*` — the Companies directory, both views.
 - `experiences.*` — the Experiences list.
+- `addPosition.*` — the Add position page: its back link, title, the two
+  actions of its sticky bar, the company link states and the three
+  required-field messages. The field labels inside it are not here: they
+  live in the shared `components/PositionFields.jsx`, which follows the
+  "shared components keep their English inline" rule below.
 - `common.*` — the exception to surface-first naming: a string two
   surfaces render identically, in the same role. `common.retry` is the
   button every list page's load error offers; `common.jobs.*` are the

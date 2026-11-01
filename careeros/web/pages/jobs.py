@@ -438,9 +438,15 @@ def job_context(job, company, function_labels, llm_pending=False, isic_sections=
     )
 
 def taxonomy_context(root, identifier, owner=None, can_edit_shared=True):
-    """Taxonomy sub-page (approved wireframe 2026-10-07): function (ESCO),
-    the company's ISIC sectors read-only, and controlled-vocabulary tags.
-    No provenance display per the owner's decision."""
+    """The job's classification: function (ESCO), the company's ISIC
+    sectors read-only, and controlled-vocabulary tags. No provenance
+    display per the owner's decision.
+
+    Read by `GET /api/jobs/<id>/taxonomy`, which the React Job detail
+    page's Edit classification popup is the one caller of. The Jinja
+    sub-page this context was written for (`job_taxonomy.html`) was
+    orphaned by that popup and removed 2026-11-01; the context is not,
+    because the popup reads exactly this shape."""
     job = vault.load_job(root, identifier, owner)
     if job is None:
         abort(404)
@@ -468,11 +474,3 @@ def classification_context(job, company, function_labels, isic_sections, tag_lab
         # when they may, rather than leaving a button that answers 403.
         can_edit_shared=can_edit_shared,
     )
-
-def taxonomy(identifier):
-    root = current_app.config['VAULT_PATH']
-    # Finding 8: the request's one principal, and a refusal rather than
-    # an unscoped read when there is none.
-    user = users.request_principal(root)
-    context = taxonomy_context(root, identifier, users.owner(user), users.is_admin(user))
-    return page(f"Classification · {context['job'].get('title', 'Job')}", 'jobs', 'job_taxonomy.html', **context)

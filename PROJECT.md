@@ -832,6 +832,40 @@ never aborts) under 3 G free, and no longer swallows its own abort: an
 unreachable LLM host still skips fetch, export and classify as one, but
 the owner now hears about it on Telegram instead of only in the log.
 
+2026-11-01: adding a position is a page, and Jinja is down to the sign-in
+set ([surface](docs/surfaces/experiences.md),
+[components](docs/decisions/design-system.md)). The owner's decision of
+the day: **a short add form is a dialog and a long multi-section form is a
+page of its own**, and Add position is the example — three `SectionCard`s
+(Role, What you did, Tags) in a 920px column under a back link and the
+H1, over a sticky Save position / Cancel bar. It carries the whole field
+set the Jinja form carried and one field fewer: there is no salary row,
+because compensation is vault-file-only and a disabled control that says
+so is a control standing for nothing. Nothing was endpointed: the save is
+`POST /api/experiences`, which already stamped the owner and was already
+"the one and only path that creates one", and a company the position has
+to bring into existence goes through the existing
+`POST /api/experiences/<id>/link-company` right after it, because that
+endpoint needs a position to link to. The field set itself is shared
+(`components/PositionFields.jsx`, with the payload rules in
+`src/positions.js`) so the owner's follow-up — move edit onto the same
+page — is a change of caller rather than a second copy; `EditPositionPopup`
+is deliberately left on its own copy until then.
+
+Three Jinja routes went with it, and two of them were already orphans
+nothing in the app linked to. `/experiences/new` is the React page.
+`/experiences/<id>/edit` is gone (the Experience detail page has edited in
+a popup since JOZ-280) and so is `/jobs/<id>/taxonomy` (the Job detail
+page's Edit classification popup, same ticket), along with
+`experience_form.html`, `job_taxonomy.html` and the three CSS rules only
+the form used. **The three JSON endpoints behind them stay exactly as they
+are** — `GET /api/experiences/new`, `GET /api/experiences/<id>/edit` and
+`GET /api/jobs/<id>/taxonomy` — because the React page and the two popups
+read precisely those shapes. What that leaves is the end of R5: the only
+Jinja pages in the product are the four sign-in ones (login, forgot
+password, accept invite, reset password), plus `/jobs`, which keeps its own
+JOZ-273 dual-mode fallback for a checkout with no `frontend/dist`.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -952,7 +986,8 @@ state survives a restart.
 | Preferences | Bring yourself |
 | Notes | Reading a job, company browse; every note in one place, each linked to its record ([surface](docs/surfaces/notes.md)) |
 | Log in | The way into every other surface. Email, password, one message for a refused attempt. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [contracts](docs/surfaces/json-api.md)) |
-| JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md) |
+| Add position | Bring yourself. The one place a position is written: a page rather than a dialog, because the field set is three cards long. Added 2026-11-01, replacing the Jinja form ([surface](docs/surfaces/experiences.md)) |
+| JSON page views, taxonomy and experience forms | Existing page flows for the React migration; [contracts and inventory](docs/surfaces/json-api.md). Every one of them is read by React since 2026-11-01; none mirrors an HTML route any more |
 | Accounts command line | Creating, listing, resetting, disabling and enabling an account, since the first admin cannot sign in to create themselves. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md), [schemas](docs/schemas.md)) |
 | Health check | `GET /api/health`, the one unauthenticated read: is the process up. Added M1, 2026-10-17 ([surface](docs/surfaces/accounts.md)) |
 | Test-mail command line | Proving an environment can send mail at all. Sends one test mail to an address the owner names. Since 2026-10-26 it is no longer the only mail the app sends: invites and password-reset links go through the same module ([runbook](deploy/RUNBOOK.md), "Mail, and the one command that proves it") |
@@ -974,7 +1009,7 @@ Interviews is removed from the navigation until it exists. Tab order is My Jobs,
 | Add to my jobs | On a card of the All jobs tab that is not on my board; the existing promote action under the user's word. It creates my own copy of the posting in New and never moves the record it copied (B2, 2026-10-19) | Everyone |
 | Remove from my board | On the card | Everyone |
 | Edit preferences | One edit mode on Search (proposed name: Preferences); Edit criteria → Done / Cancel, batch D | Everyone |
-| Add an experience | Experiences | Everyone |
+| Add an experience | The Add position page, reached from Experiences | Everyone |
 | Add a note | The Notes section of a job or a company, in its own window | Everyone |
 | Re-extract | The extraction row on a job, enabled once posting text exists | Owner |
 | Send feedback | One link in the footer | Everyone |
@@ -1195,7 +1230,7 @@ text) is untouched.
 | Notes appear twice on the company page | One notes field. DONE 2026-10-09 (read-only markdown card removed; the editable textarea is the one field). Superseded 2026-10-14 by the owner round: notes are a list of titled notes with one window and one Notes page, so there is one notes surface rather than one field. |
 | Opportunities, Experience, Posting URL | Jobs, Experiences, Add a job by link or title. DONE 2026-10-10 (company page headings renamed; intake label renamed); the inline Posting URL field itself was later removed, so intake now lives only in the add-job popup opened from the plus button (JOZ-279). |
 | Custom fields JSON on the company | Check what reads it, then delete if nothing does. DONE 2026-10-09 (nothing rendered it; form control removed, stored data preserved on every company write path). |
-| Interviews tab, the taxonomy sub-page text, an empty Updated line | Delete until the feature exists. Interviews tab and the empty Updated line DONE 2026-10-09 (nav entry, route, and page deleted; Updated span removed from Search). The taxonomy sub-page text stays: those pages exist. |
+| Interviews tab, the taxonomy sub-page text, an empty Updated line | Delete until the feature exists. Interviews tab and the empty Updated line DONE 2026-10-09 (nav entry, route, and page deleted; Updated span removed from Search). The taxonomy sub-pages are gone too, each one orphaned by the Edit classification popup that replaced it: the company's with B6 and the job's on 2026-11-01. |
 | Five Edit buttons on Search | One edit mode — batch D (JOZ-270), implemented; [approved sketches and live checks](docs/surfaces/preferences.md). Owner implementation click-test pending. |
 | AI summary, AI responsibilities and original description on a job | Summary first, collapsed original directly below — batch D (JOZ-271); [approved sketches and live checks](docs/surfaces/job.md). Owner implementation click-test pending. |
 | Chunk 4, JOB and CO identifiers | Delete from the interface. DONE 2026-10-10 (shell tag and its CSS removed; JOB/CO/EXP id labels removed from job, company, taxonomy and experience headers; ids stay in URLs and data attributes). |
@@ -1479,5 +1514,5 @@ The React plan uses R0–R6, distinct from the product milestones M1–M7.
 - R2: Search page — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md). Search page itself done 2026-10-13 (JOZ-283).
 - R3: Job detail — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).
 - R4: Companies and company detail — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md). Company detail done 2026-10-12 (JOZ-280); Companies list done 2026-10-13 (JOZ-283).
-- R5: Experiences, forms and taxonomy pages — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md). Experience detail done 2026-10-12 (JOZ-280); Experiences list done 2026-10-13 (JOZ-283). Forms and taxonomy pages stay Jinja, out of scope for both tickets.
+- R5: Experiences, forms and taxonomy pages — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md). Experience detail done 2026-10-12 (JOZ-280); Experiences list done 2026-10-13 (JOZ-283). Add position done 2026-11-01, which also removed the orphaned Jinja edit form and job taxonomy page; with that R5 is complete and the only Jinja pages left are the four sign-in ones.
 - R6: Component registry and retirement of absorbed styling work — [external plan](../careeros-dashboard-plans/2026-10-10_gestalt-react-frontend.md).

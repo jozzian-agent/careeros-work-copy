@@ -642,6 +642,13 @@ def create_app(vault: str | Path | None = None) -> Flask:
         app.add_url_rule('/all-jobs', 'react_all_jobs', react_index)
         app.add_url_rule('/jobs/<identifier>', 'react_job_detail', react_index)
         app.add_url_rule('/experiences', 'react_experiences', react_index)
+        # Add position (2026-11-01): the Jinja add/edit form is gone and
+        # this is the page that replaces it, so the route joins the
+        # no-coexistence block rather than staying a Jinja fallback --
+        # there is no Jinja form left to fall back to. Registered before
+        # the detail rule below, which would otherwise read "new" as a
+        # record id (Werkzeug prefers the static segment either way).
+        app.add_url_rule('/experiences/new', 'react_experience_new', react_index)
         app.add_url_rule('/experiences/<identifier>', 'react_experience_detail', react_index)
         app.add_url_rule('/companies', 'react_companies', react_index)
         app.add_url_rule('/companies/<identifier>', 'react_company_detail', react_index)
@@ -652,9 +659,14 @@ def create_app(vault: str | Path | None = None) -> Flask:
         app.add_url_rule('/notes', 'react_notes', react_index)
         app.add_url_rule('/assets/<path:filename>', 'react_assets', lambda filename: send_from_directory(react_dist / 'assets', filename))
 
-    app.add_url_rule('/experiences/new', 'experience_new', experiences.form)
-    app.add_url_rule('/experiences/<identifier>/edit', 'experience_edit', experiences.form)
-    app.add_url_rule('/jobs/<identifier>/taxonomy', 'job_taxonomy', jobs.taxonomy)
+    # 2026-11-01: the last three Jinja pages that were not the sign-in set
+    # are gone. `/experiences/new` is the React Add position page above;
+    # `/experiences/<id>/edit` was already orphaned (the React Experience
+    # detail page edits in a popup and nothing linked to it); and
+    # `/jobs/<id>/taxonomy` was orphaned the same way by the Edit
+    # classification popup. The JSON endpoints behind all three stay:
+    # `GET /api/experiences/new`, `GET /api/experiences/<id>/edit` and
+    # `GET /api/jobs/<id>/taxonomy` are what the React surfaces read.
 
     # M1 sessions. A signed cookie holding one user id: HttpOnly so no
     # script can read it, SameSite=Lax so another site cannot post with

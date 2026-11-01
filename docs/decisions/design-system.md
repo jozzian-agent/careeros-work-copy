@@ -269,6 +269,13 @@ somewhere new, or one removed.
 | Company "Needs your input" chip | **Removed** | The header chip and its `#needs-your-input` anchor go with the card. `NeedsInputChip` keeps its one caller, the Job page. |
 | Classification actions | "Set it yourself" (`color="gray" size="sm"`) and "Try again" (`color="transparent" size="sm"`), inside the collapsed Classification section, shown only while something reads Unknown | Transparent is the quiet the brief asks for: a retry is an offer, not the thing the owner came for. While both values are known the section shows the plain "Edit classification" instead -- two labels for one popup would be one element too many. |
 
+## Where a form lives, 2026-11-01
+
+Owner decision: a short add form is a dialog, and a long multi-section
+form is a page of its own -- Add position (`pages/AddPosition.jsx`, three
+`SectionCard`s in a 920px column with a sticky Save/Cancel bar) is the
+example.
+
 ## Log in and the logout affordance (M1)
 
 Proposed 2026-10-17 with the accounts milestone. Two new visible

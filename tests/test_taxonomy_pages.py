@@ -1,6 +1,12 @@
-"""Taxonomy sub-pages (approved wireframe 2026-10-07): job and company
-classification pages render, link from detail pages, and persist through
-the existing APIs. Synthetic fixtures only; never touches a real vault."""
+"""Classification: both standalone taxonomy pages are retired, and the
+JSON the popups that replaced them read is still answered and still
+persists. Synthetic fixtures only; never touches a real vault.
+
+The company page went with B6 and the job page on 2026-11-01, each one
+orphaned by the Edit classification popup on the React detail page. What
+the removals leave behind is pinned here as two 404s; the save
+round-trips below are unchanged, because they always went through the
+JSON API rather than through either page's own markup."""
 from pathlib import Path
 import shutil
 
@@ -24,12 +30,17 @@ def client(root):
     return create_app(root).test_client()
 
 
-def test_job_taxonomy_page_renders(client, root):
+def test_job_taxonomy_page_is_retired(client, root):
+    # 2026-11-01: the standalone job classification page is gone, flag on
+    # or off, like the company one below. Nothing in the React app linked
+    # to it -- the Job detail page's Edit classification popup is what
+    # edits a job's classification -- and the JSON endpoint it shared its
+    # context with stays, which is the next assertion.
     job = vault.save_job(root, {'title': 'AI PM', 'url': 'https://fiction.example/pm'})
-    html = client.get(f'/jobs/{job["id"]}/taxonomy').text
-    assert 'Function (ESCO)' in html
-    assert 'Sector' in html and 'belongs to the company' in html
-    assert 'Tags' in html
+    assert client.get(f'/jobs/{job["id"]}/taxonomy').status_code == 404
+    data = client.get(f'/api/jobs/{job["id"]}/taxonomy').json
+    assert [key for key in ('job', 'function_options', 'tags', 'tag_registry')
+            if key not in data] == []
 
 
 def test_company_taxonomy_page_is_retired(client, root):
@@ -42,17 +53,16 @@ def test_company_taxonomy_page_is_retired(client, root):
     assert client.get(f'/companies/{company["id"]}/taxonomy').status_code == 404
 
 
-def test_job_taxonomy_unknown_id_404(client):
-    assert client.get('/jobs/JOZ-999999/taxonomy').status_code == 404
+def test_job_taxonomy_api_unknown_id_404(client):
+    assert client.get('/api/jobs/JOZ-999999/taxonomy').status_code == 404
 
 
-def test_job_detail_omits_standalone_taxonomy_link(client, root):
+def test_job_detail_reads_its_classification_from_the_api(client, root):
     # JOZ-280: the React Job detail page's "Edit classification" opens the
-    # Edit criteria popup inline (approved Phase A wireframe), rather than
-    # navigating to the standalone /jobs/<id>/taxonomy page the old Jinja
-    # detail.html linked to; that page itself is untouched and still
-    # reachable directly, just no longer linked from the job detail header.
-    # Classification data for the popup comes from the unchanged JSON API.
+    # popup inline (approved Phase A wireframe) rather than navigating to
+    # the standalone /jobs/<id>/taxonomy page the old Jinja detail.html
+    # linked to. That page is gone as of 2026-11-01; this is the endpoint
+    # the popup reads instead.
     job = vault.save_job(root, {'title': 'AI PM', 'url': 'https://fiction.example/pm2'})
     data = client.get(f'/api/jobs/{job["id"]}/taxonomy').json
     assert data['job']['id'] == job['id']
