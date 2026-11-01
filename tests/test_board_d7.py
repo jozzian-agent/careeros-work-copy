@@ -21,8 +21,11 @@ def job(identifier='JOB-001', **fields):
     return {'id': identifier, 'title': 'Builder', 'status': 'new'} | fields
 
 
-def context(entries, today=TODAY):
-    return jobs.board_context(list(entries), [], {}, today=today)
+def context(entries, today=TODAY, is_admin=True):
+    # is_admin=True is the reader these cases are about: needs-attention
+    # exists only for the admin since the owner ruling of 2026-11-01, and
+    # what the ruling changes is covered in tests/test_job_page_context.py.
+    return jobs.board_context(list(entries), [], {}, today=today, is_admin=is_admin)
 
 
 def moved(*pairs):

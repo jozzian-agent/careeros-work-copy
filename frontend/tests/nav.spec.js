@@ -41,6 +41,29 @@ test('nav shows every link in order with correct hrefs', async ({ page }) => {
   }
 });
 
+// Company requests is the admin's tab and the one nav entry that is not
+// everybody's: answering a request writes a shared company, which is the
+// admin's alone (M2, decision D3). The nav asks /api/me who this is; the
+// tests above run without that route mocked, which is a failed read and
+// therefore the not-admin answer -- so they already pin its absence.
+test('the Company requests tab is the admin only', async ({ page }) => {
+  await page.route('**/api/me', (route) => route.fulfill({ json: { id: 'USER-001', role: 'admin' } }));
+  await page.goto('/');
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  const tab = nav.getByRole('link', { name: 'Company requests', exact: true });
+  await expect(tab).toBeVisible();
+  await expect(tab).toHaveAttribute('href', '/company-requests');
+  await expect(nav.getByRole('link')).toHaveCount(NAV_PAGES.length + 1);
+});
+
+test('a tester gets the nav without it', async ({ page }) => {
+  await page.route('**/api/me', (route) => route.fulfill({ json: { id: 'USER-002', role: 'tester' } }));
+  await page.goto('/');
+  const nav = page.getByRole('navigation', { name: 'Main' });
+  await expect(nav.getByRole('link')).toHaveCount(NAV_PAGES.length);
+  await expect(nav.getByRole('link', { name: 'Company requests', exact: true })).toHaveCount(0);
+});
+
 test('Search is marked as the current page on /, others are not', async ({ page }) => {
   await page.goto('/');
   const nav = page.getByRole('navigation', { name: 'Main' });

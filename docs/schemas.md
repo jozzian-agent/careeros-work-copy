@@ -515,9 +515,12 @@ One user asking for the company their posting names (owner ruling
 2026-11-01). A company is shared and only the admin may write one, so
 the create form on the job page's company ask answered 403 for every
 other user and left them at a dead end on their own job. The ask is
-answered by filing one of these instead; resolving it into a company and
-a link is a separate change, and nothing but the admin ever writes the
-shared companies record.
+answered by filing one of these instead, and nothing but the admin, or a
+pass running on the admin's behalf, ever writes the shared companies
+record.
+
+Resolving one is the nightly pass and the admin review list, both
+described in [Company requests](surfaces/company-requests.md).
 
 | Field | Type / meaning |
 | --- | --- |
@@ -526,9 +529,9 @@ shared companies record.
 | job_id | Nonempty string. The job the request came from |
 | name | The requested company name, as `vault.validate_company_name` accepts it: stripped, 2 to 200 characters, no control characters, no `<` or `>`, and something left after punctuation is collapsed. The one gate on what a resolution may turn into a shared company name |
 | created_at | ISO date the request was filed, server-local |
-| status | One of `filed`, `linked`, `created`, `needs_admin`, `rejected`. Only `filed` is written today, and it is the one that counts as open |
-| resolved_company_id | `CO-###` or null. The company the request ended up pointing at; nothing writes it yet |
-| resolution_note | String. Why the resolution went the way it did; nothing writes it yet |
+| status | One of `filed`, `linked`, `created`, `needs_admin`, `rejected`. `filed` is what a filing writes and the one that counts as open. The resolution writes the other four: `linked` for a name that matched a company already on file, `created` for one it brought into existence, `needs_admin` for a name nothing matched or more than one company matched, `rejected` for a request whose job was deleted or that the admin refused. The three settled ones are never touched again, and a request in one of them answers 409 to a second approve |
+| resolved_company_id | `CO-###` or null. The company the request ended up pointing at, written by every outcome that produced a link |
+| resolution_note | String. Why the resolution went the way it did. Written for a request whose job was deleted, and for a rejection the admin gave a reason for |
 
 POST `/api/jobs/<id>/company-request` with `{"name": "..."}` files one.
 It is open to every signed-in user, the admin included, and it touches no
@@ -547,3 +550,29 @@ Requests are read through `vault.Owner` like a job, with one widening:
 the admin reads every request, because they are the one person who can
 resolve one. Nobody else reads anybody else's, and a request this reader
 may not see answers exactly as one that is not there.
+
+What a resolution writes, whichever surface ran it
+(`careeros/company_requests.py` is the one module both call):
+
+- the request, as the table above says.
+- the job each request came from, where it is still waiting for a
+  company: `company_id`, `company_link_state: linked`,
+  `company_link_reason: manual`, `company_review: null` and the three
+  link fields marked `user` in `field_provenance`. Field for field the
+  write `POST /api/jobs/<id>/resolve-review` makes, and `manual` for the
+  same reason: the basis of the link is a person naming the company, not
+  an extraction matching one. The provenance is also what keeps a later
+  `POST /api/jobs/<id>/resolve` from undoing the answer.
+- the company, only where one is created. Through
+  `org_intake.identity.apply_review`, which is the create path the job
+  page's own "create and link" uses, so the record is indistinguishable
+  from one created there: a name, `name_source: owner`, and no
+  identifier, because a group of requests can name several postings on
+  several ATS tenants and no one of their URLs belongs to the company.
+  No requester is stamped on it -- a company carries no owner by design
+  (decision D3), and who asked stays on the private request.
+
+A job that already carries a company is never relinked. The owner may
+have settled the ask themselves between the filing and the resolution,
+and `company_id` on a settled job carries owner provenance; the request
+is answered against the company that job really points at.

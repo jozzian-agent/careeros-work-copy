@@ -534,6 +534,49 @@ journalctl -u careeros-deploy@prod --since '1 hour ago' --no-pager
   timers, and the `OnBootSec` run a few minutes after the box comes up
   deploys whatever landed while it was off.
 
+## The company request pass, which is not installed by setup-vps.sh
+
+`careeros-company-requests.timer` answers the company requests users
+file: once a night at 03:30, with up to half an hour of jitter, running
+`scripts/resolve_company_requests.py` out of the production release
+against the production vault
+([surface](../docs/surfaces/company-requests.md)).
+
+Unlike every other unit in `deploy/systemd/`, this pair is **not placed
+by `setup-vps.sh`**. Draining the request queue on a timer is a decision
+about live records, the same kind of decision as starting production, so
+the owner copies the two files and enables the timer by hand. Both files
+carry the reason in their own header.
+
+Install it from a release that is already on the box:
+
+```bash
+sudo install -m 0644 \
+  /srv/careeros/prod/app/current/deploy/systemd/careeros-company-requests.service \
+  /srv/careeros/prod/app/current/deploy/systemd/careeros-company-requests.timer \
+  /etc/systemd/system/
+sudo systemctl daemon-reload
+# One pass by hand first, and read what it says, before putting it on a timer.
+sudo systemctl start careeros-company-requests
+journalctl -u careeros-company-requests -n 50 --no-pager
+sudo systemctl enable --now careeros-company-requests.timer
+systemctl list-timers 'careeros-company-requests*'
+```
+
+What the journal says is counts and nothing else -- `resolved N
+request(s): … linked, … created, … needs_admin, … rejected`. No company
+name, no job id and no user id is ever logged: the journal is read by
+whoever can read the journal, and a requested name is a fact about one
+person's private record. A pass that finds an empty queue writes nothing
+and exits in well under a second.
+
+By default the pass creates no company. A name it cannot match is parked
+for the admin, who answers it on the Company requests page. Setting
+`COMPANY_REQUEST_AUTO_CREATE=1` in `/etc/careeros/prod.env` makes the
+pass create the company itself, which turns a name one user typed into a
+shared record nobody reviewed -- see the note beside it in
+`.env.example` before turning it on.
+
 ---
 
 # Rollback

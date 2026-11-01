@@ -166,16 +166,16 @@ def search_so_far(entries):
     return stats
 
 
-def page_context(root, owner=None):
+def page_context(root, owner=None, *, is_admin):
     # list_jobs is the board read: this user's own records that are on a
     # board. The universe-only half (the feed pool's `in_pipeline: false`
     # records, CAREER-72/74) is excluded there rather than here, because
     # every other board reader wants the same answer -- see vault.list_jobs.
     return board_context(vault.list_jobs(root, owner), vault.visible_companies(root, owner),
-                         vault.function_label_map(root))
+                         vault.function_label_map(root), is_admin=is_admin)
 
 
-def universe_context(root, owner=None):
+def universe_context(root, owner=None, *, is_admin):
     """The All jobs payload (B2, CAREER-89).
 
     The same shape the board reads, over every job that is not private to
@@ -223,15 +223,35 @@ def universe_context(root, owner=None):
             job = vault.public_posting_projection(job)
         entries.append(job | {'on_my_board': mine and vault.on_board(job)})
     context = board_context(entries, vault.visible_companies(root, owner),
-                            vault.function_label_map(root))
+                            vault.function_label_map(root), is_admin=is_admin)
     return context | {'empty': UNIVERSE_EMPTY_STATE}
 
-def board_context(entries, companies, function_labels, today=None):
-    """Build the board context without I/O or mutating input records."""
+def board_context(entries, companies, function_labels, today=None, *, is_admin):
+    """Build the board context without I/O or mutating input records.
+
+    `is_admin` is whether this reader may write the shared half
+    (`server.may_edit_shared`), and it decides one thing here: whether
+    needs-attention exists for them at all.
+
+    Owner ruling 2026-11-01: "needs your input should not be displayed
+    to non-admins at all. Not on cards, not on the filter and so on."
+    Every reason `needs_attention` fires is a company link or a reading
+    that only the admin can move on, so for everybody else the flag is
+    an alarm about work they cannot do. It is answered False here rather
+    than hidden in the browser, because the payload is the authoritative
+    answer and a client that ignores a flag is still a client holding
+    it. `is_admin` rides along so the filter chip can be left out
+    entirely rather than rendered with a count of zero.
+
+    The parameter has no default on purpose. A caller that forgets it
+    gets a TypeError, which is the fail-closed answer: the alternative
+    is a default, and either default is wrong for half the callers.
+    """
     today = today or date.today()
     function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
                               key=lambda pair: pair[1].casefold())
-    entries = [job | {'needs_attention': needs_attention(job)} for job in entries]
+    entries = [job | {'needs_attention': needs_attention(job) if is_admin else False}
+               for job in entries]
     # The two payload keys that are about one person's own search rather
     # than about the postings in front of them. `entries` here may be the
     # All jobs tab's, which carries universe-only records (the feed pool,
@@ -267,6 +287,12 @@ def board_context(entries, companies, function_labels, today=None):
         end_note_title=vault.END_NOTE_TITLE,
         closed_review=closed_review(board_entries, today),
         search_so_far=search_so_far(board_entries),
+        # Whether needs-attention exists for this reader (owner ruling
+        # 2026-11-01, see the docstring). The board reads it to leave the
+        # "Needs attention" chip out of the filter bar altogether: a
+        # count of zero would still render a chip, and a chip that can
+        # never match anything is a control that lies.
+        is_admin=bool(is_admin),
         empty=EMPTY_STATE,
         function_options=function_options,
         # The one company-size scale, for the board's Company size facet:
@@ -302,7 +328,10 @@ def build_page():
     # chance to get None, and `page_context(root, None)` is an unscoped
     # read of every job in the vault; `request_principal` refuses
     # instead, like the other two page handlers here.
-    context = page_context(root, users.owner(users.request_principal(root)))
+    principal = users.request_principal(root)
+    # The one principal, read once and asked both questions (finding 8):
+    # whose records this is, and whether needs-attention exists for them.
+    context = page_context(root, users.owner(principal), is_admin=users.is_admin(principal))
     return page('My Jobs', 'jobs', 'jobs.html', **context)
 
 def show_remote_chip(job):

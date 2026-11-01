@@ -3,6 +3,8 @@
 `job_context` is pure, so every case here is a record pair rather than a
 vault fixture; the two tests that go through the API use tmp_path vaults.
 """
+import pytest
+
 from careeros import server, vault
 from careeros.web.pages import jobs
 
@@ -181,6 +183,50 @@ def test_needs_attention_mirrors_the_pending_company_ask():
     assert jobs.needs_attention(PENDING | {'employer_named_in_posting': None}) is False
     for state in ('stub', 'fetched'):
         assert jobs.needs_attention(PENDING | {'ingest_state': state}) is False
+
+
+# --- needs_attention is the admin's alone ---------------------------------
+#
+# Owner ruling 2026-11-01: "needs your input should not be displayed to
+# non-admins at all. Not on cards, not on the filter and so on." Every
+# reason the flag fires is a company link or a reading only the admin can
+# move on, so for everybody else it is an alarm about work they cannot do.
+# Answered in the payload, not hidden in the browser.
+
+def board(entries, is_admin):
+    return jobs.board_context(list(entries), [], {}, is_admin=is_admin)
+
+
+def test_the_board_payload_says_which_reader_it_is_for():
+    assert board([PENDING], is_admin=True)['is_admin'] is True
+    assert board([PENDING], is_admin=False)['is_admin'] is False
+
+
+def test_a_non_admin_entry_never_needs_attention():
+    """Not "no chip for them": the flag itself is False, so a client that
+    reads the payload and draws its own chip still draws nothing."""
+    assert board([PENDING], is_admin=True)['entries'][0]['needs_attention'] is True
+    assert board([PENDING], is_admin=False)['entries'][0]['needs_attention'] is False
+
+
+def test_the_admin_keeps_todays_behaviour_exactly():
+    """Every other reason the flag fires, for the reader it still fires
+    for: an unresolved review, an ingest that got stuck, a provisional
+    title."""
+    for job in (PENDING,
+                PENDING | {'company_link_state': 'needs_review'},
+                PENDING | {'ingest_state': 'fetch_failed'},
+                {'field_status_reason': {'title': 'heading_was_not_a_role'}}):
+        assert board([job], is_admin=True)['entries'][0]['needs_attention'] is True
+        assert board([job], is_admin=False)['entries'][0]['needs_attention'] is False
+
+
+def test_the_reader_has_to_be_named():
+    """Fail-closed by construction: a caller that forgets which reader
+    this payload is for gets a TypeError, not a default that is wrong for
+    half of them."""
+    with pytest.raises(TypeError):
+        jobs.board_context([PENDING], [], {})
 
 
 # --- needs_input: the company ask, already asked -------------------------

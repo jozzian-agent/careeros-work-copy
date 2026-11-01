@@ -12,6 +12,7 @@ import CompaniesList from './pages/CompaniesList.jsx';
 import CompanyDetail from './pages/CompanyDetail.jsx';
 import Notes from './pages/Notes.jsx';
 import Taxonomy from './pages/Taxonomy.jsx';
+import CompanyRequests from './pages/CompanyRequests.jsx';
 import Login from './pages/Login.jsx';
 
 // JOZ-280: the SPA now owns the detail-page URLs too (server.py mounts the
@@ -51,6 +52,12 @@ function App() {
         <Route path="/companies/:id" element={<Page currentPage="companies"><CompanyDetail /></Page>} />
         <Route path="/notes" element={<Page currentPage="notes"><Notes /></Page>} />
         <Route path="/taxonomy" element={<Page currentPage="taxonomy"><Taxonomy /></Page>} />
+        {/* The admin's company request queue. The route exists for
+            everybody, because a route that 404s and an endpoint that 403s
+            would be two different answers to one question; the page shows
+            whatever the server says, and the server says 403 to anybody
+            but the admin. The nav tab is theirs alone (see Nav.jsx). */}
+        <Route path="/company-requests" element={<Page currentPage="company-requests"><CompanyRequests /></Page>} />
       </Routes>
     </ThemeProvider>
   );

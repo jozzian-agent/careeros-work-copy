@@ -290,6 +290,36 @@ export async function mockPromote(page, { status = 200, body = { ok: true } } = 
   return requests;
 }
 
+// Mocks GET /api/me (who the session belongs to). The nav reads it for
+// one thing: whether this is the admin, which decides whether the Company
+// requests tab exists. `role` is the only key any surface reads today.
+export async function mockMe(page, { status = 200, body = { id: 'USER-001', role: 'admin' } } = {}) {
+  await page.route('**/api/me', (route) => route.fulfill({ status, json: body }));
+}
+
+// Mocks GET /api/company-requests (the admin review list's load).
+// Returns a counter so a spec can prove the page reloaded after an answer.
+export async function mockCompanyRequestsPage(page, body) {
+  const calls = { count: 0 };
+  await page.route('**/api/company-requests', (route) => {
+    calls.count += 1;
+    route.fulfill({ json: body });
+  });
+  return calls;
+}
+
+// Mocks POST /api/company-requests/<id>/approve and .../reject, recording
+// each call's URL and parsed body so a spec can assert which request was
+// answered and with which company.
+export async function mockAnswerCompanyRequest(page, action, { status = 200, body = { ok: true } } = {}) {
+  const requests = [];
+  await page.route(`**/api/company-requests/*/${action}`, (route) => {
+    requests.push({ url: route.request().url(), body: route.request().postDataJSON() });
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
 // Mocks GET /api/notes (the Notes page's load).
 export async function mockNotesPage(page, body) {
   await page.route('**/api/notes', (route) => route.fulfill({ json: body }));

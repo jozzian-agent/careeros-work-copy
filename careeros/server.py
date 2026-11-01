@@ -20,6 +20,7 @@ from careeros import tokens as link_tokens
 from org_intake import classify as sectors
 from org_intake import enrich as org_enrich
 from careeros import enrich as company_enrichment
+from careeros import company_requests
 from careeros.org_store import CompanyCreationDenied, VaultOrganisationStore
 from org_intake import identity, ats
 from org_intake.url import normalize_url
@@ -1092,95 +1093,17 @@ def create_app(vault: str | Path | None = None) -> Flask:
         (schedule_company_cascade) and the owner-triggered company Retry
         (POST /api/companies/<id>/retry, M1 audit: replaces the Backfill
         sector/size button, scoped to one company instead of sweeping all
-        of them). Same sectors_cascade/size_cascade entry points
-        backfill_sector_size uses; org_enrich.py itself stays
-        unmodified. Runs the network phase outside the write lock -- a
-        caller holding it across network I/O would starve every other
-        writer -- and applies any eligible result under the lock
-        afterward, with the same Decision-20 review-flag accounting
-        plan_backfill runs. Returns (company, applied) where company is
-        the saved record (or the unmodified record, possibly None, when
-        there is nothing eligible to run) and applied lists the cascade
-        field names ('sectors'/'size') this invocation actually wrote.
-        applied is call-fresh by construction: stored field_states can
-        carry an older run's applied_fields when a concurrent edit or an
-        owner-set value makes this invocation skip a field, so UI code
-        must use this list, never the stored states, to decide whether
-        the retry changed anything."""
-        company = storage.load_company(root, company_id)
-        if company is None or company.get('kind', 'employer') != 'employer':
-            return company, []
-        collector = org_enrich.BackfillAccounting()
-        options = company_enrichment.classification_options()
-        new_sectors, sector_flag = org_enrich.classify_sector(company, collector=collector, signals=company_enrichment.SECTOR_SIGNALS, **options)
-        size_changes, size_flag = org_enrich.classify_size(company, collector=collector, signals=company_enrichment.SIZE_SIGNALS, **options)
-        identifiers = []
-        if isinstance(new_sectors, dict):
-            identifiers.extend(new_sectors.get('identifiers', []))
-            new_sectors = new_sectors.get('sectors')
-        if size_changes and 'identifiers' in size_changes:
-            identifiers.extend(size_changes['identifiers'])
-            size_changes = {k: v for k, v in size_changes.items() if k != 'identifiers'}
-        # The cascade proposes the class alone: the numeric range is the
-        # scale the class retired (owner decision 2026-10-15), and since
-        # 2026-10-16 the capability no longer derives it for writing, so
-        # there is nothing to strip off here. The accounting below reports
-        # what it filled, and a value no write persists would have
-        # reported a fill that did not happen.
-        with write_lock:
-            current = storage.load_company(root, company_id)
-            if current is None or current.get('kind', 'employer') != 'employer':
-                return current, []
-            # A completed cascade invalidates older results, including state and accounting.
-            if current.get('enrichment', {}).get('attempted_at') != company.get('enrichment', {}).get('attempted_at'):
-                return current, []
-            for identifier in identifiers:
-                # Writable on purpose: both callers of run_company_cascade
-                # are admin-gated (the company Retry endpoint and
-                # schedule_company_cascade, which only fires when the
-                # driving job may write the shared half).
-                current = identity.add_identifier(VaultOrganisationStore(root), current,
-                    identifier['type'], identifier['value'], identifier['provenance'])
-            provenance = current.get('field_provenance', {})
-            changes = {}
-            applied = []
-            flags = current.get('review_flags', [])
-            states = dict(current.get('enrichment', {}).get('field_states', {}))
-            # `keys` is every field this signal's evidence was read
-            # against, so a stale or owner-touched one stops the write.
-            # `stored_keys` is the subset the product persists, which is
-            # what "this field is filled" can honestly mean: a company
-            # with a size_class and no size_range has a known size, since
-            # the range is the scale the class retired.
-            for field, keys, stored_keys, proposed, flag, resolved in (
-                ('sectors', ('sectors',), ('sectors',), {'sectors': new_sectors} if new_sectors else {},
-                 sector_flag, (org_enrich.FLAG_SECTOR_AMBIGUOUS, org_enrich.FLAG_SECTOR_CONFLICT)),
-                ('size', ('size_range', 'size_class'), ('size_class',), size_changes or {}, size_flag,
-                 (org_enrich.FLAG_SIZE_INCONSISTENT,)),
-            ):
-                # Size is a consistency-checked pair: discard stale evidence if either changed.
-                if any(current.get(k) != company.get(k) or provenance.get(k) == 'user' for k in keys):
-                    continue
-                eligible = {k: v for k, v in proposed.items() if not current.get(k)}
-                changes.update(eligible)
-                if eligible:
-                    applied.append(field)
-                    flags = company_enrichment._clear_flags(flags, resolved)
-                elif flag:
-                    flags = company_enrichment._merge_flags(flags, flag)
-                states[field] = {
-                    'state': 'filled' if eligible or all(current.get(k) for k in stored_keys)
-                             else 'flagged' if flag else 'exhausted',
-                    'attempted_at': storage.timestamp(),
-                    # Preserve BackfillAccounting's event/summary shape, including empty outcomes.
-                    'events': [e for e in company_enrichment.company_events(collector) if e['field'] == field],
-                    'applied_fields': list(eligible),
-                }
-            changes['review_flags'] = flags
-            changes['enrichment'] = {**current.get('enrichment', {}), 'field_states': states,
-                                    'attempted_at': storage.timestamp(),
-                                    'events': company_enrichment.company_events(collector), 'summary': collector.summary()}
-            return storage.save_company(root, changes, company_id), applied
+        of them).
+
+        The body itself is `careeros.enrich.run_cascade`, which this
+        hands its write lock to. It lives there rather than here because
+        the nightly company-request resolver owes a company it creates
+        the same cascade and has no Flask app to reach a closure in; the
+        lock is the only thing this function adds, and the behaviour and
+        the return shape are unchanged. See that function for what
+        `applied` means and why the network phase runs unlocked.
+        """
+        return company_enrichment.run_cascade(root, company_id, write_lock)
 
     def schedule_company_cascade(root, company_id):
         """M7: a rung-4 new company gets the same cascade run_company_cascade
@@ -2302,6 +2225,142 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 'job_id': job['id'], 'name': name,
                 storage.OWNER_FIELD: owner.identifier})), 201
 
+    # --- the admin review list for company requests -----------------------
+    #
+    # The nightly pass (scripts/resolve_company_requests.py) settles every
+    # request it can match. What it cannot -- a name nothing on file is, or
+    # a name more than one company is -- it parks as `needs_admin`, and
+    # these three routes are where that queue is read and answered.
+    #
+    # Admin only, all three, because resolving a request is a write to the
+    # shared companies record and that is the admin's alone (M2, decision
+    # D3). The matching, the creation and the job writes are
+    # `careeros.company_requests`, the same module the nightly pass calls,
+    # so an approval by hand and a nightly match write the same fields.
+
+    def company_request_for_admin(identifier):
+        """One request this admin may answer, or the refusal for it.
+
+        Returns `(record, None)` or `(None, response)`. Two refusals:
+        404 for an id that is not there, and 409 for one that has
+        already been answered -- a second approve of a resolved request
+        would create a second company for a name that now has one.
+
+        Read under this request's own ownership scope, like every other
+        first read of a record here. For the admin that is the whole
+        queue (`vault.list_company_requests` widens for them, since they
+        are the one person who can resolve a request); for anybody else
+        it would answer None, which is the same 404 an id that is not
+        there gets. The admin gate above has already refused them, so
+        this is the second lock on the same door rather than the first.
+        """
+        root = app.config['VAULT_PATH']
+        record = storage.load_company_request(root, identifier, session_owner())
+        if record is None:
+            return None, (jsonify(error='Company request not found.'), 404)
+        if record.get('status') not in company_requests.UNRESOLVED:
+            return None, (jsonify(error='This company request is already resolved.'), 409)
+        return record, None
+
+    @app.get('/api/company-requests')
+    def company_request_collection():
+        """The requests waiting for the admin, with scored suggestions.
+
+        Read-only and admin only. `careeros.company_requests.admin_rows`
+        says what a row carries and what it deliberately leaves out --
+        in particular a job title the admin may not read, since a
+        request comes from somebody else's private posting.
+        """
+        if not may_edit_shared():
+            return shared_denied()
+        return jsonify(requests=company_requests.admin_rows(
+            app.config['VAULT_PATH'], session_owner()))
+
+    @app.post('/api/company-requests/<identifier>/approve')
+    def approve_company_request(identifier):
+        """Answer one request with a company: a chosen one, or a new one.
+
+        Body is optional. `{"company_id": ...}` links to that company,
+        which may be one of the row's suggestions or any company id the
+        admin names; an absent or empty one creates a company with the
+        requested name, through the same `identity.apply_review` create
+        path the job page's own "create and link" uses.
+
+        Every unresolved request asking for the same company is answered
+        together, and every one of their waiting jobs is linked, because
+        the same company gets asked for by several people and resolving
+        one of them would leave the rest open for another day.
+        """
+        if not may_edit_shared():
+            return shared_denied()
+        root = app.config['VAULT_PATH']
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            raise ValueError('Record must be an object.')
+        chosen = payload.get('company_id')
+        created = None
+        with write_lock:
+            record, refused = company_request_for_admin(identifier)
+            if refused is not None:
+                return refused
+            # Validated BEFORE anything is written, which is the rule
+            # `resolve_review` follows and for the same reason: the
+            # settlement below writes records on its way through, so a
+            # refusal after it would be a mutation on a refused request.
+            # A retired id and one that never existed answer alike, so
+            # the tombstone stays undetectable either way.
+            if chosen and not storage.linkable_company(root, chosen):
+                raise ValueError('Company not found.')
+            group = company_requests.requests_for_name(
+                company_requests.requests_with_status(
+                    root, company_requests.UNRESOLVED, session_owner()),
+                record['name'])
+            waiting, gone, answered = company_requests.partition(root, group)
+            company_requests.settle_decided(root, gone, answered)
+            if chosen:
+                company = storage.load_company(root, chosen)
+                status = company_requests.LINKED
+            elif not waiting:
+                # Nothing is left to link: every job in the group was
+                # deleted or had already been linked, and `settle_decided`
+                # has just said so on the records. Creating a company here
+                # would be a shared record nothing points at.
+                company, status = None, None
+            else:
+                company = company_requests.create_company(root, record['name'])
+                created = company['id']
+                status = company_requests.CREATED
+            if company is not None:
+                company_requests.apply_group(root, waiting, company, status)
+            answer = storage.load_company_request(root, identifier, session_owner())
+        if created is not None:
+            # Same cascade a rung-4 new company gets, on the same
+            # background thread and the same switch: the sector/size
+            # pass fetches, and the admin does not wait for it.
+            schedule_company_cascade(root, created)
+        return jsonify(answer)
+
+    @app.post('/api/company-requests/<identifier>/reject')
+    def reject_company_request(identifier):
+        """Refuse one request, with an optional note saying why.
+
+        Nothing else is touched: no company is written, no job is
+        linked, and the other requests asking for the same name stay as
+        they are. A rejection is about this one ask.
+        """
+        if not may_edit_shared():
+            return shared_denied()
+        root = app.config['VAULT_PATH']
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            raise ValueError('Record must be an object.')
+        with write_lock:
+            record, refused = company_request_for_admin(identifier)
+            if refused is not None:
+                return refused
+            return jsonify(company_requests.settle(
+                root, record, company_requests.REJECTED, note=payload.get('note')))
+
     @app.post('/api/jobs/<identifier>/resolve')
     def rerun_resolution(identifier):
         """Re-run the resolution ladder for an existing job (JOZ-266 §6),
@@ -2977,7 +3036,11 @@ def create_app(vault: str | Path | None = None) -> Flask:
         view = request.args.get('view')
         if view in ('board', 'universe'):
             build = jobs.page_context if view == 'board' else jobs.universe_context
-            context = build(app.config['VAULT_PATH'], session_owner())
+            # Owner ruling 2026-11-01: needs-attention is the admin's
+            # alone, decided here at the call site because this is where
+            # the request's principal is read. See jobs.board_context.
+            context = build(app.config['VAULT_PATH'], session_owner(),
+                            is_admin=may_edit_shared())
             summaries = jobs.company_summaries(context['companies'], sectors.load_isic_sections())
             return jsonify(context | {
                 'companies': summaries,

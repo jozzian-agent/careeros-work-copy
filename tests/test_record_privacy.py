@@ -1099,6 +1099,27 @@ def test_a_tester_cannot_file_against_another_users_job(clients, records, root):
     assert vault.list_company_requests(root) == []
 
 
+# Owner ruling 2026-11-01: needs-attention is the admin's alone. Every
+# reason it fires is a company link or a reading only the admin can move
+# on, so for everybody else it is an alarm about work they cannot do. The
+# payload is where that is answered, which is why it is tested here
+# through a real session rather than against the pure builder (that half
+# is tests/test_job_page_context.py).
+
+@pytest.mark.parametrize('view', ['board', 'universe'])
+def test_a_testers_board_payload_never_needs_attention(clients, records, root, view):
+    asking_job(root, records, 'one')
+    asking_job(root, records, 'admin')
+    for key, client in clients.items():
+        payload = client.get(f'/api/jobs?view={view}').get_json()
+        assert payload['is_admin'] is (key == 'admin'), key
+        flags = {entry['needs_attention'] for entry in payload['entries']}
+        if key == 'admin':
+            assert True in flags, 'the admin keeps today behaviour'
+        else:
+            assert flags <= {False}, key
+
+
 def test_re_resolving_a_testers_job_creates_no_company(clients, records, root):
     """POST /resolve runs the same ladder, so it needs the same gate."""
     job = vault.save_job(root, {
@@ -2081,7 +2102,7 @@ def tombstone_readers():
         'linkable_company_grandfathered':
             lambda root, scope: vault.linkable_company(root, 'CO-001', current='CO-001'),
         'directory': lambda root, scope: companies_page.page_context(root, scope),
-        'board': lambda root, scope: jobs_page.page_context(root, scope),
+        'board': lambda root, scope: jobs_page.page_context(root, scope, is_admin=True),
         'experiences_library': lambda root, scope: experiences_page.page_context(root, scope),
         'position_form': lambda root, scope: experiences_page.form_context(root, None, scope),
         'notes_page': lambda root, scope: notes_page.page_context(root, scope),

@@ -53,6 +53,27 @@ export async function logIn(email, password) {
   return response.json();
 }
 
+// GET /api/me: who this request is signed in as, the safe subset the
+// server will say (id, name, email, role, locale). The nav reads it for
+// one thing only -- whether this is the admin, which decides whether the
+// Company requests tab is there at all.
+//
+// A failure answers null rather than throwing. The nav is chrome on every
+// page, and a tab that cannot be drawn must not be able to take the page
+// with it; the endpoints behind an admin-only surface are gated on the
+// server regardless of what the nav shows.
+export async function fetchMe() {
+  try {
+    const response = await apiFetch('/api/me');
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 // POST /logout. The JSON body is what asks for a JSON answer rather than
 // the form redirect the no-build fallback page gets.
 export async function logOut() {

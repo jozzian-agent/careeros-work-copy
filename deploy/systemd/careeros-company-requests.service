@@ -1,0 +1,82 @@
+# One pass of the company request resolver, production.
+#
+#   systemctl start careeros-company-requests
+#   journalctl -u careeros-company-requests -n 50 --no-pager
+#
+# INSTALLED BY HAND, NOT BY setup-vps.sh. This file and its timer are
+# copied to /etc/systemd/system by the owner, who then enables the timer;
+# nothing in deploy/ places or enables either of them. The commands are
+# in the pull request that added this unit.
+#
+# WHAT IT RUNS
+#   scripts/resolve_company_requests.py, from the release's own venv, over
+#   the production vault. One pass reads every company request a user has
+#   filed, matches it against the shared companies, links the jobs it can
+#   and parks the rest for the admin review list. Its own docstring is the
+#   whole contract, including what the COMPANY_REQUEST_AUTO_CREATE switch
+#   in the env file below changes.
+#
+#   Oneshot, not simple: the pass ends. A run that finds an empty queue
+#   exits in well under a second, which is what makes a daily timer cheap
+#   even on a box this size.
+#
+# WHY THE SAME ACCOUNT AND THE SAME ENV FILE AS THE APP
+#   It writes the same records the app writes, through the same vault
+#   writer and under the same lock, so it has to run as the account that
+#   owns those files. Running it as root would leave vault files the app
+#   user cannot rewrite. The env file is the app's because the one thing
+#   the pass can need out of it is the LLM key: auto-create mode runs the
+#   sector/size cascade on a company it creates, which is the same
+#   cascade the app runs, and that cascade reads the same key.
+#
+# WHY THE Environment= LINE COMES AFTER EnvironmentFile=
+#   systemd applies these in file order, so the later one wins. Same rule
+#   and same reason as careeros-prod.service: an edit to prod.env must not
+#   be able to point this pass at another vault.
+#
+# LOG CONTENT
+#   The pass logs counts and never a name, a job id or a user id (its
+#   docstring says so, and a test asserts it). That is deliberate: the
+#   journal on this box is read by whoever can read the journal, and a
+#   requested company name is a fact about one person's private record.
+
+[Unit]
+Description=Career OS company request resolver (production)
+Documentation=file:///srv/careeros/prod/app/current/scripts/resolve_company_requests.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=careeros-prod
+Group=careeros-prod
+WorkingDirectory=/srv/careeros/prod/app/current
+EnvironmentFile=/etc/careeros/prod.env
+Environment=CAREEROS_VAULT=/srv/careeros/prod/vault
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/careeros/prod/app/current/.venv/bin/python /srv/careeros/prod/app/current/scripts/resolve_company_requests.py
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=15min
+
+# Hardening, the same set careeros-prod.service carries and for the same
+# reason: this process reads its release tree and writes exactly one
+# place, the vault.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=no
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ReadWritePaths=/srv/careeros/prod/vault
+MemoryHigh=256M
+MemoryMax=384M

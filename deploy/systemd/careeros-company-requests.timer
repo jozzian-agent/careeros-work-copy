@@ -1,0 +1,42 @@
+# The company request resolver runs once a night, early.
+#
+# INSTALLED AND ENABLED BY HAND. Unlike the staging deploy timer, which
+# deploy/setup-vps.sh turns on, nothing in this repository places or
+# enables this one: the owner copies it and runs
+#
+#   systemctl enable --now careeros-company-requests.timer
+#
+# once they have decided the queue should drain on its own. The exact
+# commands are in the pull request that added it.
+#
+# WHY A WALL CLOCK AND NOT AN INTERVAL
+#   A request is answered overnight, which is what the job page already
+#   promises the person who filed it ("We check company requests
+#   overnight"). So this is OnCalendar, and Persistent=true is what makes
+#   that promise survive a box that was off at 03:30: systemd runs the
+#   missed pass once the machine is back, rather than skipping a night.
+#   (Persistent= only does anything on an OnCalendar schedule, which is
+#   why the two interval-based deploy timers deliberately carry none.)
+#
+# WHY THE JITTER
+#   RandomizedDelaySec spreads the start over the half hour after 03:30.
+#   The box runs staging beside production and has a nightly pipeline of
+#   its own; a pass that always began on the same second would always
+#   contend with whatever else is pinned to that second, and the pass
+#   takes the vault write lock.
+#
+# A pass that finds no filed request writes nothing and exits at once, so
+# a quiet night costs a journal line.
+
+[Unit]
+Description=Career OS company request resolver (daily, production)
+Documentation=file:///srv/careeros/prod/app/current/scripts/resolve_company_requests.py
+
+[Timer]
+Unit=careeros-company-requests.service
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=30min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

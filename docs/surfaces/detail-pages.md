@@ -33,6 +33,15 @@ muted text rather than the company link a resolved company gets, since
 there is no company record to link to. The resolution itself, nightly,
 is a later change.
 
+2026-11-01 (needs-attention, second ruling): the board card's "Needs
+your input" chip and the "Needs attention" filter are the admin's alone
+now ([My Jobs](jobs.md)). The job detail page's own needs-input card is
+NOT: it stays for every reader, because the thing in it is "Ask to add
+company", which is the one action a non-admin has on an unresolved
+company. Hiding it would take away the ask and leave the dead end PR #44
+closed. "Not on cards" is read as the board card's chip; the page's own
+card is the action, not the alarm.
+
 2026-10-14 (package 2, requirement groups): the Requirements section
 renders the grouped shape package 1 built it for. A job stores
 `requirement_groups` ([schemas](../schemas.md)) as of this round; a job
