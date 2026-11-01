@@ -576,7 +576,15 @@ same `FilterBar` over the same facets (`frontend/src/jobFilters.js`), the
 same `JobCard`, the same `PageLayout` title row.
 
 - **One grid of cards**, not a kanban. A column per status would be a
-  column of empty promises for the postings nobody has added yet.
+  column of empty promises for the postings nobody has added yet. Since
+  2026-11-01 (owner request) the grid has a **Tiles / List switch** at
+  the right end of the toolbar row, the same `SegmentedControl` My Jobs
+  and Companies use, remembered in localStorage under its own key
+  (`careerAllJobsView`). The list is the board's own table — extracted
+  to `frontend/src/components/JobsListView.jsx` so both tabs render the
+  one component, not two tables that could drift. Without the retry
+  column action: ingest retry stays a board action, owner-scoped, per
+  the rule below.
 - **A job on my board shows its status**, in the working status select,
   so a move from here is the same move as on the board.
 - **A job that is not on my board offers "Add to my jobs"** in the place

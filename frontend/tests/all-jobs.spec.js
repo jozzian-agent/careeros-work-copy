@@ -134,6 +134,46 @@ test('the tab offers no intake of its own', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Add a job' })).toHaveCount(0);
 });
 
+// Owner request 2026-11-01: the same Tiles/List switch My Jobs has, over
+// the universe's jobs. The list is the board's own table (extracted to
+// JobsListView), not a second one.
+test('Tiles and List switch the page and the choice is remembered', async ({ page }) => {
+  await page.goto('/all-jobs');
+
+  // Tiles by default: the cards are there, no table.
+  await expect(card(page, POOL)).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(0);
+
+  await page.getByTestId('all-jobs-view-list').click();
+  await expect(card(page, POOL)).toHaveCount(0);
+  const table = page.getByRole('table');
+  await expect(table).toBeVisible();
+  // One row per entry, same data the cards carry.
+  await expect(table.getByRole('link', { name: 'Pool Platform Engineer' })).toHaveAttribute(
+    'href',
+    '/jobs/JOB-010',
+  );
+
+  // Remembered across a reload, like the board's own switch.
+  await page.reload();
+  await expect(page.getByRole('table')).toBeVisible();
+  await expect(card(page, POOL)).toHaveCount(0);
+
+  await page.getByTestId('all-jobs-view-tiles').click();
+  await expect(card(page, POOL)).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(0);
+});
+
+test('the List view respects the filters', async ({ page }) => {
+  await page.goto('/all-jobs');
+  await page.getByTestId('all-jobs-view-list').click();
+
+  // "Hide closed postings" applies to the table exactly as to the tiles.
+  await page.getByRole('button', { name: /Hide closed postings/ }).click();
+  const closed = fixture.entries.find((job) => job.id === POOL_CLOSED);
+  await expect(page.getByRole('table').getByText(closed.title)).toHaveCount(0);
+});
+
 // CAREER-118 PR 3: the sentence is the payload's, as it has always been,
 // but it sits in one SectionCard-style box now (CollectionPage README)
 // instead of a bare line of subtle text. No button in that box: the

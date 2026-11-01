@@ -3,7 +3,9 @@ import { Box, Button, Flex, Layer, Text } from 'gestalt';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { fetchUniverse, moveJobStatus, promoteJob } from '../api/jobs.js';
 import JobCard from '../components/JobCard.jsx';
+import JobsListView from '../components/JobsListView.jsx';
 import FilterBar from '../components/FilterBar.jsx';
+import SegmentedControl from '../components/SegmentedControl.jsx';
 import FloatingMessage from '../components/Message.jsx';
 import PageLayout from '../components/PageLayout.jsx';
 import { EMPTY_JOB_FILTERS, JOB_FILTER_GROUPS, filterJobs, jobFilterOptions } from '../jobFilters.js';
@@ -28,6 +30,20 @@ const GRID_STYLE = {
 
 const TOAST_LIFETIME_MS = 4000;
 
+// The page's own view choice, remembered the way My Jobs' Board/List
+// and Companies' Tiles/List switches are (owner request 2026-11-01:
+// the same switch here). Tiles is the default, matching what the tab
+// has always shown.
+const VIEW_KEY = 'careerAllJobsView';
+
+function readStoredView() {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'tiles';
+  } catch {
+    return 'tiles';
+  }
+}
+
 export default function AllJobs() {
   const { formatMessage } = useIntl();
   const [payload, setPayload] = useState(null);
@@ -38,6 +54,18 @@ export default function AllJobs() {
   const [hideClosed, setHideClosed] = useState(false);
   const [addingId, setAddingId] = useState(null);
   const [toast, setToast] = useState(null);
+  const [view, setView] = useState(readStoredView);
+
+  function persistView(value) {
+    const nextView = value === 'list' ? 'list' : 'tiles';
+    setView(nextView);
+    try {
+      window.localStorage.setItem(VIEW_KEY, nextView);
+    } catch {
+      // Storage blocked (private mode): the switch still works for the
+      // session, it just is not remembered.
+    }
+  }
 
   async function load() {
     try {
@@ -150,11 +178,13 @@ export default function AllJobs() {
     : undefined;
 
   // No main action on this page, so the header stack is the filter bar
-  // alone (brief 2026-10-18, section 3) -- and that bar is already the
-  // one toolbar row the CollectionPage README asks for: the chips and the
-  // plain count at the left, and nothing hung off its right end, because
-  // this page has no View switch to put there (CAREER-118 PR 3; adding
-  // one would be a new element, which needs the design gate).
+  // alone (brief 2026-10-18, section 3). The bar's right end now carries
+  // the Tiles/List switch: the owner asked for exactly this view toggle
+  // on 2026-11-01 ("add a tile / list on all jobs, just the same way you
+  // did on my jobs"), which is the design gate the earlier note named.
+  // Same SegmentedControl, same localStorage-remembered choice as My
+  // Jobs and Companies; the labels reuse the existing catalog keys so no
+  // new words are introduced.
   //
   // The CollectionPage README says the heading row carries "the one
   // primary action". Here that action does not exist: intake lives on My
@@ -183,6 +213,25 @@ export default function AllJobs() {
       summaryText={summaryText}
       resultCount={filtered.length}
       totalCount={payload.entries.length}
+      right={
+        <SegmentedControl
+          ariaLabel={formatMessage({ id: 'common.view.groupLabel' })}
+          value={view}
+          onChange={persistView}
+          items={[
+            {
+              value: 'tiles',
+              label: formatMessage({ id: 'companies.view.tiles' }),
+              dataTestId: 'all-jobs-view-tiles',
+            },
+            {
+              value: 'list',
+              label: formatMessage({ id: 'common.view.list' }),
+              dataTestId: 'all-jobs-view-list',
+            },
+          ]}
+        />
+      }
     />
   );
 
@@ -203,6 +252,12 @@ export default function AllJobs() {
         <Text color="subtle">
           <FormattedMessage id="common.jobs.noMatches" />
         </Text>
+      ) : view === 'list' ? (
+        // The same sortable table My Jobs' List view shows, over the
+        // universe's jobs. No retry button here: ingest retry is a
+        // board action, and the universe payload carries the same
+        // statuses the indicator needs to stay quiet without it.
+        <JobsListView entries={filtered} statusLabels={payload.status_labels || {}} />
       ) : (
         <Box dangerouslySetInlineStyle={{ __style: GRID_STYLE }}>
           {filtered.map((job) => (
