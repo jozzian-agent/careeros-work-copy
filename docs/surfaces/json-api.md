@@ -96,6 +96,19 @@ a class outside those keys moved with it: the Company detail
 `sizes` row of `GET /api/taxonomy` gained a `label`. No code changed and
 no record was migrated — this is what a class is SHOWN as.
 
+2026-11-01 (company requests): one new write endpoint,
+`POST /api/jobs/<id>/company-request`, and two additive keys on
+`GET /api/jobs/<id>?view=page`. The endpoint files the company ask's
+answer as a private record for a reader who may not write a shared
+company; its request and response shape, its three refusals and the
+stored record are in [schemas](../schemas.md). The two keys are
+`can_edit_shared`, which the Job detail contract gained for the same
+reason the Company detail and classification contracts already carry it
+(the page offers the create that works for this reader rather than one
+that answers 403), and `request` inside `needs_input`, present only
+while that reader has an open request for this job and carrying
+`{name, filed}`. No key was removed and no existing key changed shape.
+
 ## Appears in
 
 The existing Jobs, Search, Companies and Experiences flows. Page views extend
@@ -124,6 +137,7 @@ mirrored HTML routes until 2026-11-01 and are read only by React now.
 | GET | `/api/taxonomy` | Taxonomy | New |
 | GET | `/api/notes` | Notes | New |
 | POST | `/api/jobs/<id>/re-extract` | Job detail | New |
+| POST | `/api/jobs/<id>/company-request` | Job detail | New |
 | POST | `/api/jobs/<id>/notes`, `/api/companies/<id>/notes` | Job and Company detail | New |
 | PATCH, DELETE | `/api/jobs/<id>/notes/<note_id>`, `/api/companies/<id>/notes/<note_id>` | Job and Company detail | New |
 | GET | `/api/health` | None | New, M1, unauthenticated |

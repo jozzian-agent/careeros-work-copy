@@ -39,8 +39,23 @@ function readFailureText(reason, stage) {
     || (stage === 'fetch' ? 'The posting page could not be reached.' : 'The posting text could not be read.');
 }
 
+// What the company ask says once it has been asked. The request is filed
+// and nothing the owner can do moves it on, so the card states the name
+// they asked for and when the answer comes, and offers no action.
+const ASKED_TEXT = 'Asked. We check company requests overnight.';
+
+// The create action, in the words of whoever is reading it. A company is
+// shared and only the admin writes one, so everybody else is asking for
+// one rather than creating it, and the button says which of the two it
+// does (careeros/web/pages/jobs.job_context can_edit_shared).
+const CREATE_LABELS = {
+  create: { primary: 'Create and link', instead: 'None of these, create new' },
+  ask: { primary: 'Ask to add company', instead: 'None of these, ask to add' },
+};
+
 export default function NeedsInputCard({
-  needsInput, employerName, errorStage, hasText, busy, onLink, onCreate, onPaste, onRetry,
+  needsInput, employerName, errorStage, hasText, busy, canEditShared = false,
+  onLink, onCreate, onPaste, onRetry,
 }) {
   const candidates = needsInput.kind === 'company' ? needsInput.review?.candidates || [] : [];
   const [picked, setPicked] = useState(candidates[0]?.company_id || '');
@@ -97,10 +112,26 @@ export default function NeedsInputCard({
     );
   }
 
+  // The company ask, already asked (careeros/web/pages/jobs.company_ask).
+  // The ask itself stays, because the company is still unresolved; what
+  // goes is every control, since the owner has already given the one
+  // answer they have and the resolution is not theirs to run.
+  if (needsInput.request) {
+    return (
+      <SectionCard title={NEEDS_INPUT_TITLE} variant="needs-input" anchorId={NEEDS_INPUT_ANCHOR}>
+        <Flex direction="column" gap={2}>
+          <Text weight="bold">{needsInput.request.name}</Text>
+          <Text color="subtle">{ASKED_TEXT}</Text>
+        </Flex>
+      </SectionCard>
+    );
+  }
+
   // The company ask. A needs_review job with no candidates at all is still
   // a job whose company is unresolved, so the card stays and offers the
   // one thing left to do: name the company.
   const createRow = creating || !candidates.length;
+  const labels = canEditShared ? CREATE_LABELS.create : CREATE_LABELS.ask;
   return (
     <SectionCard
       title={NEEDS_INPUT_TITLE}
@@ -110,7 +141,7 @@ export default function NeedsInputCard({
         ? [
           <Button
             key="create"
-            text="Create and link"
+            text={labels.primary}
             color="red"
             disabled={busy || !newName.trim()}
             onClick={() => onCreate(newName.trim())}
@@ -129,7 +160,7 @@ export default function NeedsInputCard({
           />,
           <Button
             key="none"
-            text="None of these, create new"
+            text={labels.instead}
             color="gray"
             disabled={busy}
             onClick={() => setCreating(true)}

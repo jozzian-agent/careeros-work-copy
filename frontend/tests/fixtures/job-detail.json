@@ -149,6 +149,7 @@
     ]
   },
   "needs_input": null,
+  "can_edit_shared": true,
   "reading": false,
   "summary_effective": "Fictional role summary for test fixtures only.",
   "fit": null,

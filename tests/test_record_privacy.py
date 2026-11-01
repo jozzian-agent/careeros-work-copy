@@ -1034,6 +1034,71 @@ def test_a_tester_cannot_create_a_company_from_a_pending_link(clients, records, 
     assert {c['id'] for c in vault.list_companies(root)} == before
 
 
+# --- Company requests: the ask a tester can answer -----------------------
+#
+# The other half of the two refusals above (owner ruling 2026-11-01). A
+# tester may not write the shared companies record and never will, so the
+# name they would have created is filed as a private request instead. What
+# the three tests below hold is that filing is open to them, that it
+# writes nothing shared, and that the record it writes is as private as
+# the job it came from.
+
+def asking_job(root, records, key, **fields):
+    """A job of one user's whose company ask is open: pending link,
+    employer named, reading done."""
+    return vault.save_job(root, {
+        'title': f'Asking {key}', 'url': f'https://example.test/{key}/asking',
+        'employer_named_in_posting': f'Asking Employer {key}',
+        vault.OWNER_FIELD: records['jobs'][key][vault.OWNER_FIELD]} | fields)
+
+
+def test_a_tester_files_a_company_request_and_creates_no_company(clients, records, root):
+    """The dead end this closed: the same ask that answers 403 for a
+    create is answered by filing, and the shared half stays untouched."""
+    job = asking_job(root, records, 'two')
+    before = {c['id'] for c in vault.list_companies(root)}
+    response = clients['two'].post(f"/api/jobs/{job['id']}/company-request",
+                                   json={'name': 'Asked For By Two'})
+    assert response.status_code == 201
+    assert response.get_json()[vault.OWNER_FIELD] == records['jobs']['two'][vault.OWNER_FIELD]
+    assert {c['id'] for c in vault.list_companies(root)} == before
+    assert 'Asked For By Two' not in str(vault.list_companies(root))
+    stored = vault.load_job(root, job['id'])
+    assert stored['company_id'] is None and stored['company_link_state'] == 'pending'
+
+
+def test_one_users_request_is_invisible_to_another_and_read_by_the_admin(clients, records, root):
+    """Private like the job it came from, with the one widening the
+    design settles: a request is addressed to the admin, who is the only
+    person who can resolve it."""
+    job = asking_job(root, records, 'one')
+    filed = clients['one'].post(f"/api/jobs/{job['id']}/company-request",
+                                json={'name': 'Asked For By One'}).get_json()
+    one, two, admin = (vault.Owner(records['jobs'][key][vault.OWNER_FIELD],
+                                   inherits_ownerless=key == 'admin')
+                       for key in ('one', 'two', 'admin'))
+
+    assert vault.load_company_request(root, filed['id'], one)['id'] == filed['id']
+    # Somebody else's request reads as None, exactly like one that is not
+    # there (D3: no existence leak).
+    assert vault.load_company_request(root, filed['id'], two) is None
+    assert vault.load_company_request(root, 'CR-404', one) is None
+    assert vault.list_company_requests(root, two) == []
+    assert [r['id'] for r in vault.list_company_requests(root, admin)] == [filed['id']]
+
+
+def test_a_tester_cannot_file_against_another_users_job(clients, records, root):
+    """A job that is not theirs answers 'Job not found.' here too, which
+    is what a job that does not exist answers (D3)."""
+    job = asking_job(root, records, 'one')
+    for key in ('two', 'admin'):
+        response = clients[key].post(f"/api/jobs/{job['id']}/company-request",
+                                     json={'name': 'Asked For By Somebody Else'})
+        assert response.status_code == 404
+        assert response.get_json() == {'error': 'Job not found.'}
+    assert vault.list_company_requests(root) == []
+
+
 def test_re_resolving_a_testers_job_creates_no_company(clients, records, root):
     """POST /resolve runs the same ladder, so it needs the same gate."""
     job = vault.save_job(root, {

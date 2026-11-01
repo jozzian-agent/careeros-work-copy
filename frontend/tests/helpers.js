@@ -264,6 +264,19 @@ export async function mockResolveReview(page, { status = 200, body = { ok: true 
   return requests;
 }
 
+// Mocks POST /api/jobs/<id>/company-request (the owner asking for the
+// company their posting names, which is the company ask's other half for
+// a reader who may not write a shared company). Records each request's
+// parsed body so a spec can assert the name that was filed.
+export async function mockCompanyRequest(page, { status = 201, body = { ok: true } } = {}) {
+  const requests = [];
+  await page.route('**/api/jobs/*/company-request', (route) => {
+    requests.push(route.request().postDataJSON());
+    route.fulfill({ status, json: body });
+  });
+  return requests;
+}
+
 // Mocks POST /api/jobs/<id>/promote.
 // Mocks POST /api/jobs/<id>/promote ("Add to my jobs", and the duplicate
 // dialog's promote). Records each call's URL so a spec can prove which

@@ -8,6 +8,7 @@ import {
   fetchJobTaxonomy,
   pasteDescription,
   reExtractJob,
+  requestCompany,
   resolveReview,
   retryIngest,
   updateJob,
@@ -144,7 +145,16 @@ export default function JobDetail() {
     watch_eligible: watchEligible, watch_reason: watchReason,
     history, classification, needs_input: needsInput, reading,
     summary_effective: summaryEffective, function_labels: functionLabels,
+    // Fail closed, like the company profile: a payload that does not say
+    // gets the ask that works for every reader (filing a request) rather
+    // than the admin-only create.
+    can_edit_shared: canEditShared = false,
   } = page;
+  // The requested company name, while a request is open. The company
+  // itself is still unresolved, so this is a pending label and never a
+  // link: there is no company record to link to, and inventing one would
+  // be a surface standing for something that does not exist.
+  const requestedCompany = needsInput?.request?.name;
 
   async function handleStatusChange(status) {
     try {
@@ -237,6 +247,29 @@ export default function JobDetail() {
     }
   }
 
+  // Naming the company on the ask, which is two different acts by who is
+  // asking. The admin creates the company and links it in one write; for
+  // everybody else a company is read-only, so the name is filed as a
+  // request and the page comes back saying it was asked. The branch is
+  // here and not in the card, so one reading of `can_edit_shared`
+  // decides both the button's words and where its click goes.
+  async function handleCreateCompany(name) {
+    if (canEditShared) {
+      await handleResolveReview({ create: { name } });
+      return;
+    }
+    setResolveBusy(true);
+    setActionError(null);
+    try {
+      await requestCompany(id, name);
+      await load();
+    } catch (err) {
+      setActionError(err.message);
+    } finally {
+      setResolveBusy(false);
+    }
+  }
+
   async function handleCheckPosting() {
     setCheckBusy(true);
     setCheckResult(null);
@@ -301,6 +334,14 @@ export default function JobDetail() {
     (key) => functionLabels?.[key]?.label || prettifyTag(key),
   );
   const tags = (classification?.tags || []).map(prettifyTag);
+  // The company line under the title. A linked company is a link; a
+  // requested one is the plain subtle text DetailHeader renders a
+  // subtitle string as, which is how the two tell themselves apart on
+  // the same line, and the only honest answer while no company record
+  // exists to link to.
+  const companySubtitle = company
+    ? <Link href={`/companies/${encodeURIComponent(company.id)}`}>{company.name}</Link>
+    : requestedCompany ? `${requestedCompany} (asked)` : null;
 
   return (
     <Box padding={6}>
@@ -311,7 +352,7 @@ export default function JobDetail() {
           backLabel="My Jobs"
           chip={needsInput ? <NeedsInputChip /> : null}
           title={job.title}
-          subtitle={company ? <Link href={`/companies/${encodeURIComponent(company.id)}`}>{company.name}</Link> : null}
+          subtitle={companySubtitle}
           location={job.location}
           dates={job.added ? `Added ${job.added}` : null}
           meta={job.url ? (
@@ -367,8 +408,9 @@ export default function JobDetail() {
             errorStage={job.ingest_error?.stage}
             hasText={hasDescription}
             busy={resolveBusy}
+            canEditShared={canEditShared}
             onLink={(companyId) => handleResolveReview({ company_id: companyId })}
-            onCreate={(name) => handleResolveReview({ create: { name } })}
+            onCreate={handleCreateCompany}
             onPaste={() => setPasteOpen(true)}
             onRetry={handleRetry}
           />

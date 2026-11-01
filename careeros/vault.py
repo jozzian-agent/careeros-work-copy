@@ -1348,11 +1348,247 @@ def load_universe_job(root, identifier, owner=None):
 def load_company(root, identifier):
     return _load(root, 'companies', identifier)
 
+
+# One company request: a user asking for the company their posting names
+# (owner ruling 2026-11-01).
+#
+# A company is shared universe and only the admin may write one
+# (`users.SHARED_READ_ONLY`), which left every other user at a dead end
+# on a job whose company is unresolved: the one action the page offered
+# them answered 403. So the ask became a record of its own, private to
+# the person who filed it, and nobody but the admin ever writes the
+# shared companies record. What resolves a request -- matching it to a
+# company that exists, creating one, or handing the unsure case to the
+# admin -- is a later change; this one only files.
+#
+# The record is its own kind rather than a field on the job for the
+# reason the status list below states: a request outlives the one job it
+# came from, since the name it carries is what a later resolution
+# matches against, and a job is deleted by its owner at any time.
+
+#: Every status one request can carry, in the order a request moves
+#: through them. `filed` is the only one this release produces: it is
+#: what the endpoint writes, and the resolver that reaches the other four
+#: is a later change. The list is here whole anyway, because a status
+#: this module refuses to store is a status the resolver cannot write
+#: without touching the vault, and the fixed list belongs in one place.
+COMPANY_REQUEST_STATUSES = ('filed', 'linked', 'created', 'needs_admin', 'rejected')
+
+#: The status a request is filed under, which is also the one that counts
+#: as open. One reader for the word, so no surface decides for itself
+#: what an open request is -- the same shape `is_retired` has for a
+#: company.
+COMPANY_REQUEST_OPEN = 'filed'
+
+#: The length a requested company name has to fall inside. Two
+#: characters is the shortest real name (a stock ticker, a two-letter
+#: firm), and 200 is far past the longest registered company name while
+#: still being a bound: the value becomes a shared company name when the
+#: request resolves, and every surface that shows a company shows it.
+COMPANY_NAME_MIN = 2
+COMPANY_NAME_MAX = 200
+
+#: What a rejected name is told, one message per rule. Each one says what
+#: to do rather than naming the rule it broke, because the person reading
+#: it typed a company name and is not debugging a validator.
+COMPANY_NAME_ERRORS = {
+    'type': 'Enter the company name as text.',
+    'short': f'Enter the company name, at least {COMPANY_NAME_MIN} characters.',
+    'long': f'That company name is too long. Use at most {COMPANY_NAME_MAX} characters.',
+    'control': 'That company name holds characters that cannot be stored. '
+               'Type it as plain text.',
+    'markup': 'A company name cannot contain < or >.',
+    'empty': 'That company name needs at least one letter or number.',
+}
+
+#: The normalization a name has to survive to be a name at all: the same
+#: collapse of everything but ASCII letters and digits that the identity
+#: ladder matches companies by (`org_intake.identity._normalize_name`).
+#: Mirrored rather than imported, because that function is private to the
+#: capability and a product module imports nothing private from one.
+#:
+#: The consequence is the ladder's own: a name written in a script with no
+#: ASCII letters or digits in it normalizes to nothing, and is refused
+#: here exactly as it would fail to match anything there. That is the
+#: honest answer while the ladder normalizes this way, and it is the
+#: reason this check is a mirror and not a second opinion.
+_NAME_ALNUM_RE = re.compile(r'[^a-z0-9]+')
+
+
+def validate_company_name(value):
+    """One requested company name, stripped, or a ValueError saying why
+    not.
+
+    The ONE gate on what may become a shared company name (owner ruling
+    2026-11-01), used by the filing endpoint and by the writer below, so
+    a name no endpoint would accept cannot reach the vault through the
+    other door either.
+
+    What it refuses, and why each one is refused here rather than at the
+    surface that renders the name:
+
+    * nothing, or one character. A name that short says nothing a later
+      resolution could match, and an empty one is the owner having
+      submitted the form without typing.
+    * a name past `COMPANY_NAME_MAX`.
+    * any control character, which is every code point under 0x20 plus
+      0x7f. Whitespace is stripped first, so a tab or a newline around
+      the name is not an error; one INSIDE it is, because the value is
+      rendered as one line everywhere a company name appears.
+    * `<` or `>`, anywhere. Nothing renders a company name as markup, so
+      this costs no real name anything, and it means the stored value
+      cannot carry the shape of a tag into a surface written later.
+    * a name that normalizes to nothing (see `_NAME_ALNUM_RE`).
+    """
+    if not isinstance(value, str):
+        raise ValueError(COMPANY_NAME_ERRORS['type'])
+    name = value.strip()
+    if len(name) < COMPANY_NAME_MIN:
+        raise ValueError(COMPANY_NAME_ERRORS['short'])
+    if len(name) > COMPANY_NAME_MAX:
+        raise ValueError(COMPANY_NAME_ERRORS['long'])
+    if any(ord(character) < 0x20 or ord(character) == 0x7f for character in name):
+        raise ValueError(COMPANY_NAME_ERRORS['control'])
+    if '<' in name or '>' in name:
+        raise ValueError(COMPANY_NAME_ERRORS['markup'])
+    if not _NAME_ALNUM_RE.sub(' ', name.casefold()).strip():
+        raise ValueError(COMPANY_NAME_ERRORS['empty'])
+    return name
+
+
+def validate_company_request(data, existing=None):
+    """One company request record, merged onto `existing` the way
+    `validate_experience` merges: a key the payload leaves out keeps the
+    stored value rather than falling back to a blank.
+
+    `resolved_company_id` and `resolution_note` are the two fields
+    nothing writes yet. They are in the record from the first day so the
+    resolver is a change to one module and not a schema migration, and
+    they are validated here all the same, because the resolver will write
+    them through this function.
+    """
+    if not isinstance(data, dict):
+        raise ValueError('Company request must be an object.')
+    defaults = dict(job_id='', name='', created_at=today(),
+                    status=COMPANY_REQUEST_OPEN, resolved_company_id=None,
+                    resolution_note='',
+                    # Whose request this is: the person who filed it, by
+                    # the same field and the same Owner reading a job and
+                    # an experience use (see OWNER_FIELD).
+                    owner_id=None)
+    result = defaults | (existing or {})
+    result.update({k: v for k, v in data.items() if k in defaults})
+    # Same rule as `_save_record`'s own allowlist, and the same reason for
+    # saying so out loud (CAREER-30): a payload key this record does not
+    # store changes nothing, and would otherwise say so nowhere.
+    unknown = sorted(key for key in data if key not in defaults and key != 'id')
+    if unknown:
+        _logger.warning('company_requests write %s: dropped %d payload key(s) this '
+                        'record does not store: %s',
+                        (existing or {}).get('id') or data.get('id') or 'new',
+                        len(unknown), ', '.join(unknown))
+    result['name'] = validate_company_name(result['name'])
+    if not isinstance(result['job_id'], str) or not result['job_id'].strip():
+        raise ValueError('A company request must name the job it came from.')
+    result['job_id'] = result['job_id'].strip()
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(result['created_at'] or '')):
+        raise ValueError('created_at must be a YYYY-MM-DD date.')
+    if result['status'] not in COMPANY_REQUEST_STATUSES:
+        raise ValueError('status must be one of ' + ', '.join(COMPANY_REQUEST_STATUSES) + '.')
+    for key in ('resolved_company_id', OWNER_FIELD):
+        if result[key] is not None and not isinstance(result[key], str):
+            raise ValueError(f'{key} must be text or null.')
+    if not isinstance(result['resolution_note'], str):
+        raise ValueError('resolution_note must be text.')
+    return result
+
+
+def _company_requests(root):
+    """Every stored request, through the one filtered reader, so a
+    tombstone is as invisible here as it is for a job or a company."""
+    return _records(root, 'company_requests')
+
+
+def list_company_requests(root, owner=None):
+    """Every request this reader may see, newest first.
+
+    Owner-scoped like a job, with the one widening the design settles: a
+    request is addressed TO the admin, who is the only person who may
+    write the shared companies record, so the admin reads every request
+    and nobody else reads anybody else's. `inherits_ownerless` is the
+    reading of "this reader is the admin" that `vault.Owner` already
+    carries, so this is not a second answer to who the admin is.
+
+    Unscoped (`owner` None) answers every stored request, exactly like
+    `owned`: the resolver runs off a request thread with no session to
+    scope to.
+    """
+    records = sorted((d for _, d in _company_requests(root)),
+                     key=lambda d: (str(d.get('created_at', '')), str(d.get('id', ''))),
+                     reverse=True)
+    if owner is None or owner.inherits_ownerless:
+        return records
+    return owned(records, owner)
+
+
+def load_company_request(root, identifier, owner=None):
+    """One stored request, or None.
+
+    A request this reader may not see reads as None, which is the same
+    answer one that is not there gives (D3: no existence leak).
+    """
+    return next((record for record in list_company_requests(root, owner)
+                 if record.get('id') == identifier), None)
+
+
+def active_company_request(root, job_id, owner=None):
+    """The open request for one job, or None.
+
+    What makes a second filing on the same job an update rather than a
+    second record, and what the job page reads to say the ask has been
+    asked. A job only ever carries requests from its own owner, because
+    filing one needs the job to load under that owner's scope, so the
+    reader and the requester are the same person in every case the
+    product can produce.
+    """
+    return next((record for record in list_company_requests(root, owner)
+                 if record.get('job_id') == job_id
+                 and record.get('status') == COMPANY_REQUEST_OPEN), None)
+
+
+def company_requests_filed_on(root, owner_id, day):
+    """How many requests one user filed on one day.
+
+    Counted off the stamped `owner_id` and not through a scoped list, so
+    the number is that one user's however wide the caller's own read is:
+    the admin sees every request (see `list_company_requests`) and must
+    still only spend their own daily budget.
+    """
+    return sum(1 for _, record in _company_requests(root)
+               if record.get(OWNER_FIELD) == owner_id and record.get('created_at') == day)
+
+
+def save_company_request(root, data, identifier=None):
+    """Write one request, new or an update to the one named."""
+    existing = next(((p, d) for p, d in _company_requests(root) if d.get('id') == identifier),
+                    None) if identifier else None
+    if identifier and not existing:
+        raise KeyError(identifier)
+    result = validate_company_request(data, existing[1] if existing else None)
+    result['id'] = identifier or _allocate(root, 'company_requests')
+    path = Path(root) / 'company_requests' / f"{slugify(result['name'])}-{result['id'].lower()}.yaml"
+    _write(path, result)
+    if existing and existing[0] != path:
+        existing[0].unlink()
+    return result
+
+
 #: The id prefix of every numbered record kind, by the vault directory
 #: the records live in. One table, so the allocator below is the same
-#: code for all four and a fifth kind cannot arrive with its own rule.
+#: code for all five and a sixth kind cannot arrive with its own rule.
 ID_PREFIXES = {'jobs': 'JOB-', 'companies': 'CO-',
-               'experiences': 'EXP-', 'users': 'USER-'}
+               'experiences': 'EXP-', 'users': 'USER-',
+               'company_requests': 'CR-'}
 
 #: The vault file that remembers the highest record number ever handed
 #: out per kind. One file rather than one per kind: it is one fact about
@@ -2624,6 +2860,18 @@ class WriteLock:
 
 def timestamp():
     return datetime.now(timezone.utc).isoformat()
+
+
+def today():
+    """The day a record written now is dated, as the records write it.
+
+    Server-local, like every `added` and `created_at` this module
+    stamps. It exists so that the one caller outside this module that
+    has to ask what day it is -- the per-day cap on company requests --
+    counts against exactly the day the records it counts carry, which is
+    this same function stamping `created_at`.
+    """
+    return date.today().isoformat()
 
 
 def append_event(job, event, detail):

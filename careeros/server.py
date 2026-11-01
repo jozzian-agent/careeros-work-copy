@@ -558,6 +558,27 @@ def client_ip() -> str | None:
 #: Says nothing about the token, the account or which limit was hit.
 RATE_LIMITED_MESSAGE = 'Too many attempts. Please try again later.'
 
+#: How many company requests one user may file in a day
+#: (`company_request`). A person working through their own board settles
+#: a handful of postings in a sitting, so ten is past any real day's
+#: filing and still a bound: every request is a name a later resolution
+#: may turn into a shared company, and the admin reviews the unsure ones
+#: by hand.
+#:
+#: Counted by the day the request carries rather than by a rolling
+#: window, which is what the login limiter uses: a filing is the owner's
+#: own deliberate act on their own record and not an unauthenticated
+#: stranger's, so the budget is the plain one a person can predict, and
+#: it comes back tomorrow with no stored window to expire.
+COMPANY_REQUEST_DAILY_CAP = 10
+
+#: What a filing past the cap is told. Specific on purpose, unlike
+#: RATE_LIMITED_MESSAGE above: this is the owner's own action on their
+#: own record, so the message can say what ran out and when it comes
+#: back without telling anybody anything.
+COMPANY_REQUEST_LIMITED_MESSAGE = ('You asked about many companies today. '
+                                   'Try again tomorrow.')
+
 
 def dead_link_page() -> str:
     """The dead-link state every mailed-link page shares: one message
@@ -2216,6 +2237,71 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 'field_provenance': provenance,
             }, identifier))
 
+    @app.post('/api/jobs/<identifier>/company-request')
+    def company_request(identifier):
+        """File a company request: the owner asks for the company their
+        posting names, without writing the shared companies record (owner
+        ruling 2026-11-01).
+
+        The other half of the ask `resolve_review` answers. A company is
+        shared and only the admin may write one, so the create form on
+        the company ask answered 403 for everybody else and left them at
+        a dead end on their own job. This writes a private request record
+        instead, which a later change resolves into a company and a link,
+        and which the page reads back as "asked" on the same ask
+        (careeros/web/pages/jobs.company_ask).
+
+        It touches no company, by construction rather than by a gate:
+        nothing here reaches a company read or write at all. So it is
+        open to every signed-in user, the admin included -- their own
+        direct create through `resolve_review` is untouched, and nothing
+        about the admin's paths changes.
+
+        Three answers besides the request itself:
+
+        * 404 for a job that is not this owner's, which is the answer a
+          job that does not exist gets (D3).
+        * 409 when the job is not asking about its company. The
+          condition is the page's own ask (`jobs.job_needs_input`), read
+          here rather than restated, so the endpoint cannot accept a
+          filing the page would never offer: a resolved company, a
+          posting still being read, a posting that named no employer, or
+          a job whose one ask is a failed reading.
+        * 429 past COMPANY_REQUEST_DAILY_CAP filings in a day.
+
+        A second filing on the same job is the same request with a new
+        name rather than a second record, so a change of mind and a
+        double click are both one open request per job.
+        """
+        root = app.config['VAULT_PATH']
+        owner = session_owner()
+        with write_lock:
+            job = storage.load_job(root, identifier, owner)
+            if job is None:
+                return jsonify(error='Job not found.'), 404
+            payload = request.get_json()
+            if not isinstance(payload, dict):
+                raise ValueError('Record must be an object.')
+            if (jobs.job_needs_input(job) or {}).get('kind') != 'company':
+                return jsonify(error='This job is not asking about its company.'), 409
+            # Before the cap, so a name that was never going to be stored
+            # does not spend a day's budget, and the owner gets the error
+            # that is about what they typed.
+            name = storage.validate_company_name(payload.get('name'))
+            open_request = storage.active_company_request(root, job['id'], owner)
+            if open_request is not None:
+                return jsonify(storage.save_company_request(
+                    root, {'name': name}, open_request['id']))
+            # The cap is this owner's own filings today, counted off the
+            # stored records: no window to expire, and the budget comes
+            # back tomorrow on its own.
+            if storage.company_requests_filed_on(
+                    root, owner.identifier, storage.today()) >= COMPANY_REQUEST_DAILY_CAP:
+                return jsonify(error=COMPANY_REQUEST_LIMITED_MESSAGE), 429
+            return jsonify(storage.save_company_request(root, {
+                'job_id': job['id'], 'name': name,
+                storage.OWNER_FIELD: owner.identifier})), 201
+
     @app.post('/api/jobs/<identifier>/resolve')
     def rerun_resolution(identifier):
         """Re-run the resolution ladder for an existing job (JOZ-266 §6),
@@ -2963,7 +3049,8 @@ def create_app(vault: str | Path | None = None) -> Flask:
                 return jsonify(error='Job not found.'), 404
             if reading():
                 if request.args.get('view') == 'page':
-                    return jsonify(jobs.detail_context(root, identifier, identifier in llm_pending, owner))
+                    return jsonify(jobs.detail_context(root, identifier, identifier in llm_pending,
+                                                       owner, may_edit_shared()))
                 return jsonify(data | {'llm_pending': identifier in llm_pending})
             if request.method in ('DELETE',):
                 storage.delete_job(root, identifier)
