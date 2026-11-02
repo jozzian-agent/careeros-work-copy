@@ -1,7 +1,9 @@
 # Job families, v2: 62 families as data (owner decisions 2026-11-02,
 # CAREER-129; CAREER-135 added `software-engineer` as the 62nd the same
 # day), replacing v1's 40 (owner decision D1, decision sheet
-# CAREER-58, 2026-10-17).
+# CAREER-58, 2026-10-17). Each one carries an owner-approved 3-digit
+# CH-ISCO-19 minor group since CAREER-130, also 2026-11-02 (`isco3`, plus
+# `isco3_alts` where a family reaches more than one group).
 #
 # WHY V2. The owner labelled 50 random postings blind and compared them
 # with the pipeline: 7 correct, 16 the wrong family, and 14 where the
@@ -46,18 +48,25 @@
 # are two different ESCO concepts, and pointing the surviving family at
 # the absorbed one's URI would be a false citation.
 #
-# WHERE THIS SITS. Three levels, and this file is the middle one:
+# WHERE THIS SITS. Four levels, and this file is the one that maps
+# between them:
 #
 #   * CH-ISCO-19, 5 digits -- what a classified job stores. Graded at 4.
 #     See ch_isco19.yaml (the Swiss 5-digit extension is a stub there).
-#   * the job family -- this file. The owner's own 61 labels, which is
+#   * the job family -- this file. The owner's own 62 labels, which is
 #     what a person searches in ("ICT project manager"), each mapped to
 #     one 4-digit ISCO-08 unit group where a mapping exists, so a family
 #     and a 5-digit code can be compared at the grading level.
-#   * the ISCO roll-up -- a prefix of the 4-digit code (minor group, sub-
-#     major, major), so nothing needs storing for it.
+#   * the ISCO MINOR GROUP, 3 digits -- `isco3` here, and shipped data in
+#     ch_isco19.yaml since CAREER-130 rather than a prefix of `isco4`,
+#     because 27 families have no `isco4` to take a prefix of and because
+#     the 3-digit level carries official German and English titles. Every
+#     family has one, owner-approved; 20 of them also carry
+#     `isco3_alts`, the other groups the family genuinely reaches.
+#   * the coarser ISCO roll-ups -- sub-major and major are prefixes of
+#     the minor group, so nothing is stored for them.
 #
-# THIS FILE AND esco_occupations.yaml HOLD THE SAME 61 IDS, on purpose and
+# THIS FILE AND esco_occupations.yaml HOLD THE SAME 62 IDS, on purpose and
 # not as a duplicate to tidy away: the seed file is the EXTRACTION source
 # (keywords handed to the prompt, the ESCO citation behind each entry, and
 # the note explaining each local extension) and the facet in the vault is
@@ -73,16 +82,18 @@
 #   * verified (9) -- the seed's ESCO-backed entries. `isco4` is the
 #     first four digits of a real ESCO concept's own code, fetched from
 #     the live ESCO API on 2026-10-16, and `esco_uri` is the citation.
-#   * proposed (49) -- a candidate code, or no code yet. Two kinds, told
-#     apart by `isco4`:
-#       - 25 carry an `isco4` that was checked here against the ISCO-08
+#   * proposed (50) -- a candidate 4-digit code, or none yet. Two kinds,
+#     told apart by `isco4`:
+#       - 26 carry an `isco4` that was checked here against the ISCO-08
 #         unit groups recorded in ch_isco19.yaml, so no family points at
 #         a group that does not exist; what is still missing is
 #         confirmation that the group is the RIGHT one. Five carry a
 #         `review: mapping_uncertain` where that is more than a
 #         formality.
-#       - 24 are v2's new families and carry `isco4: null` with
-#         `review: unmapped_pending_backbone`. See the next paragraph.
+#       - 24 are v2's new families and carry `isco4: null`. They are NOT
+#         unmapped any more: each has an owner-approved `isco3` since
+#         CAREER-130, and what they are missing is the 4-digit code. See
+#         the next paragraph.
 #   * unmapped (3) -- the `local: true` labels whose golden-set ESCO URIs
 #     404. D1 says leave them unmapped with a review flag, and that is
 #     what `review: unmapped_local_extension` is. Decision 22 scopes the
@@ -91,31 +102,36 @@
 #     thing both forbid. They sit in the "unmapped" bucket of any roll-up
 #     report rather than being left out of it.
 #
-# WHY NOT ONE NEW FAMILY IS MAPPED TO AN ISCO GROUP. ch_isco19.yaml ships
-# a SEED of 19 unit groups -- the ones v1's families happened to need --
-# and the rule for this change is that a family may only point at a group
-# already in that seed, because inventing a four-digit code is the one
-# thing decision 22 forbids outright. Every one of the 24 new families
-# would need a judgement about which group is the right one, and the
-# owner's decision 5 puts that judgement in CAREER-130 (load the 3-digit
-# CH-ISCO-19 backbone from BFS, map the families to it many-to-many,
-# owner reviews the mapping). Two worked examples of why a mapping here
-# would have been a guess dressed as data:
+# EVERY FAMILY NOW HAS A HOME, AT THREE DIGITS (CAREER-130, owner-approved
+# mapping of 2026-11-02). Until this change ch_isco19.yaml shipped nothing
+# but a SEED of 19 unit groups -- the ones v1's families happened to need
+# -- a family could only point at a group already in it, and 27 of the 62
+# families had no unarguable home there, so they carried no code at all.
+# The backbone load is the route out owner decision 5 named: all 130
+# published 3-digit CH-ISCO-19 minor groups are now data, the owner
+# reviewed and approved the family-to-backbone mapping many-to-many, and
+# every one of the 62 families carries `isco3` plus, where the family
+# genuinely spans more than one group, `isco3_alts`. The two worked
+# examples that used to stand here as reasons NOT to map are what the
+# mapping answers:
 #
-#   * `legal` reads as ISCO-08 2611 (lawyers), which is NOT in the seed.
-#     The only in-seed candidate is 2619 (legal professionals not
-#     elsewhere classified), which is where a lawyer is put when they are
-#     not a lawyer -- a demotion, not a mapping.
-#   * `ai-ml-engineer` sits between 2512 (software developers) and 2511
-#     (systems analysts), and 2511 is already where `data-scientist`
-#     sits carrying a `mapping_uncertain` marker for the same reason.
-#     Picking one would add a second uncertain mapping rather than a
-#     fact.
+#   * `legal` is 261 (legal professionals) with 341 (legal, social and
+#     religious associate professionals) as an alternate -- the group
+#     2611 (lawyers) rolls up into, rather than the 2619 "not elsewhere
+#     classified" demotion the 19-group seed forced.
+#   * `ai-ml-engineer` is 251 (software and applications developers and
+#     analysts) with 212 (mathematicians, actuaries and statisticians).
+#     The 2512-or-2511 question the seed could not answer is a FOUR-digit
+#     question; at three digits both readings are 251 and the second
+#     reading is recorded as the alternate.
 #
-# So all 24 carry `isco4: null` and say why. They are gradable at the
-# FAMILY level from the day they ship, and they land in the unmapped
-# bucket at four digits (careeros/classify/grade.py:unmapped_families),
-# which is the honest state and not a gap.
+# WHAT IS STILL MISSING IS THE FOUR-DIGIT MAPPING, for the same 27
+# families and for a narrower reason: 4-digit codes are derived from an
+# ESCO concept (decision 22) and these labels have none yet, so a code
+# here would still be hand-picked. Those 27 are gradable at the family
+# level and at three digits, and they remain in the unmapped bucket at
+# four (careeros/classify/grade.py:unmapped_families), which is the
+# honest state and not a gap.
 #
 # SYNONYMS. `synonyms` is new in v2 (owner decision 4: a family is a data
 # entry of code, label, synonyms, ISCO mapping and version). It is for
@@ -135,9 +151,9 @@
 # (careeros/ingest.py:_function_options_text) and a missing German anchor
 # costs a reading; they are listed under open_questions for owner
 # confirmation rather than presented as settled.
-taxonomy_version: "1.2.0"
-standard: "CareerOS job families over ISCO-08 unit groups"
-standard_version: "family list v2 + software-engineer, owner-approved 2026-11-02 (CAREER-129, CAREER-135); ISCO-08 unit groups"
+taxonomy_version: "1.3.0"
+standard: "CareerOS job families over CH-ISCO-19 minor groups and ISCO-08 unit groups"
+standard_version: "family list v2 + software-engineer, owner-approved 2026-11-02 (CAREER-129, CAREER-135); CH-ISCO-19 3-digit minor groups (CAREER-130); ISCO-08 unit groups"
 changed_at: "2026-11-02"
 code_lists:
   - dimension: occupation_family
@@ -148,12 +164,14 @@ code_lists:
         label: "ICT product manager"
         label_de: "ICT-Produktmanager"
         isco4: "1330"
+        isco3: "133"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/a79170ad-0b7b-4697-864f-1748359aa10a"
       - code: software-developer
         label: "Software developer"
         label_de: "Softwareentwickler"
         isco4: "2512"
+        isco3: "251"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/f2b15a0e-e65a-438a-affb-29b9d50b77d1"
       # CAREER-135, owner-approved 2026-11-02. Broader than software-developer:
@@ -166,37 +184,49 @@ code_lists:
         label: "Software engineer"
         label_de: "Softwareingenieur"
         isco4: "2512"
+        isco3: "251"
         status: proposed
       - code: ict-service-manager
         label: "ICT service manager"
         label_de: "IT-Servicemanager"
         isco4: "1330"
+        isco3: "133"
         status: proposed
       - code: software-architect
         label: "Software architect"
         label_de: "Softwarearchitekt"
         isco4: "2512"
+        isco3: "251"
         status: proposed
       - code: ict-system-administrator
         label: "ICT system administrator"
         label_de: "Systemadministrator"
         isco4: "2522"
+        isco3: "252"
         status: proposed
       - code: ict-security-manager
         label: "ICT security manager"
         label_de: "IT-Sicherheitsmanager"
         isco4: "1330"
+        isco3: "133"
         status: proposed
       - code: embedded-systems-security-engineer
         label: "Embedded systems security engineer"
         label_de: "Sicherheitsingenieur für eingebettete Systeme"
         isco4: null
+        # isco3 below is the owner-approved CAREER-130 mapping and not an
+        # ESCO reading, which is why isco4 stays null (decision 22 scopes
+        # the 4-digit roll-up guarantee to ESCO-backed entries) and the
+        # review marker stays.
+        isco3: "251"
+        isco3_alts: ["252"]
         status: unmapped
         review: unmapped_local_extension
       - code: ict-project-manager
         label: "ICT project manager"
         label_de: "IT-Projektleiter"
         isco4: "1330"
+        isco3: "133"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/8b6388a4-4904-471b-9331-d3b1211f5525"
       - code: ict-business-analyst
@@ -204,6 +234,7 @@ code_lists:
         label_de: "IT-Business-Analyst"
         synonyms: ["ICT business analysis manager"]
         isco4: "2511"
+        isco3: "251"
         status: proposed
         note: >-
           Absorbs the v1 family ict-business-analysis-manager (owner
@@ -217,12 +248,14 @@ code_lists:
         label: "ICT consultant"
         label_de: "IT-Berater"
         isco4: "2511"
+        isco3: "251"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/b1c80369-067e-4041-84c8-dbe65640a5d8"
       - code: data-scientist
         label: "Data scientist"
         label_de: "Data Scientist"
         isco4: "2511"
+        isco3: "251"
         status: proposed
         review: mapping_uncertain
         review_note: >-
@@ -235,6 +268,7 @@ code_lists:
         label: "Data engineer"
         label_de: "Data Engineer"
         isco4: "2521"
+        isco3: "252"
         status: proposed
         review: mapping_uncertain
         review_note: >-
@@ -245,6 +279,7 @@ code_lists:
         label: "Data analyst"
         label_de: "Datenanalyst"
         isco4: "2511"
+        isco3: "251"
         status: proposed
         review: mapping_uncertain
         review_note: >-
@@ -255,19 +290,25 @@ code_lists:
         label: "AI/ML engineer or researcher"
         label_de: "AI/ML-Ingenieur oder Forscher"
         isco4: null
+        isco3: "251"
+        isco3_alts: ["212"]
         status: proposed
-        review: unmapped_pending_backbone
-        review_note: >-
-          Between 2512 (software developers) and 2511 (systems analysts),
-          which is already where data-scientist sits with its own
-          mapping_uncertain marker. Picking one here would add a second
-          uncertain mapping rather than a fact. CAREER-130.
+        note: >-
+          The 3-digit home is owner-approved (CAREER-130): 251 (software
+          and applications developers and analysts), with 212
+          (mathematicians, actuaries and statisticians) as the alternate.
+          The FOUR-digit choice is the one that stays open -- between 2512
+          (software developers) and 2511 (systems analysts), and 2511 is
+          already where data-scientist sits with its own
+          mapping_uncertain marker, so picking one would add a second
+          uncertain mapping rather than a fact.
       # --- Product and design ---------------------------------------------
       - code: product-manager
         label: "Product manager"
         label_de: "Produktmanager"
         synonyms: ["Chief product officer"]
         isco4: "1223"
+        isco3: "122"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/9f508305-80ce-4111-8722-f2c9b4a44890"
         note: >-
@@ -285,6 +326,7 @@ code_lists:
         label: "User experience analyst"
         label_de: "User-Experience-Analyst"
         isco4: "2166"
+        isco3: "216"
         status: proposed
         review: mapping_uncertain
         review_note: >-
@@ -296,71 +338,91 @@ code_lists:
         label: "User interface designer"
         label_de: "User-Interface-Designer"
         isco4: "2166"
+        isco3: "216"
         status: proposed
       # --- Marketing, sales and communication -----------------------------
       - code: marketing-manager
         label: "Marketing manager"
         label_de: "Marketingleiter"
         isco4: "1221"
+        isco3: "122"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/6fcf4638-e7c7-4978-9302-9a7b63a3d57c"
       - code: digital-marketing-manager
         label: "Digital marketing manager"
         label_de: "Digital-Marketing-Manager"
         isco4: null
+        # isco3 below is the owner-approved CAREER-130 mapping and not an
+        # ESCO reading, which is why isco4 stays null (decision 22 scopes
+        # the 4-digit roll-up guarantee to ESCO-backed entries) and the
+        # review marker stays.
+        isco3: "243"
+        isco3_alts: ["122"]
         status: unmapped
         review: unmapped_local_extension
       - code: sales-manager
         label: "Sales manager"
         label_de: "Vertriebsleiter"
         isco4: "1221"
+        isco3: "122"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/a7594892-ff23-4e2a-aedf-2f967ebca15c"
       - code: technical-sales-representative
         label: "Technical sales representative"
         label_de: "Technischer Vertriebsmitarbeiter"
         isco4: "2433"
+        isco3: "243"
         status: proposed
       - code: account-manager
         label: "Account manager"
         label_de: "Account Manager"
         synonyms: ["key account manager", "relationship manager"]
         isco4: null
+        isco3: "332"
+        isco3_alts: ["243"]
         status: proposed
-        review: unmapped_pending_backbone
-        review_note: >-
-          ISCO-08 has no account manager: the role spans 1221 (sales and
-          marketing managers) and 2433/3322 (sales representatives) by
-          seniority, and decision 1 keeps seniority out of the family.
-          Owner decision 5 names exactly this case. CAREER-130.
+        note: >-
+          The 3-digit home is owner-approved (CAREER-130): 332 (sales and
+          purchasing agents and brokers), with 243 (sales, marketing and
+          public relations professionals) as the alternate -- the
+          many-to-many mapping owner decision 5 named this case for. No
+          4-digit code, because ISCO-08 has no account manager: the role
+          spans 1221 (sales and marketing managers) and 2433/3322 (sales
+          representatives) by seniority, and decision 1 keeps seniority
+          out of the family.
       - code: retail-and-sales-assistant
         label: "Retail and sales assistant"
         label_de: "Detailhandels- und Verkaufsmitarbeiter"
         isco4: null
+        isco3: "522"
+        isco3_alts: ["523"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: merchandiser-or-buyer
         label: "Merchandiser or buyer"
         label_de: "Merchandiser oder Einkäufer"
         isco4: null
+        isco3: "332"
+        isco3_alts: ["522"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: customer-success-manager
         label: "Customer success manager"
         label_de: "Customer Success Manager"
         isco4: null
+        isco3: "243"
+        isco3_alts: ["332"]
         status: proposed
-        review: unmapped_pending_backbone
       # --- Finance, risk and legal ----------------------------------------
       - code: financial-investment-adviser
         label: "Financial and investment adviser"
         label_de: "Finanz- und Anlageberater"
         isco4: "2412"
+        isco3: "241"
         status: proposed
       - code: banking-products-manager
         label: "Banking products manager"
         label_de: "Leiter Bankprodukte"
         isco4: "1221"
+        isco3: "122"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/c530b0ee-46f8-40fb-818c-d9b44b891cb9"
       - code: banking-officer
@@ -368,27 +430,32 @@ code_lists:
         label_de: "Bankfachmann"
         synonyms: ["credit officer", "customer advisor"]
         isco4: null
+        isco3: "331"
+        isco3_alts: ["421"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: financial-analyst
         label: "Financial analyst"
         label_de: "Finanzanalyst"
         isco4: "2413"
+        isco3: "241"
         status: proposed
       - code: accountant
         label: "Accountant"
         label_de: "Buchhalter"
         isco4: "2411"
+        isco3: "241"
         status: proposed
       - code: financial-manager
         label: "Financial manager"
         label_de: "Leiter Finanzen"
         isco4: "1211"
+        isco3: "121"
         status: proposed
       - code: risk-manager
         label: "Risk manager"
         label_de: "Risikomanager"
         isco4: "2413"
+        isco3: "241"
         status: proposed
         review: mapping_uncertain
         review_note: >-
@@ -399,52 +466,63 @@ code_lists:
         label: "Compliance officer"
         label_de: "Compliance-Beauftragter"
         isco4: "2619"
+        isco3: "261"
         status: proposed
       - code: legal
         label: "Legal"
         label_de: "Jurist"
         synonyms: ["lawyer", "legal associate"]
         isco4: null
+        isco3: "261"
+        isco3_alts: ["341"]
         status: proposed
-        review: unmapped_pending_backbone
-        review_note: >-
-          Reads as ISCO-08 2611 (lawyers), which the ch_isco19.yaml seed
-          does not carry. The only in-seed candidate is 2619 (legal
-          professionals not elsewhere classified), which is where a lawyer
-          is filed when they are not a lawyer -- a demotion rather than a
-          mapping. CAREER-130 loads the backbone that has 2611 in it.
+        note: >-
+          The 3-digit home is owner-approved (CAREER-130): 261 (legal
+          professionals), with 341 (legal, social and religious associate
+          professionals) as the alternate. At four digits the label reads
+          as ISCO-08 2611 (lawyers), which the 19-group seed in
+          ch_isco19.yaml still does not carry; the only in-seed candidate
+          is 2619 (legal professionals not elsewhere classified), which is
+          where a lawyer is filed when they are not a lawyer -- a
+          demotion rather than a mapping. So isco4 stays null.
       # --- People, operations and consulting ------------------------------
       - code: human-resources-manager
         label: "Human resources manager"
         label_de: "Personalleiter"
         isco4: "1212"
+        isco3: "121"
         status: proposed
       - code: recruitment-consultant
         label: "Recruitment consultant"
         label_de: "Personalberater"
         isco4: "2423"
+        isco3: "242"
         status: proposed
       - code: management-consultant
         label: "Management consultant"
         label_de: "Unternehmensberater"
         isco4: "2421"
+        isco3: "242"
         status: proposed
       - code: business-consultant
         label: "Business consultant"
         label_de: "Businessberater"
         isco4: "2421"
+        isco3: "242"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/6a29d804-f775-446c-bec7-35fc4e28ac97"
       - code: business-development-manager
         label: "Business development manager"
         label_de: "Leiter Geschäftsentwicklung"
         isco4: "1221"
+        isco3: "122"
         status: proposed
       - code: innovation-manager
         label: "Innovation manager"
         label_de: "Innovationsmanager"
         synonyms: ["Innovation officer"]
         isco4: "1223"
+        isco3: "122"
         status: proposed
         note: >-
           Absorbs the v1 family innovation-officer (owner decision
@@ -455,6 +533,12 @@ code_lists:
         label: "Digital transformation manager"
         label_de: "Leiter digitale Transformation"
         isco4: null
+        # isco3 below is the owner-approved CAREER-130 mapping and not an
+        # ESCO reading, which is why isco4 stays null (decision 22 scopes
+        # the 4-digit roll-up guarantee to ESCO-backed entries) and the
+        # review marker stays.
+        isco3: "133"
+        isco3_alts: ["242"]
         status: unmapped
         review: unmapped_local_extension
       - code: project-manager
@@ -465,128 +549,144 @@ code_lists:
         # so no vault migration is needed; stored values keep working.
         synonyms: ["Project manager"]
         isco4: null
+        isco3: "121"
+        isco3_alts: ["242", "133", "132"]
         status: proposed
-        review: unmapped_pending_backbone
-        review_note: >-
-          ISCO-08 has NO generic project manager -- the standard files a
-          project lead under the field they manage, which is exactly why
-          the owner added this family: the rules layer was reading civil
-          project leads as ICT project managers at 0.85 confidence. Owner
-          decision 5 names this case as needing the many-to-many mapping.
-          CAREER-130. The label carries no industry qualifier on purpose.
+        note: >-
+          The 3-digit home is owner-approved (CAREER-130): 121 (business
+          services and administration managers), with 242, 133 and 132 as
+          alternates -- the widest mapping in the file, and the case owner
+          decision 5 named when it asked for a many-to-many one. At four
+          digits ISCO-08 has NO generic project manager: the standard
+          files a project lead under the field they manage, which is
+          exactly why the owner added this family -- the rules layer was
+          reading civil project leads as ICT project managers at 0.85
+          confidence. The label carries no industry qualifier on purpose.
       - code: supply-chain-manager
         label: "Supply chain manager"
         label_de: "Supply-Chain-Manager"
         isco4: "1324"
+        isco3: "132"
         status: proposed
       - code: logistics-and-freight-coordinator
         label: "Logistics and freight coordinator"
         label_de: "Logistik- und Speditionssachbearbeiter"
         isco4: null
+        isco3: "432"
+        isco3_alts: ["333"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: operations-manager
         label: "Operations manager"
         label_de: "Betriebsleiter"
         isco4: "1219"
+        isco3: "121"
         status: proposed
       - code: customer-service-manager
         label: "Customer service manager"
         label_de: "Kundendienstleiter"
         isco4: "1219"
+        isco3: "121"
         status: proposed
       - code: office-and-executive-assistant
         label: "Office and executive assistant"
         label_de: "Sachbearbeiter und Direktionsassistent"
         isco4: null
+        isco3: "334"
+        isco3_alts: ["412"]
         status: proposed
-        review: unmapped_pending_backbone
       # --- Engineering, construction and production -----------------------
       - code: mechanical-and-process-engineer
         label: "Mechanical and process engineer"
         label_de: "Maschinen- und Verfahrensingenieur"
         isco4: null
+        isco3: "214"
         status: proposed
-        review: unmapped_pending_backbone
       - code: electrical-and-electronics-engineer
         label: "Electrical and electronics engineer"
         label_de: "Elektro- und Elektronikingenieur"
         isco4: null
+        isco3: "215"
         status: proposed
-        review: unmapped_pending_backbone
       - code: robotics-and-control-engineer
         label: "Robotics and control engineer"
         label_de: "Robotik- und Regelungstechnikingenieur"
         isco4: null
+        isco3: "214"
+        isco3_alts: ["215"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: civil-and-structural-engineer
         label: "Civil and structural engineer"
         label_de: "Bau- und Tragwerksingenieur"
         isco4: null
+        isco3: "214"
         status: proposed
-        review: unmapped_pending_backbone
       - code: architect-and-planner
         label: "Architect and planner"
         label_de: "Architekt und Planer"
         isco4: null
+        isco3: "216"
         status: proposed
-        review: unmapped_pending_backbone
       - code: construction-and-site-manager
         label: "Construction and site manager"
         label_de: "Bauleiter"
         isco4: null
+        isco3: "312"
+        isco3_alts: ["132"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: technical-drafter-cad-designer
         label: "Technical drafter / CAD designer"
         label_de: "Technischer Zeichner / CAD-Konstrukteur"
         isco4: null
+        isco3: "311"
         status: proposed
-        review: unmapped_pending_backbone
       - code: electrician-and-installer
         label: "Electrician and installer"
         label_de: "Elektriker und Installateur"
         isco4: null
+        isco3: "741"
+        isco3_alts: ["742"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: production-or-assembly-worker
         label: "Production or assembly worker"
         label_de: "Produktions- oder Montagemitarbeiter"
         isco4: null
+        isco3: "821"
+        isco3_alts: ["932"]
         status: proposed
-        review: unmapped_pending_backbone
       # --- Health, hospitality, retail and services -----------------------
       - code: healthcare-staff
         label: "Healthcare staff"
         label_de: "Gesundheits- und Pflegepersonal"
         isco4: null
+        isco3: "222"
+        isco3_alts: ["322", "532"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: cook-and-kitchen-staff
         label: "Cook and kitchen staff"
         label_de: "Koch und Küchenpersonal"
         isco4: null
+        isco3: "512"
+        isco3_alts: ["941"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: hospitality-and-catering-staff
         label: "Hospitality and catering staff"
         label_de: "Gastgewerbe- und Verpflegungspersonal"
         isco4: null
+        isco3: "513"
+        isco3_alts: ["422"]
         status: proposed
-        review: unmapped_pending_backbone
       - code: fitness-and-sports-instructor
         label: "Fitness and sports instructor"
         label_de: "Fitness- und Sportinstruktor"
         isco4: null
+        isco3: "342"
         status: proposed
-        review: unmapped_pending_backbone
       - code: security-staff
         label: "Security staff"
         label_de: "Sicherheitspersonal"
         isco4: null
+        isco3: "541"
         status: proposed
-        review: unmapped_pending_backbone
   # The three statuses, as a code list of their own, so a reader is not
   # left to infer the vocabulary from which values happen to appear above.
   - dimension: occupation_family_status
@@ -597,21 +697,21 @@ code_lists:
         description: "isco4 is derived from a validated ESCO concept's own code. A citation."
       - code: proposed
         label: "Proposed"
-        description: "A candidate 4-digit group that exists in ISCO-08 but has not been confirmed as the right one, or no code yet at all (v2's new families, review: unmapped_pending_backbone)."
+        description: "A candidate 4-digit group that exists in ISCO-08 but has not been confirmed as the right one, or no 4-digit code at all (v2's new families, which carry an owner-approved isco3 and await their isco4)."
       - code: unmapped
         label: "Unmapped"
         description: "A local extension with no ESCO concept, and therefore no code. Carries a review flag."
 open_questions:
-  - "The 24 new families all carry `isco4: null` with
-     `review: unmapped_pending_backbone`, because this change may only
-     point a family at a unit group already in ch_isco19.yaml's 19-group
-     seed and not one of the 24 has an unarguable home there. Owner
-     decision 5 is the route out: load the 3-digit CH-ISCO-19 backbone
-     (about 130 groups) from BFS so every job has a home, map the
-     families to it many-to-many, and have the owner review the mapping.
-     That is CAREER-130. Until it ships, a new family is gradable at the
-     family level and lands in the unmapped bucket at four digits."
-  - "25 of the 61 families are `proposed` WITH a candidate code.
+  - "27 families (v2's 24 plus the 3 local extensions) carry
+     `isco4: null`. The pending-backbone marker they used to carry is
+     gone: CAREER-130 loaded the 130-group 3-digit backbone and the owner
+     approved a mapping, so each of them has an `isco3` and some have
+     `isco3_alts`. What is open is the FOUR-digit code, which decision 22
+     wants derived from an ESCO concept rather than picked by hand, so it
+     waits on the ESCO work the next open question describes. Until then
+     those 27 are gradable at the family level and at three digits and
+     land in the unmapped bucket at four."
+  - "26 of the 62 families are `proposed` WITH a candidate 4-digit code.
      Confirming one means finding its ESCO concept, taking the first four
      digits of that concept's code, and filling in `esco_uri` in
      esco_occupations.yaml -- the route CAREER-29 already documented --

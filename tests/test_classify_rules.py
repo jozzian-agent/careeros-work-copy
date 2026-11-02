@@ -63,8 +63,11 @@ def test_an_unmapped_local_extension_yields_no_isco_code():
 def test_a_family_with_no_isco_reading_yet_also_yields_no_code():
     """v2's 24 new families carry no `isco4` either, for a different
     reason: not "there is no concept" but "there is no confirmed unit
-    group yet" (CAREER-130 loads the backbone). The family is still
-    settled, and the unit group is unknown rather than guessed."""
+    group yet" -- a 4-digit code is derived from an ESCO concept and
+    these labels have none. They DO have a 3-digit home since CAREER-130
+    (see `derive_minor_group` below), which is a different level and does
+    not fill this one in. The family is still settled, and the unit group
+    is unknown rather than guessed."""
     record = taxonomy.make_value_record('occupation_family', 'project-manager', 'llm')
     derived = rules.derive_isco(record)
     assert derived['value'] == taxonomy.UNKNOWN
@@ -81,6 +84,85 @@ def test_a_family_the_current_list_does_not_carry_yields_a_reason_not_a_crash():
     assert derived['value'] == taxonomy.UNKNOWN
     assert rules.review_reason(derived) == rules.FAMILY_NOT_IN_TAXONOMY
     assert derived['evidence']['occupation_family'] == 'chief-product-officer'
+
+
+# --- the 3-digit minor group (CAREER-130) ---------------------------------
+
+def test_a_settled_family_derives_its_minor_group_at_the_familys_own_confidence():
+    """A derived value is never surer than what it was derived from, so
+    the family's confidence travels with the code rather than a new one
+    being invented for it."""
+    family = rules.occupation(subject(title='Senior Java-Entwickler/in'))['occupation_family']
+    derived = rules.derive_minor_group(family)
+    assert derived['value'] == '251'
+    assert derived['confidence'] == family['confidence']
+    assert derived['source'] == 'rule'
+    assert derived['evidence']['occupation_family'] == 'software-developer'
+
+
+def test_a_family_with_no_four_digit_code_still_has_a_three_digit_home():
+    """The whole point of CAREER-130: `project-manager` has no `isco4`
+    and the minor group is NOT a prefix of one, so it is read from the
+    owner-approved `isco3` instead. Deriving it by slicing would have
+    left exactly these families empty."""
+    record = taxonomy.make_value_record('occupation_family', 'project-manager', 'llm')
+    assert rules.derive_isco(record)['value'] == taxonomy.UNKNOWN
+    derived = rules.derive_minor_group(record)
+    assert derived['value'] == '121'
+    assert derived['evidence']['alternates'] == ['242', '133', '132']
+
+
+def test_a_family_with_one_home_carries_no_alternates_key():
+    record = taxonomy.make_value_record('occupation_family', 'accountant', 'llm')
+    derived = rules.derive_minor_group(record)
+    assert derived['value'] == '241'
+    assert 'alternates' not in derived['evidence']
+
+
+def test_an_unsettled_family_derives_an_unknown_minor_group_with_its_reason():
+    values = rules.occupation(subject(title='Head of Product'))
+    derived = rules.derive_minor_group(values['occupation_family'])
+    assert derived['value'] == taxonomy.UNKNOWN
+    assert 'unsettled' in derived['evidence']['rule']
+    # The family's own review reason is handed on, not replaced: the
+    # thing a human is owed is the ambiguity, once.
+    assert rules.review_reason(derived) == 'ambiguous'
+
+
+def test_a_flagged_family_hands_its_flag_to_the_minor_group():
+    """A family read out of the description alone is flagged, and a value
+    derived from it inherits the doubt rather than looking settled."""
+    values = rules.occupation(subject(
+        title='Spannende Aufgabe in Zürich',
+        text='Sie arbeiten eng mit unserem Data Scientist Team zusammen.'))
+    assert rules.review_reason(values['occupation_family']) == rules.WEAK_IN_TEXT
+    derived = rules.derive_minor_group(values['occupation_family'])
+    assert derived['value'] == '251'
+    assert rules.review_reason(derived) == rules.WEAK_IN_TEXT
+
+
+def test_a_family_the_current_list_does_not_carry_has_no_minor_group_either():
+    """Total on a stored record, like `derive_isco`: no KeyError, and no
+    code borrowed from a neighbouring family."""
+    record = dict(taxonomy.make_value_record('occupation_family', 'product-manager', 'llm'),
+                  value='chief-product-officer')
+    derived = rules.derive_minor_group(record)
+    assert derived['value'] == taxonomy.UNKNOWN
+    assert rules.review_reason(derived) == rules.FAMILY_NOT_IN_TAXONOMY
+
+
+def test_deriving_the_minor_group_twice_says_the_same_thing():
+    record = taxonomy.make_value_record('occupation_family', 'legal', 'llm')
+    at = '2026-11-02T09:00:00+00:00'
+    assert rules.derive_minor_group(record, at=at) == rules.derive_minor_group(record, at=at)
+
+
+def test_the_rules_layer_does_not_write_the_minor_group_itself():
+    """It is derived after every layer and not inside this one
+    (`classify.settle_minor_group`), so the group follows the family that
+    won the merge rather than the one a table proposed."""
+    assert 'isco_minor_group' not in rules.occupation(subject(title='Senior Java-Entwickler/in'))
+    assert 'isco_minor_group' not in rules.classify(subject(title='Senior Java-Entwickler/in'))
 
 
 def test_a_phrase_two_families_share_is_recorded_as_ambiguous():
@@ -286,9 +368,16 @@ def test_no_place_is_two_unknown_records_rather_than_no_records():
 
 def test_every_field_gets_a_record_even_when_nothing_matched():
     """D4: `unknown` is a real value. "We looked and found nothing" is a
-    different fact from no record at all."""
+    different fact from no record at all.
+
+    Every field except `isco_minor_group`, which this layer does not
+    write at all: the 3-digit group is derived from the SETTLED family
+    after every layer has spoken (`classify.settle_minor_group`,
+    CAREER-130), and deriving it here too would pin the rules layer's
+    family on a posting only the model can settle -- the bug CAREER-125
+    found at four digits."""
     values = rules.classify(subject(title='x'))
-    assert set(values) == set(rules.FIELDS)
+    assert set(values) == set(rules.FIELDS) - {'isco_minor_group'}
     assert all(record['taxonomy_version'] and record['classified_at']
                for record in values.values())
 

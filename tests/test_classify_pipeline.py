@@ -124,6 +124,39 @@ def test_unknown_is_stored_as_a_value_and_not_as_a_gap():
     result = classify.classify(classify.subject(title='Careers and jobs'))
     assert set(result['values']) == set(rules.FIELDS)
     assert result['values']['contract']['value'] == taxonomy.UNKNOWN
+    # Including the one field no layer writes: an unsettled family earns
+    # an `unknown` minor group with a reason, not a missing key
+    # (CAREER-130).
+    assert result['values']['isco_minor_group']['value'] == taxonomy.UNKNOWN
+    assert result['values']['isco_minor_group']['evidence']['rule']
+
+
+def test_the_minor_group_follows_the_settled_family():
+    """`settle_minor_group` runs after every layer, so a run carries the
+    3-digit group of the family that won -- including for a family with
+    no 4-digit code to roll up from. This one is a local extension with
+    no ESCO concept, which is why its `isco_unit_group` is `unknown` and
+    its minor group is not."""
+    result = classify.classify(classify.subject(
+        title='Product & Solution Security Expert 80-100%'))
+    assert result['values']['occupation_family']['value'] \
+        == 'embedded-systems-security-engineer'
+    assert result['values']['isco_unit_group']['value'] == taxonomy.UNKNOWN
+    assert result['values']['isco_minor_group']['value'] == '251'
+    assert result['values']['isco_minor_group']['confidence'] \
+        == result['values']['occupation_family']['confidence']
+
+
+def test_a_family_a_human_set_decides_the_minor_group():
+    """The point of deriving after the merge rather than inside a layer:
+    an owner's own family is what the group is read from, and the rules
+    layer's reading of the title never gets a say."""
+    owner = taxonomy.make_value_record('occupation_family', 'legal', 'user')
+    result = classify.classify(classify.subject(title='Senior Java-Entwickler/in',
+                                                values={'occupation_family': owner}))
+    assert result['values']['occupation_family']['value'] == 'legal'
+    assert result['values']['isco_minor_group']['value'] == '261'
+    assert result['values']['isco_minor_group']['evidence']['alternates'] == ['341']
 
 
 def test_the_review_queue_is_read_off_the_records_themselves():

@@ -144,10 +144,11 @@ def test_an_incomplete_dimension_is_not_asked_of_the_model_at_all():
     asked with no edit to the filter.
     """
     asked = llm.askable(rules.FIELDS)
-    # The three incomplete vocabularies the rules layer writes, which are
-    # the whole of what this drops: canton (26 codes) is complete and
-    # stays asked, so the filter is reading `complete` and not a hunch
-    # about which dimensions are big.
+    # The three incomplete vocabularies the rules layer writes. They are
+    # what INCOMPLETENESS drops; `isco_minor_group` is dropped too but
+    # for the other reason (`DERIVED_FIELDS`, see the test above), and
+    # canton (26 codes) is complete and stays asked -- so the filter is
+    # reading `complete` and not a hunch about which dimensions are big.
     for field in ('isco_unit_group', 'language', 'municipality'):
         assert field not in asked, field
         assert not taxonomy.is_complete(llm.DIMENSION_OF[field]), field
@@ -393,6 +394,61 @@ def test_a_model_set_family_now_gets_its_isco_unit_group():
     assert result['values']['isco_unit_group']['value'] == '2512'
     assert result['values']['isco_unit_group']['evidence']['occupation_family'] \
         == 'software-developer'
+
+
+def test_a_model_set_family_also_gets_its_three_digit_minor_group():
+    """The same fix one level coarser (CAREER-130). The minor group has
+    no rules-layer writer at all, so this is the only place it is
+    settled: after the model has spoken, from the family that won."""
+    client = FakeClient(ranked_answer('project-manager'))
+    subject = classify.subject(title='Spannende Stelle in Zürich')
+    assert 'isco_minor_group' not in rules.classify(subject)
+
+    result = classify.classify(subject, layer='all', client=client, config=CONFIG)
+
+    assert result['values']['occupation_family']['source'] == 'llm'
+    # The family the rules layer could never settle, with no 4-digit code
+    # of its own, and a 3-digit home anyway.
+    assert result['values']['isco_unit_group']['value'] == taxonomy.UNKNOWN
+    assert result['values']['isco_minor_group']['value'] == '121'
+    assert result['values']['isco_minor_group']['evidence']['occupation_family'] \
+        == 'project-manager'
+    assert result['values']['isco_minor_group']['source'] == 'rule'
+
+
+def test_the_minor_group_is_never_asked_of_the_model():
+    """It is in `DIMENSION_OF` like every field, and its list is complete
+    -- so only the named exclusion keeps it out of the ask. The family it
+    is derived from IS asked for in the same call, which is the whole
+    reason."""
+    assert llm.DIMENSION_OF['isco_minor_group'] == 'isco_minor_group'
+    assert taxonomy.is_complete('isco_minor_group')
+    assert 'isco_minor_group' in llm.DERIVED_FIELDS
+    asked = llm.askable(rules.FIELDS)
+    assert 'isco_minor_group' not in asked
+    assert 'occupation_family' in asked
+    client = FakeClient(ranked_answer('software-developer'))
+    classify.classify(classify.subject(title='Spannende Stelle'), layer='all',
+                      client=client, config=CONFIG)
+    assert 'isco_minor_group' not in client.calls[0]['messages'][1]['content']
+
+
+def test_a_minor_group_a_stronger_source_settled_is_left_alone():
+    """`settle_minor_group` only ever fills, like `settle_isco`."""
+    stated = taxonomy.make_value_record('isco_minor_group', '133', 'feed')
+    subject = classify.subject(title='Senior Java-Entwickler/in',
+                               values={'isco_minor_group': stated})
+    result = classify.classify(subject)
+    assert result['values']['occupation_family']['value'] == 'software-developer'
+    assert result['values']['isco_minor_group']['value'] == '133'
+    assert result['values']['isco_minor_group']['source'] == 'feed'
+
+
+def test_deriving_a_minor_group_twice_changes_nothing():
+    settled = classify.classify(classify.subject(title='Senior Java-Entwickler/in'))['values']
+    assert classify.settle_minor_group(settled) == settled
+    unsettled = classify.classify(classify.subject(title='Careers and jobs'))['values']
+    assert classify.settle_minor_group(unsettled) == unsettled
 
 
 def test_a_unit_group_a_stronger_source_settled_is_left_alone():

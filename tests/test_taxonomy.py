@@ -437,15 +437,19 @@ def test_the_family_status_split_is_the_one_the_owner_ruling_names():
     assert statuses.count('verified') == 9
     assert statuses.count('proposed') == 50
     assert statuses.count('unmapped') == 3
-    # The 24 new families carry no code and say why, rather than pointing
-    # at a unit group nobody confirmed (owner decision 5 -> CAREER-130).
-    pending = [entry['code'] for entry in entries
-               if entry.get('review') == 'unmapped_pending_backbone']
-    assert len(pending) == 24
-    for code in pending:
+    # 24 of the proposed families still carry no FOUR-digit code, and
+    # that is now the only thing they are missing: CAREER-130 gave every
+    # family a 3-digit home, so the pending-backbone marker is gone and
+    # nothing in the file claims a family is unmapped any more.
+    assert not [entry for entry in entries
+                if entry.get('review') == 'unmapped_pending_backbone']
+    without_isco4 = [entry['code'] for entry in entries
+                     if entry['isco4'] is None and entry['status'] == 'proposed']
+    assert len(without_isco4) == 24
+    for code in without_isco4:
         entry = taxonomy.entry('occupation_family', code)
-        assert entry['isco4'] is None, code
-        assert entry['status'] == 'proposed', code
+        assert entry['isco3'], code
+        assert entry.get('review') is None, code
 
 
 def test_a_synonym_is_never_a_stored_value():
@@ -470,3 +474,117 @@ def test_every_merged_away_label_is_still_expressible_as_a_synonym():
                 'innovation-manager': 'Innovation officer'}
     for code, label in absorbed.items():
         assert label in (taxonomy.entry('occupation_family', code).get('synonyms') or ()), code
+
+
+# --- The 3-digit CH-ISCO-19 backbone (CAREER-130) ------------------------
+
+def minor_groups():
+    return taxonomy.entries('isco_minor_group')
+
+
+def test_the_whole_published_three_digit_backbone_is_loaded():
+    """CAREER-130. 130 codes and `complete: true`, because 130 IS the
+    published non-onA 3-digit nomenclature: the BFS file carries 175
+    three-digit entries, of which 45 are "onA" buckets that mean "not
+    stated" and are no home for a job family. Complete matters beyond
+    tidiness -- it is what lets a caller read a missing code as an
+    invalid one, and `taxonomy.valid_code` refuse an invented one."""
+    meta = taxonomy.dimension_meta('isco_minor_group')
+    assert meta['complete'] is True
+    assert len(taxonomy.codes('isco_minor_group')) == 130
+    assert len(set(taxonomy.codes('isco_minor_group'))) == 130
+    assert taxonomy.valid_code('isco_minor_group', '251')
+    assert not taxonomy.valid_code('isco_minor_group', '2511')
+
+
+def test_every_minor_group_is_three_digits_with_both_titles():
+    """The leading zero is the one that a YAML file loses silently: 011,
+    021 and 031 are the armed-forces groups, and an integer 11 would both
+    break the string lookup and stop looking like a code. The German
+    title is here because it is why the backbone is shipped data at all
+    -- the extraction prompt reads German, and no prefix of a code
+    carries a title."""
+    for entry in minor_groups():
+        code = entry['code']
+        assert isinstance(code, str) and len(code) == 3 and code.isdigit(), code
+        assert entry['label'] and entry['label_de'], code
+        assert entry['major_group'] == code[0], code
+    assert {'011', '021', '031'} <= set(taxonomy.codes('isco_minor_group'))
+
+
+def test_the_ch_wording_is_kept_where_it_differs_from_the_ilo():
+    """11 of the 130 titles differ from the ILO's ISCO-08 wording by
+    Swiss national usage. BFS is the authority for the Swiss
+    nomenclature, so its words are what ship -- 513 is the clearest
+    case, and a later "tidy-up" against the ILO list would be a silent
+    change of source."""
+    assert taxonomy.entry('isco_minor_group', '513')['label'] == (
+        'Head waiters, restaurant service workers, service assistants and bartenders')
+
+
+def test_every_family_points_at_a_minor_group_this_taxonomy_knows():
+    """The whole point of CAREER-130: every one of the 62 families has a
+    3-digit home, and a family may no more invent a 3-digit code than a
+    4-digit one."""
+    families = taxonomy.entries('occupation_family')
+    assert len(families) == 62
+    for entry in families:
+        assert isinstance(entry['isco3'], str), entry['code']
+        assert taxonomy.valid_code('isco_minor_group', entry['isco3']), entry['code']
+        for alternate in entry.get('isco3_alts') or ():
+            assert taxonomy.valid_code('isco_minor_group', alternate), (entry['code'], alternate)
+            assert alternate != entry['isco3'], entry['code']
+        assert 'isco3_alts' not in entry or entry['isco3_alts'], entry['code']
+
+
+def test_no_family_is_waiting_on_the_backbone_any_more():
+    """The marker 24 families carried is retired, not renamed: the
+    backbone is loaded and the mapping is approved, so "pending" would be
+    a false statement about the file."""
+    for entry in taxonomy.entries('occupation_family'):
+        assert entry.get('review') != 'unmapped_pending_backbone', entry['code']
+
+
+def test_the_three_local_extensions_keep_their_marker_and_their_null_isco4():
+    """Decision 22 scopes the 4-digit roll-up guarantee to ESCO-backed
+    entries, and these three have no ESCO concept at all. Their 3-digit
+    home comes from the owner's approved mapping and not from ESCO, so it
+    changes nothing about the 4-digit question: the marker stays and
+    `isco4` stays null."""
+    for code in ('embedded-systems-security-engineer', 'digital-marketing-manager',
+                 'digital-transformation-manager'):
+        entry = taxonomy.entry('occupation_family', code)
+        assert entry['review'] == 'unmapped_local_extension', code
+        assert entry['isco4'] is None, code
+        assert entry['status'] == 'unmapped', code
+        assert taxonomy.valid_code('isco_minor_group', entry['isco3']), code
+
+
+@pytest.mark.parametrize('family,primary,alternates', [
+    # The six rows the owner changed when reviewing the mapping, pinned
+    # one by one: these are the ones a later re-derivation would most
+    # plausibly "correct" back to a machine's reading, and the owner's
+    # own answer is the data.
+    ('project-manager', '121', ['242', '133', '132']),
+    ('logistics-and-freight-coordinator', '432', ['333']),
+    ('retail-and-sales-assistant', '522', ['523']),
+    ('hospitality-and-catering-staff', '513', ['422']),
+    ('office-and-executive-assistant', '334', ['412']),
+    ('ai-ml-engineer', '251', ['212']),
+])
+def test_the_owner_changed_rows_are_the_owner_s_own_answer(family, primary, alternates):
+    entry = taxonomy.entry('occupation_family', family)
+    assert entry['isco3'] == primary
+    assert list(entry['isco3_alts']) == alternates
+
+
+def test_the_shape_of_the_mapping_is_the_approved_one():
+    """Counts, so a row that quietly gains or loses an alternate shows up:
+    62 primaries and 20 families with alternates is the mapping the owner
+    approved. An empty `isco3_alts` is never written -- a family with no
+    alternate has no key, because "[]" and "nothing to add" would be two
+    ways to say one thing."""
+    entries = taxonomy.entries('occupation_family')
+    assert sum(1 for entry in entries if entry['isco3']) == 62
+    assert sum(1 for entry in entries if 'isco3_alts' in entry) == 20
+    assert all(entry['isco3_alts'] for entry in entries if 'isco3_alts' in entry)

@@ -48,9 +48,10 @@ def seed_file_occupations():
 
 
 def taxonomy_families():
-    """The family layer beside the seed. Read here only to tell v2's
-    "no reading yet" entries from the local extensions, which is a fact
-    `occupation_families.yaml` owns and this file must not restate."""
+    """The family layer beside the seed. Read here only to tell the
+    entries with no four-digit code from the ones that have one, which is
+    a fact `occupation_families.yaml` owns and this file must not
+    restate."""
     from careeros import taxonomy
     return taxonomy.entries('occupation_family')
 
@@ -197,26 +198,31 @@ def test_an_entry_carries_an_isco_unit_group_unless_it_has_no_esco_parent():
     22 limits the roll-up guarantee to ESCO-backed entries for exactly
     that reason; writing the owner's own ISCO reading in would be the
     hand-picked code choice 22 refuses, and it lives in the golden set,
-    with its confidence, instead. A v2 family (CAREER-129) has no READING
-    yet: this change may only point a family at a unit group already in
-    ch_isco19.yaml's 19-group seed, and none of the 24 has an unarguable
-    home there, so the code is absent until CAREER-130 loads the
-    CH-ISCO-19 backbone. The `local` marker is what tells the two apart,
-    and `occupation_families.yaml` carries the reason per entry
-    (`unmapped_local_extension` vs `unmapped_pending_backbone`).
+    with its confidence, instead. A v2 family (CAREER-129) has no
+    four-digit READING yet: that code is derived from an ESCO concept and
+    these labels have none, so it stays absent until the ESCO work lands.
+    The `local` marker is what tells the two apart.
+
+    What CAREER-130 changed is NOT this: it gave every family a 3-digit
+    minor group (`isco3` in occupation_families.yaml, from the
+    owner-approved mapping), which is why the entries with no `isco` are
+    no longer read off a `unmapped_pending_backbone` marker -- there is
+    none left to read. The set is taken from the family layer's own
+    `isco4` instead, which is the fact this assertion was always about.
 
     Whichever kind it is, an `isco` that IS present is still a four-digit
     unit group and never a coarser roll-up, which is the half of this
     test that has not changed."""
-    pending = {entry['code'] for entry in taxonomy_families()
-               if entry.get('review') == 'unmapped_pending_backbone'}
+    unmapped_at_four = {entry['code'] for entry in taxonomy_families()
+                        if entry['isco4'] is None}
+    assert not any(entry.get('review') == 'unmapped_pending_backbone'
+                   for entry in taxonomy_families()), 'CAREER-130 removed the marker'
     for entry in seed_file_occupations():
         if entry.get('local'):
             assert entry['isco'] is None, entry['id']
             assert entry['esco_uri'] is None, entry['id']
-            assert entry['id'] not in pending, entry['id']
             continue
-        if entry['id'] in pending:
+        if entry['id'] in unmapped_at_four:
             assert entry['isco'] is None, entry['id']
             assert entry['esco_uri'] is None, entry['id']
             continue
