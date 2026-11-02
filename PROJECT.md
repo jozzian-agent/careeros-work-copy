@@ -874,7 +874,7 @@ forced a family onto a posting the owner said none of the 40 could
 express; about 35% of the wider 150-posting sample came back `unknown`,
 mostly jobs the list had no home for. Four things changed.
 
-- **61 families, as data.** 37 of the 40 kept, 24 added from the owner's
+- **62 families, as data.** 37 of the 40 kept, 24 added from the owner's
   own labelling (project manager, account manager, the engineering and
   construction trades, healthcare, hospitality, retail, security and the
   rest), and **3 merged away** because each split one function by LEVEL,
@@ -939,6 +939,20 @@ never removes, which is why the removal has to live here; the 24 new
 families enter a vault through that ordinary seed
 ([runbook](docs/runbooks/seed-function-facet.md)), which is the owner's
 own action and has to follow the migration rather than precede it.
+
+2026-11-02 (same day, CAREER-135, owner-approved in chat): the list
+grows to **62 families** with `software-engineer` — owner-follow-up on
+CAREER-129, broader than `software-developer`: backend, platform,
+infrastructure. `software engineer` was a synonym of software-developer
+and is no longer one; it is the family's own label now, and
+`backend engineer` moves with it. ISCO reading: 2512 (same unit group
+as software-developer and software-architect), status proposed — no
+ESCO concept is cited, the definitive reading waits on CAREER-130.
+Second change: **`project-manager` is renamed** "Project manager" →
+"Project or program manager" (German: "Projektleiter oder
+Programmleiter"), owner directive. The code is unchanged, so stored
+values keep working with no migration; the old label survives as a
+synonym. `taxonomy_version` 1.1.0 → 1.2.0.
 
 ## Product rules that shape the flows
 
@@ -1199,7 +1213,7 @@ section below for where each one stands, including what is still a stub.
 
 - Sector. Stored as ISIC today, on purpose, so that Journey 3 can use standard codes. D2 replaces the standard with NOGA divisions (sections derived); the stored section letters carry over, and nothing is migrated yet. Show plain labels only if friends find the names confusing.
 - Location. One format: the BFS municipality number plus canton and coordinates (D-sheet CAREER-58). The prototype shows the same place written several ways. The municipality register is loaded as of 2026-10-17 (CAREER-53, `scripts/load_bfs_municipalities.py`): 2 110 municipalities with their canton and their postal codes, read from the register's own LINDAS distribution. Coordinates are still null everywhere, because the distribution references a boundary polygon rather than a point.
-- Function. The filter exists; its values are the 61 job families (v2, 2026-11-02), 34 of them mapped to an ISCO-08 unit group (D1) and 27 carrying none. The filter reads the job's own `function` facet ids client-side, not the classification pipeline's `values.occupation_family`; the two stores are still unreconciled (see the 2026-11-02 entry).
+- Function. The filter exists; its values are the 62 job families (v2, 2026-11-02, + CAREER-135 the same day), 35 of them mapped to an ISCO-08 unit group (D1) and 27 carrying none. The filter reads the job's own `function` facet ids client-side, not the classification pipeline's `values.occupation_family`; the two stores are still unreconciled (see the 2026-11-02 entry).
 
 ### Design system
 
@@ -1264,7 +1278,7 @@ capability imports nothing from the product.
 
 | File | Dimensions | Standard | State |
 |---|---|---|---|
-| `occupation_families.yaml` | occupation_family, occupation_family_status | CareerOS families over ISCO-08 | complete: 61 families (v2, 2026-11-02), 9 ESCO-verified, 49 proposed (25 with a candidate code, 24 awaiting the CH-ISCO-19 backbone), 3 unmapped |
+| `occupation_families.yaml` | occupation_family, occupation_family_status | CareerOS families over ISCO-08 | complete: 62 families (v2, 2026-11-02; CAREER-135 added software-engineer), 9 ESCO-verified, 50 proposed (26 with a candidate code, 24 awaiting the CH-ISCO-19 backbone), 3 unmapped |
 | `ch_isco19.yaml` | isco_unit_group, ch_isco19 | CH-ISCO-19 over ISCO-08 | seed (19 unit groups the families use); the 5-digit Swiss list is a stub |
 | `industry_noga.yaml` | noga_section, noga_division | NOGA (NACE) | sections complete; divisions a stub; which revision is current is unanswered |
 | `company_size.yaml` | company_size | BFS size classes | complete, plus the local `xl` |

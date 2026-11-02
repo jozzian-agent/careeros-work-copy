@@ -377,7 +377,7 @@ def test_every_family_isco_code_is_a_unit_group_this_taxonomy_knows():
 
 
 def test_the_family_layer_and_the_extraction_seed_cannot_drift():
-    """The two files hold the same 61 ids on purpose (the seed carries
+    """The two files hold the same 62 ids on purpose (the seed carries
     keywords and citations, this layer carries the mapping, its status and
     the synonyms). Keeping them in step is this test's job, not a
     comment's."""
@@ -402,14 +402,18 @@ def test_the_family_layer_and_the_extraction_seed_cannot_drift():
             assert family['isco4'] == source['isco']
 
 
-def test_the_family_list_is_the_61_the_owner_approved():
+def test_the_family_list_is_the_62_the_owner_approved():
     """v2, owner-approved 2026-11-02: 37 of v1's 40 kept, 3 merged away
-    because each split one function by LEVEL, 24 added. Pinned here the
-    way `vault.STOPPED_REASONS` is pinned in tests/test_board_d7.py: a
-    family leaving the list is a decision, never a diff nobody noticed."""
+    because each split one function by LEVEL, 24 added. CAREER-135
+    (owner-approved the same day) added `software-engineer` as the 62nd:
+    broader than software-developer -- backend, platform, infrastructure.
+    Pinned here the way `vault.STOPPED_REASONS` is pinned in
+    tests/test_board_d7.py: a family leaving the list is a decision,
+    never a diff nobody noticed."""
     codes = taxonomy.codes('occupation_family')
-    assert len(codes) == 61
-    assert len(set(codes)) == 61
+    assert len(codes) == 62
+    assert len(set(codes)) == 62
+    assert 'software-engineer' in codes, 'CAREER-135 added the 62nd family'
     for absorbed in ('chief-product-officer', 'ict-business-analysis-manager',
                      'innovation-officer'):
         assert absorbed not in codes, absorbed
@@ -429,9 +433,9 @@ def test_the_family_status_split_is_the_one_the_owner_ruling_names():
     two concepts. The merge costs a citation and this number says so."""
     entries = taxonomy.entries('occupation_family')
     statuses = [entry['status'] for entry in entries]
-    assert len(statuses) == 61
+    assert len(statuses) == 62
     assert statuses.count('verified') == 9
-    assert statuses.count('proposed') == 49
+    assert statuses.count('proposed') == 50
     assert statuses.count('unmapped') == 3
     # The 24 new families carry no code and say why, rather than pointing
     # at a unit group nobody confirmed (owner decision 5 -> CAREER-130).
