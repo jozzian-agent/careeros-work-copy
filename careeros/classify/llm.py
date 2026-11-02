@@ -194,7 +194,7 @@ def options(field):
     from the CareerOS taxonomy", which is an invitation to invent one.
     Such a dimension is no longer asked at all (`askable`), so this
     raises for one rather than building a line no caller should send, and
-    the sixty-code cap is gone with it -- the 61 job families are the
+    the sixty-code cap is gone with it -- the 62 job families are the
     longest list the model is shown and they are the whole point of
     asking.
 

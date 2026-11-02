@@ -72,7 +72,8 @@ def test_esco_occupations_yaml_is_a_curated_import_source():
 # never a diff nobody noticed. In seed-file order, which is the order the
 # facet and the extraction prompt receive.
 FUNCTION_IDS = (
-    'ict-product-manager', 'software-developer', 'ict-service-manager', 'software-architect',
+    'ict-product-manager', 'software-developer', 'software-engineer',
+    'ict-service-manager', 'software-architect',
     'ict-system-administrator', 'ict-security-manager', 'embedded-systems-security-engineer',
     'ict-project-manager', 'ict-business-analyst',
     'ict-consultant', 'data-scientist', 'data-engineer', 'data-analyst', 'ai-ml-engineer',
@@ -161,7 +162,7 @@ def test_the_seed_is_the_pinned_vocabulary():
     ids = [entry['id'] for entry in seed_file_occupations()]
     assert tuple(ids) == FUNCTION_IDS
     assert len(ids) == len(set(ids))
-    assert len(ids) == 61
+    assert len(ids) == 62
     for absorbed in MERGED_AWAY:
         assert absorbed not in ids, absorbed
 

@@ -195,6 +195,14 @@ rm "$VAULT/tags.yaml"
   forbids. Loading the 3-digit CH-ISCO-19 backbone and mapping the
   families to it is CAREER-130. Those 24 seed exactly like the
   unverified entries below: as local extensions with no code.
+- CAREER-135 (2026-11-02) adds `software-engineer` (the 62nd family;
+  seeds like any unverified entry: local extension, no code, its isco
+  2512 reading stays in the source until verified) and renames
+  `project-manager` to "Project or program manager". The seed **never
+  touches labels**, so an existing vault keeps the old "Project
+  manager" wording: edit that one `label` (and `label_de` to
+  "Projektleiter oder Programmleiter") in the vault's tags.yaml by
+  hand after re-seeding. The id is unchanged, so no record moves.
 - Three ids were **merged away** by v2 (`chief-product-officer`,
   `ict-business-analysis-manager`, `innovation-officer`). The seed adds
   and updates and never removes, so a vault seeded before v2 still holds
@@ -204,7 +212,7 @@ rm "$VAULT/tags.yaml"
   absorbing family first and removes the three facet entries second, in
   that order, because a record naming an id the facet has dropped stops
   saving.
-- 25 of the 61 entries are still unverified: no `esco_uri`, and an
+- 26 of the 62 entries are still unverified: no `esco_uri`, and an
   `isco` that is the import source's best reading rather than a
   citation. The 2026-10-16 round verified the 10 concepts the golden set
   needed, which is every function label the owner's own 42 labelled

@@ -1,5 +1,6 @@
-# Job families, v2: 61 families as data (owner decisions 2026-11-02,
-# CAREER-129), replacing v1's 40 (owner decision D1, decision sheet
+# Job families, v2: 62 families as data (owner decisions 2026-11-02,
+# CAREER-129; CAREER-135 added `software-engineer` as the 62nd the same
+# day), replacing v1's 40 (owner decision D1, decision sheet
 # CAREER-58, 2026-10-17).
 #
 # WHY V2. The owner labelled 50 random postings blind and compared them
@@ -134,9 +135,9 @@
 # (careeros/ingest.py:_function_options_text) and a missing German anchor
 # costs a reading; they are listed under open_questions for owner
 # confirmation rather than presented as settled.
-taxonomy_version: "1.1.0"
+taxonomy_version: "1.2.0"
 standard: "CareerOS job families over ISCO-08 unit groups"
-standard_version: "family list v2, owner-approved 2026-11-02 (CAREER-129); ISCO-08 unit groups"
+standard_version: "family list v2 + software-engineer, owner-approved 2026-11-02 (CAREER-129, CAREER-135); ISCO-08 unit groups"
 changed_at: "2026-11-02"
 code_lists:
   - dimension: occupation_family
@@ -152,10 +153,20 @@ code_lists:
       - code: software-developer
         label: "Software developer"
         label_de: "Softwareentwickler"
-        synonyms: ["software engineer"]
         isco4: "2512"
         status: verified
         esco_uri: "http://data.europa.eu/esco/occupation/f2b15a0e-e65a-438a-affb-29b9d50b77d1"
+      # CAREER-135, owner-approved 2026-11-02. Broader than software-developer:
+      # backend, platform, infrastructure. "software engineer" was a synonym of
+      # software-developer until this change made it a family of its own, so the
+      # synonym moved off. isco4 2512 is the owner-approved reading (the same
+      # unit group software-developer and software-architect carry); the family
+      # is proposed, not verified -- no ESCO concept is cited for it.
+      - code: software-engineer
+        label: "Software engineer"
+        label_de: "Softwareingenieur"
+        isco4: "2512"
+        status: proposed
       - code: ict-service-manager
         label: "ICT service manager"
         label_de: "IT-Servicemanager"
@@ -447,8 +458,12 @@ code_lists:
         status: unmapped
         review: unmapped_local_extension
       - code: project-manager
-        label: "Project manager"
-        label_de: "Projektleiter"
+        label: "Project or program manager"
+        label_de: "Projektleiter oder Programmleiter"
+        # Renamed in CAREER-135 (owner directive 2026-11-02): "Project
+        # manager" -> "Project or program manager". The code is unchanged,
+        # so no vault migration is needed; stored values keep working.
+        synonyms: ["Project manager"]
         isco4: null
         status: proposed
         review: unmapped_pending_backbone

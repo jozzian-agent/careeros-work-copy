@@ -164,7 +164,7 @@ def test_the_prompt_never_asks_for_a_code_without_showing_the_list():
 
 
 def test_the_whole_family_list_reaches_the_model():
-    """The 61 families are over the sixty-code cap `options` used to
+    """The 62 families are over the sixty-code cap `options` used to
     carry, and that cap would have replaced the one list that matters
     with the prose fallback above."""
     listed = llm.options('occupation_family')
