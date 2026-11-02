@@ -47,6 +47,14 @@ def seed_file_occupations():
     return yaml.safe_load((ROOT / 'careeros/data/esco_occupations.yaml').read_text())['occupations']
 
 
+def taxonomy_families():
+    """The family layer beside the seed. Read here only to tell v2's
+    "no reading yet" entries from the local extensions, which is a fact
+    `occupation_families.yaml` owns and this file must not restate."""
+    from careeros import taxonomy
+    return taxonomy.entries('occupation_family')
+
+
 def test_esco_occupations_yaml_is_a_curated_import_source():
     data = yaml.safe_load((ROOT / 'careeros/data/esco_occupations.yaml').read_text())
     assert data['occupations']
@@ -66,20 +74,39 @@ def test_esco_occupations_yaml_is_a_curated_import_source():
 FUNCTION_IDS = (
     'ict-product-manager', 'software-developer', 'ict-service-manager', 'software-architect',
     'ict-system-administrator', 'ict-security-manager', 'embedded-systems-security-engineer',
-    'ict-project-manager', 'ict-business-analyst', 'ict-business-analysis-manager',
-    'ict-consultant', 'data-scientist', 'data-engineer', 'data-analyst',
-    'product-manager', 'chief-product-officer',
+    'ict-project-manager', 'ict-business-analyst',
+    'ict-consultant', 'data-scientist', 'data-engineer', 'data-analyst', 'ai-ml-engineer',
+    'product-manager',
     'user-experience-analyst', 'user-interface-designer',
     'marketing-manager', 'digital-marketing-manager',
     'sales-manager', 'technical-sales-representative',
-    'financial-investment-adviser', 'banking-products-manager',
+    'account-manager', 'retail-and-sales-assistant', 'merchandiser-or-buyer',
+    'customer-success-manager',
+    'financial-investment-adviser', 'banking-products-manager', 'banking-officer',
     'financial-analyst', 'accountant', 'financial-manager',
-    'risk-manager', 'compliance-officer',
+    'risk-manager', 'compliance-officer', 'legal',
     'human-resources-manager', 'recruitment-consultant', 'management-consultant',
     'business-consultant', 'business-development-manager',
-    'innovation-manager', 'innovation-officer', 'digital-transformation-manager',
-    'supply-chain-manager', 'operations-manager', 'customer-service-manager',
+    'innovation-manager', 'digital-transformation-manager', 'project-manager',
+    'supply-chain-manager', 'logistics-and-freight-coordinator',
+    'operations-manager', 'customer-service-manager', 'office-and-executive-assistant',
+    'mechanical-and-process-engineer', 'electrical-and-electronics-engineer',
+    'robotics-and-control-engineer', 'civil-and-structural-engineer',
+    'architect-and-planner', 'construction-and-site-manager',
+    'technical-drafter-cad-designer', 'electrician-and-installer',
+    'production-or-assembly-worker',
+    'healthcare-staff', 'cook-and-kitchen-staff', 'hospitality-and-catering-staff',
+    'fitness-and-sports-instructor', 'security-staff',
 )
+
+# The three v1 families v2 merged away, each because it split one function
+# by LEVEL (owner decision 1: a seniority or level word is never part of a
+# family name). They must be GONE, not merely unused: the vault's own
+# `function` facet vocabulary is enforced on write, so a code that lingers
+# in one file and not the other is a record that stops saving.
+MERGED_AWAY = {'chief-product-officer': 'product-manager',
+               'ict-business-analysis-manager': 'ict-business-analyst',
+               'innovation-officer': 'innovation-manager'}
 
 # The ESCO identity of every entry that claims one, pinned beside the id
 # list for the same reason: these are citations, each one fetched from
@@ -89,11 +116,17 @@ FUNCTION_IDS = (
 # diff here is either a new verification or a fabrication, and the point
 # of the golden set (5 of its 15 URIs were invented by the labelling
 # model and 404) is that the two must never be confused.
+#
+# NINE since v2, not ten: `ict-business-analysis-manager` held the tenth
+# and v2 merges it into `ict-business-analyst`, which does NOT inherit the
+# URI — ESCO holds "ICT business analysis manager" (2511.7) and "ICT
+# business analyst" as two concepts, so reusing the citation would claim a
+# verification the surviving label never had. The merge costs a citation
+# and this list is where that cost is visible.
 ESCO_BACKED = {
     'ict-product-manager': ('a79170ad-0b7b-4697-864f-1748359aa10a', '1330'),
     'software-developer': ('f2b15a0e-e65a-438a-affb-29b9d50b77d1', '2512'),
     'ict-project-manager': ('8b6388a4-4904-471b-9331-d3b1211f5525', '1330'),
-    'ict-business-analysis-manager': ('4b3201cb-ffc5-4f61-9fc3-5c0f0038fa5f', '2511'),
     'ict-consultant': ('b1c80369-067e-4041-84c8-dbe65640a5d8', '2511'),
     'product-manager': ('9f508305-80ce-4111-8722-f2c9b4a44890', '1223'),
     'marketing-manager': ('6fcf4638-e7c7-4978-9302-9a7b63a3d57c', '1221'),
@@ -109,8 +142,13 @@ ESCO_BACKED = {
 # entries). They must stay expressible on their own; being absorbed into
 # an ESCO entry whose unit group says something else is the failure this
 # list exists to prevent.
-LOCAL_EXTENSIONS = ('embedded-systems-security-engineer', 'chief-product-officer',
-                    'digital-marketing-manager', 'innovation-officer',
+# THREE since v2, not five: `chief-product-officer` and
+# `innovation-officer` were two of the five, and both were local
+# extensions only because of the rank word in the label — exactly what
+# owner decision 1 removes. Each is merged into the family that already
+# meant the same thing, and its label survives as that family's synonym.
+LOCAL_EXTENSIONS = ('embedded-systems-security-engineer',
+                    'digital-marketing-manager',
                     'digital-transformation-manager')
 
 
@@ -123,6 +161,9 @@ def test_the_seed_is_the_pinned_vocabulary():
     ids = [entry['id'] for entry in seed_file_occupations()]
     assert tuple(ids) == FUNCTION_IDS
     assert len(ids) == len(set(ids))
+    assert len(ids) == 61
+    for absorbed in MERGED_AWAY:
+        assert absorbed not in ids, absorbed
 
 
 def test_every_esco_backed_entry_carries_its_verified_uri_and_unit_group():
@@ -150,13 +191,31 @@ def test_an_entry_carries_an_isco_unit_group_unless_it_has_no_esco_parent():
     has: the four-digit unit group. A coarser roll-up is a prefix of it,
     while a three-digit code would have lost the finest level for good.
 
-    A local extension is the one kind of entry with no code: it has no
-    ESCO concept to derive one from, and choice 22 limits the roll-up
-    guarantee to ESCO-backed entries for exactly that reason. Writing the
-    owner's own ISCO reading in would be the hand-picked code choice 22
-    refuses -- it lives in the golden set, with its confidence, instead."""
+    TWO kinds of entry carry no code, and they mean different things.
+    A local extension has no ESCO concept to derive one from, and choice
+    22 limits the roll-up guarantee to ESCO-backed entries for exactly
+    that reason; writing the owner's own ISCO reading in would be the
+    hand-picked code choice 22 refuses, and it lives in the golden set,
+    with its confidence, instead. A v2 family (CAREER-129) has no READING
+    yet: this change may only point a family at a unit group already in
+    ch_isco19.yaml's 19-group seed, and none of the 24 has an unarguable
+    home there, so the code is absent until CAREER-130 loads the
+    CH-ISCO-19 backbone. The `local` marker is what tells the two apart,
+    and `occupation_families.yaml` carries the reason per entry
+    (`unmapped_local_extension` vs `unmapped_pending_backbone`).
+
+    Whichever kind it is, an `isco` that IS present is still a four-digit
+    unit group and never a coarser roll-up, which is the half of this
+    test that has not changed."""
+    pending = {entry['code'] for entry in taxonomy_families()
+               if entry.get('review') == 'unmapped_pending_backbone'}
     for entry in seed_file_occupations():
         if entry.get('local'):
+            assert entry['isco'] is None, entry['id']
+            assert entry['esco_uri'] is None, entry['id']
+            assert entry['id'] not in pending, entry['id']
+            continue
+        if entry['id'] in pending:
             assert entry['isco'] is None, entry['id']
             assert entry['esco_uri'] is None, entry['id']
             continue
@@ -183,10 +242,12 @@ def test_every_label_with_no_esco_concept_is_marked_local():
     # rather than a matcher and the posting's own text is what decides.
     ('Staff Product Manager', 'ict-product-manager'),
     ('Head of Product (Mail)', 'ict-product-manager'),
-    # Same phrase, the other golden reading: the top product role, which
-    # has no ESCO concept and used to be absorbed into 1330 for want of an
-    # entry of its own.
-    ('Head of Product', 'chief-product-officer'),
+    # Same phrase, the other golden reading: the top product role. Its own
+    # family until v2 (`chief-product-officer`), which owner decision 1
+    # merges away because `chief` is a level word; the keywords moved onto
+    # the family that already meant it, so the row still lands on 1223
+    # rather than on ict-product-manager's 1330.
+    ('Head of Product', 'product-manager'),
     ('Product Owner AI Portfolio & Delivery', 'ict-product-manager'),
     ('Engagierte Persönlichkeit für Produktportfolioentwicklung', 'product-manager'),
     ('Product Manager TMS (m/w/d) 100%', 'product-manager'),
@@ -195,12 +256,15 @@ def test_every_label_with_no_esco_concept_is_marked_local():
     ('Digitalisierungs- und Innovationsprojektleiter', 'ict-project-manager'),
     ('Digitalisierungs- und Innovationsprojektleiter', 'digital-transformation-manager'),
     ('Projektleiter*in Digitales Ökosystem in Zürich', 'digital-transformation-manager'),
-    ('Lead Business & Technology Engineering (w/m/d)', 'ict-business-analysis-manager'),
+    # `ict-business-analysis-manager` until v2; `lead` is a level word, so
+    # decision 1 merges it into the analyst and its keywords came along.
+    ('Lead Business & Technology Engineering (w/m/d)', 'ict-business-analyst'),
     ('M365 Digital Workplace Consultant', 'ict-consultant'),
     ('AI Tech Consultant (all genders)', 'ict-consultant'),
     ('Ökosystem & Strategie Manager 80-100%', 'business-development-manager'),
+    # Two rows until v2: `innovation-officer` was the second reading and
+    # decision 1 merges it into the manager, so there is one home now.
     ('Innovation Management Professional', 'innovation-manager'),
-    ('Innovation Management Professional', 'innovation-officer'),
     ('Senior Growth Marketing Manager (100%)', 'marketing-manager'),
     ('Senior Growth Marketing Manager (100%)', 'digital-marketing-manager'),
     ('CHANNEL MANAGER', 'sales-manager'),
@@ -240,15 +304,29 @@ def test_every_golden_set_label_is_expressible():
     coverage measurement would score it as a miss that is really a gap in
     the vocabulary. Two golden rows are 'unclassifiable' (a careers
     landing page and a job-board page, neither of them a posting), which
-    is not a function and deliberately has no id."""
-    labels = {entry['label'].casefold() for entry in seed_file_occupations()}
+    is not a function and deliberately has no id.
+
+    Since v2 a label may land on a family's LABEL or on one of its
+    SYNONYMS. That is what the synonyms are for: three of the fifteen
+    golden labels name families v2 merged away, and the merge must not
+    make the owner's own words unsearchable."""
+    expressible = set()
+    for entry in taxonomy_families():
+        expressible.add(entry['label'].casefold())
+        expressible.update(synonym.casefold() for synonym in entry.get('synonyms') or ())
     golden = ('ICT project manager', 'ICT consultant', 'sales manager', 'ICT product manager',
               'product manager', 'marketing manager', 'banking products manager',
               'business consultant', 'ICT business analysis manager', 'software developer',
               'chief product officer', 'digital marketing manager',
               'digital transformation manager', 'embedded systems security engineer',
               'innovation officer')
-    assert [label for label in golden if label.casefold() not in labels] == []
+    assert [label for label in golden if label.casefold() not in expressible] == []
+    # And the three that are expressible only as synonyms are exactly the
+    # three v2 merged away, so this test cannot quietly start passing
+    # because a label came back as a family.
+    bare = {entry['label'].casefold() for entry in taxonomy_families()}
+    assert {label for label in golden if label.casefold() not in bare} == {
+        'ICT business analysis manager', 'chief product officer', 'innovation officer'}
 
 
 # --- Engineering items 1/3: seed tags.yaml's function facet from the ------
@@ -270,10 +348,16 @@ def test_seed_function_facet_marks_unverified_entries_as_local_extension(root):
     assert values['ict-service-manager']['isco'] is None
     assert values['ict-service-manager']['esco_uri'] is None
     # And this one has no ESCO concept at all to verify (decision 25), so
-    # it is marked the same way and the seed file says so itself.
-    assert values['chief-product-officer']['source'] == 'local-extension'
-    assert values['chief-product-officer']['isco'] is None
-    assert values['chief-product-officer']['esco_uri'] is None
+    # it is marked the same way and the seed file says so itself. (The
+    # example was `chief-product-officer` until v2 merged it away; three
+    # local extensions are left and this is one.)
+    assert values['digital-marketing-manager']['source'] == 'local-extension'
+    assert values['digital-marketing-manager']['isco'] is None
+    assert values['digital-marketing-manager']['esco_uri'] is None
+    # A v2 family with no ISCO READING yet is seeded the same way, because
+    # the seed cannot tell a vault anything it does not know either.
+    assert values['project-manager']['isco'] is None
+    assert values['project-manager']['esco_uri'] is None
 
 
 def test_a_seeded_vault_knows_every_proposed_id(root):
@@ -408,18 +492,34 @@ def test_re_running_the_seed_unmaps_an_entry_the_source_marks_local(root):
     so, and the re-run is what makes it true of the vault."""
     tags = vault.load_tags(root)
     tags['facets']['function']['values'] = [
-        {'id': 'chief-product-officer', 'label': 'Chief product officer', 'isco': '1223',
+        {'id': 'digital-marketing-manager', 'label': 'Digital marketing manager', 'isco': '1221',
          'esco_uri': 'http://data.europa.eu/esco/occupation/8a0afc76-4a09-449a-9e7b-a33495889f95'},
     ]
     vault.save_tags(root, tags)
 
     _added, updated = vault.seed_function_facet(root)
 
-    assert updated == ['chief-product-officer']
+    assert updated == ['digital-marketing-manager']
     stored = {v['id']: v for v in vault.load_tags(root)['facets']['function']['values']}
-    assert stored['chief-product-officer']['esco_uri'] is None
-    assert stored['chief-product-officer']['isco'] is None
-    assert stored['chief-product-officer']['source'] == 'local-extension'
+    assert stored['digital-marketing-manager']['esco_uri'] is None
+    assert stored['digital-marketing-manager']['isco'] is None
+    assert stored['digital-marketing-manager']['source'] == 'local-extension'
+
+
+def test_the_seed_never_removes_a_family_the_list_dropped(root):
+    """Which is why `scripts/migrate_family_taxonomy_v2.py` has to exist.
+    The seed adds and updates; a vault holding one of v2's three merged-away
+    ids still holds it afterwards, and the vocabulary is enforced on write,
+    so removing it is the migration's job and not the seed's."""
+    tags = vault.load_tags(root)
+    tags['facets']['function']['values'] = [
+        {'id': 'chief-product-officer', 'label': 'Chief product officer'},
+    ]
+    vault.save_tags(root, tags)
+
+    vault.seed_function_facet(root)
+
+    assert 'chief-product-officer' in vault.known_function_ids(root)
 
 
 def test_re_running_the_seed_leaves_a_vault_only_confirmation_alone(root):

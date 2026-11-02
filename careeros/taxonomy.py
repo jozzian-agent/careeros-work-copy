@@ -67,6 +67,12 @@ _REQUIRED_HEADER = ('taxonomy_version', 'standard', 'standard_version', 'changed
 #: record at all. Accepted for every dimension and part of none.
 UNKNOWN = 'unknown'
 
+#: How many ordered alternatives one value record may carry (owner
+#: decision 2026-11-02, CAREER-129). Three, because rank POSITION is the
+#: whole signal: the local model answers ~0.95 confident for everything,
+#: so a fourth guess would add length and no evidence.
+MAX_RANKS = 3
+
 
 def _freeze(value):
     """Deep-freeze parsed YAML: mappings become read-only views and lists
@@ -328,8 +334,80 @@ def _check_flags(flags, guide_version):
     return sorted(set(flags))
 
 
+def _check_ranked(dimension, value, ranked, meta):
+    """`ranked` as up to `MAX_RANKS` ordered alternatives, or None.
+
+    None and not an empty list when a caller passes nothing: a record
+    written before CAREER-129 carries no `ranked` key at all, so every
+    reader has to tolerate its absence, and an absent list and an empty
+    one must not become two ways of saying the same thing.
+
+    Every rule here is one a reader would otherwise have to re-check:
+    the codes are taxonomy codes, the ranks run 1..n best first, no code
+    is listed twice (a rank is an alternative, not a repetition), and
+    `ranked[0]` IS the primary value -- which is what lets every existing
+    reader of `value` keep working while a ranked reader sees all three.
+    """
+    if ranked is None:
+        return None
+    if isinstance(ranked, (str, bytes, dict)) or not isinstance(ranked, (list, tuple)):
+        raise ValueError(f'{dimension}: ranked must be a list of up to {MAX_RANKS} entries')
+    if not 1 <= len(ranked) <= MAX_RANKS:
+        raise ValueError(f'{dimension}: ranked carries {len(ranked)} entries; 1 to '
+                         f'{MAX_RANKS} are allowed')
+    checked, seen = [], set()
+    for position, item in enumerate(ranked, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f'{dimension}: ranked entry {position} must be a mapping of '
+                             'value, rank, source and confidence')
+        code = item.get('value')
+        if not isinstance(code, str) or not code.strip():
+            raise ValueError(f'{dimension}: ranked entry {position} must carry a code '
+                             f'(or {UNKNOWN!r})')
+        if not valid_code(dimension, code):
+            if meta['complete']:
+                raise ValueError(f'{code!r} is not a valid {dimension} code')
+            _logger.warning('taxonomy %s: accepted ranked code %r that the shipped list does '
+                            'not have; %s marks this dimension incomplete', dimension, code,
+                            meta['file'])
+        if code in seen:
+            raise ValueError(f'{dimension}: ranked lists {code!r} twice; a rank is an '
+                             'alternative, not a repetition')
+        seen.add(code)
+        rank = item.get('rank', position)
+        if rank != position:
+            raise ValueError(f'{dimension}: ranked must run best first with rank 1 to '
+                             f'{len(ranked)}; entry {position} says rank {rank!r}')
+        source = item.get('source')
+        if source not in SOURCES:
+            raise ValueError(f'unknown source {source!r}; known: {", ".join(SOURCES)}')
+        checked.append({'value': code, 'rank': position, 'source': source,
+                        'confidence': _check_confidence(item.get('confidence'))})
+    if checked[0]['value'] != value:
+        raise ValueError(f'{dimension}: the primary value {value!r} must be the first rank, '
+                         f'but ranked[0] is {checked[0]["value"]!r}')
+    return checked
+
+
+def ranked_values(record):
+    """Every code one value record carries, best first.
+
+    One function because three readers ask the same question -- a family
+    filter, the grader and the run report -- and a record written before
+    CAREER-129 carries no `ranked` key, so each of them would otherwise
+    grow its own fallback to the primary value.
+    """
+    if not isinstance(record, dict):
+        return ()
+    ranked = record.get('ranked')
+    if ranked:
+        return tuple(item['value'] for item in ranked)
+    value = record.get('value')
+    return (value,) if isinstance(value, str) and value else ()
+
+
 def make_value_record(dimension, value, source, *, confidence=None, evidence=None,
-                      classified_at=None, flags=(), guide_version=None):
+                      classified_at=None, flags=(), guide_version=None, ranked=None):
     """One classified value in the D4 shape, validated.
 
     The one place a value record is built, so the shape cannot drift
@@ -337,6 +415,16 @@ def make_value_record(dimension, value, source, *, confidence=None, evidence=Non
 
         {value, source, confidence, evidence, taxonomy_version,
          standard_version, classified_at, flags, guide_version}
+
+    plus the one field CAREER-129 adds, and only when a caller passes it:
+
+        ranked  [{value, rank, source, confidence}, ...]  up to MAX_RANKS
+
+    `value` stays the PRIMARY answer and equals `ranked[0]['value']`, so
+    nothing that reads `value` had to change for a ranked dimension; a
+    reader that wants all three calls `ranked_values`. A record with no
+    `ranked` key is a single-valued record, which is what every record
+    written before this says and what the rules layer still writes.
 
     `taxonomy_version` and `standard_version` are taken from the
     dimension's own file rather than passed in -- the point of recording
@@ -363,7 +451,8 @@ def make_value_record(dimension, value, source, *, confidence=None, evidence=Non
                         'is what needs extending', dimension, value, meta['file'])
     if source not in SOURCES:
         raise ValueError(f'unknown source {source!r}; known: {", ".join(SOURCES)}')
-    return {
+    checked_ranks = _check_ranked(dimension, value, ranked, meta)
+    record = {
         'value': value,
         'source': source,
         'confidence': _check_confidence(confidence),
@@ -374,3 +463,6 @@ def make_value_record(dimension, value, source, *, confidence=None, evidence=Non
         'flags': _check_flags(tuple(flags), guide_version),
         'guide_version': guide_version,
     }
+    if checked_ranks is not None:
+        record['ranked'] = checked_ranks
+    return record

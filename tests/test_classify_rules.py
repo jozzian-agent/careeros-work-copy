@@ -49,22 +49,54 @@ def test_a_title_settles_the_job_family_and_its_isco_group():
 def test_an_unmapped_local_extension_yields_no_isco_code():
     """Decision 22 scopes the ISCO roll-up guarantee to ESCO-backed
     entries and decision 25 keeps the label expressible, so the family is
-    settled and the unit group is honestly unknown."""
-    values = rules.occupation(subject(title='Chief Product Officer'))
-    assert values['occupation_family']['value'] == 'chief-product-officer'
+    settled and the unit group is honestly unknown.
+
+    The example was `Chief Product Officer` until v2 merged that family
+    into product-manager, which does carry a code; three local extensions
+    are left and this is one of them."""
+    values = rules.occupation(subject(title='Product & Solution Security Expert 80-100%'))
+    assert values['occupation_family']['value'] == 'embedded-systems-security-engineer'
     assert values['isco_unit_group']['value'] == taxonomy.UNKNOWN
     assert 'local extension' in values['isco_unit_group']['evidence']['rule']
 
 
+def test_a_family_with_no_isco_reading_yet_also_yields_no_code():
+    """v2's 24 new families carry no `isco4` either, for a different
+    reason: not "there is no concept" but "there is no confirmed unit
+    group yet" (CAREER-130 loads the backbone). The family is still
+    settled, and the unit group is unknown rather than guessed."""
+    record = taxonomy.make_value_record('occupation_family', 'project-manager', 'llm')
+    derived = rules.derive_isco(record)
+    assert derived['value'] == taxonomy.UNKNOWN
+    assert derived['evidence']['occupation_family'] == 'project-manager'
+
+
+def test_a_family_the_current_list_does_not_carry_yields_a_reason_not_a_crash():
+    """A record classified under v1 can name a family v2 merged away, and
+    a re-classification pass must survive reading it (CAREER-129): no
+    KeyError, and no code borrowed from a neighbouring family."""
+    record = dict(taxonomy.make_value_record('occupation_family', 'product-manager', 'llm'),
+                  value='chief-product-officer')
+    derived = rules.derive_isco(record)
+    assert derived['value'] == taxonomy.UNKNOWN
+    assert rules.review_reason(derived) == rules.FAMILY_NOT_IN_TAXONOMY
+    assert derived['evidence']['occupation_family'] == 'chief-product-officer'
+
+
 def test_a_phrase_two_families_share_is_recorded_as_ambiguous():
-    """`head of product` anchors both ICT product manager and chief
-    product officer on purpose. With nothing else to go on, the layer
-    refuses rather than letting seed order decide."""
+    """`head of product` anchors both ICT product manager and product
+    manager on purpose. With nothing else to go on, the layer refuses
+    rather than letting seed order decide.
+
+    Before v2 the second claimant was `chief-product-officer`. The merge
+    did not remove the ambiguity, it moved it between two ESCO-backed
+    homes: the golden set splits four Head-of-Product rows two and two,
+    and the posting's own text is still what tells them apart."""
     values = rules.occupation(subject(title='Head of Product'))
     assert values['occupation_family']['value'] == taxonomy.UNKNOWN
     assert rules.review_reason(values['occupation_family']) == 'ambiguous'
     assert values['occupation_family']['evidence']['candidates'] == [
-        'chief-product-officer', 'ict-product-manager']
+        'ict-product-manager', 'product-manager']
 
 
 def test_a_tie_is_broken_by_how_much_of_each_vocabulary_the_posting_carries():

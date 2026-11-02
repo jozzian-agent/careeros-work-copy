@@ -131,10 +131,46 @@ def test_the_prompt_lists_the_codes_a_field_may_answer_with():
     assert 'unknown' in asked
 
 
-def test_an_incomplete_dimension_is_not_listed_code_by_code():
-    """The municipality register has 2 110 entries; sending them per
-    posting would cost more than the answer is worth."""
-    assert 'a valid municipality code' in llm.options('municipality')
+def test_an_incomplete_dimension_is_not_asked_of_the_model_at_all():
+    """CAREER-129. The municipality register has 2 110 entries and ships
+    `complete: false`, which used to mean the model was asked for "a
+    valid municipality code from the CareerOS taxonomy" without being
+    shown one code of it -- an unanswerable question (469 of them in the
+    run of 2026-11-01) whose answer could not be validated either,
+    because there is no whole list to refuse an invented code against.
+
+    The rule is generic and not a list of field names: any incomplete
+    dimension is dropped, so a list that becomes complete starts being
+    asked with no edit to the filter.
+    """
+    asked = llm.askable(rules.FIELDS)
+    # The three incomplete vocabularies the rules layer writes, which are
+    # the whole of what this drops: canton (26 codes) is complete and
+    # stays asked, so the filter is reading `complete` and not a hunch
+    # about which dimensions are big.
+    for field in ('isco_unit_group', 'language', 'municipality'):
+        assert field not in asked, field
+        assert not taxonomy.is_complete(llm.DIMENSION_OF[field]), field
+    for field in ('occupation_family', 'contract', 'canton'):
+        assert field in asked, field
+
+
+def test_the_prompt_never_asks_for_a_code_without_showing_the_list():
+    """The other half of the same rule: `options` refuses to build the
+    prose line at all, so no caller can route around `askable` and send
+    an unanswerable ask by accident."""
+    with pytest.raises(ValueError, match='incomplete'):
+        llm.options('municipality')
+
+
+def test_the_whole_family_list_reaches_the_model():
+    """The 61 families are over the sixty-code cap `options` used to
+    carry, and that cap would have replaced the one list that matters
+    with the prose fallback above."""
+    listed = llm.options('occupation_family')
+    for code in taxonomy.codes('occupation_family'):
+        assert code in listed, code
+    assert listed.endswith('unknown')
 
 
 def test_a_long_description_is_capped_before_it_is_sent():
@@ -206,6 +242,112 @@ def test_the_model_may_answer_unknown_without_being_flagged():
     assert classify.review_reason(values['contract']) is None
 
 
+# --- the ranked job family (CAREER-129) ----------------------------------
+
+def ranked_answer(*codes, confidence=0.8):
+    return json.dumps({'occupation_family': {'codes': list(codes), 'evidence': 'a phrase',
+                                             'confidence': confidence}})
+
+
+def test_the_family_is_asked_for_as_up_to_three_in_rank_order():
+    asked = llm.prompt(classify.subject(title='Head of Product'),
+                       ('occupation_family', 'contract'))[1]['content']
+    assert 'list up to 3, best first' in asked
+    assert 'if none fits, say unknown and do not force one' in asked
+    assert '"codes"' in asked
+    # The single-valued fields keep their own wording, so a list is never
+    # invited where a list would be a list of wrong answers.
+    assert '- contract: the kind of contract offered. One of:' in asked
+
+
+def test_three_ranked_families_are_stored_with_the_primary_first():
+    client = FakeClient(ranked_answer('product-manager', 'ict-product-manager',
+                                      'business-development-manager'))
+    values, _ = llm.classify(classify.subject(title='Head of Product'),
+                             ('occupation_family',), client=client, config=CONFIG)
+    record = values['occupation_family']
+    assert record['value'] == 'product-manager'
+    assert taxonomy.ranked_values(record) == ('product-manager', 'ict-product-manager',
+                                              'business-development-manager')
+    assert [item['rank'] for item in record['ranked']] == [1, 2, 3]
+    assert record['ranked'][0]['value'] == record['value']
+
+
+def test_only_the_first_rank_carries_the_models_confidence():
+    """The model states one confidence for the answer, not one per rank;
+    copying it down would turn one number into three claims. Rank
+    position is the signal (owner decision 2026-11-02)."""
+    client = FakeClient(ranked_answer('product-manager', 'ict-product-manager',
+                                      confidence=0.95))
+    values, _ = llm.classify(classify.subject(title='x'), ('occupation_family',),
+                             client=client, config=CONFIG)
+    ranked = values['occupation_family']['ranked']
+    assert ranked[0]['confidence'] == 0.95
+    assert ranked[1]['confidence'] is None
+
+
+def test_more_than_three_families_are_cut_to_three():
+    client = FakeClient(ranked_answer('product-manager', 'ict-product-manager',
+                                      'marketing-manager', 'sales-manager'))
+    values, _ = llm.classify(classify.subject(title='x'), ('occupation_family',),
+                             client=client, config=CONFIG)
+    assert len(values['occupation_family']['ranked']) == taxonomy.MAX_RANKS
+
+
+def test_an_invalid_lower_rank_is_dropped_and_named_not_escalated():
+    """A bad second choice is no reason to throw away a good first one,
+    and a dropped rank that left no trace would read as a model that
+    only offered one family."""
+    client = FakeClient(ranked_answer('product-manager', 'chief-executive-of-everything'))
+    values, _ = llm.classify(classify.subject(title='x'), ('occupation_family',),
+                             client=client, config=CONFIG)
+    record = values['occupation_family']
+    assert record['value'] == 'product-manager'
+    assert taxonomy.ranked_values(record) == ('product-manager',)
+    assert record['evidence']['dropped_ranks'] == ['chief-executive-of-everything']
+    assert classify.review_reason(record) is None
+
+
+def test_an_invalid_primary_rank_escalates_the_whole_field():
+    """Promoting rank 2 into rank 1's place would invent a ranking the
+    model did not give, so an invalid best answer takes the ordinary
+    escalation path."""
+    client = FakeClient(ranked_answer('chief-executive-of-everything', 'product-manager'))
+    values, _ = llm.classify(classify.subject(title='x'), ('occupation_family',),
+                             client=client, config=CONFIG)
+    record = values['occupation_family']
+    assert record['value'] == taxonomy.UNKNOWN
+    assert classify.review_reason(record) == llm.INVALID_CODE
+    assert record['evidence']['model_answer'] == 'chief-executive-of-everything'
+    assert 'ranked' not in record
+
+
+def test_a_single_valued_field_never_gains_a_ranked_list():
+    client = FakeClient(answer(contract='internship'))
+    values, _ = llm.classify(classify.subject(title='x'), ('contract',),
+                             client=client, config=CONFIG)
+    assert 'ranked' not in values['contract']
+    assert taxonomy.ranked_values(values['contract']) == ('internship',)
+
+
+def test_one_family_sent_as_a_bare_string_is_still_read():
+    """A model asked for a list sometimes sends one string, and that
+    answer is perfectly usable."""
+    client = FakeClient(answer(occupation_family='product-manager'))
+    values, _ = llm.classify(classify.subject(title='x'), ('occupation_family',),
+                             client=client, config=CONFIG)
+    assert taxonomy.ranked_values(values['occupation_family']) == ('product-manager',)
+
+
+def test_a_repeated_family_is_folded_out_rather_than_ranked_twice():
+    client = FakeClient(ranked_answer('product-manager', 'product-manager',
+                                      'ict-product-manager'))
+    values, _ = llm.classify(classify.subject(title='x'), ('occupation_family',),
+                             client=client, config=CONFIG)
+    assert taxonomy.ranked_values(values['occupation_family']) == (
+        'product-manager', 'ict-product-manager')
+
+
 def test_a_fenced_json_answer_is_still_read():
     client = FakeClient('```json\n{"contract": {"code": "internship"}}\n```')
     values, _ = llm.classify(classify.subject(title='x'), ('contract',),
@@ -230,6 +372,44 @@ def test_the_model_fills_what_the_rules_left_unknown():
                                layer='all', client=client, config=CONFIG)
     assert result['values']['work_model']['value'] == 'remote'
     assert result['values']['work_model']['source'] == 'llm'
+
+
+def test_a_model_set_family_now_gets_its_isco_unit_group():
+    """CAREER-125's finding, fixed in CAREER-129. `rules.occupation`
+    derives the unit group from the RULES layer's family and runs before
+    the model, so a family only the model could settle used to keep the
+    rules layer's `unknown` group -- 0 of 159 model-set families carried
+    one in the run of 2026-11-01. The group is derived after every layer
+    now, from whichever family won."""
+    client = FakeClient(ranked_answer('software-developer'))
+    subject = classify.subject(title='Spannende Stelle in Zürich')
+    rules_only = rules.classify(subject)
+    assert rules_only['occupation_family']['value'] == taxonomy.UNKNOWN
+    assert rules_only['isco_unit_group']['value'] == taxonomy.UNKNOWN
+
+    result = classify.classify(subject, layer='all', client=client, config=CONFIG)
+
+    assert result['values']['occupation_family']['source'] == 'llm'
+    assert result['values']['isco_unit_group']['value'] == '2512'
+    assert result['values']['isco_unit_group']['evidence']['occupation_family'] \
+        == 'software-developer'
+
+
+def test_a_unit_group_a_stronger_source_settled_is_left_alone():
+    """`settle_isco` only ever fills, which is what makes a second run of
+    the pipeline a no-op and keeps a feed-stated group safe."""
+    stated = taxonomy.make_value_record('isco_unit_group', '1330', 'feed')
+    subject = classify.subject(title='Spannende Stelle',
+                               values={'isco_unit_group': stated})
+    client = FakeClient(ranked_answer('software-developer'))
+    result = classify.classify(subject, layer='all', client=client, config=CONFIG)
+    assert result['values']['isco_unit_group']['value'] == '1330'
+    assert result['values']['isco_unit_group']['source'] == 'feed'
+
+
+def test_deriving_a_unit_group_twice_changes_nothing():
+    settled = classify.classify(classify.subject(title='Senior Java-Entwickler/in'))['values']
+    assert classify.settle_isco(settled) == settled
 
 
 def test_a_run_carries_its_calls_measurements():

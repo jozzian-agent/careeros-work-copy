@@ -282,7 +282,7 @@ def occupation(subject, *, at=None):
     hand-picked code.
     """
     family = _settle_family(subject, at=at)
-    return {'occupation_family': family, 'isco_unit_group': _isco(family, at=at)}
+    return {'occupation_family': family, 'isco_unit_group': derive_isco(family, at=at)}
 
 
 def _settle_family(subject, *, at=None):
@@ -328,14 +328,37 @@ def _break_tie(best, subject):
     return {code: best[code] for code in winners}
 
 
-def _isco(family, *, at=None):
-    """The four-digit unit group a settled family rolls up to."""
+#: A stored family the current list does not carry: a record classified
+#: under an older taxonomy version, or a code CAREER-129's migration
+#: absorbed into another family. Its own reason, because an `unknown`
+#: with no reason reads as "the posting says nothing".
+FAMILY_NOT_IN_TAXONOMY = 'family_not_in_taxonomy'
+
+
+def derive_isco(family, *, at=None):
+    """The four-digit unit group a settled family rolls up to.
+
+    Public since CAREER-129, because the pipeline derives this a SECOND
+    time -- after the model layer has settled a family the rules could
+    not (`classify.settle_isco`). Idempotent and total: it answers for
+    any family record, including one carrying a code this vocabulary no
+    longer has.
+    """
     code = family['value']
     if code == taxonomy.UNKNOWN:
         return unknown('isco_unit_group',
                        rule='the job family is unsettled, so no unit group is derived',
                        review=review_reason(family), at=at)
-    isco4 = _OCCUPATIONS[code]['isco4']
+    entry = _OCCUPATIONS.get(code)
+    if entry is None:
+        # Never a KeyError on a stored record, and never a code borrowed
+        # from a neighbouring family: a family the list dropped has no
+        # mapping, and saying so is the answer.
+        return unknown('isco_unit_group',
+                       rule='the stored job family is not in the current family list, so no '
+                            'unit group can be derived from it',
+                       review=FAMILY_NOT_IN_TAXONOMY, extra={'occupation_family': code}, at=at)
+    isco4 = entry['isco4']
     if not isco4:
         return unknown('isco_unit_group',
                        rule='the job family is a local extension with no ESCO concept, so it '
@@ -348,7 +371,7 @@ def _isco(family, *, at=None):
                    # A derived value is never surer than what it was
                    # derived from, so a flagged family hands its flag on.
                    review=review_reason(family),
-                   extra={'occupation_family': code, 'mapping_status': _OCCUPATIONS[code]['status']},
+                   extra={'occupation_family': code, 'mapping_status': entry['status']},
                    at=at)
 
 

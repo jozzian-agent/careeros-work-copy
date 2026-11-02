@@ -47,7 +47,17 @@ still refused outright, whatever the confidences say.
 
 `values` keys are FIELD names, not dimension names: `workload_min` and
 `workload_max` are two fields over the one `workload` dimension, and
-`isco_unit_group` is derived from `occupation_family` rather than read.
+`isco_unit_group` is derived from `occupation_family` rather than read --
+by `settle_isco`, AFTER every layer, so the group follows the family that
+won rather than the family one layer proposed.
+
+`occupation_family` carries up to three ranked families since CAREER-129
+(owner decision 2026-11-02). `value` is the primary one and every reader
+of it is unchanged; `taxonomy.ranked_values` is how a reader that wants
+all three asks. The rules layer is single-valued and its answer is rank 1
+with no ranks 2-3; only the model proposes alternatives, so a posting the
+rules layer settles has one family, which is the honest answer for a
+posting whose title says what it is.
 
 ## The two inputs
 
@@ -236,6 +246,32 @@ def open_fields(values):
                  if (values.get(field) or {}).get('value', taxonomy.UNKNOWN) == taxonomy.UNKNOWN)
 
 
+def settle_isco(values, *, at=None):
+    """Derive `isco_unit_group` from whichever family finally won.
+
+    CAREER-125's finding, folded in here by owner ruling: `rules.occupation`
+    derives the unit group from the RULES layer's family and runs before
+    the model, so a family only the model could settle kept the rules
+    layer's `unknown` unit group -- 0 of 159 model-set families carried
+    one in the run of 2026-11-01. This runs after every layer has spoken
+    and derives the group from the SETTLED family instead.
+
+    Only ever fills, never contradicts: a unit group already settled by
+    any source is left alone, which is what makes a second run of the
+    pipeline a no-op and keeps a feed-stated group safe. The fill itself
+    goes through `merge`, so precedence is still decided in one place.
+
+    Returns a new mapping; the argument is not modified.
+    """
+    family = values.get('occupation_family')
+    if not family or family.get('value', taxonomy.UNKNOWN) == taxonomy.UNKNOWN:
+        return values
+    stored = values.get('isco_unit_group')
+    if stored and stored.get('value', taxonomy.UNKNOWN) != taxonomy.UNKNOWN:
+        return values
+    return merge(values, {'isco_unit_group': rules.derive_isco(family, at=at)})
+
+
 def review(values, salary_block=None):
     """Every field a human is owed, with why.
 
@@ -271,12 +307,18 @@ def classify(subject_dict, *, layer='rules', client=None, config=None, at=None):
         if client is None or config is None:
             raise ValueError('the llm layer needs a client and a config; '
                              'see careeros.classify.llm.Config.from_env()')
-        fields = open_fields(values)
+        # `askable` drops the fields whose vocabulary is incomplete: an
+        # open field is one a weaker layer MAY answer, which is not the
+        # same question as one the model CAN be asked (CAREER-129).
+        fields = llm.askable(open_fields(values))
         answers, call_metrics = llm.classify(subject_dict, fields, client=client,
                                              config=config, at=at)
         values = merge(values, answers)
         metrics.append(call_metrics)
         ran.append('llm')
+    # After every layer, never inside one: the unit group follows the
+    # family that won the merge and not the family one layer proposed.
+    values = settle_isco(values, at=at)
     return {'key': subject_dict.get('key'), 'values': values, 'salary': salary_block,
             'review': review(values, salary_block), 'metrics': metrics, 'layers': ran}
 

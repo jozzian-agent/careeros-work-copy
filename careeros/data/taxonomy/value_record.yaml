@@ -15,10 +15,35 @@
 # standard_version, classified_at, flags[]}. Two readings of it had to be
 # settled to build the factory, and both are recorded under open_questions
 # below rather than left implicit in the code.
-taxonomy_version: "1.0.0"
+#
+# RANKED VALUES (owner decision 2026-11-02, CAREER-129). D4's list gains
+# ONE optional field:
+#
+#   ranked: [{value, rank, source, confidence}, ...]   up to 3 entries
+#
+# `value` stays the PRIMARY answer and always equals `ranked[0].value`, so
+# every reader written against D4 is unchanged; a reader that wants the
+# alternatives calls `careeros.taxonomy.ranked_values`, which answers for
+# a record with no `ranked` key too. The field is ABSENT and not empty
+# when a writer has one answer: every record written before this date has
+# no `ranked`, and the rules layer still writes none, so an absent list
+# and an empty one must not become two ways of saying the same thing.
+#
+# Rank position is the signal, NOT confidence. Measured on the run of
+# 2026-11-01 the local model answers ~0.95 confident for very nearly
+# everything, so its number cannot order three candidates; the order it
+# puts them in can. Only rank 1 carries the model's confidence, because
+# the model states one confidence for the answer rather than one per
+# rank, and copying it down would turn one number into three claims.
+#
+# Only `occupation_family` is ranked today
+# (`careeros.classify.llm.RANKED_FIELDS`). A posting has one contract and
+# is written in one language, so a list there would be a list of wrong
+# answers.
+taxonomy_version: "1.1.0"
 standard: "CareerOS value-record model (owner decision D4)"
-standard_version: "CAREER-58 D4, 2026-10-17"
-changed_at: "2026-10-17"
+standard_version: "CAREER-58 D4, 2026-10-17; ranked values CAREER-129, 2026-11-02"
+changed_at: "2026-11-02"
 code_lists:
   # Who or what put the value there. `unknown` is NOT a source: a value
   # nobody could settle is stored as the value `unknown` (see
@@ -57,7 +82,14 @@ code_lists:
         description: "The value names a skill the local vocabulary does not have yet, so it needs owner review."
       - code: multi_role
         label: "Several roles"
-        description: "One posting covers more than one role, so a single-valued dimension had to pick one."
+        description: >-
+          One posting covers more than one role, so a single-valued dimension had to pick one.
+          SUPERSEDED for occupation_family by ranked values (CAREER-129, 2026-11-02): a
+          multi-role posting now carries several ranked families instead of one plus this
+          flag, which says which roles rather than only that there were several. Kept in the
+          vocabulary because records written before that date carry it and a flag that
+          vanished from the list would make them unreadable; nothing writes it, and nothing
+          ever did.
       - code: gsw_understand
         label: "Swiss German, understanding"
         description: "The posting asks for passive Swiss German. Carried on a language value, never as a language code."

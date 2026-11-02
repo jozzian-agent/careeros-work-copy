@@ -137,6 +137,10 @@ def accuracy_section(rows, results, matched):
              '|---|---|---|---|---|---|']
     isco = report['isco']['confident']
     family = report['family']['confident']
+    # Top-1 and top-3 are two rows and never one: a posting carries up to
+    # three ranked families since CAREER-129, so "right" means two
+    # different things and the report has to say which.
+    top3 = report['family_top3']['confident']
     lines += [
         f"| ISCO-08 unit group (4 digits), confident rows | {isco['of']} | {isco['right']} | "
         f"{percent(isco['share'])} | 85% | "
@@ -148,11 +152,16 @@ def accuracy_section(rows, results, matched):
         f"{report['isco']['low_confidence']['of']} | "
         f"{report['isco']['low_confidence']['right']} | "
         f"{percent(report['isco']['low_confidence']['share'])} | - | scored separately |",
-        f"| Job family, confident rows | {family['of']} | {family['right']} | "
+        f"| Job family top-1, confident rows | {family['of']} | {family['right']} | "
         f"{percent(family['share'])} | - | reported, no gate |",
-        f"| Job family, all rows | {report['family']['all']['of']} | "
+        f"| Job family top-1, all rows | {report['family']['all']['of']} | "
         f"{report['family']['all']['right']} | {percent(report['family']['all']['share'])} | - | "
         'reported, no gate |',
+        f"| Job family top-3, confident rows | {top3['of']} | {top3['right']} | "
+        f"{percent(top3['share'])} | - | reported, no gate |",
+        f"| Job family top-3, all rows | {report['family_top3']['all']['of']} | "
+        f"{report['family_top3']['all']['right']} | "
+        f"{percent(report['family_top3']['all']['share'])} | - | reported, no gate |",
     ]
     for name in grade.missing_dimensions():
         lines.append(f"| {name} | 0 | 0 | not measured | "

@@ -34,6 +34,14 @@ is a careers page, not a posting), and the pipeline answering `unknown`
 for it is CORRECT: refusing to classify a non-posting is the behaviour,
 not a miss.
 
+Since CAREER-129 a posting carries up to three ranked families, so the
+family level is measured twice and reported twice: **top-1** (the primary
+family is the owner's label) and **top-3** (the owner's label is any of
+the ranked families). Neither replaces the other. Top-3 is what the
+pipeline now promises; top-1 is what any surface showing one family
+delivers, and collapsing them would let a wider answer be read as a
+better one.
+
 A family the taxonomy leaves unmapped (the five local extensions whose
 ESCO URIs 404) can never produce a four-digit code, by decision 22. A
 row whose gold family is one of those is counted in its own **unmapped
@@ -121,17 +129,32 @@ def unmapped_families():
 def grade_row(row, result):
     """One golden row against one pipeline result.
 
-    Returns `family_right` and `isco_right`, each `True`, `False` or
-    None, where None means the row cannot be graded on that dimension at
-    all. The keys are suffixed because a graded row is merged onto the
-    golden row it came from, whose own `family` and `isco` are the
-    labels -- two different facts that must not share a name.
+    Returns `family_right`, `family_top3_right` and `isco_right`, each
+    `True`, `False` or None, where None means the row cannot be graded on
+    that dimension at all. The keys are suffixed because a graded row is
+    merged onto the golden row it came from, whose own `family` and
+    `isco` are the labels -- two different facts that must not share a
+    name.
+
+    TOP-1 AND TOP-3 ARE BOTH REPORTED, never one in place of the other
+    (owner decision 2026-11-02, CAREER-129). A posting counts as right at
+    top-3 when the owner's label is ANY of the ranked families, which is
+    what the pipeline now claims to answer; top-1 stays beside it because
+    a surface that shows one family is right or wrong at rank 1 and the
+    two numbers measure two different promises. A record with no `ranked`
+    key -- everything written before CAREER-129, and everything the rules
+    layer writes -- has one rank, so its two numbers are equal.
     """
     values = result.get('values') or {}
-    family = (values.get('occupation_family') or {}).get('value', taxonomy.UNKNOWN)
+    record = values.get('occupation_family') or {}
+    family = record.get('value', taxonomy.UNKNOWN)
+    ranked = taxonomy.ranked_values(record) or (taxonomy.UNKNOWN,)
     isco = (values.get('isco_unit_group') or {}).get('value', taxonomy.UNKNOWN)
     graded = {'family_right': None if row['family'] is None else family == row['family'],
-              'predicted_family': family, 'predicted_isco': isco,
+              'family_top3_right': (None if row['family'] is None
+                                    else row['family'] in ranked),
+              'predicted_family': family, 'predicted_ranked': list(ranked),
+              'predicted_isco': isco,
               'unmapped': row['family'] in unmapped_families()}
     graded['isco_right'] = None if graded['unmapped'] else isco == row['isco']
     return graded
@@ -141,14 +164,14 @@ def accuracy(rows, results):
     """Per-dimension accuracy over the golden set, three denominators.
 
     `rows` and `results` are parallel. Returns a mapping with one block
-    per graded dimension, each carrying `all`, `confident` and
-    `low_confidence` counts, plus the unmapped bucket and the rows no
-    label could be read for.
+    per graded dimension -- `family`, `family_top3` and `isco` -- each
+    carrying `all`, `confident` and `low_confidence` counts, plus the
+    unmapped bucket and the rows no label could be read for.
     """
     graded = [grade_row(row, result) for row, result in zip(rows, results)]
     report = {'rows': len(rows), 'unlabelled': sum(1 for row in rows if row['family'] is None),
               'unmapped_bucket': sum(1 for item in graded if item['unmapped'])}
-    for name in ('family_right', 'isco_right'):
+    for name in ('family_right', 'family_top3_right', 'isco_right'):
         report[name.removesuffix('_right')] = {
             'all': _tally(rows, graded, name, lambda row: True),
             'confident': _tally(rows, graded, name, lambda row: not row['low_confidence']),

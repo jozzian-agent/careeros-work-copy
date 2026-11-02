@@ -2,6 +2,23 @@
 # an import source used to seed or validate new tags.yaml function-facet
 # entries; it is not consulted directly at runtime.
 #
+# V2, 2026-11-02 (CAREER-129, owner-approved family list). 61 entries, not
+# 40. Three were MERGED AWAY because each split one function by level,
+# which owner decision 1 forbids in a family name, and their keywords
+# moved into the family that absorbed them so the old words still match:
+#
+#     chief-product-officer         -> product-manager
+#     ict-business-analysis-manager -> ict-business-analyst
+#     innovation-officer            -> innovation-manager
+#
+# 24 were ADDED, from the owner's own blind labelling of 50 postings and
+# the wider 150-posting sample: the v1 list is the ICT/business `function`
+# facet and about 35% of the sample had no family to land in. Every one of
+# the 24 ships with `keywords: []`, and that is deliberate -- see KEYWORDS
+# below. occupation_families.yaml is the one home for the labels, the
+# synonyms and the ISCO status; this file holds the keywords and the
+# citations.
+#
 # THREE KINDS OF ENTRY, told apart by two fields and nothing else:
 #
 #   * ESCO-BACKED. `esco_uri` filled in, `isco` the first four digits of
@@ -9,10 +26,19 @@
 #     https://ec.europa.eu/esco/api/resource/occupation?uri=<uri>&language=en
 #     on the date named beside it, and both its preferred label and its code
 #     came back matching what is written here. These are citations.
-#   * PROPOSED. `esco_uri: null` and an `isco` that is this file's best
-#     reading of ISCO-08, not a citation. Unverified on both counts, and
-#     still needing the owner or a portal check. `vault.seed_function_facet`
-#     refuses to treat one as ESCO-backed: it seeds the entry as a local
+#   * PROPOSED. `esco_uri: null`, and an `isco` that is either this
+#     file's best reading of ISCO-08 -- not a citation, unverified on both
+#     counts, still needing the owner or a portal check -- or **null**
+#     where the entry has no reading yet at all. The second kind is v2's
+#     24 new families (CAREER-129): a family may only point at a unit
+#     group already in ch_isco19.yaml's 19-group seed, and not one of the
+#     24 has an unarguable home there, so the code is absent rather than
+#     guessed and occupation_families.yaml carries the reason per entry
+#     (`review: unmapped_pending_backbone`). Both kinds are told apart
+#     from a LOCAL EXTENSION by the `local` marker and nothing else: a
+#     null isco means "no reading yet", the marker means "there is
+#     nothing to verify". `vault.seed_function_facet` refuses to treat any
+#     proposed entry as ESCO-backed: it seeds the entry as a local
 #     extension with a visible marker and with isco cleared (decision 25),
 #     so no unverified code reaches a vault and no roll-up claims a parent
 #     it has not earned.
@@ -58,11 +84,38 @@
 # deterministic matcher). The whole file is handed to the extraction prompt
 # (`ingest._function_options_text`), so an id with no lexical anchor for a
 # posting the owner actually stores is an id the model will not reach for.
+#
+# WHY V2'S 24 NEW ENTRIES CARRY NO KEYWORDS. Three reasons, and none of
+# them is that nobody got round to it.
+#   1. The owner's v2 draft gives labels and synonyms. It gives no
+#      keywords, and this file's own rule above is that a keyword nobody
+#      searches in is better absent than left to bias the extraction
+#      prompt. An invented anchor is an invented claim.
+#   2. The phrases these labels would hand over are, almost without
+#      exception, ones an existing family already owns -- "project
+#      manager" and "projektleiter" (ict-project-manager), "account
+#      manager" and "key account" (sales-manager), "customer success"
+#      (customer-service-manager). Adding them would turn a confident
+#      wrong answer into an ambiguous one, which is tuning the keyword
+#      table; the v2 draft's own finding is that this layer "needs
+#      replacing, not tuning" (it produced most of the wrong answers, and
+#      read civil project leads as ICT project managers at 0.85
+#      confidence).
+#   3. They do not need one to be reachable. The CLASSIFY layer's model
+#      prompt lists every family's code and label from the taxonomy
+#      (`careeros.classify.llm.options`), not from these keywords, and
+#      that is where owner decision 3's ranked top-3 comes from. The
+#      keyword table is the rules layer only.
+# So a new family is model-reachable from the day it ships and keyword-
+# unreachable until the rules layer is replaced, which is an honest state
+# and is recorded as such rather than papered over with guesses.
 # Two entries may therefore legitimately share a phrase: `head of product`
-# anchors both ict-product-manager and chief-product-officer, because the
-# golden set splits four Head-of-Product rows two and two, and the posting's
-# own text is what tells them apart. Giving one id sole ownership of an
-# ambiguous phrase would decide those rows by seed order instead.
+# anchors both ict-product-manager and product-manager, because the golden
+# set splits four Head-of-Product rows two and two, and the posting's own
+# text is what tells them apart. Giving one id sole ownership of an
+# ambiguous phrase would decide those rows by seed order instead. (Until v2
+# the second claimant was chief-product-officer; the merge moved the
+# ambiguity between two ESCO-backed homes rather than removing it.)
 #
 # A label or an id below that the owner does not search in is better removed
 # than left to bias the extraction prompt, which is given every entry.
@@ -90,10 +143,10 @@
 occupations:
   # --- Software, IT and data ---------------------------------------------
   # ESCO-backed, code 1330.6, verified against the live API 2026-10-16.
-  # `head of product` stays here and is also on chief-product-officer: two
-  # of the golden set's four Head-of-Product rows are this entry (a product
-  # line at Proton, a product area at LinkedIn) and two are the top product
-  # role. See the keyword note in the header.
+  # `head of product` stays here and is also on product-manager, which
+  # absorbed chief-product-officer in v2: two of the golden set's four
+  # Head-of-Product rows are this entry (a product line, a product area)
+  # and two are the top product role. See the keyword note in the header.
   - id: ict-product-manager
     label: "ICT product manager"
     label_de: "ICT-Produktmanager"
@@ -162,23 +215,22 @@ occupations:
     esco_uri: "http://data.europa.eu/esco/occupation/8b6388a4-4904-471b-9331-d3b1211f5525"
     keywords: ["project manager", "it project manager", "projektleiter", "programme manager",
                "scrum master", "agile coach"]
+  # ABSORBED ict-business-analysis-manager on 2026-11-02 (v2): the two
+  # split one function by level, which owner decision 1 forbids. The six
+  # keywords below the first four are that entry's, moved here so "Lead
+  # Business & Technology Engineering" still lands somewhere. The absorbed
+  # entry's ESCO citation (2511.7) is NOT inherited: ESCO holds the
+  # manager and the analyst as two concepts, so reusing its URI would
+  # claim a verification this label never had -- which is why this entry
+  # stays `esco_uri: null` and the verified count drops from 10 to 9.
   - id: ict-business-analyst
     label: "ICT business analyst"
     label_de: "IT-Business-Analyst"
     isco: "2511"
     esco_uri: null
     keywords: ["business analyst", "requirements engineer", "business analyst it",
-               "anforderungsanalyst"]
-  # ESCO-backed, code 2511.7, verified against the live API 2026-10-16. A
-  # separate ESCO concept from ict-business-analyst above (same unit group,
-  # the lead rather than the analyst), and the golden set's label for
-  # "Lead Business & Technology Engineering".
-  - id: ict-business-analysis-manager
-    label: "ICT business analysis manager"
-    label_de: "Leiter IT-Business-Analyse"
-    isco: "2511"
-    esco_uri: "http://data.europa.eu/esco/occupation/4b3201cb-ffc5-4f61-9fc3-5c0f0038fa5f"
-    keywords: ["business analysis manager", "head of business analysis", "lead business analysis",
+               "anforderungsanalyst",
+               "business analysis manager", "head of business analysis", "lead business analysis",
                "business & technology engineering", "business and technology engineering",
                "leiter business analyse"]
   # ESCO-backed, code 2511.9, verified against the live API 2026-10-16.
@@ -210,12 +262,29 @@ occupations:
     esco_uri: null
     keywords: ["data analyst", "business intelligence analyst", "bi analyst",
                "datenanalyst", "reporting analyst"]
+  # NEW in v2. No keywords: "machine learning engineer" and "ml engineer"
+  # are data-scientist's today, and moving them is a rules-layer decision
+  # (see KEYWORDS in the header).
+  - id: ai-ml-engineer
+    label: "AI/ML engineer or researcher"
+    label_de: "AI/ML-Ingenieur oder Forscher"
+    isco: null
+    esco_uri: null
+    keywords: []
   # --- Product and design -------------------------------------------------
   # ESCO-backed, code 1223.1, verified against the live API 2026-10-16. The
   # non-ICT product manager the golden set needed four times over (a
   # defence portfolio, an industrial product range, a grid operator's
   # market design, a product-and-marketing hybrid), none of which is
   # software product management.
+  # ABSORBED chief-product-officer on 2026-11-02 (v2): `chief` is a level
+  # word and owner decision 1 keeps level words out of family names. That
+  # entry's six keywords are moved here, which is what keeps the golden
+  # set's two "Head of Product" rows for the top product role landing on
+  # 1223 rather than on ict-product-manager's 1330. `head of product` now
+  # anchors this family and ict-product-manager equally -- the same
+  # deliberate two-way split, between two ESCO-backed homes instead of
+  # between an ESCO entry and a local extension.
   - id: product-manager
     label: "Product manager"
     label_de: "Produktmanager"
@@ -223,19 +292,8 @@ occupations:
     esco_uri: "http://data.europa.eu/esco/occupation/9f508305-80ce-4111-8722-f2c9b4a44890"
     keywords: ["product manager", "produktmanager", "product portfolio", "produktportfolio",
                "produktportfolioentwicklung", "product development manager", "category manager",
-               "product & marketing manager", "product design"]
-  # LOCAL EXTENSION. The golden set's own URI for this label 404s against
-  # the live ESCO API. It exists because a blanket `head of product`
-  # keyword used to make ict-product-manager (1330) the only home for the
-  # top product role, which the golden set reads as 1223 -- wrong for the
-  # two rows whose label is this one.
-  - id: chief-product-officer
-    label: "Chief product officer"
-    label_de: "Chief Product Officer"
-    isco: null
-    esco_uri: null
-    local: true
-    keywords: ["chief product officer", "cpo", "head of product", "vp product",
+               "product & marketing manager", "product design",
+               "chief product officer", "cpo", "head of product", "vp product",
                "leiter produktmanagement", "produktchef"]
   - id: user-experience-analyst
     label: "User experience analyst"
@@ -288,6 +346,36 @@ occupations:
     esco_uri: null
     keywords: ["sales engineer", "technical sales", "solution engineer", "presales",
                "vertriebsingenieur", "technischer vertrieb"]
+  # NEW in v2. No keywords: "account manager" and "key account" are
+  # sales-manager's today, which is the mis-filing that made the owner ask
+  # for this family in the first place; re-assigning them is the
+  # rules-layer replacement, not this change.
+  - id: account-manager
+    label: "Account manager"
+    label_de: "Account Manager"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: retail-and-sales-assistant
+    label: "Retail and sales assistant"
+    label_de: "Detailhandels- und Verkaufsmitarbeiter"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: merchandiser-or-buyer
+    label: "Merchandiser or buyer"
+    label_de: "Merchandiser oder Einkäufer"
+    isco: null
+    esco_uri: null
+    keywords: []
+  # NEW in v2. No keywords: "customer success manager" and "customer
+  # success" are customer-service-manager's today.
+  - id: customer-success-manager
+    label: "Customer success manager"
+    label_de: "Customer Success Manager"
+    isco: null
+    esco_uri: null
+    keywords: []
   # --- Finance and risk ---------------------------------------------------
   - id: financial-investment-adviser
     label: "Financial and investment adviser"
@@ -306,6 +394,12 @@ occupations:
     esco_uri: "http://data.europa.eu/esco/occupation/c530b0ee-46f8-40fb-818c-d9b44b891cb9"
     keywords: ["banking products manager", "product management funds", "fund product manager",
                "financial product manager", "produktmanagement fonds", "bankprodukte"]
+  - id: banking-officer
+    label: "Banking officer"
+    label_de: "Bankfachmann"
+    isco: null
+    esco_uri: null
+    keywords: []
   - id: financial-analyst
     label: "Financial analyst"
     label_de: "Finanzanalyst"
@@ -341,6 +435,16 @@ occupations:
     esco_uri: null
     keywords: ["compliance officer", "compliance manager", "regulatory compliance",
                "compliance-beauftragter", "aml", "trade control", "export control", "sanctions"]
+  # NEW in v2. No keywords: the owner's words for this family are "Legal
+  # (lawyer, legal associate)", and `legal` on its own matches "legal
+  # entity" and "legal requirements" in any description -- a bare common
+  # word is the kind of anchor this file's own header tells us not to add.
+  - id: legal
+    label: "Legal"
+    label_de: "Jurist"
+    isco: null
+    esco_uri: null
+    keywords: []
   # --- People, operations and consulting ----------------------------------
   - id: human-resources-manager
     label: "Human resources manager"
@@ -382,25 +486,19 @@ occupations:
     keywords: ["business development", "business development manager", "strategy manager",
                "ecosystem manager", "partnerships manager", "geschäftsentwicklung",
                "strategie manager", "ökosystem"]
+  # ABSORBED innovation-officer on 2026-11-02 (v2): the two split one
+  # function by level. That entry's four keywords are moved here. It
+  # carried no ISCO code of its own and the owner's reading for it was the
+  # same 1223 this entry already has, so the merge loses nothing but the
+  # label, which survives as a synonym in occupation_families.yaml.
   - id: innovation-manager
     label: "Innovation manager"
     label_de: "Innovationsmanager"
     isco: "1223"
     esco_uri: null
     keywords: ["innovation manager", "innovation management", "research and development manager",
-               "r&d manager", "innovationsmanager", "innovationsmanagement"]
-  # LOCAL EXTENSION. The golden set's own URI for this label 404s against
-  # the live ESCO API. The owner's ISCO reading is the same 1223 as
-  # innovation-manager above, so the two golden rows labelled this way were
-  # never absorbed into a wrong unit group; the label exists because the
-  # golden set uses it.
-  - id: innovation-officer
-    label: "Innovation officer"
-    label_de: "Innovationsbeauftragter"
-    isco: null
-    esco_uri: null
-    local: true
-    keywords: ["innovation officer", "chief innovation officer",
+               "r&d manager", "innovationsmanager", "innovationsmanagement",
+               "innovation officer", "chief innovation officer",
                "innovation management professional", "innovationsbeauftragter"]
   # LOCAL EXTENSION. The golden set's own URI for this label 404s against
   # the live ESCO API. Three golden rows carry this label (a utility's
@@ -418,6 +516,18 @@ occupations:
     keywords: ["digital transformation", "digitale transformation", "digitalisierung",
                "digitalisierungs", "digital enablement", "digitales ökosystem",
                "digital ecosystem", "head of digital"]
+  # NEW in v2, and the family the owner's own evidence asked for most
+  # directly: the rules layer was reading civil project leads as ICT
+  # project managers at 0.85 confidence. No keywords all the same --
+  # "project manager" and "projektleiter" are ict-project-manager's today,
+  # and taking them off it is the rules-layer replacement the v2 draft
+  # calls for rather than a keyword edit here.
+  - id: project-manager
+    label: "Project manager"
+    label_de: "Projektleiter"
+    isco: null
+    esco_uri: null
+    keywords: []
   - id: supply-chain-manager
     label: "Supply chain manager"
     label_de: "Supply-Chain-Manager"
@@ -425,6 +535,13 @@ occupations:
     esco_uri: null
     keywords: ["supply chain manager", "procurement manager", "logistics manager",
                "einkaufsleiter", "supply chain"]
+  # NEW in v2. No keywords: "logistics manager" is supply-chain-manager's.
+  - id: logistics-and-freight-coordinator
+    label: "Logistics and freight coordinator"
+    label_de: "Logistik- und Speditionssachbearbeiter"
+    isco: null
+    esco_uri: null
+    keywords: []
   - id: operations-manager
     label: "Operations manager"
     label_de: "Betriebsleiter"
@@ -439,3 +556,102 @@ occupations:
     esco_uri: null
     keywords: ["customer service manager", "customer success manager", "head of support",
                "kundendienstleiter", "customer success"]
+  - id: office-and-executive-assistant
+    label: "Office and executive assistant"
+    label_de: "Sachbearbeiter und Direktionsassistent"
+    isco: null
+    esco_uri: null
+    keywords: []
+  # --- Engineering, construction and production ---------------------------
+  # All NEW in v2, all from the owner's own labelling of postings the v1
+  # ICT/business list had no home for, and all with no keywords: the
+  # owner's draft gives labels, and the ISCO backbone that would place
+  # these properly is CAREER-130. The classify model sees every one of
+  # them by code and label (`classify.llm.options`), which is where the
+  # ranked top-3 comes from.
+  - id: mechanical-and-process-engineer
+    label: "Mechanical and process engineer"
+    label_de: "Maschinen- und Verfahrensingenieur"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: electrical-and-electronics-engineer
+    label: "Electrical and electronics engineer"
+    label_de: "Elektro- und Elektronikingenieur"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: robotics-and-control-engineer
+    label: "Robotics and control engineer"
+    label_de: "Robotik- und Regelungstechnikingenieur"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: civil-and-structural-engineer
+    label: "Civil and structural engineer"
+    label_de: "Bau- und Tragwerksingenieur"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: architect-and-planner
+    label: "Architect and planner"
+    label_de: "Architekt und Planer"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: construction-and-site-manager
+    label: "Construction and site manager"
+    label_de: "Bauleiter"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: technical-drafter-cad-designer
+    label: "Technical drafter / CAD designer"
+    label_de: "Technischer Zeichner / CAD-Konstrukteur"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: electrician-and-installer
+    label: "Electrician and installer"
+    label_de: "Elektriker und Installateur"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: production-or-assembly-worker
+    label: "Production or assembly worker"
+    label_de: "Produktions- oder Montagemitarbeiter"
+    isco: null
+    esco_uri: null
+    keywords: []
+  # --- Health, hospitality and services -----------------------------------
+  # All NEW in v2, same reasoning as the engineering group above.
+  - id: healthcare-staff
+    label: "Healthcare staff"
+    label_de: "Gesundheits- und Pflegepersonal"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: cook-and-kitchen-staff
+    label: "Cook and kitchen staff"
+    label_de: "Koch und Küchenpersonal"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: hospitality-and-catering-staff
+    label: "Hospitality and catering staff"
+    label_de: "Gastgewerbe- und Verpflegungspersonal"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: fitness-and-sports-instructor
+    label: "Fitness and sports instructor"
+    label_de: "Fitness- und Sportinstruktor"
+    isco: null
+    esco_uri: null
+    keywords: []
+  - id: security-staff
+    label: "Security staff"
+    label_de: "Sicherheitspersonal"
+    isco: null
+    esco_uri: null
+    keywords: []

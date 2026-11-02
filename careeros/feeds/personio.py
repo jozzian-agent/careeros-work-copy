@@ -55,7 +55,7 @@ Yes, and they are the most useful thing in the feed for this ticket:
     Roles", "Bewerberpool"). Kept raw; it is a tenant's vocabulary and
     not a CareerOS dimension.
 
-They are NOT mapped onto `occupation_family`. Personio's ids and the 40
+They are NOT mapped onto `occupation_family`. Personio's ids and the 61
 CareerOS families are different vocabularies and a crosswalk between them
 would be a mapping this module invented. They are stored as what they
 are, with their own key, and the crosswalk is a decision for CAREER-57.
