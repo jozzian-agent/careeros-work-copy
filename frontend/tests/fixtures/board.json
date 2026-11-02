@@ -213,7 +213,8 @@
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,
-      "end_reason": null
+      "end_reason": null,
+      "contract": "permanent"
     },
     {
       "id": "JOB-002",
@@ -287,7 +288,8 @@
       "closed": true,
       "closed_at": "2026-10-13",
       "closed_reviewed_at": null,
-      "end_reason": null
+      "end_reason": null,
+      "contract": "permanent"
     },
     {
       "id": "JOB-003",
@@ -362,7 +364,8 @@
       "closed": true,
       "closed_at": "2026-10-04",
       "closed_reviewed_at": null,
-      "end_reason": null
+      "end_reason": null,
+      "contract": "fixed_term"
     },
     {
       "id": "JOB-004",
@@ -440,7 +443,8 @@
       "closed": true,
       "closed_at": "2026-09-20",
       "closed_reviewed_at": null,
-      "end_reason": null
+      "end_reason": null,
+      "contract": "temporary_assignment"
     },
     {
       "id": "JOB-005",
@@ -536,7 +540,8 @@
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,
-      "end_reason": null
+      "end_reason": null,
+      "contract": "permanent"
     },
     {
       "id": "JOB-006",
@@ -614,7 +619,8 @@
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,
-      "end_reason": null
+      "end_reason": null,
+      "contract": "permanent"
     },
     {
       "id": "JOB-007",
@@ -705,7 +711,8 @@
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,
-      "end_reason": "After interview"
+      "end_reason": "After interview",
+      "contract": null
     },
     {
       "id": "JOB-008",
@@ -794,7 +801,8 @@
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,
-      "end_reason": "Salary or conditions"
+      "end_reason": "Salary or conditions",
+      "contract": "freelance_mandate"
     },
     {
       "id": "JOB-009",
@@ -875,7 +883,50 @@
       "closed": false,
       "closed_at": null,
       "closed_reviewed_at": null,
-      "end_reason": null
+      "end_reason": null,
+      "contract": "internship"
     }
+  ],
+  "contract_options": [
+    [
+      "permanent",
+      "Permanent"
+    ],
+    [
+      "fixed_term",
+      "Fixed term"
+    ],
+    [
+      "temporary_assignment",
+      "Temporary assignment"
+    ],
+    [
+      "internship",
+      "Internship"
+    ],
+    [
+      "apprenticeship",
+      "Apprenticeship"
+    ],
+    [
+      "trainee_programme",
+      "Trainee programme"
+    ],
+    [
+      "freelance_mandate",
+      "Freelance or mandate"
+    ],
+    [
+      "on_call",
+      "On call"
+    ],
+    [
+      "working_student",
+      "Working student"
+    ],
+    [
+      "seasonal",
+      "Seasonal"
+    ]
   ]
 }

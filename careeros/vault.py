@@ -41,6 +41,11 @@ SIZE_CLASSES = taxonomy.codes('company_size')
 # vocabulary in its own order.
 SIZE_CLASS_LABELS = taxonomy.labels('company_size')
 SIZE_CLASS_OPTIONS = tuple(SIZE_CLASS_LABELS.items())
+#: The contract vocabulary as [code, label] pairs, for the board's
+#: Contract filter facet (CAREER-134). Sent with its words like
+#: size_classes, so the panel shows "Trainee programme" and never
+#: "trainee_programme".
+CONTRACT_OPTIONS = tuple(taxonomy.labels('contract').items())
 COMPANY_LINK_REASONS = ('ats_tenant', 'domain', 'name_exact', 'fuzzy_name',
                         'employer_differs_from_tenant', 'shared_tenant', 'new_company', 'manual',
                         'ambiguous_exact')

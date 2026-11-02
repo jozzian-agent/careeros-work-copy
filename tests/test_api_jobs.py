@@ -24,6 +24,10 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
               'company_review': 'NoneType',
               'company_size_class': 'str',
               'contact_email': 'str',
+              # CAREER-134: the classified contract code, derived off the
+              # stored record's values. This fixture's one job carries
+              # `values: {}`, so it reads None -- no contract, not a guess.
+              'contract': 'NoneType',
               'custom': {},
               'description': 'str',
               'description_structured': 'NoneType',
@@ -89,6 +93,10 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
  # own word for a class, because `xl` reads "Very large" and a code
  # title-cased in the browser read "Xl".
  'size_classes': [['str']],
+ # CAREER-134: the whole contract vocabulary as `[code, label]` pairs, the
+ # same shape as size_classes, for the board's Contract facet. All ten
+ # codes reach the panel even at a count of zero (owner ruling 2026-11-02).
+ 'contract_options': [['str']],
  # D7's status vocabulary as the board reads it: the ordered list, the
  # words for each one, which of them end a job, and the open/ended split
  # the filter bar shows.
@@ -294,7 +302,7 @@ def test_board_values_and_default_collection(api_client, assert_json_shape):
     assert_json_shape(raw, [DETAIL_SHAPE['job']])
     assert raw[0] == {k: v for k, v in job.items()
                       if k not in ('company_name', 'company_industry', 'company_size_class',
-                                   'needs_attention', 'pending')}
+                                   'needs_attention', 'pending', 'contract')}
 
 
 def test_detail_values_pending_and_mutations(api_client, assert_json_shape):

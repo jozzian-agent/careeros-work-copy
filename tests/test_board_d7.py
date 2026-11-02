@@ -300,3 +300,56 @@ def test_winning_a_job_leaves_every_other_job_alone(tmp_path):
     client = create_app(tmp_path).test_client()
     client.put(f"/api/jobs/{first['id']}", json={'status': 'won'})
     assert vault.load_job(tmp_path, second['id'])['status'] == 'applied'
+
+
+# --- the Contract facet (CAREER-134) ----------------------------------------
+
+def _classified_contract(code, **extra):
+    return {'values': {'contract': {'value': code, 'dimension': 'contract',
+                                    'source': 'rule', 'classified_at': '2026-11-02T00:00:00+00:00',
+                                    'taxonomy_version': '1.2.0'} | extra}}
+
+
+def test_the_contract_code_reaches_the_payload_off_the_classified_values():
+    entry = job('JOB-002') | _classified_contract('internship')
+    built = context([entry])
+    assert built['entries'][0]['contract'] == 'internship'
+
+
+def test_an_unknown_or_missing_contract_is_no_contract_not_a_guess():
+    """`unknown` is a real answer the classifier can give, and the facet
+    must not offer a code for it: a filter chip reading "Unknown" would
+    match every unclassified posting and lie about what the vocabulary
+    holds. A posting with no classified contract at all is the same."""
+    built = context([job('JOB-003') | _classified_contract('unknown'),
+                     job('JOB-004')])
+    assert [entry['contract'] for entry in built['entries']] == [None, None]
+
+
+def test_the_contract_options_are_the_taxonomy_vocabulary_in_order():
+    """Owner ruling 2026-11-02: the plain filter offers the whole
+    contract vocabulary — all ten codes, in the taxonomy's own order,
+    with the taxonomy's own words."""
+    built = context([job()])
+    from careeros import taxonomy
+    assert built['contract_options'] == tuple(taxonomy.labels('contract').items())
+    assert [code for code, _ in built['contract_options']][3] == 'internship'
+
+
+def test_the_contract_facet_reads_a_projection_that_has_no_values(tmp_path):
+    """The All jobs tab projects a posting this reader does not own, and
+    the projection drops `values`. The contract code is derived BEFORE
+    that, server-side, so a reader who may not see the record's
+    classified values can still filter it by contract."""
+    from careeros import taxonomy
+    record = taxonomy.make_value_record('contract', 'internship', 'rule')
+    saved = vault.save_job(tmp_path, {'title': 'Intern', 'url': URL + '-intern',
+                                      'in_pipeline': False, 'values': {'contract': record}})
+    from careeros.web.pages import jobs as jobs_page
+    # A reader who does not own the posting (it is ownerless and they are
+    # not the admin), so the entry reaches them projected.
+    owner = vault.Owner('some-tester', inherits_ownerless=False)
+    built = jobs_page.universe_context(tmp_path, owner, is_admin=False)
+    entry = next(item for item in built['entries'] if item['id'] == saved['id'])
+    assert entry['contract'] == 'internship'
+    assert 'values' not in entry, 'the projection still strips the classified values'

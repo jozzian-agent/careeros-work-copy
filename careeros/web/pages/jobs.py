@@ -9,7 +9,7 @@ from datetime import date
 import re
 
 from flask import abort, current_app
-from careeros import history, users, vault, watcher
+from careeros import history, taxonomy, users, vault, watcher
 from org_intake import classify as sectors
 from careeros.web.ui import page
 
@@ -120,6 +120,21 @@ def closed_review(entries, today):
     return rows
 
 
+def _contract_code(job):
+    """The classified contract code of one stored job, or None.
+
+    The classification pipeline stores contract under `values` (a value
+    record); the board's Contract facet filters on the plain code, like
+    `function` does. Read here rather than in the browser because the
+    All jobs tab's entries are projected records with no `values` key --
+    the code has to come off the stored record BEFORE that projection
+    (see `universe_context`).
+    """
+    record = (job.get('values') or {}).get('contract') or {}
+    value = record.get('value')
+    return value if value and value != taxonomy.UNKNOWN else None
+
+
 def statuses_held(job):
     """Every status this job is recorded as having held: the one it is in
     now, plus both sides of every status move in its history.
@@ -220,8 +235,15 @@ def universe_context(root, owner=None, *, is_admin):
         # the two fields it answers from.
         mine = owner is None or owner.owns(job)
         if not mine:
+            # The Contract facet's code comes off the STORED record: the
+            # projection below drops `values`, and a reader who does not
+            # own a posting still gets to filter it by contract.
+            contract = _contract_code(job)
             job = vault.public_posting_projection(job)
-        entries.append(job | {'on_my_board': mine and vault.on_board(job)})
+        else:
+            contract = _contract_code(job)
+        entries.append(job | {'on_my_board': mine and vault.on_board(job),
+                              'contract': contract})
     context = board_context(entries, vault.visible_companies(root, owner),
                             vault.function_label_map(root), is_admin=is_admin)
     return context | {'empty': UNIVERSE_EMPTY_STATE}
@@ -250,7 +272,12 @@ def board_context(entries, companies, function_labels, today=None, *, is_admin):
     today = today or date.today()
     function_options = sorted(((fid, info['label']) for fid, info in function_labels.items()),
                               key=lambda pair: pair[1].casefold())
-    entries = [job | {'needs_attention': needs_attention(job) if is_admin else False}
+    entries = [job | {'needs_attention': needs_attention(job) if is_admin else False,
+                      # Set only when the caller has not computed it off
+                      # the stored record already (universe_context has,
+                      # because the projection drops `values`).
+                      'contract': job.get('contract') if 'contract' in job
+                      else _contract_code(job)}
                for job in entries]
     # The two payload keys that are about one person's own search rather
     # than about the postings in front of them. `entries` here may be the
@@ -304,6 +331,9 @@ def board_context(entries, companies, function_labels, today=None, *, is_admin):
         # title-case the code and so offered "Xl" for the class whose
         # label is "Very large".
         size_classes=vault.SIZE_CLASS_OPTIONS,
+        # The contract vocabulary for the Contract facet (CAREER-134),
+        # [code, label] pairs like size_classes, in the taxonomy's order.
+        contract_options=vault.CONTRACT_OPTIONS,
     )
 
 def company_summaries(companies, isic_sections):

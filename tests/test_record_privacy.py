@@ -2344,8 +2344,14 @@ def test_an_author_note_write_preserves_notes_they_cannot_see(
 #: (`web.pages.jobs.universe_context`, `board_context` and the API's own
 #: company decorations). Named here so the projection assertions below
 #: can subtract them and hold what is left against the allowlist.
+#: `contract` (CAREER-134) is a decoration derived server-side from the
+#: stored record's classified `values.contract` BEFORE the projection
+#: strips `values` -- a fact about the public posting (the same class as
+#: the already-public `employment_type`, `function` and `occupation_code`,
+#: and derived like `company_industry`), never the admin's own handling.
 UNIVERSE_DECORATIONS = {'on_my_board', 'needs_attention', 'company_name',
-                        'company_industry', 'company_size_class', 'pending'}
+                        'company_industry', 'company_size_class', 'pending',
+                        'contract'}
 
 #: What a reader who does not own a job must never receive about it: the
 #: notes and who wrote them, the history, the custom data, the provenance

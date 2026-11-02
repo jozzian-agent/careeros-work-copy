@@ -954,6 +954,20 @@ Programmleiter"), owner directive. The code is unchanged, so stored
 values keep working with no migration; the old label survives as a
 synonym. `taxonomy_version` 1.1.0 → 1.2.0.
 
+2026-11-02 (CAREER-134, owner ruling in chat): the Jobs board's filter
+bar gains a **Contract** chip, placed after Location. It is a plain
+filter over the classified `contract` value — the whole ten-code
+contract vocabulary as options (owner ruling: all codes, not just the
+internship ones; no auto-check, no s0 coupling), sent as `[code, label]`
+pairs like the size facet, so a code shows its own word. The code is
+derived server-side off the stored record's `values.contract` and rides
+on each entry, including the All jobs tab's projected entries — the
+projection strips `values`, so the code is read before it, and `unknown`
+is offered as no contract rather than as a chip that would match every
+unclassified posting. The four entry-level codes the item named
+(internship, working student, trainee programme, apprenticeship) all
+already exist in `contract.yaml`; nothing was added to the vocabulary.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
