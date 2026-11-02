@@ -26,11 +26,12 @@ illustration.
 
 - One file: `tags.yaml` at the root of the vault. No job, company or
   experience record is touched.
-- 40 values in the `function` facet, which is every entry the import
-  source carries today. 10 are ESCO-backed: their `esco_uri` was fetched
-  from the live ESCO API on 2026-10-16 and the concept's own label and
-  `code` matched what the entry records, so those 10 keep their `isco`.
-  The other 30 are seeded as local extensions with `isco` cleared,
+- 61 values in the `function` facet, which is every entry the import
+  source carries today (family list v2, owner-approved 2026-11-02,
+  CAREER-129; it was 40 until then). 9 are ESCO-backed: their `esco_uri`
+  was fetched from the live ESCO API on 2026-10-16 and the concept's own
+  label and `code` matched what the entry records, so those 9 keep their
+  `isco`. The other 52 are seeded as local extensions with `isco` cleared,
   because an entry with no verified ESCO concept must not imply a roll-up
   it has not earned (decision 25). 5 of those 30 are marked `local: true`
   in the import source — owner labels whose golden-set URIs 404, so there
@@ -114,10 +115,14 @@ print('function ids after:', len(vault.known_function_ids(root)))
 PY
 ```
 
-Step 3 on an empty facet adds all 40 and updates nothing. On the live
+Step 3 on an empty facet adds all 61 and updates nothing. On the live
 vault, which was seeded with the 28 entries of 2026-10-15, it prints the
 following — the output of a run against a copy of the live `tags.yaml`
-on 2026-10-16, not an illustration:
+on 2026-10-16, when the source carried 40 entries, not an illustration.
+The counts below are that run's and are left as measured; a run today
+adds the 21 entries v2 appended and does NOT remove the three v2 merged
+away, which is what `scripts/migrate_family_taxonomy_v2.py` is for —
+run that migration BEFORE re-seeding:
 
 ```
 added 12 ids: ['embedded-systems-security-engineer', 'ict-business-analysis-manager',
@@ -141,6 +146,11 @@ Step 4 ends with:
 ```
 function ids after: 40
 ```
+
+(As measured on 2026-10-16, when the source carried 40. A run against
+the v2 source ends at 61 on a vault the migration has already cleaned,
+and at 64 on one it has not — the three merged-away ids are still
+there, because the seed never removes.)
 
 Running step 3 again prints `added 0` and `updated 0`, which is how the
 run proves it is idempotent rather than a second write.
@@ -178,11 +188,31 @@ rm "$VAULT/tags.yaml"
 
 ## Open questions
 
-- 25 of the 40 entries are still unverified: no `esco_uri`, and an
+- Since family list v2 (2026-11-02, CAREER-129) the source carries 61
+  entries, of which **24 have no `isco` at all** — not because they have
+  no ESCO concept but because no unit group in `ch_isco19.yaml`'s seed is
+  an unarguable home for them, and inventing one is what decision 22
+  forbids. Loading the 3-digit CH-ISCO-19 backbone and mapping the
+  families to it is CAREER-130. Those 24 seed exactly like the
+  unverified entries below: as local extensions with no code.
+- Three ids were **merged away** by v2 (`chief-product-officer`,
+  `ict-business-analysis-manager`, `innovation-officer`). The seed adds
+  and updates and never removes, so a vault seeded before v2 still holds
+  them and the `function` vocabulary is enforced on write. Run
+  `scripts/migrate_family_taxonomy_v2.py` (dry run by default, `--apply`
+  owner-gated) before re-seeding: it rewrites the records onto the
+  absorbing family first and removes the three facet entries second, in
+  that order, because a record naming an id the facet has dropped stops
+  saving.
+- 25 of the 61 entries are still unverified: no `esco_uri`, and an
   `isco` that is the import source's best reading rather than a
   citation. The 2026-10-16 round verified the 10 concepts the golden set
   needed, which is every function label the owner's own 42 labelled
-  postings use, and left the rest for the day a posting needs one.
+  postings use, and left the rest for the day a posting needs one. **Nine
+  of those 10 survive v2**: `ict-business-analysis-manager` held the
+  tenth and was merged into `ict-business-analyst`, which does not
+  inherit the URI, because ESCO holds the manager and the analyst as two
+  concepts.
   Whether the owner wants all 25 verified against the live ESCO API
   before the first classification measurement, or is content to run with
   the local-extension markers, is not decided. They reach no vault with

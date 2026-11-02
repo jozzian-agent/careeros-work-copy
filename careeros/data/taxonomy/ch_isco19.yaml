@@ -12,13 +12,24 @@
 # WHAT IS IN THIS FILE, HONESTLY:
 #
 #   * `isco_unit_group` -- SEED, not the standard. The 19 ISCO-08 unit
-#     groups the 40 job families in occupation_families.yaml point at, and
-#     nothing else: ISCO-08 has 436 unit groups and the other 417 would be
-#     dead weight in a product that classifies office and ICT work in
-#     Zurich. Marked incomplete for exactly that reason, so no caller
-#     reads a missing code as an invalid one. A family mapping that needs
-#     a new group adds it here in the same change (the test in
-#     tests/test_taxonomy.py fails otherwise).
+#     groups that 34 of the 61 job families in occupation_families.yaml
+#     point at, and nothing else: ISCO-08 has 436 unit groups and the
+#     other 417 would be dead weight in a product that classifies office
+#     and ICT work in Zurich. Marked incomplete for exactly that reason,
+#     so no caller reads a missing code as an invalid one. A family
+#     mapping that needs a new group adds it here in the same change (the
+#     test in tests/test_taxonomy.py fails otherwise).
+#
+#     AND THAT IS NOW THE BINDING CONSTRAINT. The family list went from 40
+#     to 61 on 2026-11-02 (CAREER-129) and not one of the 24 new families
+#     is mapped, because this seed has no unarguable home for any of them
+#     and inventing a four-digit code is what decision 22 forbids. 27 of
+#     the 61 families therefore carry no code: 3 local extensions with no
+#     ESCO concept, and 24 waiting for the backbone. Owner decision 5 is
+#     the route out and it is CAREER-130: load the 3-DIGIT CH-ISCO-19
+#     backbone (about 130 groups) from BFS so every job has a home --
+#     cook, electrician, nurse -- and map the families to it many-to-many
+#     with the owner reviewing the mapping. Four and five digits later.
 #   * `ch_isco19` -- A STUB, no entries. The 5-digit Swiss list is
 #     BFS-published and could not be read in this ticket (no network
 #     access). Writing 5-digit codes from memory is the one thing the

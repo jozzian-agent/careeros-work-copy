@@ -20,7 +20,10 @@ HEADER = 'Job title,Company,Board status,Job function (fill in),ESCO URI,ISCO-08
 
 ROWS = [
     'Senior Java-Entwickler/in,Ringler,new,Software developer,,2512,90%,,',
-    'Head of Product,CISTEC AG,new,Chief product officer,,1223,60%,,',
+    # A family that carries no four-digit code, so the row lands in the
+    # unmapped bucket. It was "Chief product officer" until v2 merged that
+    # family into product-manager, which does carry one.
+    'Projektleiter Digitales Ökosystem,Fiction AG,new,Digital transformation manager,,,60%,,',
     'Careers and jobs,Syngenta,new,unclassifiable,,,5%,,',
     'Product Manager TMS,Maagtechnic,new,Product manager,,1223,25%,,',
 ]
@@ -86,7 +89,8 @@ def test_refusing_to_classify_a_non_posting_is_correct(golden):
 
 def test_an_unmapped_local_extension_is_bucketed_not_graded_at_four_digits(golden):
     """Decision 22 scopes the ISCO roll-up to ESCO-backed entries, so a
-    row labelled `chief product officer` can never produce a code."""
+    row labelled `digital transformation manager` can never produce a
+    code."""
     rows = grade.load_golden(golden)
     graded = grade.grade_row(rows[1], results_for(rows)[1])
     assert graded['unmapped'] is True
@@ -100,6 +104,50 @@ def test_the_three_denominators_are_reported_separately(golden):
     assert summary['family']['confident']['of'] + summary['family']['low_confidence']['of'] \
         == summary['family']['all']['of']
     assert summary['unmapped_bucket'] == 1
+
+
+# --- top-1 and top-3 (CAREER-129) ----------------------------------------
+
+def ranked_result(*codes):
+    """A pipeline result whose family record carries ranked alternatives."""
+    return {'values': {'occupation_family': taxonomy.make_value_record(
+        'occupation_family', codes[0], 'llm',
+        ranked=[{'value': code, 'rank': position, 'source': 'llm', 'confidence': None}
+                for position, code in enumerate(codes, start=1)])}}
+
+
+def test_the_owners_family_at_rank_two_is_a_top_3_hit_and_a_top_1_miss(golden):
+    """Which is the whole reason both are reported: a wider answer must
+    not be readable as a better one."""
+    rows = grade.load_golden(golden)  # rows[0] is labelled software-developer
+    graded = grade.grade_row(rows[0], ranked_result('software-architect',
+                                                    'software-developer'))
+    assert graded['family_right'] is False
+    assert graded['family_top3_right'] is True
+    assert graded['predicted_ranked'] == ['software-architect', 'software-developer']
+
+
+def test_a_family_in_no_rank_is_wrong_at_both(golden):
+    rows = grade.load_golden(golden)
+    graded = grade.grade_row(rows[0], ranked_result('marketing-manager', 'sales-manager'))
+    assert graded['family_right'] is False and graded['family_top3_right'] is False
+
+
+def test_a_record_with_no_ranked_list_scores_the_same_at_top_1_and_top_3(golden):
+    """Everything written before CAREER-129, and everything the rules
+    layer writes, carries one rank."""
+    rows = grade.load_golden(golden)
+    graded = grade.grade_row(rows[0], results_for(rows)[0])
+    assert graded['family_right'] is True and graded['family_top3_right'] is True
+
+
+def test_the_two_family_rates_are_separate_blocks_of_the_report(golden):
+    rows = grade.load_golden(golden)
+    results = [ranked_result('software-architect', 'software-developer')] + \
+        results_for(rows)[1:]
+    summary = grade.accuracy(rows, results)
+    assert summary['family_top3']['all']['right'] == summary['family']['all']['right'] + 1
+    assert summary['family']['confident']['of'] == summary['family_top3']['confident']['of']
 
 
 def test_a_dimension_the_golden_set_does_not_label_is_not_graded():
@@ -187,6 +235,9 @@ def test_the_report_writes_a_markdown_file_with_every_verdict_on_it(golden, pool
     text = '\n'.join(body)
     assert '# Classification accuracy, rules layer' in text
     assert 'NOT GRADED' in text
+    # Top-1 and top-3 are two rows and never one (CAREER-129).
+    assert 'Job family top-1, confident rows' in text
+    assert 'Job family top-3, confident rows' in text
     assert 'Agreement is not accuracy' in text
     written = report.write_report(tmp_path / 'out.md', body)
     assert written.read_text().startswith('# Classification accuracy')

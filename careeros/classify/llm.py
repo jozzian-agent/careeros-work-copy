@@ -14,6 +14,15 @@ about a field a table already settled would spend tokens to produce a
 weaker answer: `llm` is the last word in the precedence order, so its
 answer would lose anyway.
 
+Two further things it is not asked (CAREER-129, owner decision
+2026-11-02). It is not asked about a dimension whose shipped vocabulary
+is incomplete, because such a question cannot be answered or checked --
+see `askable`. And for the job family it is not asked for one code: it is
+asked for up to three in rank order, because the ambiguous remainder
+above is ambiguous precisely in the sense that two or three families fit,
+and recording the ranking is more honest than making the model pick. See
+`RANKED_FIELDS` and `taxonomy.make_value_record`'s `ranked`.
+
 ## The host, and why nothing here fetches in this build
 
 The model runs on the owner's own Ollama host over its OpenAI-compatible
@@ -127,6 +136,19 @@ class Config:
 #: at all.
 DIMENSION_OF = {field: re.sub(r'_(min|max)$', '', field) for field in rules.FIELDS}
 
+#: The fields the model answers with a RANKED list rather than one code
+#: (owner decision 2026-11-02, CAREER-129). A Zurich posting routinely
+#: reads as two or three job families and the owner's own labelling picks
+#: one of them; asking for three in rank order records that instead of
+#: making the model pretend to a certainty it does not have. Only the
+#: family is ranked -- a posting has one contract and is written in one
+#: language, so a list there would be a list of wrong answers.
+RANKED_FIELDS = ('occupation_family',)
+
+#: How a ranked field is asked for, in the owner's own words.
+RANKED_ASK = (f'list up to {taxonomy.MAX_RANKS}, best first; if none fits, say unknown '
+              'and do not force one')
+
 #: What each field means, in the words the model is asked in. Short on
 #: purpose: a long instruction costs tokens on every posting.
 _ASKS = {
@@ -143,17 +165,48 @@ _ASKS = {
 }
 
 
+def askable(fields):
+    """The fields it is worth asking the model about.
+
+    A dimension whose shipped vocabulary is INCOMPLETE is dropped, and
+    that is the whole rule -- generic, not a list of field names, so a
+    dimension that becomes complete starts being asked without an edit
+    here. The ask is unanswerable by construction for an incomplete one:
+    `options` has no list to show the model, so it would be asked for a
+    code it has never seen, and `taxonomy.valid_code` has no whole list
+    to refuse an invented code against, so whatever came back would be
+    stored. The run of 2026-11-01 asked 469 such questions across the
+    three incomplete dimensions the rules layer writes:
+    `isco_unit_group`, `language` and `municipality`. They stay
+    rules-and-feed-only until their lists are whole, which for the ISCO
+    backbone is CAREER-130. `canton` has 26 codes and is complete, so it
+    is still asked -- the rule is the `complete` flag and not a guess
+    about which lists are big.
+    """
+    return tuple(field for field in fields if taxonomy.is_complete(DIMENSION_OF[field]))
+
+
 def options(field):
     """The codes a field may answer with, as a short line.
+
+    Every code, always. Until CAREER-129 an incomplete dimension (and
+    any list over sixty) degraded to the prose "a valid <dimension> code
+    from the CareerOS taxonomy", which is an invitation to invent one.
+    Such a dimension is no longer asked at all (`askable`), so this
+    raises for one rather than building a line no caller should send, and
+    the sixty-code cap is gone with it -- the 61 job families are the
+    longest list the model is shown and they are the whole point of
+    asking.
 
     `unknown` is always allowed and always last, because it is a real
     answer (D4) and the model has to be able to give it instead of
     reaching for the nearest code.
     """
     dimension = DIMENSION_OF[field]
+    if not taxonomy.is_complete(dimension):
+        raise ValueError(f'{dimension} is an incomplete vocabulary, so the model is never '
+                         'asked for one; see careeros.classify.llm.askable')
     listed = [f"{entry['code']} ({entry['label']})" for entry in taxonomy.entries(dimension)]
-    if not taxonomy.is_complete(dimension) or len(listed) > 60:
-        return f'a valid {dimension} code from the CareerOS taxonomy, or unknown'
     return ', '.join(listed + ['unknown'])
 
 
@@ -163,8 +216,16 @@ def prompt(subject, fields):
     One call per posting rather than one per field: the fields share the
     whole text, so asking separately would re-send it once per dimension.
     """
-    asked = '\n'.join(f'- {field}: {_ASKS.get(field, field)}. One of: {options(field)}'
-                      for field in fields)
+    asked = '\n'.join(
+        f'- {field}: {_ASKS.get(field, field)}. '
+        + (f'{RANKED_ASK}. Each one of: {options(field)}' if field in RANKED_FIELDS
+           else f'One of: {options(field)}')
+        for field in fields)
+    ranked = [field for field in fields if field in RANKED_FIELDS]
+    ranked_note = (f'For {", ".join(ranked)} send "codes" as a list of at most '
+                   f'{taxonomy.MAX_RANKS} codes in rank order, best first, and fewer when '
+                   'fewer fit. '
+                   if ranked else '')
     posting = '\n'.join(filter(None, [
         f"Title: {subject.get('title') or ''}",
         f"Department: {subject.get('department')}" if subject.get('department') else '',
@@ -178,7 +239,8 @@ def prompt(subject, fields):
     user = (f'Classify this posting on these fields:\n{asked}\n\n'
             'Answer with one JSON object, one key per field above, each value an object '
             '{"code": "...", "evidence": "the phrase from the posting", "confidence": 0.0-1.0}. '
-            'No other keys and no prose.\n\n'
+            + ranked_note
+            + 'No other keys and no prose.\n\n'
             f'POSTING\n{posting}')
     return [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
 
@@ -280,6 +342,31 @@ def _unknown(field, reason, *, at=None, detail=None, extra=None):
                                       evidence=evidence, classified_at=at)
 
 
+def _answered_codes(answered):
+    """The codes one field's answer carries, in the order the model gave.
+
+    `codes` for a ranked field and `code` for a single one, with either
+    key accepted for either kind: a model asked for a list sometimes
+    sends one string and a model asked for one code sometimes sends a
+    list of one, and in both cases the answer is perfectly usable. A
+    repeated code is folded out here rather than refused, because
+    repeating a code is a formatting slip and not a second opinion.
+    """
+    raw = answered.get('codes')
+    if raw is None:
+        raw = answered.get('code')
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    found = []
+    for item in raw:
+        code = str(item or '').strip()
+        if code and code not in found:
+            found.append(code)
+    return found
+
+
 def _record(field, answered, *, config, at=None):
     """One field of the model's answer, validated against the taxonomy.
 
@@ -288,31 +375,72 @@ def _record(field, answered, *, config, at=None):
     model's own confidence is under the floor. None of the three is a
     dropped value -- D4's `unknown` plus a reason is what a refusal
     looks like.
+
+    VALIDATION IS UNCONDITIONAL since CAREER-129. It used to be skipped
+    for a dimension whose shipped list is incomplete, so an invented
+    language code was stored with a log line instead of being escalated;
+    `askable` now keeps an incomplete dimension out of the ask entirely,
+    which means every code reaching here is checkable against a whole
+    list and the exception is gone rather than merely narrowed.
+
+    For a ranked field the PRIMARY rank is the answer: an invalid best
+    code escalates the whole field, because promoting a later rank into
+    its place would be inventing a ranking the model did not give. An
+    invalid second or third rank is dropped and named in the evidence
+    instead -- a bad second choice is no reason to throw away a good
+    first one.
     """
     dimension = DIMENSION_OF[field]
     if not isinstance(answered, dict):
         return _unknown(field, NOT_ANSWERED, at=at)
-    code = str(answered.get('code') or '').strip()
-    evidence = str(answered.get('evidence') or '').strip() or None
+    codes = _answered_codes(answered)
+    quote = str(answered.get('evidence') or '').strip() or None
     confidence = answered.get('confidence')
     confidence = float(confidence) if isinstance(confidence, (int, float)) else None
     if confidence is not None:
         confidence = max(0.0, min(1.0, confidence))
-    if not code:
+    if not codes:
         return _unknown(field, NOT_ANSWERED, at=at)
+    code = codes[0]
     if code == taxonomy.UNKNOWN:
         return taxonomy.make_value_record(
             dimension, taxonomy.UNKNOWN, 'llm', confidence=confidence,
             evidence={'rule': 'the model read the posting and found nothing for this field',
-                      'model': config.model, 'quote': evidence}, classified_at=at)
-    if not taxonomy.valid_code(dimension, code) and taxonomy.is_complete(dimension):
+                      'model': config.model, 'quote': quote}, classified_at=at)
+    if not taxonomy.valid_code(dimension, code):
         return _unknown(field, INVALID_CODE, at=at, extra={'model_answer': code,
                                                            'model': config.model})
     if confidence is not None and confidence < CONFIDENCE_FLOOR:
         return _unknown(field, BELOW_FLOOR, at=at,
                         extra={'model_answer': code, 'model_confidence': confidence,
-                               'model': config.model, 'quote': evidence})
+                               'model': config.model, 'quote': quote})
+    evidence = {'rule': f'read from the posting text by {config.model}',
+                'model': config.model, 'phrase': quote}
     return taxonomy.make_value_record(
-        dimension, code, 'llm', confidence=confidence,
-        evidence={'rule': f'read from the posting text by {config.model}', 'model': config.model,
-                  'phrase': evidence}, classified_at=at)
+        dimension, code, 'llm', confidence=confidence, evidence=evidence, classified_at=at,
+        ranked=_ranked(dimension, field, codes, confidence, evidence))
+
+
+def _ranked(dimension, field, codes, confidence, evidence):
+    """The up-to-three ranked entries for a ranked field, or None.
+
+    None for every other field, which is what keeps a single-valued
+    record exactly the shape it has always been.
+
+    Only rank 1 carries the model's confidence. The model states ONE
+    confidence for the whole answer, not one per rank, so copying it onto
+    the alternatives would turn one number into three claims -- and the
+    owner's ruling is that the number is not the signal anyway (the local
+    model answers ~0.95 for everything); the rank position is.
+    """
+    if field not in RANKED_FIELDS:
+        return None
+    considered = codes[:taxonomy.MAX_RANKS]
+    kept = [code for code in considered
+            if code != taxonomy.UNKNOWN and taxonomy.valid_code(dimension, code)]
+    refused = [code for code in considered if code not in kept]
+    if refused:
+        evidence['dropped_ranks'] = refused
+    return [{'value': code, 'rank': position, 'source': 'llm',
+             'confidence': confidence if position == 1 else None}
+            for position, code in enumerate(kept, start=1)]

@@ -238,8 +238,11 @@ the sample workflow. Back up the destination vault before a future import.
 `careeros.taxonomy.make_value_record`. The field name is not always a
 dimension name: `workload_min` and `workload_max` are two fields over
 the one `workload` dimension, and `isco_unit_group` is derived from
-`occupation_family` rather than read from the posting. The fields the
-pipeline writes are `careeros.classify.rules.FIELDS`:
+`occupation_family` rather than read from the posting — by
+`careeros.classify.settle_isco`, after every layer has spoken, so the
+group follows the family that won rather than the family one layer
+proposed. The fields the pipeline writes are
+`careeros.classify.rules.FIELDS`:
 `occupation_family`, `isco_unit_group`, `language`, `workload_min`,
 `workload_max`, `contract`, `work_model`, `seniority`, `employer_type`,
 `municipality`, `canton`.
@@ -253,11 +256,20 @@ pipeline writes are `careeros.classify.rules.FIELDS`:
 | values.<field>.taxonomy_version / standard_version | The version of the dimension's own file this value was classified under, so a re-classification sweep can find everything older than a given version |
 | values.<field>.classified_at | ISO-8601 timestamp |
 | values.<field>.flags / guide_version | The labelling-guide flags (`value_record.yaml`) and the guide revision they were chosen under. `via_agency` on a contract, `assumed_13` on a salary |
+| values.<field>.ranked | **Optional, and only on `occupation_family`** (CAREER-129). Up to three `{value, rank, source, confidence}` entries, best first, with `rank` running 1..n. `value` above is the PRIMARY family and always equals `ranked[0].value`, so a reader of `value` needs no change; `careeros.taxonomy.ranked_values` is how a reader that wants all three asks, and it answers for a record with no `ranked` key too |
+
+The key is ABSENT and not empty on a single-valued record: every record
+written before 2026-11-02 has no `ranked`, and the rules layer still
+writes none, so only the model proposes alternatives. Only rank 1 carries
+a confidence — the model states one confidence per answer rather than one
+per rank, and rank POSITION is the signal in any case.
 
 A record whose `evidence.needs_review` is set is the escalation queue:
 `ambiguous` (two codes claim the same phrase), `weak_evidence` (the only
-evidence is the description), `llm_invalid_code`, `llm_below_floor`,
-`llm_unparseable`, `llm_failed`, `llm_did_not_answer`.
+evidence is the description), `family_not_in_taxonomy` (a stored family
+the current list no longer carries, so no ISCO group can be derived from
+it), `llm_invalid_code`, `llm_below_floor`, `llm_unparseable`,
+`llm_failed`, `llm_did_not_answer`.
 
 `salary` is not a value record, because there is no salary dimension: a
 code list cannot hold an amount. It carries `salary_rules.yaml`'s own

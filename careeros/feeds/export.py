@@ -50,8 +50,8 @@ occupation categories and occupations the pool holds, which is what
 cover 25 families once CAREER-57 maps them. The trial report says so in
 those words rather than claiming the criterion is met. Two further notes
 for the owner: the spec says 35 families and the repository's own
-`occupation_families.yaml` holds 40 (CAREER-29 follow-up), and nothing
-crosswalks Personio's ids onto either list.
+`occupation_families.yaml` holds 61 (family list v2, CAREER-129), and
+nothing crosswalks Personio's ids onto either list.
 
 ## The salary flag
 

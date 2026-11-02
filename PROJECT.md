@@ -866,6 +866,80 @@ Jinja pages in the product are the four sign-in ones (login, forgot
 password, accept invite, reset password), plus `/jobs`, which keeps its own
 JOZ-273 dual-mode fallback for a checkout with no `frontend/dist`.
 
+2026-11-02: the job family stops being one ICT-centric list of 40 and one
+answer per posting (CAREER-129, owner decisions of the same day). The
+evidence is the owner's own: 50 postings labelled blind against the
+pipeline gave 7 correct, 16 the wrong family, and 14 where the pipeline
+forced a family onto a posting the owner said none of the 40 could
+express; about 35% of the wider 150-posting sample came back `unknown`,
+mostly jobs the list had no home for. Four things changed.
+
+- **61 families, as data.** 37 of the 40 kept, 24 added from the owner's
+  own labelling (project manager, account manager, the engineering and
+  construction trades, healthcare, hospitality, retail, security and the
+  rest), and **3 merged away** because each split one function by LEVEL,
+  which is the first decision of the day: a seniority or level word is
+  never part of a family name. `chief-product-officer` →
+  `product-manager`, `ict-business-analysis-manager` →
+  `ict-business-analyst`, `innovation-officer` → `innovation-manager`.
+  Each absorbed label survives as a `synonyms` entry — the new field
+  owner decision 4 makes part of the data model — so the owner's old
+  words stay searchable; a synonym is never a stored value. One cost
+  recorded rather than hidden: the absorbed business-analysis manager was
+  the tenth ESCO-verified family and the analyst does not inherit the
+  citation, because ESCO holds the two as different concepts, so the
+  verified count is 9. **`intern` is still not a family** — it is the
+  contract type `internship`, which is where it stays.
+- **Not one of the 24 new families is mapped to an ISCO unit group.**
+  A family may only point at a group already in `ch_isco19.yaml`'s
+  19-group seed, and none of the 24 has an unarguable home there: `legal`
+  reads as 2611 (lawyers), which the seed does not carry, and
+  `ai-ml-engineer` sits between 2512 and 2511 where `data-scientist`
+  already carries a `mapping_uncertain` marker. So all 24 carry
+  `isco4: null` with `review: unmapped_pending_backbone` and say why.
+  They are gradable at the family level today and land in the unmapped
+  bucket at four digits. Owner decision 5 is the route out and it is
+  CAREER-130: load the 3-digit CH-ISCO-19 backbone from BFS so every job
+  has a home, and map the families to it many-to-many with the owner
+  reviewing the mapping.
+- **A posting carries up to three ranked families.** The value record
+  gains one optional field, `ranked`, holding up to three
+  `{value, rank, source, confidence}` entries best first; `value` stays
+  the primary family and always equals `ranked[0].value`, so every reader
+  of one family is unchanged and the key is absent on a single-valued
+  record. Only the model proposes alternatives — the rules layer's answer
+  is rank 1 and nothing else. **Rank position is the signal and the
+  model's confidence is not**: qwen answers ~0.95 for very nearly
+  everything, so only rank 1 carries a confidence at all. The pipeline is
+  now scored twice and reported twice, top-1 and top-3, because a wider
+  answer must not read as a better one. The ranked families live in
+  `values.occupation_family` only: the board's Function filter reads the
+  job's own `function` facet ids and the two stores stay unreconciled by
+  owner ruling, as its own later item.
+- **Two pipeline defects from CAREER-123/125 went with it.** The ISCO
+  unit group is now derived AFTER the model layer rather than inside the
+  rules layer, so a family only the model could settle finally gets one
+  (0 of 159 did in the run of 2026-11-01). And the model is no longer
+  asked about a dimension whose shipped vocabulary is incomplete — 469
+  unanswerable asks in that same run, across `isco_unit_group`,
+  `language` and `municipality`, each of them a question with no list to
+  answer from and no whole list to check the answer against. With those
+  three out of the ask, validating a model answer against the taxonomy is
+  unconditional: the "skip the check for an incomplete dimension"
+  exception is gone rather than narrowed.
+
+`scripts/migrate_family_taxonomy_v2.py` moves a stored vault onto the new
+list (dry run by default, `--apply` owner-gated, not run as part of this
+build). Its two steps run in one order for one reason: the `function`
+vocabulary is enforced on write, so the records are rewritten onto the
+absorbing family first and the three facet entries are removed second —
+the other way round, every record still naming an absorbed code would be
+unsaveable in between. `vault.seed_function_facet` adds and updates and
+never removes, which is why the removal has to live here; the 24 new
+families enter a vault through that ordinary seed
+([runbook](docs/runbooks/seed-function-facet.md)), which is the owner's
+own action and has to follow the migration rather than precede it.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -1125,7 +1199,7 @@ section below for where each one stands, including what is still a stub.
 
 - Sector. Stored as ISIC today, on purpose, so that Journey 3 can use standard codes. D2 replaces the standard with NOGA divisions (sections derived); the stored section letters carry over, and nothing is migrated yet. Show plain labels only if friends find the names confusing.
 - Location. One format: the BFS municipality number plus canton and coordinates (D-sheet CAREER-58). The prototype shows the same place written several ways. The municipality register is loaded as of 2026-10-17 (CAREER-53, `scripts/load_bfs_municipalities.py`): 2 110 municipalities with their canton and their postal codes, read from the register's own LINDAS distribution. Coordinates are still null everywhere, because the distribution references a boundary polygon rather than a point.
-- Function. The filter exists; its values are the 40 job families, each mapped to an ISCO-08 unit group (D1).
+- Function. The filter exists; its values are the 61 job families (v2, 2026-11-02), 34 of them mapped to an ISCO-08 unit group (D1) and 27 carrying none. The filter reads the job's own `function` facet ids client-side, not the classification pipeline's `values.occupation_family`; the two stores are still unreconciled (see the 2026-11-02 entry).
 
 ### Design system
 
@@ -1190,7 +1264,7 @@ capability imports nothing from the product.
 
 | File | Dimensions | Standard | State |
 |---|---|---|---|
-| `occupation_families.yaml` | occupation_family, occupation_family_status | CareerOS families over ISCO-08 | complete: 40 families, 10 ESCO-verified, 25 proposed, 5 unmapped |
+| `occupation_families.yaml` | occupation_family, occupation_family_status | CareerOS families over ISCO-08 | complete: 61 families (v2, 2026-11-02), 9 ESCO-verified, 49 proposed (25 with a candidate code, 24 awaiting the CH-ISCO-19 backbone), 3 unmapped |
 | `ch_isco19.yaml` | isco_unit_group, ch_isco19 | CH-ISCO-19 over ISCO-08 | seed (19 unit groups the families use); the 5-digit Swiss list is a stub |
 | `industry_noga.yaml` | noga_section, noga_division | NOGA (NACE) | sections complete; divisions a stub; which revision is current is unanswered |
 | `company_size.yaml` | company_size | BFS size classes | complete, plus the local `xl` |

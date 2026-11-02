@@ -221,6 +221,88 @@ def test_the_labelling_guide_flags_are_the_ones_the_decision_sheet_lists():
                                    'gsw_speak', 'assumed_13', 'via_agency', 'sure', 'unsure'}
 
 
+# --- Ranked values (owner decision 2026-11-02, CAREER-129) ---------------
+
+def ranks(*codes, source='llm'):
+    return [{'value': code, 'rank': position, 'source': source, 'confidence': None}
+            for position, code in enumerate(codes, start=1)]
+
+
+def test_a_record_with_no_ranked_list_is_exactly_the_shape_it_always_was():
+    """`ranked` is ABSENT and not empty when a writer has one answer:
+    every record written before this date has no such key, and the feed
+    adapters' own contract tests pin the key set."""
+    record = taxonomy.make_value_record('occupation_family', 'software-developer', 'rule')
+    assert 'ranked' not in record
+    assert taxonomy.ranked_values(record) == ('software-developer',)
+
+
+def test_the_primary_value_is_always_the_first_rank():
+    record = taxonomy.make_value_record(
+        'occupation_family', 'product-manager', 'llm',
+        ranked=ranks('product-manager', 'ict-product-manager'))
+    assert record['value'] == record['ranked'][0]['value']
+    assert taxonomy.ranked_values(record) == ('product-manager', 'ict-product-manager')
+
+
+def test_a_primary_that_is_not_the_first_rank_is_refused():
+    """Otherwise `value` and `ranked[0]` would be two answers, and every
+    reader of `value` would have to learn which one to believe."""
+    with pytest.raises(ValueError, match='must be the first rank'):
+        taxonomy.make_value_record('occupation_family', 'product-manager', 'llm',
+                                   ranked=ranks('ict-product-manager', 'product-manager'))
+
+
+def test_more_than_three_ranks_are_refused():
+    with pytest.raises(ValueError, match='1 to 3 are allowed'):
+        taxonomy.make_value_record(
+            'occupation_family', 'product-manager', 'llm',
+            ranked=ranks('product-manager', 'ict-product-manager', 'marketing-manager',
+                         'sales-manager'))
+
+
+def test_a_ranked_code_the_taxonomy_does_not_have_is_refused():
+    """The same rule the primary value follows: for a complete dimension
+    an unknown code is a refusal, never a stored guess."""
+    with pytest.raises(ValueError, match='not a valid occupation_family code'):
+        taxonomy.make_value_record('occupation_family', 'product-manager', 'llm',
+                                   ranked=ranks('product-manager', 'chief-of-everything'))
+
+
+def test_ranks_out_of_order_are_refused():
+    with pytest.raises(ValueError, match='best first'):
+        taxonomy.make_value_record(
+            'occupation_family', 'product-manager', 'llm',
+            ranked=[{'value': 'product-manager', 'rank': 1, 'source': 'llm', 'confidence': None},
+                    {'value': 'ict-product-manager', 'rank': 3, 'source': 'llm',
+                     'confidence': None}])
+
+
+def test_the_same_family_cannot_hold_two_ranks():
+    with pytest.raises(ValueError, match='twice'):
+        taxonomy.make_value_record('occupation_family', 'product-manager', 'llm',
+                                   ranked=ranks('product-manager', 'product-manager'))
+
+
+def test_a_rank_with_an_unknown_source_is_refused():
+    with pytest.raises(ValueError, match='unknown source'):
+        taxonomy.make_value_record('occupation_family', 'product-manager', 'llm',
+                                   ranked=ranks('product-manager', source='guess'))
+
+
+def test_unknown_is_a_valid_ranked_answer_like_any_other_value():
+    record = taxonomy.make_value_record('occupation_family', taxonomy.UNKNOWN, 'llm',
+                                        ranked=ranks(taxonomy.UNKNOWN))
+    assert taxonomy.ranked_values(record) == (taxonomy.UNKNOWN,)
+
+
+def test_ranked_values_answers_for_a_record_it_was_not_given():
+    """Readers hand it whatever a stored record happens to be, including
+    nothing at all."""
+    assert taxonomy.ranked_values(None) == ()
+    assert taxonomy.ranked_values({}) == ()
+
+
 # --- Dimensions whose content is a decision, not a standard --------------
 
 def test_the_seniority_crosswalk_covers_every_retired_ordinal_value():
@@ -295,9 +377,10 @@ def test_every_family_isco_code_is_a_unit_group_this_taxonomy_knows():
 
 
 def test_the_family_layer_and_the_extraction_seed_cannot_drift():
-    """The two files hold the same 40 ids on purpose (the seed carries
-    keywords and citations, this layer carries the mapping and its
-    status). Keeping them in step is this test's job, not a comment's."""
+    """The two files hold the same 61 ids on purpose (the seed carries
+    keywords and citations, this layer carries the mapping, its status and
+    the synonyms). Keeping them in step is this test's job, not a
+    comment's."""
     seed = {entry['id']: entry for entry in ESCO_SEED['occupations']}
     families = {entry['code']: entry for entry in taxonomy.entries('occupation_family')}
     assert set(families) == set(seed)
@@ -319,9 +402,67 @@ def test_the_family_layer_and_the_extraction_seed_cannot_drift():
             assert family['isco4'] == source['isco']
 
 
+def test_the_family_list_is_the_61_the_owner_approved():
+    """v2, owner-approved 2026-11-02: 37 of v1's 40 kept, 3 merged away
+    because each split one function by LEVEL, 24 added. Pinned here the
+    way `vault.STOPPED_REASONS` is pinned in tests/test_board_d7.py: a
+    family leaving the list is a decision, never a diff nobody noticed."""
+    codes = taxonomy.codes('occupation_family')
+    assert len(codes) == 61
+    assert len(set(codes)) == 61
+    for absorbed in ('chief-product-officer', 'ict-business-analysis-manager',
+                     'innovation-officer'):
+        assert absorbed not in codes, absorbed
+    # One per group the owner's draft adds, so a dropped group fails here.
+    for added in ('project-manager', 'account-manager', 'legal', 'banking-officer',
+                  'ai-ml-engineer', 'customer-success-manager',
+                  'mechanical-and-process-engineer', 'robotics-and-control-engineer',
+                  'healthcare-staff', 'production-or-assembly-worker',
+                  'merchandiser-or-buyer', 'security-staff'):
+        assert added in codes, added
+
+
 def test_the_family_status_split_is_the_one_the_owner_ruling_names():
-    statuses = [entry['status'] for entry in taxonomy.entries('occupation_family')]
-    assert len(statuses) == 40
-    assert statuses.count('verified') == 10
-    assert statuses.count('proposed') == 25
-    assert statuses.count('unmapped') == 5
+    """Nine verified and not ten: ict-business-analysis-manager carried the
+    tenth ESCO citation and v2 merges it into ict-business-analyst, which
+    does NOT inherit the URI -- ESCO holds the manager and the analyst as
+    two concepts. The merge costs a citation and this number says so."""
+    entries = taxonomy.entries('occupation_family')
+    statuses = [entry['status'] for entry in entries]
+    assert len(statuses) == 61
+    assert statuses.count('verified') == 9
+    assert statuses.count('proposed') == 49
+    assert statuses.count('unmapped') == 3
+    # The 24 new families carry no code and say why, rather than pointing
+    # at a unit group nobody confirmed (owner decision 5 -> CAREER-130).
+    pending = [entry['code'] for entry in entries
+               if entry.get('review') == 'unmapped_pending_backbone']
+    assert len(pending) == 24
+    for code in pending:
+        entry = taxonomy.entry('occupation_family', code)
+        assert entry['isco4'] is None, code
+        assert entry['status'] == 'proposed', code
+
+
+def test_a_synonym_is_never_a_stored_value():
+    """`synonyms` is for matching and prompting only (owner decision 4): a
+    synonym is another way to say a family, not a family. So the taxonomy
+    must not accept one as a code, or a posting would end up stored under
+    a word that is not in the vocabulary."""
+    synonyms = [synonym for entry in taxonomy.entries('occupation_family')
+                for synonym in entry.get('synonyms') or ()]
+    assert synonyms, 'the owner wrote synonyms; a list that went empty is a loss'
+    for synonym in synonyms:
+        assert not taxonomy.valid_code('occupation_family', synonym), synonym
+        with pytest.raises(ValueError, match='not a valid occupation_family code'):
+            taxonomy.make_value_record('occupation_family', synonym, 'llm')
+
+
+def test_every_merged_away_label_is_still_expressible_as_a_synonym():
+    """A merge must not make the owner's old words unsearchable: each of
+    the three absorbed labels survives on the family that absorbed it."""
+    absorbed = {'product-manager': 'Chief product officer',
+                'ict-business-analyst': 'ICT business analysis manager',
+                'innovation-manager': 'Innovation officer'}
+    for code, label in absorbed.items():
+        assert label in (taxonomy.entry('occupation_family', code).get('synonyms') or ()), code
