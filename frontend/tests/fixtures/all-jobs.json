@@ -208,7 +208,8 @@
       "closed_at": null,
       "closed_reviewed_at": null,
       "end_reason": null,
-      "on_my_board": true
+      "on_my_board": true,
+      "contract": "permanent"
     },
     {
       "id": "JOB-007",
@@ -285,7 +286,8 @@
       "closed_at": null,
       "closed_reviewed_at": null,
       "end_reason": null,
-      "on_my_board": true
+      "on_my_board": true,
+      "contract": null
     },
     {
       "id": "JOB-010",
@@ -367,7 +369,8 @@
       "closed_reviewed_at": null,
       "end_reason": null,
       "owner_id": null,
-      "on_my_board": false
+      "on_my_board": false,
+      "contract": "internship"
     },
     {
       "id": "JOB-011",
@@ -443,7 +446,50 @@
       "closed_reviewed_at": null,
       "end_reason": null,
       "owner_id": null,
-      "on_my_board": false
+      "on_my_board": false,
+      "contract": "working_student"
     }
+  ],
+  "contract_options": [
+    [
+      "permanent",
+      "Permanent"
+    ],
+    [
+      "fixed_term",
+      "Fixed term"
+    ],
+    [
+      "temporary_assignment",
+      "Temporary assignment"
+    ],
+    [
+      "internship",
+      "Internship"
+    ],
+    [
+      "apprenticeship",
+      "Apprenticeship"
+    ],
+    [
+      "trainee_programme",
+      "Trainee programme"
+    ],
+    [
+      "freelance_mandate",
+      "Freelance or mandate"
+    ],
+    [
+      "on_call",
+      "On call"
+    ],
+    [
+      "working_student",
+      "Working student"
+    ],
+    [
+      "seasonal",
+      "Seasonal"
+    ]
   ]
 }

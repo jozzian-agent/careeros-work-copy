@@ -15,14 +15,15 @@ test.beforeEach(async ({ page }) => {
   await mockBoard(page, fixture);
 });
 
-test('chip order is Function, Location, More filters, Needs attention, Hide closed postings', async ({ page }) => {
+test('chip order is Function, Location, Contract, More filters, Needs attention, Hide closed postings', async ({ page }) => {
   await page.goto('/jobs');
   const chips = page.locator('[data-testid^="filter-chip-"]');
-  await expect(chips).toHaveCount(5);
+  await expect(chips).toHaveCount(6);
   const testIds = await chips.evaluateAll((nodes) => nodes.map((node) => node.dataset.testid));
   expect(testIds).toEqual([
     'filter-chip-function',
     'filter-chip-location',
+    'filter-chip-contract',
     'filter-chip-more',
     'filter-chip-needs-attention',
     'filter-chip-hide-closed',

@@ -11,11 +11,12 @@ import { countBy, labelPairs, presentOptions, sortedOptions } from './filters.js
 export const JOB_FILTER_GROUPS = [
   { key: 'function', label: 'Function' },
   { key: 'location', label: 'Location' },
+  { key: 'contract', label: 'Contract' },
   { key: 'industry', label: 'Industry', legend: 'Industry (estimated)', inMore: true },
   { key: 'companySize', label: 'Company size', legend: 'Company size (estimated)', inMore: true },
 ];
 
-export const EMPTY_JOB_FILTERS = { function: [], location: [], industry: [], companySize: [] };
+export const EMPTY_JOB_FILTERS = { function: [], location: [], contract: [], industry: [], companySize: [] };
 
 export function titleCase(value) {
   return value.length ? value.charAt(0).toUpperCase() + value.slice(1) : value;
@@ -31,6 +32,7 @@ export function titleCase(value) {
 export function jobFilterOptions(payload) {
   const entries = payload?.entries || [];
   const counts = countBy(entries, (job) => job.function || []);
+  const contractCounts = countBy(entries, (job) => [job.contract]);
   return {
     function: (payload?.function_options || []).map(([value, label]) => ({
       value,
@@ -38,6 +40,19 @@ export function jobFilterOptions(payload) {
       count: counts.get(value) || 0,
     })),
     location: sortedOptions(countBy(entries, (job) => [job.location])),
+    // Contract (CAREER-134): the taxonomy's whole vocabulary in its own
+    // order, sent by the backend as [code, label] pairs like
+    // size_classes. ALL ten codes are options even at a count of zero --
+    // owner ruling 2026-11-02 -- the way the Function facet lists the
+    // whole vault vocabulary; a code nobody's postings carry yet still
+    // shows what the filter understands. Defaulted like size_classes: a
+    // bundle against a server that predates `contract_options` loses the
+    // facet's options, not the page.
+    contract: labelPairs(payload?.contract_options).map(([value, label]) => ({
+      value,
+      label,
+      count: contractCounts.get(value) || 0,
+    })),
     industry: sortedOptions(countBy(entries, (job) => job.industries || [])),
     // Defaulted, not assumed: a bundle loaded against a server that
     // predates `size_classes` loses the facet's options, not the page.
@@ -57,10 +72,11 @@ export function filterJobs(entries, filters, { needsAttention = false, hideClose
   return entries.filter((job) => {
     const functionOk = filters.function.length === 0 || (job.function || []).some((f) => filters.function.includes(f));
     const locationOk = filters.location.length === 0 || filters.location.includes(job.location);
+    const contractOk = filters.contract.length === 0 || filters.contract.includes(job.contract);
     const industryOk = filters.industry.length === 0 || (job.industries || []).some((v) => filters.industry.includes(v));
     const sizeOk = filters.companySize.length === 0 || filters.companySize.includes(job.company_size_class);
     const needsOk = !needsAttention || job.needs_attention;
     const closedOk = !hideClosed || !job.closed;
-    return functionOk && locationOk && industryOk && sizeOk && needsOk && closedOk;
+    return functionOk && locationOk && contractOk && industryOk && sizeOk && needsOk && closedOk;
   });
 }
