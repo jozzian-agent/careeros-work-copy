@@ -115,6 +115,66 @@ def _value(posting, dimension):
     return record.get('value')
 
 
+# --- pool hygiene (CAREER-133, owner item 2026-11-02) -----------------------
+#
+# The pool's job is to sample the owner's real market. Two kinds of row are
+# not that market and are dropped at export with a reason each, so the pool
+# size stays explainable:
+#
+#   * DEMO TENANTS. A provider's own demo board, discovered like any other
+#     tenant and confirmed to geocode to Zurich (its demo data says so).
+#     Measured on the 2026-11-01 export: `demorecruiting` (Personio's demo)
+#     held 15 of 833 rows -- "sdf", "asdasfd", "Daanish Test 3".
+#     Pinned by tenant slug, not by a title pattern: a real posting named
+#     "Software Engineer in Test" (neura-robotics, an SDET role) proves a
+#     broad 'test' title match would eat real rows.
+#   * OPEN APPLICATIONS. An "Initiativbewerbung"/"Open Application" is not
+#     a job: it names no role, so it has no family, no seniority and no
+#     contract to classify -- it is a door, not a posting. Measured on the
+#     same export: 21 of 833 rows. The pattern matches the title as a
+#     WHOLE ROLE (word boundaries, anchored phrases), never a substring,
+#     for the same reason as above.
+DEMO_TENANTS = ('demorecruiting',)
+
+#: One pattern per phrasing measured in the pool, matched case-insensitively
+#: against the title with the loose prefix/suffix real tenants use
+#: ("Freelancer - Initiativbewerbung (m/w/d)", "Physiotherapeut (m/w/d) -
+#: Initiativbewerbung Schweiz"). Each phrase must be the posting's whole
+#: subject; a role that merely contains one of these words as part of a
+#: longer phrase is NOT an open application.
+OPEN_APPLICATION_PATTERNS = (
+    'open application',
+    'open applications',
+    'unsolicited application',
+    'unsolicited applications',
+    'initiativbewerbung',
+    'initiativ bewerbung',
+    'spontanbewerbung',
+    'blindbewerbung',
+    'talent pool',
+    'talent network',
+)
+
+_OPEN_APPLICATION_RE = re.compile(
+    r'(?:\b(?:' + '|'.join(re.escape(p) for p in OPEN_APPLICATION_PATTERNS) + r')\b)',
+    re.IGNORECASE)
+
+
+def hygiene_skip(tenant, title):
+    """The hygiene reason a pool row is dropped, or None to keep it.
+
+    Returns a short reason string (tallied in the export's own
+    `skipped_reasons`), so dropping a row is always visible in the file
+    that dropped it and never silent.
+    """
+    if tenant in DEMO_TENANTS:
+        return f'demo tenant ({tenant})'
+    if _OPEN_APPLICATION_RE.search(title or ''):
+        return 'open application, not a posting'
+    return None
+
+
+
 #: Which field a provider's machine-readable stratum lives in, and what
 #: to call that kind of evidence. A provider with no such field falls
 #: back to the department the employer typed, which is free text and is
@@ -270,7 +330,17 @@ def build_pool(stores, *, tenants=None, include_out_of_area=False):
                     skipped.append({'key': entry['key'], 'provider': store.provider,
                                     'reason': 'the snapshot this posting points at is missing'})
                     continue
-                rows.append(pool_row(entry, snapshot['posting']))
+                posting = snapshot['posting']
+                # Pool hygiene (CAREER-133): demo tenants and open
+                # applications are not the market the pool samples.
+                # Dropped with a reason, the same shape as every other
+                # skip, so the export file accounts for every posting.
+                reason = hygiene_skip(tenant, posting.get('title'))
+                if reason:
+                    skipped.append({'key': entry['key'], 'provider': store.provider,
+                                    'reason': reason})
+                    continue
+                rows.append(pool_row(entry, posting))
     rows.sort(key=lambda row: row['key'])
     return rows, skipped
 

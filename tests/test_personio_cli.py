@@ -291,11 +291,14 @@ def test_export_writes_the_pool_and_its_taxonomy_versions(root, monkeypatch, cap
     assert script.cmd_export(args('export', root, day='2026-10-17')) == 0
     path = store_module.Store(root).export_path('2026-10-17')
     data = yaml.safe_load(path.read_text())
-    assert data['summary']['postings'] == 5
+    # The fixture's all-locations talent pool is an open application,
+    # which CAREER-133 drops at export with its own skip reason.
+    assert data['summary']['postings'] == 4
     assert data['taxonomy_version']['municipality']
-    assert data['skipped'] == 3
-    assert set(data['skipped_reasons']) == {geocode.OUT_OF_AREA, geocode.NEEDS_REVIEW}
-    assert '5 posting(s) exported' in capsys.readouterr().out
+    assert data['skipped'] == 4
+    assert set(data['skipped_reasons']) == {geocode.OUT_OF_AREA, geocode.NEEDS_REVIEW,
+                                            'open application, not a posting'}
+    assert '4 posting(s) exported' in capsys.readouterr().out
 
 
 def test_report_prints_the_last_run_and_the_tenant_and_posting_tallies(

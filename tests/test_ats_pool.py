@@ -226,3 +226,75 @@ def test_only_the_adapter_that_has_languages_is_handed_any(provider, expected):
     adapter declares which options its `feed_variants` takes."""
     parsed = script.build_parser().parse_args(['--provider', provider, 'fetch'])
     assert script._variant_options(parsed, registry.adapter(provider)) == expected
+
+
+# --- pool hygiene (CAREER-133) ----------------------------------------------
+# Titles below are real rows measured in the 2026-11-01 export
+# (833 rows: 15 from Personio's own demo tenant, 21 open applications).
+
+@pytest.mark.parametrize('title', [
+    'sdf', 'asdasfd', 'Daanish Test 3', 'test warning', 'Ana test some description',
+    'Technicianfffshk', 'Strategic Ambiguity Manager',
+])
+def test_a_demo_tenant_is_dropped_whole_regardless_of_title(title):
+    """The demo board's rows are junk by tenant, not by title: several of
+    them look like real postings ("Marketing Manager", "Architect"), which
+    is exactly why a title pattern cannot be the gate."""
+    assert export.hygiene_skip('demorecruiting', title) == 'demo tenant (demorecruiting)'
+
+
+@pytest.mark.parametrize('title', [
+    'Open Application',
+    'Open application - Location Design (Architects)',
+    'Open application - Location Acquisition',
+    'Open application - Construction Management',
+    'Unsolicited application',
+    'Initiativbewerbung',
+    'Initiativbewerbung (m/w/d)',
+    'Freelancer - Initiativbewerbung (m/w/d)',
+    'Initiativbewerbung für Studierende (m/w/d)',
+    'Spontanbewerbung - Schweiz',
+    'Physiotherapeut (m/w/d) - Initiativbewerbung Schweiz',
+    'Initiativbewerbung Manager Fitness Club (m/w/d) schweizweit',
+    'Open Application / Talent Pool',
+    'Talent Pool (m/w/x) – All Locations',
+])
+def test_an_open_application_is_dropped_on_any_provider(title):
+    """An open application names no role, so there is nothing to classify
+    or sample; it is a door, not a posting."""
+    assert export.hygiene_skip('some-tenant', title) == 'open application, not a posting'
+
+
+@pytest.mark.parametrize('title', [
+    # The false positive that shaped the rule: an SDET role is a real job
+    # whose title contains "Test". Measured in the same export.
+    'Software Engineer in Test, Robotics Middleware & Systems - Humanoid (human)',
+    'Test Automation Engineer',
+    'QA / Test Engineer (m/w/d)',
+    'Initiative Manager, Growth',          # "initiative" is not "Initiativbewerbung"
+    'Open Source Program Manager',          # "open" alone is not an open application
+    'Senior Backend Engineer',
+    'Marketing Manager',
+])
+def test_a_real_role_is_never_dropped_by_the_hygiene_rule(title):
+    assert export.hygiene_skip('some-tenant', title) is None
+
+
+def test_the_hygiene_lists_are_data_a_change_has_to_edit_on_purpose():
+    """The demo-tenant list is the pool's junk vocabulary: an entry
+    leaving it silently would put 15 junk rows back in every export."""
+    assert 'demorecruiting' in export.DEMO_TENANTS
+    for phrase in ('open application', 'initiativbewerbung', 'spontanbewerbung',
+                   'talent pool', 'unsolicited application'):
+        assert phrase in export.OPEN_APPLICATION_PATTERNS
+
+
+def test_a_hygiene_drop_is_recorded_in_the_skipped_list(tmp_path):
+    """A dropped row lands in `skipped` with its reason, the same shape as
+    an out-of-area drop, so the export file accounts for every posting it
+    saw and the pool size stays explainable."""
+    store = stored('greenhouse', tmp_path)
+    rows, skipped = export.build_pool([store])
+    assert rows and not skipped, 'the fixture row is neither junk nor out of area'
+    reasons = {item['reason'] for item in skipped}
+    assert reasons == set()
