@@ -334,10 +334,12 @@ def pool(store, server=None, *, tenants=('isolutions', 'bring-labs', 'knott', 'm
 def test_the_pool_holds_the_zurich_postings_and_says_why_it_dropped_the_rest(store):
     rows, skipped = pool(store)
     assert {row['tenant'] for row in rows} == {'isolutions', 'bring-labs'}
-    assert len(rows) == 5, ('three isolutions postings, plus bring-labs\'s Zurich posting '
-                            'and its all-locations talent pool, which has a Zurich office')
+    assert len(rows) == 4, ('three isolutions postings, plus bring-labs\'s Zurich posting; '
+                            'its all-locations talent pool has a Zurich office but is an '
+                            'open application, which CAREER-133 drops at export')
     reasons = {item['reason'] for item in skipped}
-    assert reasons == {geocode.OUT_OF_AREA, geocode.NEEDS_REVIEW}
+    assert reasons == {geocode.OUT_OF_AREA, geocode.NEEDS_REVIEW,
+                       'open application, not a posting'}
     assert all(row['canton'] == '1' for row in rows)
 
 
@@ -417,7 +419,9 @@ def test_out_of_area_postings_can_be_counted_without_being_sampled(store):
     rows, _ = pool(store)
     with_others, skipped = export.build_pool(store, include_out_of_area=True)
     assert len(with_others) > len(rows)
-    assert skipped == []
+    # The talent pool stays dropped even when out-of-area rows are asked
+    # for: hygiene is not about area (CAREER-133).
+    assert {item['reason'] for item in skipped} == {'open application, not a posting'}
     assert {row['canton'] for row in with_others} > {'1'}
 
 

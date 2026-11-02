@@ -47,6 +47,10 @@ free).
 6. **Export** the multi-provider golden-set pool for the day:
    `run_ats_fetch.py --provider personio export --all-providers --day <date>`
    → `data/ats/exports/golden_set_pool_<date>.yaml`.
+   The export drops demo-tenant rows and open applications (CAREER-133,
+   `export.hygiene_skip`) and tallies every drop in the file's own
+   `skipped_reasons`; see `docs/audits/pool-in-area-and-hygiene.md` for
+   the in-area rule and the measured junk.
 7. **Classify** the pool through the local LLM layer:
    `run_classification.py --pool <today's pool> --layer llm --out data/classification/run_<date>.yaml`.
    The rules layer runs first inside the same command (it is free and
