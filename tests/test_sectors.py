@@ -99,6 +99,18 @@ def test_match_sectors_known_codes_are_isic_sections():
     assert len(sectors.known_section_codes()) == 21
 
 
+def test_no_orphan_isic_copy_in_careeros_data():
+    """The ISIC section table ships ONCE, inside the vendored capability
+    (vendor/capa-repo/org_intake/data/isic_sections.yaml); nothing reads a
+    copy under careeros/data. A byte-identical orphan lived there until
+    CAREER-132 recon found it (2026-11-03): two tables that drift silently
+    is exactly what the vendor rule exists to prevent."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    assert not (root / 'careeros' / 'data' / 'isic_sections.yaml').exists()
+    assert (root / 'vendor' / 'capa-repo' / 'org_intake' / 'data' / 'isic_sections.yaml').exists()
+
+
 # --- Size derivation: the class, and only the class -----------------------
 
 @pytest.mark.parametrize('count,size_class', [
