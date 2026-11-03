@@ -38,12 +38,29 @@ def test_two_codes_claiming_the_same_phrase_is_not_a_match():
 
 # --- occupation -----------------------------------------------------------
 
-def test_a_title_settles_the_job_family_and_its_isco_group():
+def test_the_rules_layer_leaves_the_job_family_to_the_model():
+    """CAREER-138: the keyword table read "Pizzabäcker" as
+    `product-manager` and could not read "BA-Student" at all, so the
+    family decision moved to the model layer. The rules layer still
+    writes the record -- `unknown` with its reason, because "we looked"
+    is a different fact from no record (D4) -- and that unknown is what
+    makes the family an open field the model is asked about."""
     values = rules.occupation(subject(title='Senior Java-Entwickler/in'))
-    assert values['occupation_family']['value'] == 'software-developer'
-    assert values['isco_unit_group']['value'] == '2512'
+    assert values['occupation_family']['value'] == taxonomy.UNKNOWN
     assert values['occupation_family']['source'] == 'rule'
-    assert values['occupation_family']['evidence']['phrase'] == 'entwickler'
+    assert values['occupation_family']['evidence']['rule'] == rules.FAMILY_DECIDED_BY_MODEL
+    assert values['occupation_family']['confidence'] is None
+    # The unit group is derived from that unknown family, so it is
+    # unknown too -- until the model settles the family and the pipeline
+    # re-derives it (classify.settle_isco).
+    assert values['isco_unit_group']['value'] == taxonomy.UNKNOWN
+
+
+def test_a_settled_family_still_derives_its_isco_group():
+    """`derive_isco` is unchanged: whatever family wins the merge, the
+    group is read off it."""
+    record = taxonomy.make_value_record('occupation_family', 'software-developer', 'llm')
+    assert rules.derive_isco(record)['value'] == '2512'
 
 
 def test_an_unmapped_local_extension_yields_no_isco_code():
@@ -54,10 +71,11 @@ def test_an_unmapped_local_extension_yields_no_isco_code():
     The example was `Chief Product Officer` until v2 merged that family
     into product-manager, which does carry a code; three local extensions
     are left and this is one of them."""
-    values = rules.occupation(subject(title='Product & Solution Security Expert 80-100%'))
-    assert values['occupation_family']['value'] == 'embedded-systems-security-engineer'
-    assert values['isco_unit_group']['value'] == taxonomy.UNKNOWN
-    assert 'local extension' in values['isco_unit_group']['evidence']['rule']
+    record = taxonomy.make_value_record(
+        'occupation_family', 'embedded-systems-security-engineer', 'llm')
+    derived = rules.derive_isco(record)
+    assert derived['value'] == taxonomy.UNKNOWN
+    assert 'local extension' in derived['evidence']['rule']
 
 
 def test_a_family_with_no_isco_reading_yet_also_yields_no_code():
@@ -92,7 +110,8 @@ def test_a_settled_family_derives_its_minor_group_at_the_familys_own_confidence(
     """A derived value is never surer than what it was derived from, so
     the family's confidence travels with the code rather than a new one
     being invented for it."""
-    family = rules.occupation(subject(title='Senior Java-Entwickler/in'))['occupation_family']
+    family = taxonomy.make_value_record('occupation_family', 'software-developer', 'llm',
+                                        confidence=0.8)
     derived = rules.derive_minor_group(family)
     assert derived['value'] == '251'
     assert derived['confidence'] == family['confidence']
@@ -124,19 +143,15 @@ def test_an_unsettled_family_derives_an_unknown_minor_group_with_its_reason():
     derived = rules.derive_minor_group(values['occupation_family'])
     assert derived['value'] == taxonomy.UNKNOWN
     assert 'unsettled' in derived['evidence']['rule']
-    # The family's own review reason is handed on, not replaced: the
-    # thing a human is owed is the ambiguity, once.
-    assert rules.review_reason(derived) == 'ambiguous'
 
 
 def test_a_flagged_family_hands_its_flag_to_the_minor_group():
-    """A family read out of the description alone is flagged, and a value
-    derived from it inherits the doubt rather than looking settled."""
-    values = rules.occupation(subject(
-        title='Spannende Aufgabe in Zürich',
-        text='Sie arbeiten eng mit unserem Data Scientist Team zusammen.'))
-    assert rules.review_reason(values['occupation_family']) == rules.WEAK_IN_TEXT
-    derived = rules.derive_minor_group(values['occupation_family'])
+    """A family a human is owed a second look on hands its doubt to the
+    derived group rather than the group looking settled."""
+    family = taxonomy.make_value_record(
+        'occupation_family', 'data-scientist', 'llm',
+        evidence={'needs_review': rules.WEAK_IN_TEXT})
+    derived = rules.derive_minor_group(family)
     assert derived['value'] == '251'
     assert rules.review_reason(derived) == rules.WEAK_IN_TEXT
 
@@ -163,38 +178,6 @@ def test_the_rules_layer_does_not_write_the_minor_group_itself():
     won the merge rather than the one a table proposed."""
     assert 'isco_minor_group' not in rules.occupation(subject(title='Senior Java-Entwickler/in'))
     assert 'isco_minor_group' not in rules.classify(subject(title='Senior Java-Entwickler/in'))
-
-
-def test_a_phrase_two_families_share_is_recorded_as_ambiguous():
-    """`head of product` anchors both ICT product manager and product
-    manager on purpose. With nothing else to go on, the layer refuses
-    rather than letting seed order decide.
-
-    Before v2 the second claimant was `chief-product-officer`. The merge
-    did not remove the ambiguity, it moved it between two ESCO-backed
-    homes: the golden set splits four Head-of-Product rows two and two,
-    and the posting's own text is still what tells them apart."""
-    values = rules.occupation(subject(title='Head of Product'))
-    assert values['occupation_family']['value'] == taxonomy.UNKNOWN
-    assert rules.review_reason(values['occupation_family']) == 'ambiguous'
-    assert values['occupation_family']['evidence']['candidates'] == [
-        'ict-product-manager', 'product-manager']
-
-
-def test_a_tie_is_broken_by_how_much_of_each_vocabulary_the_posting_carries():
-    values = rules.occupation(subject(
-        title='Head of Product',
-        text='Sie leiten unser Produktmanagement und arbeiten mit Product Ownern zusammen.'))
-    assert values['occupation_family']['value'] == 'ict-product-manager'
-
-
-def test_a_family_read_only_from_the_description_is_flagged():
-    values = rules.occupation(subject(
-        title='Spannende Aufgabe in Zürich',
-        text='Sie arbeiten eng mit unserem Data Scientist Team zusammen.'))
-    assert values['occupation_family']['value'] == 'data-scientist'
-    assert rules.review_reason(values['occupation_family']) == rules.WEAK_IN_TEXT
-    assert rules.review_reason(values['isco_unit_group']) == rules.WEAK_IN_TEXT
 
 
 def test_a_posting_no_keyword_reaches_is_unknown_with_a_reason():

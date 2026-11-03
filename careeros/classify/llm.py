@@ -258,14 +258,19 @@ def prompt(subject, fields):
                    f'{taxonomy.MAX_RANKS} codes in rank order, best first, and fewer when '
                    'fewer fit. '
                    if ranked else '')
-    # CAREER-131: when no family fits, the model names the role instead of
-    # forcing the closest family. The proposal is only ever asked for on
-    # the field it is about, and only travels in evidence -- see `_record`.
-    proposal_note = ('If none of the occupation_family codes fits what this posting actually '
-                     'is, answer occupation_family with code "unknown" AND add one extra key '
-                     '"proposed_role": a short role name for the job (2-4 words, e.g. '
-                     '"Robotics technician"), in that field\'s object only. Never force the '
-                     'closest family. '
+    # CAREER-138 (variant C, owner-approved): choose the CLOSEST family
+    # whenever one reasonably fits, answer unknown only when none fits
+    # at all -- and then name the role. CAREER-131's "never force the
+    # closest family" made the model refuse 14 of 150 postings and
+    # propose a role for NONE of them (run of 2026-11-03), which starved
+    # the suggestion queue it exists to feed. The proposal is only ever
+    # asked for on the field it is about, and only travels in evidence --
+    # see `_record`.
+    proposal_note = ('Choose the closest occupation_family code whenever one reasonably fits '
+                     'the daily work of this posting, even if the fit is not perfect. Answer '
+                     '"unknown" only when no family fits the daily work at all -- and then add '
+                     'one extra key "proposed_role": a short role name for the job (2-4 words, '
+                     'e.g. "Robotics technician"), in that field\'s object only. '
                      if 'occupation_family' in fields else '')
     posting = '\n'.join(filter(None, [
         f"Title: {subject.get('title') or ''}",

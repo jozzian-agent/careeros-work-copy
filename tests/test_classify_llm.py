@@ -111,7 +111,9 @@ def test_a_server_that_reports_no_tokens_yields_none_and_not_zero():
 def test_only_the_fields_the_rules_left_open_are_asked_about():
     values = rules.classify(classify.subject(title='Senior Java-Entwickler/in 80%'))
     open_fields = classify.open_fields(values)
-    assert 'occupation_family' not in open_fields
+    # CAREER-138: the family is open on every posting -- the model is its
+    # decider now.
+    assert 'occupation_family' in open_fields
     assert 'seniority' not in open_fields
     assert 'contract' in open_fields
 
@@ -436,8 +438,10 @@ def test_the_minor_group_is_never_asked_of_the_model():
 def test_a_minor_group_a_stronger_source_settled_is_left_alone():
     """`settle_minor_group` only ever fills, like `settle_isco`."""
     stated = taxonomy.make_value_record('isco_minor_group', '133', 'feed')
+    family = taxonomy.make_value_record('occupation_family', 'software-developer', 'user')
     subject = classify.subject(title='Senior Java-Entwickler/in',
-                               values={'isco_minor_group': stated})
+                               values={'isco_minor_group': stated,
+                                       'occupation_family': family})
     result = classify.classify(subject)
     assert result['values']['occupation_family']['value'] == 'software-developer'
     assert result['values']['isco_minor_group']['value'] == '133'
@@ -445,7 +449,10 @@ def test_a_minor_group_a_stronger_source_settled_is_left_alone():
 
 
 def test_deriving_a_minor_group_twice_changes_nothing():
-    settled = classify.classify(classify.subject(title='Senior Java-Entwickler/in'))['values']
+    settled = classify.classify(classify.subject(
+        title='Senior Java-Entwickler/in',
+        values={'occupation_family': taxonomy.make_value_record(
+            'occupation_family', 'software-developer', 'user')}))['values']
     assert classify.settle_minor_group(settled) == settled
     unsettled = classify.classify(classify.subject(title='Careers and jobs'))['values']
     assert classify.settle_minor_group(unsettled) == unsettled
@@ -486,3 +493,53 @@ def test_the_client_is_asked_for_json_with_thinking_off():
     assert payload['response_format'] == {'type': 'json_object'}
     assert payload['think'] is False
     assert payload['temperature'] == 0.0
+
+
+# --- the family is the model's decision (CAREER-138) ----------------------
+
+def test_the_prompt_asks_for_the_closest_family_and_never_says_force():
+    """Variant C's wording, owner-approved 2026-11-03. CAREER-131's
+    "never force the closest family" made the model refuse 14 of 150
+    postings and propose a role for none of them; the ask is now the
+    closest family whenever one reasonably fits, `unknown` (plus a
+    proposed role) only when none fits at all."""
+    asked = llm.prompt(classify.subject(title='Pizzabäcker / Pizzaiolo (m/w/d)'),
+                       ('occupation_family',))[1]['content']
+    assert 'Choose the closest occupation_family code whenever one reasonably fits' in asked
+    assert '"unknown" only when no family fits the daily work at all' in asked
+    assert 'proposed_role' in asked
+    assert 'Never force' not in asked
+
+
+def test_the_model_decides_the_family_the_rules_never_settle():
+    """The rules layer leaves the family unknown on EVERY posting, so it
+    is open on every posting and the model's answer is the one stored --
+    including for a posting no keyword table ever read right
+    (run of 2026-11-03: "Pizzabäcker" came out of the table as
+    `product-manager`)."""
+    client = FakeClient(ranked_answer('cook-and-kitchen-staff', 'retail-and-sales-assistant'))
+    result = classify.classify(classify.subject(title='Pizzabäcker / Pizzaiolo (m/w/d)'),
+                               layer='all', client=client, config=CONFIG)
+    family = result['values']['occupation_family']
+    assert family['value'] == 'cook-and-kitchen-staff'
+    assert family['source'] == 'llm'
+    assert [rank['value'] for rank in family['ranked']] == [
+        'cook-and-kitchen-staff', 'retail-and-sales-assistant']
+    # The ISCO groups follow the model's family, derived after the merge.
+    assert result['values']['isco_minor_group']['value'] == '512'
+    assert result['values']['isco_minor_group']['evidence']['occupation_family'] \
+        == 'cook-and-kitchen-staff'
+
+
+def test_an_owner_or_admin_family_still_outranks_the_model():
+    """Source precedence is unchanged (owner ruling 3 of CAREER-138): the
+    model answers, `merge` refuses it, and the derived groups follow the
+    human's family instead."""
+    owner = taxonomy.make_value_record('occupation_family', 'legal', 'user')
+    client = FakeClient(ranked_answer('software-developer'))
+    result = classify.classify(classify.subject(title='Senior Java-Entwickler/in',
+                                                values={'occupation_family': owner}),
+                               layer='all', client=client, config=CONFIG)
+    assert result['values']['occupation_family']['value'] == 'legal'
+    assert result['values']['occupation_family']['source'] == 'user'
+    assert result['values']['isco_minor_group']['value'] == '261'

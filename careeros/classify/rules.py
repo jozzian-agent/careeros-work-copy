@@ -256,26 +256,31 @@ def _load_occupations():
 
 
 _OCCUPATIONS = _load_occupations()
-_OCCUPATION_TABLE = Table((code, entry['keywords']) for code, entry in _OCCUPATIONS.items())
-
-OCCUPATION_RULE = ('the job-family keyword table in esco_occupations.yaml, longest phrase first')
 
 
-def _vocabulary_score(family, subject):
-    """How much of one family's own vocabulary the whole posting carries.
-
-    The tie-breaker, and the only place the description is allowed to
-    outvote the title. Distinct phrases, not occurrences: a description
-    that says "product owner" forty times is one piece of evidence.
-    """
-    body = normalise(' \n '.join(str(subject.get(key) or '')
-                                 for key in ('title', 'department', 'text')))
-    return sum(1 for phrase in _OCCUPATIONS[family]['keywords']
-               if _pattern(phrase).search(body))
+#: Why the rules layer leaves the job family unsettled. CAREER-138 moved
+#: the family decision to the model: a keyword table read "Pizzabäcker"
+#: as `product-manager` and could not read "BA-Student" at all, while the
+#: local model picks the closest family for every posting and says
+#: `unknown` (with a proposed role) only when none fits. The rules layer
+#: still answers every OTHER field exactly as before, and still derives
+#: the ISCO group from whichever family finally wins (`derive_isco`,
+#: `derive_minor_group`, and the pipeline's `settle_isco` /
+#: `settle_minor_group`).
+FAMILY_DECIDED_BY_MODEL = ('the job family is decided by the model layer, not by the rules '
+                           'keyword table (CAREER-138)')
 
 
 def occupation(subject, *, at=None):
     """`occupation_family` and `isco_unit_group`, as two records.
+
+    Since CAREER-138 the rules layer never SETTLES the family: it writes
+    an `unknown` record naming the model as the decider, which is what
+    makes the family an open field the model is then asked about (see
+    `classify.open_fields`). The unit group is derived from that unknown
+    family here and re-derived from the SETTLED family after the model
+    layer runs (`classify.settle_isco`), so this record is a placeholder
+    that only ever gets filled, never contradicted.
 
     Two dimensions and therefore two records, with the family deciding
     and the unit group derived from it: D1 grades occupation at four
@@ -285,51 +290,8 @@ def occupation(subject, *, at=None):
     family, which is decision 25's "unmapped bucket" rather than a
     hand-picked code.
     """
-    family = _settle_family(subject, at=at)
+    family = unknown('occupation_family', rule=FAMILY_DECIDED_BY_MODEL, at=at)
     return {'occupation_family': family, 'isco_unit_group': derive_isco(family, at=at)}
-
-
-def _settle_family(subject, *, at=None):
-    for where, confidence in (('title', TITLE_CONFIDENCE),
-                              ('department', DEPARTMENT_CONFIDENCE),
-                              ('text', TEXT_CONFIDENCE)):
-        best, _ = _OCCUPATION_TABLE.candidates(subject.get(where) or '')
-        if not best:
-            continue
-        if len(best) > 1:
-            best = _break_tie(best, subject)
-        if len(best) == 1:
-            code, (phrase, found) = next(iter(best.items()))
-            # A family read out of the description alone is the weakest
-            # evidence this layer produces: a 20 000-character posting
-            # mentions the recruiter who will call you and the team you
-            # would work with, each with its own family vocabulary. The
-            # value is kept, because it is usually right, and flagged,
-            # because when it is wrong it is wrong in a way only a reader
-            # can see.
-            return _record('occupation_family', code, rule=OCCUPATION_RULE, phrase=phrase,
-                           where=where, confidence=confidence, extra={'quote': found},
-                           review=WEAK_IN_TEXT if where == 'text' else None, at=at)
-        return unknown('occupation_family', rule=OCCUPATION_RULE, review='ambiguous',
-                       extra={'found_in': where, 'candidates': sorted(best),
-                              'why': 'more than one job family claims the same phrase and the '
-                                     'posting carries no more of one vocabulary than the other'},
-                       at=at)
-    return unknown('occupation_family',
-                   rule='no job-family keyword appears in the title, the department or the text',
-                   at=at)
-
-
-def _break_tie(best, subject):
-    """Keep the tied families whose vocabulary the posting carries most of.
-
-    Returns the same mapping when the tie survives, which is what makes
-    it an ambiguity rather than an answer.
-    """
-    scores = {code: _vocabulary_score(code, subject) for code in best}
-    top = max(scores.values())
-    winners = [code for code, score in scores.items() if score == top]
-    return {code: best[code] for code in winners}
 
 
 #: A stored family the current list does not carry: a record classified
