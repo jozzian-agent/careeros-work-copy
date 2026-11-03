@@ -143,6 +143,36 @@ def test_a_low_disk_watermark_warns_and_runs_anyway(pipeline):
     assert done.returncode == 0
 
 
+def test_classify_carries_settled_families_from_the_latest_previous_run(pipeline, tmp_path):
+    """CAREER-138 rollout: the classify leg re-runs only new postings and
+    the ones whose family is still unknown. `--previous <latest run>` is
+    what makes that split (run_classification.split_by_previous), so a
+    previous run file must reach the leg -- and only a night with none
+    classifies everything."""
+    data = tmp_path / 'data'
+    (data / 'classification').mkdir(parents=True, exist_ok=True)
+    (data / 'classification' / 'run_2026-11-01.yaml').write_text('postings: []\n')
+    (data / 'classification' / 'run_2026-11-02.yaml').write_text('postings: []\n')
+    done, log = pipeline('lever')
+    classify_line = next(line for line in log.splitlines()
+                         if 'run_classification.py' in line)
+    assert '--previous' in classify_line
+    assert 'run_2026-11-02.yaml' in classify_line, 'the LATEST run, not the first'
+    assert 'carrying settled families from' in log
+    assert done.returncode == 0
+
+
+def test_classify_without_a_previous_run_classifies_everything(pipeline, tmp_path):
+    data = tmp_path / 'data'
+    (data / 'classification').mkdir(parents=True, exist_ok=True)
+    done, log = pipeline('lever')
+    classify_line = next(line for line in log.splitlines()
+                         if 'run_classification.py' in line)
+    assert '--previous' not in classify_line
+    assert 'no previous run to carry' in log
+    assert done.returncode == 0
+
+
 def test_every_python_leg_runs_in_its_own_capped_scope(pipeline, tmp_path):
     """Defense in depth: a leg that runs away is killed inside its own
     scope, rather than the kernel picking the biggest process on the

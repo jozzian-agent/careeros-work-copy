@@ -14,7 +14,7 @@ import classification_report as report  # noqa: E402
 import run_classification as runner  # noqa: E402
 
 from careeros import classify, taxonomy  # noqa: E402
-from careeros.classify import grade  # noqa: E402
+from careeros.classify import grade, rules  # noqa: E402
 
 HEADER = 'Job title,Company,Board status,Job function (fill in),ESCO URI,ISCO-08 group,Confidence,Runner-up,Note\n'
 
@@ -71,7 +71,19 @@ def test_a_file_that_is_not_a_golden_set_is_refused(tmp_path):
 # --- grading --------------------------------------------------------------
 
 def results_for(rows):
-    return [classify.classify(classify.subject(title=row['title'], employer_name=row['company']))
+    """One classified result per golden row.
+
+    Since CAREER-138 the rules layer never settles the family, so the
+    family these results carry is an `llm`-sourced record of the row's
+    OWN label -- the grading logic under test (top-1 vs top-3, the
+    unmapped bucket, the denominators) is about how a settled answer is
+    compared, not about which layer produced it.
+    """
+    return [{'values': {'occupation_family': taxonomy.make_value_record(
+                 'occupation_family', row['family'] or taxonomy.UNKNOWN, 'llm'),
+             'isco_unit_group': (rules.derive_isco(taxonomy.make_value_record(
+                 'occupation_family', row['family'], 'llm')) if row['family']
+                 and row['family'] != taxonomy.UNKNOWN else None)}}
             for row in rows]
 
 

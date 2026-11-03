@@ -52,9 +52,20 @@ free).
    `skipped_reasons`; see `docs/audits/pool-in-area-and-hygiene.md` for
    the in-area rule and the measured junk.
 7. **Classify** the pool through the local LLM layer:
-   `run_classification.py --pool <today's pool> --layer llm --out data/classification/run_<date>.yaml`.
+   `run_classification.py --pool <today's pool> --layer llm --previous <latest run_*.yaml>
+   --out data/classification/run_<date>.yaml`.
    The rules layer runs first inside the same command (it is free and
    deterministic); the LLM only answers the fields rules left open.
+   Since CAREER-138 the job family is one of those fields on EVERY
+   posting — the rules layer no longer decides it — and `--previous`
+   (the latest run file that is not tonight's own output) keeps the cost
+   down: postings whose family a previous run already settled are
+   carried into tonight's run file unchanged, and the model only sees
+   the new postings and the ones whose family is still unknown. A night
+   with nothing new and nothing unknown makes zero model calls and still
+   writes the run file. The first night after CAREER-138 is a one-off
+   re-run of every still-unknown family (~95 postings ≈ 40 min measured
+   at 23 s/call); every later night classifies only what is new.
    `CLASSIFY_LLM_NATIVE=1` is exported by the script and is **required** —
    see `local-llm-optimisation.md` for why (10x speed difference).
 8. **Sync to prod**, only with `SYNC_TO_PROD=1` and only after a night
@@ -202,8 +213,9 @@ CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
 
 ## The family suggestion queue (CAREER-131)
 
-When no job family fits a posting, the model answers `unknown` and
-proposes a short role name instead of forcing the closest family. The
+When no job family fits a posting at all, the model answers `unknown` and
+proposes a short role name (since CAREER-138 it picks the CLOSEST family
+whenever one reasonably fits, and proposes only when none does). The
 proposals are collected in the run files (review reason
 `llm_family_suggested`, counted in the run summary's `needs review`
 line). The owner's loop:

@@ -10,7 +10,10 @@ and it is the first writer of the records that factory makes.
 
   1. **Rules** (`rules`), deterministic and free. Keyword tables and
      formulas over the title, the department and the text. Runs first and
-     answers most fields of most postings.
+     answers most fields of most postings -- except the job family, which
+     it leaves to the model on every posting (CAREER-138: the keyword
+     table read "Pizzabäcker" as `product-manager` and could not read
+     "BA-Student" at all).
   2. **Local model** (`llm`), on the owner's own Ollama host, asked ONLY
      about the fields the rules layer left open, because `llm` is the
      last word in the precedence order and an answer about a settled

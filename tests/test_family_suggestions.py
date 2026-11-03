@@ -286,3 +286,28 @@ def test_a_carried_result_bills_no_tokens_for_the_previous_call():
 
 def test_a_missing_previous_file_classifies_everything(tmp_path):
     assert runner.load_previous(tmp_path / 'absent.yaml') == {}
+
+
+def test_a_quiet_night_carries_everything_and_still_writes_the_run_file(tmp_path, monkeypatch):
+    """CAREER-138 rollout: a night with no new postings and no unknown
+    families costs zero model calls but must still SUCCEED and write
+    today's run file out of the carried records -- the nightly's
+    downstream legs and the next night's `--previous` both read it."""
+    previous = tmp_path / 'previous.yaml'
+    previous.write_text(yaml.safe_dump(_run_file('2026-11-01', [
+        _settled('k1', 'Backend Entwickler'),
+        _settled('k2', 'Projektleiter')]), sort_keys=False, allow_unicode=True))
+    found = [classify.subject(key='k1', title='Backend Entwickler'),
+             classify.subject(key='k2', title='Projektleiter')]
+    monkeypatch.setattr(runner, 'subjects', lambda args: (found, ['fixture']))
+    calls = []
+    monkeypatch.setattr(runner, 'run',
+                        lambda found_, **kwargs: calls.append(found_) or [])
+    out = tmp_path / 'run_2026-11-03.yaml'
+    code = runner.main(['--pool', 'x.yaml', '--layer', 'llm',
+                        '--previous', str(previous), '--out', str(out)])
+    assert code == 0
+    assert calls == [[]], 'no subject reaches the model at all'
+    written = yaml.safe_load(out.read_text())
+    assert [posting['key'] for posting in written['postings']] == ['k1', 'k2']
+    assert written['summary']['model_calls'] is None

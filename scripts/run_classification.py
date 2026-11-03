@@ -297,9 +297,16 @@ def main(argv=None):
         found, carried = split_by_previous(found, load_previous(args.previous))
         notes.append(f"previous run {args.previous}: {len(carried)} postings carried with a "
                      f"settled job family, {len(found)} re-classified")
-        if not found:
-            raise SystemExit('nothing to re-classify: the previous run settled every job family')
-    client = config.client() if args.layer in ('llm', 'all') else None
+        # Nothing to re-classify is a SUCCESS, not an error (CAREER-138):
+        # a night with no new postings and no unknown families costs zero
+        # model calls and still writes today's run file out of the carried
+        # records, so the pipeline's downstream legs find one. Failing here
+        # would mark the classify stage FAILED on every quiet night.
+    # A quiet night (everything carried, nothing to re-classify) never
+    # builds a client at all: an OpenAI client probes its base URL on
+    # construction, and a network reach for zero questions is both slow
+    # and a failure mode on a host the pipeline has not verified.
+    client = config.client() if args.layer in ('llm', 'all') and found else None
     at = datetime.now(timezone.utc).isoformat(timespec='seconds')
     results = run(found, layer=args.layer, config=config, client=client, at=at)
     if carried:

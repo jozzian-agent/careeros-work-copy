@@ -53,11 +53,27 @@ def test_every_job_gains_a_record_for_every_field(filled):
 
 
 def test_a_settled_field_carries_the_phrase_that_decided_it(filled):
-    row = next(row for row in rows_for(filled) if 'occupation_family' in row['settled'])
-    record = row['updates']['values']['occupation_family']
+    # CAREER-138: the job family is settled by the model layer only, so a
+    # rules-only migration never carries one; `contract` is a field the
+    # rules layer still decides, read out of the first job's description.
+    row = next(row for row in rows_for(filled) if 'contract' in row['settled'])
+    record = row['updates']['values']['contract']
     assert record['source'] == 'rule'
     assert record['evidence']['phrase']
     assert record['taxonomy_version']
+
+
+def test_the_job_family_stays_unknown_for_the_model_layer_to_settle(filled):
+    """The migration runs the rules layer alone, and since CAREER-138
+    that layer leaves the family to the model: a migrated job carries the
+    `unknown`-with-a-reason record and gains its family on the next
+    classification run, exactly like `isco_minor_group` always did."""
+    rows = rows_for(filled)
+    for row in rows:
+        record = row['updates']['values']['occupation_family']
+        assert record['value'] == taxonomy.UNKNOWN
+        assert record['source'] == 'rule'
+        assert 'occupation_family' not in row['settled']
 
 
 def test_an_owner_written_free_text_field_wins_over_the_rules_layer(filled):
@@ -89,7 +105,10 @@ def test_a_dry_run_writes_nothing(filled, capsys):
 def test_applying_writes_the_values_and_the_app_can_still_read_them(filled):
     assert migrate.main(['--vault', str(filled), '--apply']) == 0
     job = job_by_url(filled, 'https://example.test/a')
-    assert job['values']['occupation_family']['value'] == 'software-developer'
+    # CAREER-138: the rules layer no longer settles the family; the model
+    # layer does, on the next classification run.
+    assert job['values']['occupation_family']['value'] == taxonomy.UNKNOWN
+    assert job['values']['seniority']['value'] == 's3'
     assert job['values']['workload_min']['value'] == '80'
     # The record still loads through the ordinary save path, which is
     # what proves the new fields are part of the schema and not a blob.

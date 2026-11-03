@@ -220,9 +220,27 @@ stage() {    # stage <name> <cmd...>: one capped step, timed, failure recorded
     POOL="$DATA/ats/exports/golden_set_pool_$DAY.yaml"
     if [[ -f $POOL ]]; then
       rows=$(grep -c '^- id:\|  - id:' "$POOL" || true)
-      echo "-- classify llm layer over $POOL ($rows row(s))"
+      # CAREER-138 rollout: classify only what is new or still unsettled.
+      # `--previous <latest run>` carries every posting whose job family a
+      # previous run settled (no second model call for it) and re-runs the
+      # rest: postings the previous run never saw (tonight's new ones) and
+      # postings whose family is still unknown. The first night after the
+      # switch is the one-off re-run the owner asked for; a night with
+      # nothing new and nothing unknown then costs zero model calls.
+      prev_args=()
+      # Latest run that is NOT tonight's own output: a same-day re-run
+      # carries its earlier attempt's settled families rather than paying
+      # for the whole pool again.
+      PREV=$(find "$DATA/classification" -maxdepth 1 -name 'run_*.yaml' \
+        ! -name "run_$DAY.yaml" 2>/dev/null | sort | tail -1 || true)
+      if [[ -n $PREV ]]; then
+        prev_args=(--previous "$PREV")
+        echo "-- classify llm layer over $POOL ($rows row(s)), carrying settled families from $PREV"
+      else
+        echo "-- classify llm layer over $POOL ($rows row(s)), no previous run to carry"
+      fi
       stage classify "$PY" scripts/run_classification.py --pool "$POOL" --layer llm \
-        --out "$DATA/classification/run_$DAY.yaml"
+        "${prev_args[@]}" --out "$DATA/classification/run_$DAY.yaml"
     else
       echo "-- POOL MISSING: $POOL - classify skipped"
       fails="$fails pool-missing"

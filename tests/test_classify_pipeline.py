@@ -133,18 +133,16 @@ def test_unknown_is_stored_as_a_value_and_not_as_a_gap():
 
 def test_the_minor_group_follows_the_settled_family():
     """`settle_minor_group` runs after every layer, so a run carries the
-    3-digit group of the family that won -- including for a family with
-    no 4-digit code to roll up from. This one is a local extension with
-    no ESCO concept, which is why its `isco_unit_group` is `unknown` and
-    its minor group is not."""
+    3-digit group of the family that won. On a rules-only run (CAREER-138)
+    no family ever wins, so both derived groups stay unknown WITH their
+    reason -- the pipeline derives them again once the model settles the
+    family."""
     result = classify.classify(classify.subject(
         title='Product & Solution Security Expert 80-100%'))
-    assert result['values']['occupation_family']['value'] \
-        == 'embedded-systems-security-engineer'
+    assert result['values']['occupation_family']['value'] == taxonomy.UNKNOWN
     assert result['values']['isco_unit_group']['value'] == taxonomy.UNKNOWN
-    assert result['values']['isco_minor_group']['value'] == '251'
-    assert result['values']['isco_minor_group']['confidence'] \
-        == result['values']['occupation_family']['confidence']
+    assert result['values']['isco_minor_group']['value'] == taxonomy.UNKNOWN
+    assert result['values']['isco_minor_group']['evidence']['rule']
 
 
 def test_a_family_a_human_set_decides_the_minor_group():
@@ -160,16 +158,20 @@ def test_a_family_a_human_set_decides_the_minor_group():
 
 
 def test_the_review_queue_is_read_off_the_records_themselves():
-    result = classify.classify(classify.subject(title='Head of Product'))
-    assert result['review']['occupation_family'] == 'ambiguous'
-    assert result['values']['occupation_family']['evidence']['needs_review'] == 'ambiguous'
+    result = classify.classify(classify.subject(title='Senior Software Engineer',
+                                                text='Die Stelle ist unbefristet.'))
+    assert result['review']['contract'] == rules.WEAK_IN_TEXT
+    assert result['values']['contract']['evidence']['needs_review'] == rules.WEAK_IN_TEXT
 
 
 def test_only_the_unsettled_fields_are_open_to_a_later_layer():
     """`llm` is last in the precedence order, so asking it about a field
-    a table settled would spend tokens on a value that cannot win."""
+    a table settled would spend tokens on a value that cannot win. Since
+    CAREER-138 the family is settled by no table at all, so it is open on
+    every posting."""
     values = rules.classify(classify.subject(title='Senior Java-Entwickler 80%'))
-    assert 'occupation_family' not in classify.open_fields(values)
+    assert 'occupation_family' in classify.open_fields(values)
+    assert 'seniority' not in classify.open_fields(values)
     assert 'contract' in classify.open_fields(values)
 
 
@@ -184,11 +186,15 @@ def test_an_unknown_layer_name_is_refused():
 
 
 def test_coverage_counts_settled_unknown_and_review_per_field():
-    results = [classify.classify(classify.subject(title='Senior Java-Entwickler/in')),
+    results = [classify.classify(classify.subject(title='Praktikum Marketing 100%')),
                classify.classify(classify.subject(title='Head of Product'))]
     table = classify.coverage(results)
-    assert table['occupation_family'] == {'settled': 1, 'unknown': 1, 'needs_review': 1,
-                                          'by_source': {'rule': 1}}
+    assert table['contract'] == {'settled': 1, 'unknown': 1, 'needs_review': 0,
+                                 'by_source': {'rule': 1}}
+    # CAREER-138: the family is settled by the model layer only, so a
+    # rules-only run counts two unknowns and no source at all.
+    assert table['occupation_family'] == {'settled': 0, 'unknown': 2, 'needs_review': 0,
+                                          'by_source': {}}
 
 
 # --- the vault holds the shape -------------------------------------------

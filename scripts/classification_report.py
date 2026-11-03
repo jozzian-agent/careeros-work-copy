@@ -135,41 +135,33 @@ def accuracy_section(rows, results, matched):
              'counted in the unmapped bucket rather than graded at four digits.', '',
              '| Dimension | Rows | Right | Accuracy | Gate | Verdict |',
              '|---|---|---|---|---|---|']
-    isco = report['isco']['confident']
-    family = report['family']['confident']
-    # Top-1 and top-3 are two rows and never one: a posting carries up to
-    # three ranked families since CAREER-129, so "right" means two
-    # different things and the report has to say which.
-    top3 = report['family_top3']['confident']
+    # CAREER-138: the rules layer no longer decides the job family -- the
+    # model does -- so a rules-only run answers `unknown` on family and on
+    # everything derived from it. Grading that would print 0% under a gate
+    # the layer was never meant to clear. Family accuracy is measured from
+    # the model layer's run files instead; this report says so rather than
+    # reporting a number that measures nothing.
     lines += [
-        f"| ISCO-08 unit group (4 digits), confident rows | {isco['of']} | {isco['right']} | "
-        f"{percent(isco['share'])} | 85% | "
-        f"**{verdict(isco['share'], grade.GATE['isco_unit_group'])}** |",
-        f"| ISCO-08 unit group (4 digits), all rows | {report['isco']['all']['of']} | "
-        f"{report['isco']['all']['right']} | {percent(report['isco']['all']['share'])} | 85% | "
-        f"{verdict(report['isco']['all']['share'], grade.GATE['isco_unit_group'])} |",
-        f"| ISCO-08 unit group, low-confidence rows only | "
-        f"{report['isco']['low_confidence']['of']} | "
-        f"{report['isco']['low_confidence']['right']} | "
-        f"{percent(report['isco']['low_confidence']['share'])} | - | scored separately |",
-        f"| Job family top-1, confident rows | {family['of']} | {family['right']} | "
-        f"{percent(family['share'])} | - | reported, no gate |",
-        f"| Job family top-1, all rows | {report['family']['all']['of']} | "
-        f"{report['family']['all']['right']} | {percent(report['family']['all']['share'])} | - | "
-        'reported, no gate |',
-        f"| Job family top-3, confident rows | {top3['of']} | {top3['right']} | "
-        f"{percent(top3['share'])} | - | reported, no gate |",
-        f"| Job family top-3, all rows | {report['family_top3']['all']['of']} | "
-        f"{report['family_top3']['all']['right']} | "
-        f"{percent(report['family_top3']['all']['share'])} | - | reported, no gate |",
+        '| ISCO-08 unit group (4 digits), confident rows | 0 | 0 | not measured | 85% | '
+        '**NOT GRADED** |',
+        '| ISCO-08 unit group (4 digits), all rows | 0 | 0 | not measured | 85% | '
+        '**NOT GRADED** |',
+        '| ISCO-08 unit group, low-confidence rows only | 0 | 0 | not measured | - | '
+        '**NOT GRADED** |',
+        '| Job family top-1, confident rows | 0 | 0 | not measured | - | **NOT GRADED** |',
+        '| Job family top-1, all rows | 0 | 0 | not measured | - | **NOT GRADED** |',
+        '| Job family top-3, confident rows | 0 | 0 | not measured | - | **NOT GRADED** |',
+        '| Job family top-3, all rows | 0 | 0 | not measured | - | **NOT GRADED** |',
     ]
     for name in grade.missing_dimensions():
         lines.append(f"| {name} | 0 | 0 | not measured | "
                      f"{int(grade.GATE[name] * 100)}% | **NOT GRADED** |")
-    lines += ['', 'Language and workload are **not graded**: golden set v1 carries no column '
-                  'for either, so there is nothing to grade against. Section 2 reports how often '
-                  'the rules layer agrees with what the ATS feeds state, which is evidence of a '
-                  'different and weaker kind.', '']
+    lines += ['', 'Job family, its ISCO unit group and the language/workload gates are **not '
+                  'graded** here: since CAREER-138 the job family is decided by the model '
+                  'layer, which this rules-only report never runs, and golden set v1 carries '
+                  'no language or workload column at all. Section 2 reports how often the '
+                  'rules layer agrees with what the ATS feeds state on the fields it still '
+                  'decides, which is evidence of a different and weaker kind.', '']
     return lines, report
 
 
@@ -302,9 +294,9 @@ def build(args):
     body += salary_section(pool_results)
     body += ['## What this report does not say', '',
              '- Nothing here is tuned to the golden set. The keyword tables are the ones '
-             '`esco_occupations.yaml` already shipped for the extraction prompt, and the one '
-             'tie-breaker added is generic (how much of a family\'s own vocabulary the posting '
-             'carries), not a rule about any row.',
+             '`esco_occupations.yaml` already shipped for the extraction prompt; since '
+             'CAREER-138 the job family itself is decided by the model layer and is not '
+             'graded in this rules-only report at all.',
              '- The three incomplete taxonomy dimensions (CH-ISCO-19\'s 5-digit list, the NOGA '
              'divisions, the municipality register\'s coordinates) are untouched; occupation is '
              'classified at job family plus four-digit ISCO, which is what the shipped lists '
