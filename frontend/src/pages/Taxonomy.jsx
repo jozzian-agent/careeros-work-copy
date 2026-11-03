@@ -106,7 +106,7 @@ export default function Taxonomy() {
         <Box>
           <Heading size="400">Industries</Heading>
           <Box marginTop={1} marginBottom={3}>
-            <Text color="subtle">Companies by ISIC industry section.</Text>
+            <Text color="subtle">Companies by industry section.</Text>
           </Box>
           <CountTable
             accessibilityLabel="Industries"
