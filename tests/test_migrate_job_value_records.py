@@ -42,9 +42,14 @@ def job_by_url(root, url):
 # --- the plan -------------------------------------------------------------
 
 def test_every_job_gains_a_record_for_every_field(filled):
+    """Every field the rules layer writes. `isco_minor_group` is not one
+    of them: it is derived from the settled family after every layer
+    (`classify.settle_minor_group`, CAREER-130) and this script runs the
+    rules layer alone, so a migrated job gains the 3-digit group on the
+    next full classification run rather than here."""
     rows = rows_for(filled)
     assert len(rows) == 3
-    assert set(rows[0]['updates']['values']) == set(migrate.rules.FIELDS)
+    assert set(rows[0]['updates']['values']) == set(migrate.rules.FIELDS) - {'isco_minor_group'}
 
 
 def test_a_settled_field_carries_the_phrase_that_decided_it(filled):

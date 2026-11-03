@@ -232,9 +232,11 @@ def _load_occupations():
     live (it is the extraction seed, and its own header says the keywords
     are there to be matched against real postings) and
     `occupation_families.yaml` is the taxonomy layer that says which
-    four-digit ISCO group a family rolls up to and how much that mapping
-    can be trusted. `tests/test_taxonomy.py` already pins the two
-    together, so reading both here cannot drift.
+    ISCO groups a family rolls up to -- the 3-digit minor group every
+    family has since CAREER-130, the 4-digit unit group only 35 of them
+    have -- and how much that mapping can be trusted.
+    `tests/test_taxonomy.py` already pins the two together, so reading
+    both here cannot drift.
     """
     seed = yaml.safe_load(_SEED.read_text())
     families = {entry['code']: entry for entry in taxonomy.entries('occupation_family')}
@@ -246,6 +248,8 @@ def _load_occupations():
         index[occupation['id']] = {
             'keywords': tuple(occupation.get('keywords') or ()),
             'isco4': family.get('isco4'),
+            'isco3': family.get('isco3'),
+            'isco3_alts': tuple(family.get('isco3_alts') or ()),
             'status': family.get('status'),
         }
     return index
@@ -373,6 +377,56 @@ def derive_isco(family, *, at=None):
                    review=review_reason(family),
                    extra={'occupation_family': code, 'mapping_status': entry['status']},
                    at=at)
+
+
+def derive_minor_group(family, *, at=None):
+    """The three-digit CH-ISCO-19 minor group a settled family sits in.
+
+    `derive_isco`'s contract, one level coarser and -- since CAREER-130
+    loaded the backbone and the owner approved the mapping -- answerable
+    for every family in the list, including the 27 that have no 4-digit
+    code to take a prefix of. That is why this reads `isco3` rather than
+    slicing `isco4`: the families this level exists for are exactly the
+    ones a slice would have left empty.
+
+    Total and idempotent, like `derive_isco`: it answers for any family
+    record, including one carrying a code this vocabulary no longer has.
+    A family that genuinely reaches more than one group carries the rest
+    in the evidence as `alternates`, because the owner approved them as
+    part of one mapping and dropping them here would lose half of it.
+    """
+    code = family['value']
+    if code == taxonomy.UNKNOWN:
+        return unknown('isco_minor_group',
+                       rule='the job family is unsettled, so no minor group is derived',
+                       review=review_reason(family), at=at)
+    entry = _OCCUPATIONS.get(code)
+    if entry is None:
+        return unknown('isco_minor_group',
+                       rule='the stored job family is not in the current family list, so no '
+                            'minor group can be derived from it',
+                       review=FAMILY_NOT_IN_TAXONOMY, extra={'occupation_family': code}, at=at)
+    isco3 = entry['isco3']
+    if not isco3:
+        # Not reachable from the shipped file -- CAREER-130 gave all 62
+        # families an `isco3` and tests/test_taxonomy.py fails if one
+        # loses it. Kept because this function is total by contract, and
+        # a KeyError on a stored record is the failure that contract
+        # exists to prevent.
+        return unknown('isco_minor_group',
+                       rule='the job family carries no 3-digit minor group in '
+                            'occupation_families.yaml, so none can be derived from it',
+                       extra={'occupation_family': code}, at=at)
+    extra = {'occupation_family': code}
+    if entry['isco3_alts']:
+        extra['alternates'] = list(entry['isco3_alts'])
+    return _record('isco_minor_group', isco3,
+                   rule=f"the CH-ISCO-19 minor group occupation_families.yaml maps {code} to",
+                   # A derived value is never surer than its source, so
+                   # the family's own confidence and its flag travel on.
+                   confidence=family['confidence'],
+                   review=review_reason(family),
+                   extra=extra, at=at)
 
 
 def review_reason(record):
@@ -726,8 +780,9 @@ def location(subject, *, at=None):
 #: Every field this layer writes, in the order the report lists them. The
 #: names are field names and not dimension names: `workload_min` and
 #: `workload_max` are two fields over the one `workload` dimension.
-FIELDS = ('occupation_family', 'isco_unit_group', 'language', 'workload_min', 'workload_max',
-          'contract', 'work_model', 'seniority', 'employer_type', 'municipality', 'canton')
+FIELDS = ('occupation_family', 'isco_unit_group', 'isco_minor_group', 'language',
+          'workload_min', 'workload_max', 'contract', 'work_model', 'seniority',
+          'employer_type', 'municipality', 'canton')
 
 
 def classify(subject, *, at=None):

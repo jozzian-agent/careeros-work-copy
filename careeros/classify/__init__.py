@@ -46,10 +46,14 @@ still refused outright, whatever the confidences say.
     metrics  per-call tokens and latency (M1-3), empty without layer 2
 
 `values` keys are FIELD names, not dimension names: `workload_min` and
-`workload_max` are two fields over the one `workload` dimension, and
-`isco_unit_group` is derived from `occupation_family` rather than read --
-by `settle_isco`, AFTER every layer, so the group follows the family that
-won rather than the family one layer proposed.
+`workload_max` are two fields over the one `workload` dimension, and the
+two ISCO fields are derived from `occupation_family` rather than read --
+`isco_unit_group` by `settle_isco` and `isco_minor_group` (3 digits,
+CAREER-130) by `settle_minor_group`, both AFTER every layer, so a group
+follows the family that won rather than the family one layer proposed.
+No layer is ever asked for either code: a code the pipeline can derive
+from a family it already asks about is not a question worth a token
+(`llm.DERIVED_FIELDS`).
 
 `occupation_family` carries up to three ranked families since CAREER-129
 (owner decision 2026-11-02). `value` is the primary one and every reader
@@ -272,6 +276,31 @@ def settle_isco(values, *, at=None):
     return merge(values, {'isco_unit_group': rules.derive_isco(family, at=at)})
 
 
+def settle_minor_group(values, *, at=None):
+    """Derive `isco_minor_group` from whichever family finally won.
+
+    `settle_isco` one level coarser, run beside it for the same reason:
+    the 3-digit group has to follow the SETTLED family, and the model
+    settles families the rules layer cannot. Unlike the unit group it has
+    no earlier writer at all -- `rules.occupation` does not derive it,
+    because there is nothing in a posting's words that settles a minor
+    group except the family -- so this is where the field gets its
+    record, including the `unknown`-with-a-reason one an unsettled family
+    earns (D4: "we looked" is a different fact from no record).
+
+    Fills and never contradicts, like `settle_isco`: a minor group
+    already settled by any source is left alone, so a second run of the
+    pipeline is a no-op. Returns a new mapping.
+    """
+    family = values.get('occupation_family')
+    if not family:
+        return values
+    stored = values.get('isco_minor_group')
+    if stored and stored.get('value', taxonomy.UNKNOWN) != taxonomy.UNKNOWN:
+        return values
+    return merge(values, {'isco_minor_group': rules.derive_minor_group(family, at=at)})
+
+
 def review(values, salary_block=None):
     """Every field a human is owed, with why.
 
@@ -316,9 +345,11 @@ def classify(subject_dict, *, layer='rules', client=None, config=None, at=None):
         values = merge(values, answers)
         metrics.append(call_metrics)
         ran.append('llm')
-    # After every layer, never inside one: the unit group follows the
-    # family that won the merge and not the family one layer proposed.
+    # After every layer, never inside one: a derived ISCO group follows
+    # the family that won the merge and not the family one layer
+    # proposed.
     values = settle_isco(values, at=at)
+    values = settle_minor_group(values, at=at)
     return {'key': subject_dict.get('key'), 'values': values, 'salary': salary_block,
             'review': review(values, salary_block), 'metrics': metrics, 'layers': ran}
 

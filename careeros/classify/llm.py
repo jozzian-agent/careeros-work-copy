@@ -133,8 +133,20 @@ class Config:
 
 #: Field name -> the taxonomy dimension its codes come from. The two
 #: workload fields are one dimension, which is why this mapping exists
-#: at all.
+#: at all. Derived from `rules.FIELDS`, so a field the rules layer gains
+#: is mapped here without an edit: `isco_minor_group` (CAREER-130)
+#: arrived that way, and what keeps it out of the ask is
+#: `DERIVED_FIELDS` below, not an omission here.
 DIMENSION_OF = {field: re.sub(r'_(min|max)$', '', field) for field in rules.FIELDS}
+
+#: Fields the pipeline DERIVES from another field the model is already
+#: asked about, and therefore never asks for (CAREER-130).
+#: `isco_minor_group` is the 3-digit CH-ISCO-19 group of the settled job
+#: family, and `classify.settle_minor_group` reads it straight out of
+#: occupation_families.yaml where the owner approved it. An answer from
+#: the model could only agree with that mapping or contradict it, and a
+#: contradiction would be an invented code with a confidence attached.
+DERIVED_FIELDS = frozenset({'isco_minor_group'})
 
 #: The fields the model answers with a RANKED list rather than one code
 #: (owner decision 2026-11-02, CAREER-129). A Zurich posting routinely
@@ -178,12 +190,25 @@ def askable(fields):
     stored. The run of 2026-11-01 asked 469 such questions across the
     three incomplete dimensions the rules layer writes:
     `isco_unit_group`, `language` and `municipality`. They stay
-    rules-and-feed-only until their lists are whole, which for the ISCO
-    backbone is CAREER-130. `canton` has 26 codes and is complete, so it
-    is still asked -- the rule is the `complete` flag and not a guess
-    about which lists are big.
+    rules-and-feed-only until their lists are whole -- the 4-digit unit
+    groups are still a 19-group seed after CAREER-130, which loaded the
+    3-digit backbone and not them. `canton` has 26 codes and is
+    complete, so it is still asked -- the rule is the `complete` flag and
+    not a guess about which lists are big.
+
+    `DERIVED_FIELDS` is subtracted on top of that rule, and it answers a
+    different question rather than making an exception to the same one.
+    Completeness asks whether a code list EXISTS to refuse an invented
+    answer against. A derived field asks whether asking could ever beat
+    deriving, and for the 3-digit minor group it cannot: the pipeline
+    reads it off the owner-approved mapping of the very family the model
+    is asked about in the same call. Its list IS complete -- all 130
+    groups ship -- so it would otherwise be asked, which is why the
+    exclusion has to be named. `isco_unit_group` needs no naming: its
+    list is incomplete and that is already enough to keep it out.
     """
-    return tuple(field for field in fields if taxonomy.is_complete(DIMENSION_OF[field]))
+    return tuple(field for field in fields
+                 if field not in DERIVED_FIELDS and taxonomy.is_complete(DIMENSION_OF[field]))
 
 
 def options(field):
