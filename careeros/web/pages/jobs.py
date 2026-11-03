@@ -338,7 +338,7 @@ def board_context(entries, companies, function_labels, today=None, *, is_admin):
 
 def company_summaries(companies, isic_sections):
     """One board-card-sized summary per company, keyed by id: a display
-    name, an industry label (the company's FIRST ISIC sector, human-
+    name, an industry label (the company's FIRST NOGA sector, human-
     labeled, None when it has no sectors or an unknown code), and its raw
     size_class (micro/small/medium/large, may be None). Pure and
     testable without I/O so the board route's shape can be pinned without
@@ -405,7 +405,7 @@ def sector_display(record, isic_labels):
     """Owner-facing sector for a job or company record, or None.
 
     Prefers the legacy free-text sector the extractor writes, and falls
-    back to the first ISIC section the record is classified under (human
+    back to the first NOGA section the record is classified under (human
     label, bare code when the code is unknown), so a record classified
     only by code does not read as unclassified.
     """
@@ -508,7 +508,7 @@ def detail_context(root, identifier, llm_pending=False, owner=None, can_edit_sha
     return job_context(job, vault.reader_company(vault.load_company(root, job.get('company_id')),
                                                  owner),
                        vault.function_label_map(root), llm_pending,
-                       isic_sections=sectors.load_isic_sections(),
+                       isic_sections=sectors.load_sections(),
                        company_request=vault.active_company_request(root, job['id'], owner),
                        can_edit_shared=can_edit_shared)
 
@@ -567,7 +567,7 @@ def job_context(job, company, function_labels, llm_pending=False, isic_sections=
     )
 
 def taxonomy_context(root, identifier, owner=None, can_edit_shared=True):
-    """The job's classification: function (ESCO), the company's ISIC
+    """The job's classification: function (ESCO), the company's NOGA
     sectors read-only, and controlled-vocabulary tags. No provenance
     display per the owner's decision.
 
@@ -581,7 +581,7 @@ def taxonomy_context(root, identifier, owner=None, can_edit_shared=True):
         abort(404)
     return classification_context(
         job, vault.reader_company(vault.load_company(root, job.get('company_id')), owner),
-        vault.function_label_map(root), sectors.load_isic_sections(),
+        vault.function_label_map(root), sectors.load_sections(),
         vault.tag_label_map(root), vault.load_tags(root), can_edit_shared)
 
 def classification_context(job, company, function_labels, isic_sections, tag_labels, tag_registry,

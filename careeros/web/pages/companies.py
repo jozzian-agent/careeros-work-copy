@@ -28,7 +28,7 @@ EMPTY_STATE = 'No companies yet — add a job to start your directory.'
 # carries the confirmation in full.
 
 # enrichment.field_states keys for the two owner-facing classification
-# fields. Sector state is recorded under the plural ISIC field name, so
+# fields. Sector state is recorded under the plural `sectors` field name, so
 # the page cannot just reuse its own field names here.
 FIELD_STATE_KEYS = {'sector': 'sectors', 'size': 'size'}
 
@@ -44,7 +44,7 @@ FIELD_STATE_KEYS = {'sector': 'sectors', 'size': 'size'}
 
 # A classification field is owner-set when any of the stored keys behind
 # it is: size lives in three (the legacy string plus the derived EU pair),
-# sector in two (the legacy string plus the ISIC list).
+# sector in two (the legacy string plus the NOGA section list).
 FIELD_PROVENANCE_KEYS = {'sector': ('sector', 'sectors'),
                          'size': ('size', 'size_range', 'size_class')}
 
@@ -60,7 +60,7 @@ def page_context(root, owner=None):
     # universe's (B3, see the note at the top of this module).
     return directory_context(vault.list_universe_jobs(root, owner),
                              vault.visible_companies(root, owner),
-                             sectors.load_isic_sections())
+                             sectors.load_sections())
 
 def directory_context(jobs, entries, isic_sections):
     # Open-jobs count per company, over vault.is_open_job: the one place
@@ -74,7 +74,7 @@ def directory_context(jobs, entries, isic_sections):
               for c in entries}
     isic_labels = {section['code']: section['label'] for section in isic_sections}
     # Human sector labels per company, read-time only: the card and filter
-    # controls must show ISIC labels, never the bare section codes stored
+    # controls must show section labels, never the bare section codes stored
     # on the record (Section 3's display requirement).
     sector_labels = {c.get('id'): [isic_labels.get(code, code) for code in c.get('sectors', [])]
                      for c in entries}
@@ -162,7 +162,7 @@ def detail_context(root, identifier, owner=None, can_edit_shared=True):
     # and the directory note in this module's header says so.
     return company_context(company, vault.list_jobs(root, owner),
                            vault.list_experiences(root, owner),
-                           sectors.load_isic_sections(), can_edit_shared)
+                           sectors.load_sections(), can_edit_shared)
 
 def company_context(company, jobs, experiences, isic_sections, can_edit_shared=True):
     identifier = company['id']

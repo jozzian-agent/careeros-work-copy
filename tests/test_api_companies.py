@@ -1,5 +1,9 @@
 """Pinned JSON page contracts against an isolated fixture vault."""
 
+# NOGA 2025 J, the content half of the old ISIC J. Named once: the
+# section titles are long.
+J_LABEL = 'Publishing, Broadcasting, and Content Production and Distribution Activities'
+
 DIRECTORY_SHAPE = {'counts': {'CO-001': 'int'},
  'empty': 'str',
  'entries': [{'contact_email': 'str',
@@ -35,7 +39,10 @@ DIRECTORY_SHAPE = {'counts': {'CO-001': 'int'},
               'size_range': 'NoneType',
               'sources': [],
               'website': 'NoneType'}],
- 'isic_sections': [{'code': 'str', 'keywords': ['str'], 'label': 'str', 'label_de': 'str'}],
+ # No `label_de` since CAREER-132: the official German NOGA 2025 wording
+ # needs the BFS publication, and `description` carries the plain
+ # one-sentence explanation a jobseeker reads instead.
+ 'isic_sections': [{'code': 'str', 'description': 'str', 'keywords': ['str'], 'label': 'str'}],
  'sector_labels': {'CO-001': ['str']},
  # `[code, label]` pairs since CAREER-71: the card, the row and the Size
  # facet show the taxonomy's own word for a class.
@@ -186,7 +193,10 @@ DETAIL_SHAPE = {'can_edit_shared': 'bool',
               'values': {},
               'valid_through': 'str'}],
  'experiences': [{'id': 'str', 'status': 'str', 'title': 'str'}],
- 'isic_sections': [{'code': 'str', 'keywords': ['str'], 'label': 'str', 'label_de': 'str'}],
+ # No `label_de` since CAREER-132: the official German NOGA 2025 wording
+ # needs the BFS publication, and `description` carries the plain
+ # one-sentence explanation a jobseeker reads instead.
+ 'isic_sections': [{'code': 'str', 'description': 'str', 'keywords': ['str'], 'label': 'str'}],
  'jobs': [{'id': 'str', 'status': 'str', 'title': 'str'}],
  'kinds': ['str'],
  # Same migrated-view shape, and the same null timestamps, as the
@@ -223,7 +233,7 @@ def test_linked_records_and_raw_contract(api_client, assert_json_shape):
     assert [exp['id'] for exp in data['experiences']] == ['EXP-001']
     assert data['company']['notes'] == 'Owner notes'
     assert data['company']['review_flags'] == ['sector-ambiguous']
-    assert data['sector_labels'] == ['Information and communication']
+    assert data['sector_labels'] == [J_LABEL]
     assert_json_shape(api_client.get(route).get_json(), DETAIL_SHAPE['company'])
     assert_json_shape(api_client.get('/api/companies').get_json(), [DETAIL_SHAPE['company']])
     assert api_client.get('/api/companies?view=page').get_json()['counts'] == {'CO-001': 1}

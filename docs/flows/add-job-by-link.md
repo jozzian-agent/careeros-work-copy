@@ -174,7 +174,7 @@ Not built now. **Constraints on Journey 1:**
 Not built now. **Constraints on Journey 1:**
 - Extraction should emit normalized, list-shaped output for function, skills, seniority (already an ordered scale) so a profile can be matched against it later.
 - Reserve nullable `occupation_code` (ISCO) and `skill_codes` (ESCO); do not make the local model map to codes yet.
-- Sector stays at company level (ISIC) and is inherited by jobs. Do not start populating job-level sector.
+- Sector stays at company level (NOGA 2025 section letter) and is inherited by jobs. Do not start populating job-level sector.
 - Keep `posting_quality` and per-field provenance so fit scores can be weighted by how trustworthy the extraction was.
 
 ## 8. Live acceptance checks for Journey 1

@@ -1,0 +1,157 @@
+# NOGA 2025 sections (22 top-level codes, A-V), with an English label, a
+# one-sentence plain description a jobseeker understands, and a small
+# keyword list for best-effort matching against free-text industry
+# strings. This is a static reference table, not a vault file: it does not
+# change per owner and ships with the application.
+#
+# NOGA 2025 is Switzerland's implementation of NACE Rev. 2.1. It replaced
+# `isic_sections.yaml` (UN ISIC Rev.4, 21 sections A-U) here on
+# 2026-11-03 by owner ruling. The two differ from J onwards: NACE Rev. 2.1
+# SPLIT old "Information and communication" into J (publishing,
+# broadcasting, content) and K (telecommunication, software, computing
+# infrastructure), which shifts every later letter up by one, so old K-U
+# became L-V and a 22nd letter (V) exists.
+#
+# STORED LETTERS WRITTEN BEFORE 2026-11-03 ARE ISIC Rev.4 and mean
+# something else from J onwards. `scripts/migrate_sectors_noga2025.py` in
+# the consuming product is what rewrites them; nothing in this capability
+# translates an old letter at read time, because a bare letter does not
+# carry which revision wrote it.
+#
+# NO GERMAN LABELS. The ISIC file carried a `label_de` per section. The
+# official German NOGA 2025 wording comes from the BFS publication, which
+# could not be read when this file was written, and translating 22 legal
+# section titles by hand would put invented wording on a published code.
+# The one-sentence `description` is this file's own plain-language text
+# and is not a translation of anything.
+sections:
+  - code: A
+    label: "Agriculture, Forestry and Fishing"
+    description: "Farms, forests and fisheries that grow, raise or catch food and raw materials."
+    keywords: ["agriculture", "farming", "forestry", "fishing"]
+  - code: B
+    label: "Mining and Quarrying"
+    description: "Companies that dig minerals, stone, oil or gas out of the ground."
+    keywords: ["mining", "quarrying", "extraction"]
+  - code: C
+    label: "Manufacturing"
+    description: "Factories that make physical products, from medicines and cars to machines and food."
+    # pharmaceutical: NOGA division 21 (manufacture of pharmaceuticals)
+    # sits under Section C. automotive: motor vehicle *manufacturing*
+    # (division 29, e.g. a carmaker) is also Section C; Section G only
+    # covers wholesale/retail trade and repair of motor vehicles, a
+    # distinct activity from making them, so "automotive industry" as a
+    # general Wikidata industry string maps here rather than to G.
+    # electrical engineering: division 27 (manufacture of electrical
+    # equipment), a Wikidata industry label actually returned for
+    # manufacturers such as Siemens (JOZ-261 live sweep) -- the generic
+    # "engineering services" (N) and bare "technology" (K/N) keywords do
+    # not overlap this longer, specific phrase, so it resolves confidently
+    # to C alone.
+    keywords: ["manufacturing", "factory", "industrial production", "pharmaceutical", "automotive",
+               "electrical engineering"]
+  - code: D
+    label: "Electricity, Gas, Steam and Air Conditioning Supply"
+    description: "Companies that generate and supply electricity, gas, heating and cooling."
+    keywords: ["electricity", "power generation", "utilities", "energy supply"]
+  - code: E
+    label: "Water Supply; Sewerage, Waste Management and Remediation Activities"
+    description: "Companies that supply drinking water and handle sewage, rubbish and recycling."
+    keywords: ["water supply", "sewerage", "waste management", "recycling"]
+  - code: F
+    label: "Construction"
+    description: "Companies that build and renovate homes, offices, roads and other structures."
+    keywords: ["construction", "building contractor", "civil engineering works"]
+  - code: G
+    label: "Wholesale and Retail Trade; Repair of Motor Vehicles and Motorcycles"
+    description: "Shops, online stores and wholesalers that sell goods, plus garages that repair vehicles."
+    keywords: ["retail", "wholesale", "e-commerce", "trade"]
+  - code: H
+    label: "Transportation and Storage"
+    description: "Companies that move people or goods around and store them along the way."
+    keywords: ["logistics", "transportation", "shipping", "warehousing", "freight"]
+  - code: I
+    label: "Accommodation and Food Service Activities"
+    description: "Hotels, restaurants, bars and caterers that feed and house people."
+    keywords: ["hospitality", "hotel", "restaurant", "catering"]
+  - code: J
+    label: "Publishing, Broadcasting, and Content Production and Distribution Activities"
+    description: "Companies that publish, film, record and broadcast news, books, games, music and video."
+    # The content half of the old ISIC J. Its keyword list is the half of
+    # that section's vocabulary that describes making and distributing
+    # content; everything about software, telecoms and computing moved to
+    # K below.
+    keywords: ["publishing", "broadcasting", "media", "film", "music", "content production"]
+  - code: K
+    label: "Telecommunication, Computer Programming, Consulting, Computing Infrastructure, and other Information Service Activities"
+    description: "Companies that build and run software, telecoms, hosting and IT services."
+    # The technical half of the old ISIC J, and where a company storing
+    # old J for a software or telecom business belongs now.
+    #
+    # "technology industry" is an explicit, longer keyword (not just
+    # relying on the bare "technology" word also present in N's list
+    # below): the matcher's specificity tie-break prefers the longest
+    # matching keyword when a signal matches more than one section, so
+    # this phrase resolves confidently to K instead of being refused as
+    # K-vs-N ambiguous. Bare "technology" alone still ties with N and
+    # stays refused, unchanged. "computer consulting" works the same way
+    # against N's bare "consulting".
+    #
+    # cloud computing: another Wikidata industry label actually returned
+    # in the wild (JOZ-261 live sweep); unambiguous K (NOGA names
+    # "computing infrastructure" in the section title), no overlap with
+    # any other section's keywords.
+    #
+    # There is deliberately no bare "it" keyword, although NOGA's own
+    # wording abbreviates this activity that way. Keywords are matched as
+    # whole words against arbitrary free text, including an LLM's
+    # free-text rationale, so "it" would match the English pronoun and
+    # make almost every signal ambiguous. "it services" and "information
+    # technology" carry the abbreviation safely.
+    keywords: ["software", "computer programming", "it services", "information technology",
+               "telecommunications", "data processing", "hosting", "computer consulting",
+               "internet", "technology", "technology industry", "cloud computing"]
+  - code: L
+    label: "Financial and Insurance Activities"
+    description: "Banks, insurers and investment firms that look after money and risk."
+    keywords: ["bank", "banking", "insurance", "finance", "financial services", "asset management", "cryptocurrency", "fintech"]
+  - code: M
+    label: "Real Estate Activities"
+    description: "Companies that buy, sell, rent out and manage buildings and land."
+    keywords: ["real estate", "property management"]
+  - code: N
+    label: "Professional, Scientific and Technical Activities"
+    description: "Firms of specialists such as consultants, lawyers, accountants, architects, engineers and researchers."
+    keywords: ["consulting", "engineering services", "research", "legal services", "accounting", "architecture", "technology"]
+  - code: O
+    label: "Administrative and Support Service Activities"
+    description: "Companies that run other companies' everyday operations, such as recruitment, cleaning and call centres."
+    keywords: ["staffing", "administrative support", "business process outsourcing", "facilities management"]
+  - code: P
+    label: "Public Administration and Defence; Compulsory Social Security"
+    description: "Government bodies, the armed forces and the state social-insurance system."
+    keywords: ["public administration", "government agency", "defence", "social security"]
+  - code: Q
+    label: "Education"
+    description: "Schools, universities and training providers that teach people."
+    keywords: ["education", "university", "school", "training provider"]
+  - code: R
+    label: "Human Health and Social Work Activities"
+    description: "Hospitals, doctors, care homes and social services that look after people's health and wellbeing."
+    keywords: ["healthcare", "hospital", "social work", "medical services"]
+  - code: S
+    label: "Arts, Sports and Recreation"
+    description: "Museums, theatres, sports clubs and other places people go to enjoy themselves."
+    keywords: ["arts", "entertainment", "recreation", "museum", "sports club"]
+  - code: T
+    label: "Other Service Activities"
+    description: "Service businesses that fit nowhere else, such as hairdressers, repair shops and member associations."
+    keywords: ["membership organization", "repair services", "personal services"]
+  - code: U
+    label: "Activities of Households as Employers; Undifferentiated Goods- and Services-Producing Activities of Households"
+    description: "Private households that employ people such as cleaners, nannies or carers."
+    keywords: ["domestic staff", "household employer"]
+  - code: V
+    label: "Activities of Extraterritorial Organisations and Bodies"
+    description: "International organisations such as the UN and the WHO, and foreign embassies."
+    keywords: ["extraterritorial organization", "international body"]

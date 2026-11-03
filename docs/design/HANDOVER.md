@@ -10,7 +10,7 @@ For the Hermes agent. Updated 2026-10-26. Target repo: the careeros work copy (`
 - No VPS access and no secrets. Static landing files are delivered as files in the repo; the owner deploys them.
 - Do not work around a guard or the credential-redaction layer; report and stop.
 - Do not promise matching or fit scores anywhere public. Fit stays hidden in the product ("not built").
-- Public copy never mentions the academic taxonomies (ISIC, ISCO, ESCO). The FAQ and this doc may, internally.
+- Public copy never mentions the academic taxonomies (NOGA, ISCO, ESCO). The FAQ and this doc may, internally.
 - Anything sent to the AI provider (postings, notes, imported CVs) must be disclosed in plain words. The copy exists on the landing page, the Settings page and the FAQ; keep them identical and confirm the wording with the owner.
 
 ## Decision summary

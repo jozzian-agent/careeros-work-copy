@@ -3,7 +3,7 @@
 Resolves a loose organisation reference (a posting URL, a free-text
 employer name, or both) to one known record, reusing an existing one
 whenever the evidence supports it and creating a fresh one when it does
-not, then classifies that record by ISIC Rev.4 section and EU
+not, then classifies that record by NOGA 2025 section and EU
 employee-count size class. See docs/capabilities/org-intake.md (the
 approved contract this package implements) for the full behavior
 specification.

@@ -38,7 +38,7 @@ card past its neighbours):
 - the company name, at most 30 characters followed by one ellipsis
   character, over at most two lines, with the full stored name as the
   element's tooltip. Display only: the stored name is never changed.
-- a muted sector line, the company's ISIC section labels joined by commas,
+- a muted sector line, the company's NOGA section labels joined by commas,
   clipped at two lines ("Sector unknown" with no sectors)
 - a muted size line, the company's size class, title-cased ("Size unknown"
   when it has none)
@@ -51,7 +51,7 @@ owner-approved columns (B4, 2026-10-19):
 | Column | What it holds |
 |---|---|
 | Name | the full stored name, as a link to the profile (not the tile's 30-character cut: a row has the width for it) |
-| Sector | the same ISIC section labels the tile shows, "Sector unknown" with none |
+| Sector | the same NOGA section labels the tile shows, "Sector unknown" with none |
 | Size | the size class, title-cased, "Size unknown" with none |
 | Location | the company's own stored locations, comma-joined, "Location unknown" with none |
 | Open jobs | the same chip as the tile, same words |
@@ -78,7 +78,7 @@ page's own groups and count noun. They apply to **both views**: one
 predicate over the one payload, so the two views can never disagree about
 which companies match.
 
-- **Sector**, multi-select: the ISIC section labels companies are actually
+- **Sector**, multi-select: the NOGA section labels companies are actually
   classified under, most-used first. A company matches when ANY of its
   sectors is checked.
 - **Size**, multi-select: the size classes companies are actually in, in

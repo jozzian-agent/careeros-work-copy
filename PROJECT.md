@@ -968,6 +968,27 @@ unclassified posting. The four entry-level codes the item named
 (internship, working student, trainee programme, apprenticeship) all
 already exist in `contract.yaml`; nothing was added to the vocabulary.
 
+2026-11-03 (CAREER-132, owner ruling): the company sector taxonomy moves
+from UN ISIC Rev.4 to **NOGA 2025**, Switzerland's implementation of NACE
+Rev. 2.1. That is 22 section letters (A-V) where ISIC had 21 (A-U): NACE
+Rev. 2.1 split old J, "Information and communication", into J (publishing,
+broadcasting, content production) and K (telecommunication, software,
+computer programming, computing infrastructure), which moved every later
+letter up one. The capability's table is now
+`vendor/capa-repo/org_intake/data/noga_sections.yaml`, each section
+carrying one plain sentence a jobseeker reads; it drops the ISIC file's
+German labels, because official German NOGA 2025 wording needs the BFS
+publication and translating 22 legal section titles by hand would invent
+it. The LLM sector prompt inlines the 22-letter table from that file, so a
+model cannot answer with a remembered ISIC letter. Stored letters are
+rewritten once by `scripts/migrate_sectors_noga2025.py` (dry run by
+default); the four companies stored under old J carry no free-text
+industry to split them on, so each needs an owner decision (`--decisions`)
+and is skipped until it has one. `careeros/data/taxonomy/industry_noga.yaml`
+still carries the NOGA 2008 section list and division ranges and was NOT
+migrated: nothing reads them yet, and rewriting them needs the Rev. 2.1
+division numbering from the BFS page, which still could not be fetched.
+
 ## Product rules that shape the flows
 
 The six owner rules live in the Journey 1 spec. These are the ones the flows below depend on.
@@ -1225,7 +1246,7 @@ All three are answered by owner decisions D1, D2 and the location ruling
 of 2026-10-17 and now live as versioned code lists; see the Taxonomy
 section below for where each one stands, including what is still a stub.
 
-- Sector. Stored as ISIC today, on purpose, so that Journey 3 can use standard codes. D2 replaces the standard with NOGA divisions (sections derived); the stored section letters carry over, and nothing is migrated yet. Show plain labels only if friends find the names confusing.
+- Sector. Stored as a NOGA 2025 section letter (A-V), on purpose, so that Journey 3 can use standard codes. D2's open half is settled: the standard is NOGA 2025 / NACE Rev. 2.1 (owner ruling 2026-11-03, CAREER-132), and the stored letters were migrated off UN ISIC Rev.4 in the same change. D2's divisions are still a stub, so the section letter is the whole stored value for now. Show plain labels only if friends find the names confusing.
 - Location. One format: the BFS municipality number plus canton and coordinates (D-sheet CAREER-58). The prototype shows the same place written several ways. The municipality register is loaded as of 2026-10-17 (CAREER-53, `scripts/load_bfs_municipalities.py`): 2 110 municipalities with their canton and their postal codes, read from the register's own LINDAS distribution. Coordinates are still null everywhere, because the distribution references a boundary polygon rather than a point.
 - Function. The filter exists; its values are the 62 job families (v2, 2026-11-02, + CAREER-135 the same day), 35 of them mapped to an ISCO-08 unit group (D1) and 27 carrying none. The filter reads the job's own `function` facet ids client-side, not the classification pipeline's `values.occupation_family`; the two stores are still unreconciled (see the 2026-11-02 entry).
 

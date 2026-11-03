@@ -217,15 +217,15 @@ def test_m2_llm_fallback_skipped_when_structured_evidence_already_present():
     client = _FakeLlmClient('{"sector": "J", "confidence": "high"}')
     record = {'name': 'Already Matched Co', 'sectors': []}
     codes, flag, state = enrich.sectors_cascade(record, signals=(confident,), llm_client=client, llm_model='m')
-    assert codes == ['K']  # the LLM's "J" never ran: confident was never overridden
+    assert codes == ['L']  # the LLM's "J" never ran: confident was never overridden
     assert flag is None
 
 
 def test_m2_llm_fallback_runs_and_fills_only_when_structured_evidence_absent():
-    client = _FakeLlmClient('{"sector": "K", "sector_label": "Banking and insurance", "confidence": "high"}')
+    client = _FakeLlmClient('{"sector": "L", "sector_label": "Banking and insurance", "confidence": "high"}')
     record = {'name': 'LLM Only Co', 'sectors': []}
     codes, flag, state = enrich.sectors_cascade(record, signals=(), llm_client=client, llm_model='m')
-    assert codes == ['K']
+    assert codes == ['L']
     assert flag is None
 
 
@@ -246,10 +246,10 @@ def test_m2_llm_response_validated_unknown_section_letter_is_refused():
 
 
 def test_m2_llm_response_validated_self_contradictory_rationale_is_refused():
-    # Letter says K (banking) but the rationale's own keywords say J
+    # Letter says L (banking) but the rationale's own keywords say K
     # (software) - a confident response that contradicts itself.
     client = _FakeLlmClient(
-        '{"sector": "K", "sector_label": "Software and IT services", "confidence": "high"}')
+        '{"sector": "L", "sector_label": "Software and IT services", "confidence": "high"}')
     record = {'name': 'Contradicts Itself Co', 'sectors': []}
     codes, flag, state = enrich.sectors_cascade(record, signals=(), llm_client=client, llm_model='m')
     assert codes is None
@@ -295,7 +295,7 @@ def test_m5_non_owner_provenance_does_not_protect_an_empty_field():
 
     record = {'name': 'Scrape Provenance Co', 'sectors': [], 'field_provenance': {'sectors': 'scrape'}}
     codes, flag, state = enrich.sectors_cascade(record, signals=(matches,))
-    assert codes == ['K']
+    assert codes == ['L']
 
 
 # --- M6: a resolved Wikidata entity becomes an identifier -----------------
@@ -351,7 +351,7 @@ def test_rule9_sector_signals_are_evaluated_in_the_given_cheap_to_expensive_orde
 
     record = {'name': 'Ordered Co', 'sectors': []}
     codes, flag = enrich.external_sectors(record, signals=(jsonld_signal, wikidata_signal))
-    assert codes == ['K'] and flag is None
+    assert codes == ['L'] and flag is None
     assert calls == ['jsonld', 'wikidata']
 
 
@@ -381,7 +381,7 @@ def test_rule9_promotion_runs_before_any_network_signal():
     record = {'name': 'Promotable Labs', 'sectors': [], 'enrichment': {'sectors': ['Banking and insurance']}}
     codes, flag, state = enrich.sectors_cascade(record, fetch=tracking_fetch)
     assert calls == []
-    assert codes == ['K'] and flag is None
+    assert codes == ['L'] and flag is None
     assert state['field_state'] == 'filled'
 
 
@@ -431,7 +431,7 @@ def test_rule10_two_structured_signals_disagreeing_refuses_and_flags_conflict():
 
 def test_rule10_ambiguous_signal_flags_for_review():
     def ambiguous_signal(record, fetch=None, warn=None, deadline=None):
-        return {'industry': 'Technology'}  # matches both J and M
+        return {'industry': 'Technology'}  # matches both K and N
 
     record = {'name': 'Ambiguous Labs', 'sectors': []}
     codes, flag, state = enrich.sectors_cascade(record, signals=(ambiguous_signal,))
@@ -666,7 +666,7 @@ def test_f8c_classify_sector_omitting_fetch_actually_invokes_the_default_adapter
 
 def test_f1_ambiguous_structured_evidence_suppresses_the_llm():
     def ambiguous_signal(record, fetch=None, warn=None, deadline=None):
-        return {'industry': 'Technology'}  # matches both J and M: ambiguous
+        return {'industry': 'Technology'}  # matches both K and N: ambiguous
 
     llm_calls = []
     client = _FakeLlmClient('{"sector": "K", "confidence": "high"}')
@@ -844,7 +844,7 @@ def test_g1_sector_ambiguity_suppression_also_records_the_reason():
     # existing F1 test (test_f1_ambiguous_structured_evidence_suppresses_
     # the_llm, above) only checked the not-attempted outcome, not why.
     def ambiguous_signal(record, fetch=None, warn=None, deadline=None):
-        return {'industry': 'Technology'}  # matches both J and M: ambiguous
+        return {'industry': 'Technology'}  # matches both K and N: ambiguous
 
     collector = enrich.BackfillAccounting()
     record = {'name': 'Ambiguous Sector Reason Co', 'sectors': []}

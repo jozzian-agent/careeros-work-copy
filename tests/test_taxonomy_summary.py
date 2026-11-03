@@ -1,10 +1,14 @@
-"""Read-only vault-wide taxonomy/methodology page (skills, ISIC industries,
+"""Read-only vault-wide taxonomy/methodology page (skills, NOGA industries,
 company size classes): pure aggregation functions, then the API endpoint
 that wraps them."""
 from careeros.web.pages import taxonomy
 
-ISIC_SECTIONS = [{'code': 'J', 'label': 'Information and communication'},
-                  {'code': 'K', 'label': 'Financial and insurance activities'}]
+# NOGA 2025 letters and labels (the live table since 2026-11-03): old ISIC
+# J split into J (content) and K (software/telecom), so finance moved from
+# K to L.
+J_LABEL = 'Publishing, Broadcasting, and Content Production and Distribution Activities'
+ISIC_SECTIONS = [{'code': 'J', 'label': J_LABEL},
+                  {'code': 'L', 'label': 'Financial and Insurance Activities'}]
 
 
 def test_skill_counts_sorted_by_count_desc_then_name():
@@ -65,15 +69,15 @@ def test_skill_counts_legacy_only_record():
 def test_industry_counts_dedupes_repeated_codes_within_one_company():
     companies = [{'sectors': ['J', 'J']}]
     assert taxonomy.industry_counts(companies, ISIC_SECTIONS) == [
-        {'code': 'J', 'label': 'Information and communication', 'count': 1},
+        {'code': 'J', 'label': J_LABEL, 'count': 1},
     ]
 
 
 def test_industry_counts_labels_and_sorts_by_count_desc_then_label():
-    companies = [{'sectors': ['J']}, {'sectors': ['J', 'K']}, {'sectors': []}, {}]
+    companies = [{'sectors': ['J']}, {'sectors': ['J', 'L']}, {'sectors': []}, {}]
     assert taxonomy.industry_counts(companies, ISIC_SECTIONS) == [
-        {'code': 'J', 'label': 'Information and communication', 'count': 2},
-        {'code': 'K', 'label': 'Financial and insurance activities', 'count': 1},
+        {'code': 'J', 'label': J_LABEL, 'count': 2},
+        {'code': 'L', 'label': 'Financial and Insurance Activities', 'count': 1},
     ]
 
 
@@ -107,7 +111,7 @@ def test_aggregate_context_shape():
         {'function:builder': {'label': 'Builder', 'local': True}})
     assert context == {
         'skills': [{'skill': 'Python', 'count': 1}],
-        'industries': [{'code': 'J', 'label': 'Information and communication', 'count': 1}],
+        'industries': [{'code': 'J', 'label': J_LABEL, 'count': 1}],
         'sizes': [{'size_class': 'micro', 'label': 'Micro', 'count': 0},
                   {'size_class': 'small', 'label': 'Small', 'count': 1},
                   {'size_class': 'medium', 'label': 'Medium', 'count': 0},
@@ -121,5 +125,5 @@ def test_aggregate_context_shape():
 def test_taxonomy_api_endpoint(api_client):
     data = api_client.get('/api/taxonomy').get_json()
     assert sorted(data) == ['industries', 'sizes', 'skills', 'tag_labels']
-    assert {'code': 'J', 'label': 'Information and communication', 'count': 1} in data['industries']
+    assert {'code': 'J', 'label': J_LABEL, 'count': 1} in data['industries']
     assert {'size_class': 'small', 'label': 'Small', 'count': 1} in data['sizes']

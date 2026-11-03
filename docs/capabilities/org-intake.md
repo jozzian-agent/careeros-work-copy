@@ -84,13 +84,16 @@ silently.
    does host two employers is only reported as `shared_tenant` once the
    caller has seen both postings themselves.
 
-7. Classification runs against one fixed external taxonomy - UN ISIC
-   Rev.4, 21 sections - by keyword matching on free-text industry
-   strings; a string whose keywords match more than one section is
-   refused outright rather than guessed. *Reason:* standards over ad
-   hoc labels, and a matcher that cannot tell which of two sections
-   applies should say so, not pick one. File: `vendor/capa-repo/org_intake/classify.py`
-   `all_matched_sections`, `match_sectors`; `vendor/capa-repo/org_intake/data/isic_sections.yaml`.
+7. Classification runs against one fixed external taxonomy - NOGA 2025,
+   Switzerland's implementation of NACE Rev. 2.1, 22 sections A-V - by
+   keyword matching on free-text industry strings; a string whose
+   keywords match more than one section is refused outright rather than
+   guessed. It was UN ISIC Rev.4 (21 sections, A-U) until 2026-11-03;
+   the two agree only up to I, and a letter stored before that date is
+   an ISIC letter a consumer migrates once (CAREER-132).
+   *Reason:* standards over ad hoc labels, and a matcher that cannot
+   tell which of two sections applies should say so, not pick one. File: `vendor/capa-repo/org_intake/classify.py`
+   `all_matched_sections`, `match_sectors`; `vendor/capa-repo/org_intake/data/noga_sections.yaml`.
 
 8. Size is classified on one scale, and only that one is derived: the
    BFS employee-count classes (micro 1–9, small 10–49, medium 50–249,
@@ -349,7 +352,7 @@ answered.
 - Package/module names: answered at 2.3 - the capability lives in
   `github.com/jozzian/capa-repo` as the package `org_intake` with
   modules `identity` (resolution ladder), `enrich` (sector/size
-  cascades), `classify` (ISIC/EU vocabularies), `ats`, `url`, `fetch`
+  cascades), `classify` (NOGA/EU vocabularies), `ats`, `url`, `fetch`
   (guards), `jsonld`, and `store` (adapter protocol).
 - Store adapter shape: answered at 2.3 - a duck-typed three-method
   protocol, `list_organisations()`, `load_organisation(id)`, and

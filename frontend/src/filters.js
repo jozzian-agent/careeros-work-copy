@@ -23,7 +23,7 @@ export function countBy(entries, getValues) {
 // Options for a facet whose values come from the data itself (location,
 // industry, sector): most-used first, ties alphabetical. `label` maps a
 // stored value to the words the panel shows, for a facet stored as a code
-// (a company's ISIC sections); by default the value IS the label.
+// (a company's NOGA sections); by default the value IS the label.
 export function sortedOptions(counts, label = (value) => value) {
   return Array.from(counts.entries())
     .map(([value, count]) => ({ value, label: label(value), count }))
