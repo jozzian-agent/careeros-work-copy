@@ -130,6 +130,52 @@ def run(found, *, layer, config=None, client=None, at=None):
             for subject in found]
 
 
+def load_previous(path):
+    """A previous run file as `{key: posting record}`, or {} when the file
+    does not exist. CAREER-131's re-run mode reads one of these to find
+    the postings whose job family is already settled: an approved family
+    proposal must not cost a second model call for a posting that was
+    classified fine the first time."""
+    previous = Path(path)
+    if not previous.exists():
+        return {}
+    document = yaml.safe_load(previous.read_text()) or {}
+    return {posting['key']: posting for posting in document.get('postings') or []
+            if posting.get('key')}
+
+
+def split_by_previous(found, previous):
+    """`(to_classify, carried)` where `carried` maps a key to the previous
+    run's posting record.
+
+    A posting is carried -- not re-run -- when the previous run settled
+    its job family to anything other than `unknown`. Everything else
+    (unknown families, including the suggestion queue's entries, and
+    postings the previous run never saw) is classified again: the whole
+    point of approving a proposal is that the jobs it names get an
+    answer, and only those jobs pay for it.
+    """
+    to_classify, carried = [], {}
+    for subject in found:
+        record = previous.get(subject['key'])
+        family = ((record or {}).get('values') or {}).get('occupation_family') or {}
+        if record and family.get('value', rules.taxonomy.UNKNOWN) != rules.taxonomy.UNKNOWN:
+            carried[subject['key']] = record
+        else:
+            to_classify.append(subject)
+    return to_classify, carried
+
+
+def carried_result(record):
+    """A previous run's posting record as a result this run can summarise
+    and write, with no model call behind it. The metrics are emptied --
+    they measured the PREVIOUS call, and reporting them here would bill
+    this run for tokens it did not spend."""
+    return {'key': record.get('key'), 'values': record.get('values') or {},
+            'salary': record.get('salary'), 'review': record.get('review') or {},
+            'metrics': [], 'layers': list(record.get('layers') or []), 'carried': True}
+
+
 def summarise(found, results):
     """The run as counts: coverage per field, the review queue, the
     salary readings, and the model's own measurements."""
@@ -225,6 +271,11 @@ def main(argv=None):
     parser.add_argument('--probe', action='store_true',
                         help='make one model request and print its latency and token count')
     parser.add_argument('--model', help='override CLASSIFY_LLM_MODEL for this run (M1-4)')
+    parser.add_argument('--previous',
+                        help='a previous run YAML: postings whose job family it already '
+                             'settled are carried into this run unchanged instead of being '
+                             'classified again (CAREER-131: re-run only the unknown jobs '
+                             'after approving a family proposal)')
     args = parser.parse_args(argv)
 
     config = llm.Config.from_env()
@@ -240,9 +291,25 @@ def main(argv=None):
     found, notes = subjects(args)
     if not found:
         raise SystemExit('no postings found to classify')
+    all_found = list(found)
+    carried = {}
+    if args.previous:
+        found, carried = split_by_previous(found, load_previous(args.previous))
+        notes.append(f"previous run {args.previous}: {len(carried)} postings carried with a "
+                     f"settled job family, {len(found)} re-classified")
+        if not found:
+            raise SystemExit('nothing to re-classify: the previous run settled every job family')
     client = config.client() if args.layer in ('llm', 'all') else None
     at = datetime.now(timezone.utc).isoformat(timespec='seconds')
     results = run(found, layer=args.layer, config=config, client=client, at=at)
+    if carried:
+        # `payload` and `summarise` walk subjects and results together, so
+        # the carried records rejoin the list in their original order.
+        by_key = {record['key']: carried_result(record) for record in carried.values()}
+        for result in results:
+            by_key[result.get('key')] = result
+        results = [by_key[subject['key']] for subject in all_found]
+        found = all_found
     summary = summarise(found, results)
     writing = bool(args.out) and not args.dry_run
     print_summary(notes, summary, layer=args.layer, writing=writing)

@@ -97,6 +97,13 @@ INVALID_CODE = 'llm_invalid_code'
 BELOW_FLOOR = 'llm_below_floor'
 CALL_FAILED = 'llm_failed'
 NOT_ANSWERED = 'llm_did_not_answer'
+#: The model read the posting, found no family that fits, and named what
+#: the posting actually is instead of forcing one (CAREER-131). The
+#: record still holds `unknown` -- a proposal is a question for the
+#: owner, never a stored value -- but it carries the proposed name in
+#: its evidence, which is what makes the queue collectable and
+#: countable.
+FAMILY_SUGGESTED = 'llm_family_suggested'
 
 
 @dataclass(frozen=True)
@@ -251,6 +258,15 @@ def prompt(subject, fields):
                    f'{taxonomy.MAX_RANKS} codes in rank order, best first, and fewer when '
                    'fewer fit. '
                    if ranked else '')
+    # CAREER-131: when no family fits, the model names the role instead of
+    # forcing the closest family. The proposal is only ever asked for on
+    # the field it is about, and only travels in evidence -- see `_record`.
+    proposal_note = ('If none of the occupation_family codes fits what this posting actually '
+                     'is, answer occupation_family with code "unknown" AND add one extra key '
+                     '"proposed_role": a short role name for the job (2-4 words, e.g. '
+                     '"Robotics technician"), in that field\'s object only. Never force the '
+                     'closest family. '
+                     if 'occupation_family' in fields else '')
     posting = '\n'.join(filter(None, [
         f"Title: {subject.get('title') or ''}",
         f"Department: {subject.get('department')}" if subject.get('department') else '',
@@ -265,8 +281,10 @@ def prompt(subject, fields):
             'Answer with one JSON object, one key per field above, each value an object '
             '{"code": "...", "evidence": "the phrase from the posting", "confidence": 0.0-1.0}. '
             + ranked_note
-            + 'No other keys and no prose.\n\n'
-            f'POSTING\n{posting}')
+            + proposal_note
+            + ('Apart from "proposed_role" where the rule above asks for it: no other keys '
+               'and no prose.\n\n' if proposal_note else 'No other keys and no prose.\n\n')
+            + f'POSTING\n{posting}')
     return [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
 
 
@@ -428,6 +446,20 @@ def _record(field, answered, *, config, at=None):
         return _unknown(field, NOT_ANSWERED, at=at)
     code = codes[0]
     if code == taxonomy.UNKNOWN:
+        # CAREER-131: `unknown` on the family field with a proposed_role
+        # attached is the suggestion queue's entry point. The value stays
+        # unknown -- only the owner approving the proposal makes it a
+        # family -- but the record carries the name, a countable review
+        # reason, and enough to find the posting again for a re-run.
+        proposal = str(answered.get('proposed_role') or '').strip() if (
+            field == 'occupation_family') else ''
+        if proposal:
+            return taxonomy.make_value_record(
+                dimension, taxonomy.UNKNOWN, 'llm', confidence=confidence,
+                evidence={'rule': 'the model found no family that fits and proposed a role '
+                                  'name instead (owner approval required, CAREER-131)',
+                          'needs_review': FAMILY_SUGGESTED, 'proposed_role': proposal,
+                          'model': config.model, 'quote': quote}, classified_at=at)
         return taxonomy.make_value_record(
             dimension, taxonomy.UNKNOWN, 'llm', confidence=confidence,
             evidence={'rule': 'the model read the posting and found nothing for this field',

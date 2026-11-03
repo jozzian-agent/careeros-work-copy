@@ -200,6 +200,35 @@ CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
     --layer llm --out /tmp/manual_run.yaml
 ```
 
+## The family suggestion queue (CAREER-131)
+
+When no job family fits a posting, the model answers `unknown` and
+proposes a short role name instead of forcing the closest family. The
+proposals are collected in the run files (review reason
+`llm_family_suggested`, counted in the run summary's `needs review`
+line). The owner's loop:
+
+```bash
+cd /root/work/careeros-dashboard
+# 1. what has been proposed, counted by distinct postings
+.venv/bin/python scripts/family_suggestions.py list
+# 2. approve one: it becomes a family in esco_occupations.yaml AND
+#    occupation_families.yaml, and the pinned counts in the tests move
+.venv/bin/python scripts/family_suggestions.py approve "Robotics Technician" \
+    --code robotics-technician --label-de "Robotertechniker" --isco3 742
+# 3. re-run ONLY the postings whose family was unknown (carries the
+#    settled ones from the previous run, no second model call for them)
+CLASSIFY_LLM_NATIVE=1 .venv/bin/python scripts/run_classification.py \
+    --pool data/ats/exports/golden_set_pool_$(date +%F).yaml \
+    --layer llm --previous data/classification/run_$(date +%F).yaml \
+    --out data/classification/rerun_$(date +%F).yaml
+```
+
+`isco3` must be a CH-ISCO-19 minor group the taxonomy knows; `--isco4`
+only when the code is already in the shipped ISCO-08 list (otherwise
+confirm it later via the CAREER-29 route). An approved family starts as
+`proposed` with no ESCO citation, exactly like the v2 additions.
+
 ## Failure modes and what to do
 
 | Symptom | Cause | Fix |
