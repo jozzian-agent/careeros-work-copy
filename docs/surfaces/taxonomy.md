@@ -10,7 +10,7 @@ timestamp: 2026-10-13
 ## Purpose
 
 Read-only, vault-wide aggregate counts for the skills used on experiences,
-the ISIC industry sections companies sit in, and companies' size classes.
+the NOGA industry sections companies sit in, and companies' size classes.
 No editing lives here: every count is an aggregate, not a single record a
 popup could edit.
 

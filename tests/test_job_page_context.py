@@ -8,7 +8,10 @@ import pytest
 from careeros import server, vault
 from careeros.web.pages import jobs
 
-ISIC = [{'code': 'J', 'label': 'Information and communication'},
+# NOGA 2025 J, the content half of the old ISIC J. Named once: the
+# section titles are long.
+J_LABEL = 'Publishing, Broadcasting, and Content Production and Distribution Activities'
+ISIC = [{'code': 'J', 'label': J_LABEL},
         {'code': 'C', 'label': 'Manufacturing'}]
 
 
@@ -23,7 +26,7 @@ def test_sector_falls_back_to_the_linked_company():
     """Bug 4: a posting that never named a sector still shows one when its
     company is classified, and says where it came from."""
     result = context(company={'id': 'CO-001', 'sectors': ['J']})['classification']
-    assert result['sector'] == {'value': 'Information and communication', 'source': 'company'}
+    assert result['sector'] == {'value': J_LABEL, 'source': 'company'}
 
 
 def test_sector_prefers_the_job_record():
@@ -418,4 +421,4 @@ def test_detail_context_loads_isic_labels_for_the_company_sector(tmp_path):
     result = jobs.detail_context(root, job['id'])
 
     assert result['classification']['sector'] == {
-        'value': 'Information and communication', 'source': 'company'}
+        'value': J_LABEL, 'source': 'company'}

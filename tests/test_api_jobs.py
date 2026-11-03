@@ -1,5 +1,9 @@
 """Pinned JSON page contracts against an isolated fixture vault."""
 
+# The fixture company (conftest) is classified NOGA 2025 J, the content
+# half of the old ISIC J. Named once: the section titles are long.
+J_LABEL = 'Publishing, Broadcasting, and Content Production and Distribution Activities'
+
 BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_class': 'str'}},
  'empty': 'str',
  'entries': [{'added': 'str',
@@ -286,15 +290,16 @@ def test_detail_contract(api_client, assert_json_shape):
 def test_board_values_and_default_collection(api_client, assert_json_shape):
     board = api_client.get('/api/jobs?view=board').get_json()
     job = board['entries'][0]
-    assert board['companies'] == {'CO-001': {'name': 'Contract Studio', 'industry': 'Information and communication',
-                                              'size_class': 'small'}}
+    assert board['companies'] == {'CO-001': {'name': 'Contract Studio',
+                                             'industry': J_LABEL,
+                                             'size_class': 'small'}}
     assert board['function_options'] == [['builder', 'Builder']]
     # The whole size vocabulary with its words, smallest first: the facet
     # offers what the taxonomy says and derives nothing (CAREER-71).
     assert board['size_classes'] == [['micro', 'Micro'], ['small', 'Small'], ['medium', 'Medium'],
                                      ['large', 'Large'], ['xl', 'Very large']]
     assert job['company_name'] == 'Contract Studio'
-    assert job['company_industry'] == 'Information and communication'
+    assert job['company_industry'] == J_LABEL
     assert job['company_size_class'] == 'small'
     assert job['needs_attention'] is True
     assert job['pending'] is True

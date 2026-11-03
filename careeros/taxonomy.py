@@ -99,9 +99,9 @@ def _load_documents():
     """Parse every YAML file in the taxonomy directory, header-checked.
 
     Read once, at import, the same way `org_intake.classify` reads its
-    ISIC table: this is reference data that ships with the application and
-    does not change per owner, so re-reading it per request would buy
-    nothing.
+    NOGA section table: this is reference data that ships with the
+    application and does not change per owner, so re-reading it per
+    request would buy nothing.
     """
     documents = {}
     for path in sorted(_DATA_DIR.glob('*.yaml')):

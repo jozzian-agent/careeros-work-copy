@@ -2414,7 +2414,7 @@ def _save_record(root, kind, data, identifier=None, *, correction_detail=None, h
                 raise ValueError('retired_at must be YYYY-MM-DD.')
         unknown_sections = [code for code in result['sectors'] if code not in known_section_codes()]
         if unknown_sections:
-            raise ValueError(f'Unknown ISIC section code(s): {", ".join(unknown_sections)}')
+            raise ValueError(f'Unknown NOGA section code(s): {", ".join(unknown_sections)}')
         if result['size_class'] is not None and result['size_class'] not in SIZE_CLASSES:
             raise ValueError('Invalid company size_class.')
         if result['identifiers'] is None:

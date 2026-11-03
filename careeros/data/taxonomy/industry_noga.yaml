@@ -12,12 +12,21 @@
 #
 # WHAT IS IN THIS FILE, HONESTLY:
 #
-#   * the 21 sections -- COMPLETE. The letters and labels are the ones
-#     this repository already ships in `careeros/data/isic_sections.yaml`,
-#     reused verbatim rather than retyped, because NACE Rev. 2 (which NOGA
-#     2008 implements) shares ISIC Rev. 4's section letters and titles.
-#     That shared level is also what makes D2 cheap: a company already
-#     storing the section letter 'J' keeps a meaningful value.
+#   * the 21 sections -- COMPLETE FOR NOGA 2008, AND NOW BEHIND THE
+#     SECTOR TABLE THE PRODUCT ACTUALLY USES. They were copied verbatim
+#     from the ISIC Rev.4 table this repository shipped at the time,
+#     because NACE Rev. 2 (which NOGA 2008 implements) shares ISIC Rev.
+#     4's section letters and titles.
+#
+#     CAREER-132 (2026-11-03) settled D2's open half the other way: the
+#     owner ruled for NOGA 2025 / NACE Rev. 2.1, which has 22 sections
+#     (A-V), and the live sector table
+#     (`vendor/capa-repo/org_intake/data/noga_sections.yaml`,
+#     read via `org_intake.classify.load_sections`) carries those 22.
+#     The 21 letters below are therefore the PREDECESSOR revision and
+#     disagree with the live table from J onwards. They are left as they
+#     are rather than retyped, because a NOGA 2025 letter list is only
+#     half of what this dimension needs -- see the open question.
 #   * the divisions -- A STUB, no entries. The BFS NOGA publication could
 #     not be read in this ticket (no network access), and the division
 #     list is the one place where typing from memory would put a wrong
@@ -31,19 +40,19 @@
 #     gaps (there is no division 34, 40 or 44), so every two-digit number
 #     inside a range is NOT a division.
 #
-# WHICH REVISION IS CURRENT is the second half of D2 and is NOT settled
-# here. A NOGA 2025 revision following NACE Rev. 2.1 is reported to have
-# been introduced for statistics from reference year 2025, which would
-# make NOGA 2008 the predecessor -- but confirming that, and with it which
-# revision CareerOS should classify against, needs the BFS page. Until
-# then `standard_version` says so in words rather than naming a revision
-# this file cannot stand behind. Rev. 2.1 restructured parts of the
-# classification, so the ranges below must be re-confirmed against
-# whichever revision is adopted, not assumed to carry over.
+# WHICH REVISION IS CURRENT was the second half of D2 and is settled:
+# NOGA 2025, following NACE Rev. 2.1 (owner ruling 2026-11-03,
+# CAREER-132). The product classifies against it and company records
+# store its letters. What is NOT settled is the content of THIS file:
+# Rev. 2.1 restructured parts of the classification, and the section list
+# and the ranges below are still the NOGA 2008 shape, unverified against
+# a BFS document that still could not be fetched. `standard_version`
+# names the adopted revision; the open question below says plainly that
+# the list underneath it has not caught up.
 taxonomy_version: "1.0.0"
 standard: "NOGA (Nomenclature générale des activités économiques), the Swiss implementation of NACE"
-standard_version: "UNCONFIRMED: NOGA 2008 (NACE Rev. 2) or NOGA 2025 (NACE Rev. 2.1) -- see the header and open_questions"
-changed_at: "2026-10-17"
+standard_version: "NOGA 2025 (NACE Rev. 2.1) -- adopted by owner ruling 2026-11-03 (CAREER-132); the code list below is still the NOGA 2008 shape, see open_questions"
+changed_at: "2026-11-03"
 source_url: "https://www.bfs.admin.ch/bfs/en/home/statistics/industry-services/nomenclatures/noga.html"
 source_url_confirmed: false
 code_lists:
@@ -153,15 +162,18 @@ derivation:
     T: ["97", "98"]
     U: ["99", "99"]
 open_questions:
-  - "D2 asks which NOGA revision is current and for it to be recorded.
-     Unanswered: it needs the BFS page, which could not be fetched. TODO:
-     confirm NOGA 2008 vs NOGA 2025, record it in standard_version, and
-     re-confirm the derivation ranges against that revision."
-  - "`careeros/data/isic_sections.yaml` is still the live sector source:
-     the enrichment cascade keyword-matches against it and company
-     records store its letters (`vault.known_section_codes`). D2 is a
-     replacement of the standard, not of the stored values, and nothing in
-     this ticket migrates or rewires either. The section letters coincide,
-     so the two lists do not currently disagree -- but they are two files
-     carrying one list, which is a duplicate to remove when the divisions
-     land and the ISIC file retires."
+  - "D2 asked which NOGA revision is current. ANSWERED by CAREER-132
+     (owner ruling 2026-11-03): NOGA 2025 / NACE Rev. 2.1, 22 sections
+     A-V. The live sector table moved to `org_intake`'s
+     `noga_sections.yaml`, which company records now store the letters of
+     (`vault.known_section_codes`). The dead
+     `careeros/data/isic_sections.yaml` copy this file used to call the
+     live source is retired by CAREER-132 PR1, not by that change.
+     STILL OPEN, and the reason the list above was not retyped: this
+     file's own `noga_section` codes and `section_of_division` ranges are
+     the NOGA 2008 structure. Nothing reads them yet (the only reader is
+     `tests/test_taxonomy.py`'s shape check), and rewriting them needs
+     the NACE Rev. 2.1 division numbering from the BFS publication, which
+     still could not be fetched. TODO: load the Rev. 2.1 divisions and
+     ranges, then replace the 21 letters above with the 22 the live table
+     carries, so this dimension and the stored sector letter agree."

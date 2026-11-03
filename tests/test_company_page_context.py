@@ -7,7 +7,10 @@ absence pin also runs through the pinned API fixture.
 """
 from careeros.web.pages import companies
 
-ISIC = [{'code': 'J', 'label': 'Information and communication'}]
+# NOGA 2025 J, the content half of the old ISIC J. Named once: the
+# section titles are long.
+J_LABEL = 'Publishing, Broadcasting, and Content Production and Distribution Activities'
+ISIC = [{'code': 'J', 'label': J_LABEL}]
 
 
 def context(company=None, jobs=(), experiences=()):
@@ -50,7 +53,7 @@ def test_classification_source_user_beats_an_enrichment_signal():
     company = (events('sectors', ('wikidata', 'matched'))
                | {'sectors': ['J'], 'field_provenance': {'sectors': 'user'}})
     assert context(company)['classification']['sector'] == {
-        'value': 'Information and communication', 'source': 'user'}
+        'value': J_LABEL, 'source': 'user'}
 
 
 def test_classification_source_is_the_last_filling_signal():
@@ -116,7 +119,7 @@ def test_existing_keys_survive():
     result = context({'website': 'https://studio.example', 'locations': ['Zurich'],
                       'notes': 'Owner notes', 'sectors': ['J']}, jobs=jobs)
     assert result['entries'][0]['needs_attention'] is True
-    assert result['sector_labels'] == ['Information and communication']
+    assert result['sector_labels'] == [J_LABEL]
     assert result['company']['website'] == 'https://studio.example'
     assert result['company']['locations'] == ['Zurich']
     assert result['company']['notes'] == 'Owner notes'
@@ -128,5 +131,5 @@ def test_fixture_company_with_a_review_flag_asks_for_nothing(api_client):
     page = api_client.get('/api/companies/CO-001?view=page').get_json()
     assert page['company']['review_flags'] == ['sector-ambiguous']
     assert 'needs_input' not in page
-    assert page['classification']['sector']['value'] == 'Information and communication'
+    assert page['classification']['sector']['value'] == J_LABEL
     assert page['jobs'] == [{'id': 'JOB-001', 'title': 'Contract Builder', 'status': 'new'}]

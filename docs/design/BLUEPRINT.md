@@ -322,7 +322,7 @@ erDiagram
   }
   INDUSTRY {
     string id PK
-    string name "ISIC section, internal only"
+    string name "NOGA section, internal only"
   }
   SIZE_CLASS {
     string id PK
@@ -383,7 +383,7 @@ erDiagram
 
 - **Shared and personal.** COMPANY and JOB_POSTING are shared records (the future Job Universe). USER_JOB and FOLLOW are one person's relationship to them. Today the app is single-user, so USER_JOB may still be columns on the job; the split is the target for the hosted product.
 - **Notes have exactly one parent**, a company or a job, never both and never neither.
-- **Company classification** (industry and size) is estimated by AI or set by the owner ("Set it yourself", "Try again"). The industry list is the ISIC section list internally; public copy never says so.
+- **Company classification** (industry and size) is estimated by AI or set by the owner ("Set it yourself", "Try again"). The industry list is the NOGA 2025 section list internally; public copy never says so.
 - **Not built, not designed:** fit scores, job discovery, logos, ratings, ISCO occupations, ESCO skills (SKILL is a placeholder), contract type and language filters.
 - **IDs** look like CO-001 and JOB-001 in the staging app.
 - **Never promise matching publicly.**

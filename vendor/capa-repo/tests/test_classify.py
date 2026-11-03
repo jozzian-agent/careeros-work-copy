@@ -1,4 +1,4 @@
-"""ISIC Rev.4 section matching and EU-threshold size derivation. Pure,
+"""NOGA 2025 section matching and EU-threshold size derivation. Pure,
 offline, deterministic logic; no network I/O.
 
 Ported from careeros tests/test_sectors.py's pure classify.py-equivalent
@@ -16,10 +16,11 @@ from org_intake import classify
 # --- Rule 7: keyword-match function with ambiguity refusal -----------------
 
 @pytest.mark.parametrize('text,expected', [
-    ('Software and IT services', ['J']),
-    ('Banking and insurance', ['K']),
+    ('Software and IT services', ['K']),  # NOGA 2025 split old J: software is K
+    ('Publishing and broadcasting', ['J']),  # ...and content stayed J
+    ('Banking and insurance', ['L']),
     ('Logistics and warehousing', ['H']),
-    ('Technology', []),  # genuinely ambiguous between J and M: refuse, do not guess
+    ('Technology', []),  # genuinely ambiguous between K and N: refuse, do not guess
     ('Nonsense industry label', []),  # no match: refuse
     ('', []),
 ])
@@ -28,14 +29,15 @@ def test_match_sectors_confidence_and_ambiguity(text, expected):
 
 
 @pytest.mark.parametrize('text,expected', [
-    ('technology industry', ['J']),  # longer, specific keyword outranks the
-    ('information technology', ['J']),  # generic "technology" word M also has
+    ('technology industry', ['K']),  # longer, specific keyword outranks the
+    ('information technology', ['K']),  # generic "technology" word N also has
+    ('computer consulting', ['K']),  # same tie-break against N's "consulting"
     ('pharmaceutical industry', ['C']),
-    ('automotive industry', ['C']),  # manufacturing (ISIC div. 29), not G
-    ('cryptocurrency', ['K']),
-    ('fintech', ['K']),
+    ('automotive industry', ['C']),  # manufacturing (NOGA div. 29), not G
+    ('cryptocurrency', ['L']),
+    ('fintech', ['L']),
     ('electrical engineering', ['C']),
-    ('cloud computing', ['J']),
+    ('cloud computing', ['K']),
 ])
 def test_match_sectors_widened_vocabulary_classes(text, expected):
     assert classify.match_sectors(text) == expected
@@ -46,14 +48,14 @@ def test_specificity_tie_break_resolves_generic_vs_specific_restatement_only():
     # the SAME phrase, never independent keywords from unrelated activities
     # that merely happen to co-occur in one text.
     assert classify.all_matched_sections('electrical engineering') == ['C']
-    assert classify.all_matched_sections('cloud computing') == ['J']
+    assert classify.all_matched_sections('cloud computing') == ['K']
     assert classify.match_sectors('Technology') == []
     assert classify.match_sectors('software and retail') == []
 
 
 def test_match_sectors_bare_technology_still_ambiguous_after_vocabulary_widening():
     assert classify.match_sectors('Technology') == []
-    assert classify.all_matched_sections('Technology') == ['J', 'M']
+    assert classify.all_matched_sections('Technology') == ['K', 'N']
 
 
 @pytest.mark.parametrize('text', ['software and retail', 'mining and manufacturing'])
@@ -62,13 +64,24 @@ def test_match_sectors_independent_keywords_stay_ambiguous(text):
 
 
 def test_all_matched_sections_independent_keywords_returns_both_unresolved():
-    assert classify.all_matched_sections('software and retail') == ['G', 'J']
+    assert classify.all_matched_sections('software and retail') == ['G', 'K']
     assert classify.all_matched_sections('mining and manufacturing') == ['B', 'C']
 
 
-def test_known_section_codes_are_isic_sections():
-    assert classify.known_section_codes() == {s['code'] for s in classify.load_isic_sections()}
-    assert len(classify.known_section_codes()) == 21
+def test_known_section_codes_are_the_22_noga_2025_sections():
+    assert classify.known_section_codes() == {s['code'] for s in classify.load_sections()}
+    # A-V: NACE Rev. 2.1 split old ISIC J in two, so there are 22 letters,
+    # not the 21 this table carried until 2026-11-03.
+    assert classify.known_section_codes() == set('ABCDEFGHIJKLMNOPQRSTUV')
+
+
+def test_every_section_carries_a_plain_language_description():
+    """A jobseeker reads the description, so an empty or missing one is a
+    section that cannot be explained on a screen."""
+    for section in classify.load_sections():
+        assert section['description'].strip()
+        assert section['label'].strip()
+        assert section['keywords']
 
 
 # --- Rule 8: the EU class is the one size this module derives -------------

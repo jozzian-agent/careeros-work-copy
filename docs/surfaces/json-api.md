@@ -398,7 +398,7 @@ converts template tuples to arrays and rendered Markdown to strings.
   Entries retain record fields and add `needs_attention`, `company_name`,
   `company_industry`, `company_size_class` and `pending`, plus
   `on_my_board` on the `view=universe` answer only (B2). Companies maps IDs
-  to `{name, industry, size_class}`: `industry` is the company's first ISIC
+  to `{name, industry, size_class}`: `industry` is the company's first NOGA
   sector, human-labeled (`None` with no sectors or an unknown code);
   `size_class` is the raw micro/small/medium/large/xl value (`None` when unset).
   Pending means not enriched, matching the existing card attribute; it is
@@ -579,7 +579,7 @@ converts template tuples to arrays and rendered Markdown to strings.
   and `tags` tokens on the skill facets (`skill/capability`, `skill/domain`),
   shown by registry label, falling back to the slug when unknown — each a
   `{skill, count}` row, deduplicated per experience, sorted by count desc
-  then name. `industries` is `{code, label, count}` per ISIC section any
+  then name. `industries` is `{code, label, count}` per NOGA section any
   company's `sectors` carries, deduplicated per company. `sizes` is
   `{size_class, count}` in the size vocabulary's own order
   (micro/small/medium/large/xl) plus a trailing `unknown` bucket, always

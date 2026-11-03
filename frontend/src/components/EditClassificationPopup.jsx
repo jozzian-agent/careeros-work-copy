@@ -82,7 +82,7 @@ export default function EditClassificationPopup({
         const proposedTags = tags.filter((tag) => !(knownTags || []).includes(tag));
         await onSave({ function: selectedFunctions, tags, proposed_tags: proposedTags });
       } else {
-        // The company record keeps the ISIC list and the EU size class;
+        // The company record keeps the NOGA sector list and the EU size class;
         // both are sent as the owner's answer, empty meaning "clear it".
         await onSave({ sectors: sector ? [sector] : [], size_class: sizeClass || null });
       }

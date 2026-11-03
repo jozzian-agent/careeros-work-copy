@@ -7,7 +7,10 @@ visibility half reads a real vault, because that is where it is decided.
 from careeros import vault
 from careeros.web.pages import companies
 
-ISIC = [{'code': 'J', 'label': 'Information and communication'}]
+# NOGA 2025 J, the content half of the old ISIC J. Named once: the
+# section titles are long.
+J_LABEL = 'Publishing, Broadcasting, and Content Production and Distribution Activities'
+ISIC = [{'code': 'J', 'label': J_LABEL}]
 
 
 def context(entries, jobs=()):
@@ -94,7 +97,7 @@ def test_every_company_appears_whatever_its_source_and_counts_the_universe(tmp_p
 def test_sector_labels_and_the_size_scale_come_from_the_context():
     entries = [company(sectors=['J', 'ZZ'], size_class='small')]
     result = context(entries)
-    assert result['sector_labels'] == {'CO-001': ['Information and communication', 'ZZ']}
+    assert result['sector_labels'] == {'CO-001': [J_LABEL, 'ZZ']}
     # The scale with the words it is shown by, smallest first (CAREER-71):
     # the card, the list row and the Size facet all read it, so none of
     # them has to turn a code into a label and get `xl` wrong.

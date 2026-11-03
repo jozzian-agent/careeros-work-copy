@@ -3045,7 +3045,7 @@ def create_app(vault: str | Path | None = None) -> Flask:
             # the request's principal is read. See jobs.board_context.
             context = build(app.config['VAULT_PATH'], session_owner(),
                             is_admin=may_edit_shared())
-            summaries = jobs.company_summaries(context['companies'], sectors.load_isic_sections())
+            summaries = jobs.company_summaries(context['companies'], sectors.load_sections())
             return jsonify(context | {
                 'companies': summaries,
                 'entries': [job | {'company_name': summaries.get(job.get('company_id'), {}).get('name'),

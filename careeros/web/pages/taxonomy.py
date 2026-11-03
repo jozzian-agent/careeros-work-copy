@@ -1,6 +1,6 @@
 """Read-only taxonomy/methodology page: counts for the skills tagged on
 the reading user's own experiences (M2: those records are private, see
-decision D3), plus the ISIC industry sections companies sit in and
+decision D3), plus the NOGA industry sections companies sit in and
 companies' EU size classes, which are shared universe and so stay
 vault-wide. No editing lives here; this is a reporting surface only."""
 from careeros import vault
@@ -13,7 +13,7 @@ def taxonomy_context(root, owner=None):
     # are over companies, which are shared universe and stay vault-wide.
     return aggregate_context(vault.list_experiences(root, owner),
                              vault.visible_companies(root, owner),
-                             sectors.load_isic_sections(), vault.tag_label_map(root))
+                             sectors.load_sections(), vault.tag_label_map(root))
 
 def aggregate_context(experiences, companies, isic_sections, tag_labels):
     """Build the aggregate counts without I/O, so the breakdown logic is
@@ -52,7 +52,7 @@ def skill_counts(experiences, tag_labels):
             for skill, count in sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))]
 
 def industry_counts(companies, isic_sections):
-    """Every ISIC section code any company's `sectors` field carries,
+    """Every NOGA section code any company's `sectors` field carries,
     human-labeled, with how many companies carry it, sorted by count
     desc then label. Each company is deduplicated before counting, so a
     repeated code within one record contributes at most one count."""

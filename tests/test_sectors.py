@@ -31,10 +31,14 @@ def client(root):
 # --- Keyword-match function with ambiguity refusal -------------------------
 
 @pytest.mark.parametrize('text,expected', [
-    ('Software and IT services', ['J']),
-    ('Banking and insurance', ['K']),
+    # CAREER-132: NOGA 2025 (NACE Rev. 2.1) split old ISIC J in two -- the
+    # software/telecom half is K, the publishing/content half stayed J --
+    # and every later letter moved up one, so finance is L, not K.
+    ('Software and IT services', ['K']),
+    ('Publishing and broadcasting', ['J']),
+    ('Banking and insurance', ['L']),
     ('Logistics and warehousing', ['H']),
-    ('Technology', []),  # genuinely ambiguous between J and M: refuse, don't guess
+    ('Technology', []),  # genuinely ambiguous between K and N: refuse, don't guess
     ('Nonsense industry label', []),  # no match: refuse
     ('', []),
 ])
@@ -42,19 +46,21 @@ def test_match_sectors_confidence_and_ambiguity(text, expected):
     assert sectors.match_sectors(text) == expected
 
 
-# --- JOZ-260c: widened ISIC vocabulary, real-world Wikidata industry strings
+# --- JOZ-260c: widened section vocabulary, real-world Wikidata industry
+# strings (letters re-read against NOGA 2025 in CAREER-132)
 @pytest.mark.parametrize('text,expected', [
-    ('technology industry', ['J']),  # longer, specific keyword outranks the
-    ('information technology', ['J']),  # generic "technology" word M also has
+    ('technology industry', ['K']),  # longer, specific keyword outranks the
+    ('information technology', ['K']),  # generic "technology" word N also has
+    ('computer consulting', ['K']),  # the same tie-break against N's "consulting"
     ('pharmaceutical industry', ['C']),
-    ('automotive industry', ['C']),  # manufacturing (ISIC div. 29), not G
-    ('cryptocurrency', ['K']),
-    ('fintech', ['K']),
+    ('automotive industry', ['C']),  # manufacturing (NOGA div. 29), not G
+    ('cryptocurrency', ['L']),
+    ('fintech', ['L']),
     # JOZ-261: real-world Wikidata industry labels the live sweep actually
     # returned (e.g. for Siemens) and failed to match before this vocabulary
     # was widened.
     ('electrical engineering', ['C']),
-    ('cloud computing', ['J']),
+    ('cloud computing', ['K']),
 ])
 def test_match_sectors_widened_vocabulary_classes(text, expected):
     assert sectors.match_sectors(text) == expected
@@ -62,11 +68,11 @@ def test_match_sectors_widened_vocabulary_classes(text, expected):
 
 def test_electrical_engineering_does_not_collide_with_generic_engineering_or_technology():
     # Regression guard (JOZ-261): the new "electrical engineering" keyword
-    # must resolve on its own, not accidentally tie with M's "engineering
-    # services"/"technology" or J's bare "technology" the way bare
+    # must resolve on its own, not accidentally tie with N's "engineering
+    # services"/"technology" or K's bare "technology" the way bare
     # "Technology" still does.
     assert sectors.all_matched_sections('electrical engineering') == ['C']
-    assert sectors.all_matched_sections('cloud computing') == ['J']
+    assert sectors.all_matched_sections('cloud computing') == ['K']
     # Existing refusals (bare "technology", unrelated co-occurring keywords)
     # must still be untouched by the new vocabulary.
     assert sectors.match_sectors('Technology') == []
@@ -74,10 +80,10 @@ def test_electrical_engineering_does_not_collide_with_generic_engineering_or_tec
 
 
 def test_match_sectors_bare_technology_still_ambiguous_after_vocabulary_widening():
-    # The new "technology industry" J keyword must not accidentally make
-    # bare "Technology" resolve too: it still ties with M at equal length.
+    # The "technology industry" K keyword must not accidentally make bare
+    # "Technology" resolve too: it still ties with N at equal length.
     assert sectors.match_sectors('Technology') == []
-    assert sectors.all_matched_sections('Technology') == ['J', 'M']
+    assert sectors.all_matched_sections('Technology') == ['K', 'N']
 
 
 # --- Regression (code review): the specificity tie-break must only resolve
@@ -90,25 +96,28 @@ def test_match_sectors_independent_keywords_stay_ambiguous(text):
 
 
 def test_all_matched_sections_independent_keywords_returns_both_unresolved():
-    assert sectors.all_matched_sections('software and retail') == ['G', 'J']
+    assert sectors.all_matched_sections('software and retail') == ['G', 'K']
     assert sectors.all_matched_sections('mining and manufacturing') == ['B', 'C']
 
 
-def test_match_sectors_known_codes_are_isic_sections():
-    assert sectors.known_section_codes() == {s['code'] for s in sectors.load_isic_sections()}
-    assert len(sectors.known_section_codes()) == 21
+def test_match_sectors_known_codes_are_the_22_noga_2025_sections():
+    assert sectors.known_section_codes() == {s['code'] for s in sectors.load_sections()}
+    # A-V. The 22nd letter is what NACE Rev. 2.1's split of old ISIC J
+    # produced; a company record may only store one of these.
+    assert sectors.known_section_codes() == set('ABCDEFGHIJKLMNOPQRSTUV')
 
 
 def test_no_orphan_isic_copy_in_careeros_data():
-    """The ISIC section table ships ONCE, inside the vendored capability
-    (vendor/capa-repo/org_intake/data/isic_sections.yaml); nothing reads a
+    """The section table ships ONCE, inside the vendored capability
+    (vendor/capa-repo/org_intake/data/noga_sections.yaml); nothing reads a
     copy under careeros/data. A byte-identical orphan lived there until
     CAREER-132 recon found it (2026-11-03): two tables that drift silently
     is exactly what the vendor rule exists to prevent."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     assert not (root / 'careeros' / 'data' / 'isic_sections.yaml').exists()
-    assert (root / 'vendor' / 'capa-repo' / 'org_intake' / 'data' / 'isic_sections.yaml').exists()
+    assert not (root / 'careeros' / 'data' / 'noga_sections.yaml').exists()
+    assert (root / 'vendor' / 'capa-repo' / 'org_intake' / 'data' / 'noga_sections.yaml').exists()
 
 
 # --- Size derivation: the class, and only the class -----------------------
@@ -217,8 +226,8 @@ def test_company_sectors_defaults_to_empty_list(tmp_path):
     assert company['sectors'] == []
 
 
-def test_company_sectors_must_be_known_isic_codes(tmp_path):
-    with pytest.raises(ValueError, match='ISIC'):
+def test_company_sectors_must_be_known_noga_codes(tmp_path):
+    with pytest.raises(ValueError, match='NOGA'):
         vault.save_company(tmp_path, {'name': 'Fiction Co', 'sectors': ['ZZ']})
     assert vault.save_company(tmp_path, {'name': 'Fiction Co', 'sectors': ['J', 'K']})['sectors'] == ['J', 'K']
 
@@ -236,7 +245,7 @@ def test_legacy_null_sectors_load_as_empty_list(root):
 
 def test_legacy_sector_translates_to_sectors_on_confident_match(tmp_path):
     company = vault.save_company(tmp_path, {'name': 'Fiction Co', 'sector': 'Software and IT services'})
-    assert company['sectors'] == ['J']
+    assert company['sectors'] == ['K']
     assert company['sector'] == 'Software and IT services'  # legacy field itself is untouched
 
 
@@ -701,7 +710,7 @@ def test_backfill_promotes_from_job_aggregation_before_external_fetch(tmp_path):
     updated = product_enrich.backfill(tmp_path, size_signals=(), fetch=tracking_fetch)
     assert calls == []
     assert company['id'] in updated
-    assert vault.load_company(tmp_path, company['id'])['sectors'] == ['K']
+    assert vault.load_company(tmp_path, company['id'])['sectors'] == ['L']
 
 
 def test_backfill_size_cascade_respects_consistency_with_populated_range(root):
@@ -867,7 +876,7 @@ def test_backfill_clears_sector_flag_once_resolved(root):
 
     product_enrich.backfill(root, sector_signals=(confident_signal,), size_signals=())
     saved = vault.load_company(root, company['id'])
-    assert saved['sectors'] == ['K']
+    assert saved['sectors'] == ['L']
     assert company_lookup.FLAG_SECTOR_AMBIGUOUS not in saved['review_flags']
 
 
@@ -902,7 +911,7 @@ def test_external_sectors_size_status_failure_preserves_industry(tmp_path):
         return {'industry': 'Banking and insurance', 'employee_count': None, 'size_status': 'error'}
 
     codes, flag = company_lookup.external_sectors(company, signals=(signal,), **product_enrich.classification_options())
-    assert codes == ['K']
+    assert codes == ['L']
     assert flag is None
 
 
@@ -947,7 +956,7 @@ def test_sectors_cascade_promotion_success_records_matched_and_skips_external_si
     collector = company_lookup.BackfillAccounting()
     codes, flag = company_lookup.classify_sector(company, signals=(company_lookup._jsonld_signal,),
                                                   collector=collector, **product_enrich.classification_options())
-    assert codes == ['K'] and flag is None
+    assert codes == ['L'] and flag is None
     assert collector.summary()['matched'] == 1
     assert any(e['outcome'] == 'not-attempted' for e in collector.events)
     events = {(e['signal'], e['outcome']) for e in collector.events}
@@ -1140,7 +1149,7 @@ def test_sectors_cascade_promotion_empty_records_empty_event():
 
     collector = company_lookup.BackfillAccounting()
     codes, flag = company_lookup.classify_sector(company, signals=(fake_signal,), collector=collector, **product_enrich.classification_options())
-    assert codes == ['K'] and flag is None
+    assert codes == ['L'] and flag is None
     events = {(e['signal'], e['outcome']) for e in collector.events}
     assert ('promotion', 'empty') in events
     assert ('fake_signal', 'matched') in events
@@ -1178,7 +1187,8 @@ def test_companies_directory_sector_labels_are_human_not_bare_codes(client, root
     vault.save_company(root, {'name': 'Labeled Labs', 'sectors': ['J']})
     page = client.get('/api/companies?view=page').json
     company_id = next(c['id'] for c in page['entries'] if c['name'] == 'Labeled Labs')
-    assert page['sector_labels'][company_id] == ['Information and communication']
+    expected = next(s['label'] for s in sectors.load_sections() if s['code'] == 'J')
+    assert page['sector_labels'][company_id] == [expected]
 
 
 def test_backfill_endpoint_is_explicit_and_never_runs_automatically(client, root, monkeypatch):
@@ -1375,7 +1385,7 @@ def _counting_llm_client(monkeypatch, content):
 def test_external_sectors_llm_not_called_after_structured_success(tmp_path, monkeypatch):
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     calls = _counting_llm_client(monkeypatch, {
-        'sector': 'K', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': None})
+        'sector': 'L', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': None})
 
     def structured_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Software and IT services', 'employee_count': None}
@@ -1383,14 +1393,14 @@ def test_external_sectors_llm_not_called_after_structured_success(tmp_path, monk
     company = vault.save_company(tmp_path, {'name': 'Already Classified Co'})
     codes, flag = company_lookup.external_sectors(
         company, signals=(structured_signal, company_lookup._llm_signal), **product_enrich.classification_options())
-    assert codes == ['J'] and flag is None
+    assert codes == ['K'] and flag is None
     assert calls['n'] == 0  # LLM must never run once a structured signal already matched
 
 
 def test_external_sectors_llm_called_as_fallback_when_structured_empty(tmp_path, monkeypatch):
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     calls = _counting_llm_client(monkeypatch, {
-        'sector': 'K', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': None})
+        'sector': 'L', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': None})
 
     def empty_signal(c, fetch=None, warn=None, deadline=None):
         return {}
@@ -1399,7 +1409,7 @@ def test_external_sectors_llm_called_as_fallback_when_structured_empty(tmp_path,
     collector = company_lookup.BackfillAccounting()
     codes, flag = company_lookup.external_sectors(
         company, signals=(empty_signal, company_lookup._llm_signal), collector=collector, **product_enrich.classification_options())
-    assert codes == ['K'] and flag is None
+    assert codes == ['L'] and flag is None
     assert calls['n'] == 1
     events = {(e['signal'], e['outcome']) for e in collector.events}
     assert ('llm', 'matched') in events
@@ -1408,7 +1418,7 @@ def test_external_sectors_llm_called_as_fallback_when_structured_empty(tmp_path,
 def test_external_sectors_structured_conflict_short_circuits_before_llm(tmp_path, monkeypatch):
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     calls = _counting_llm_client(monkeypatch, {
-        'sector': 'J', 'sector_label': 'software company', 'confidence': 'high', 'size_hint': None})
+        'sector': 'K', 'sector_label': 'software company', 'confidence': 'high', 'size_hint': None})
 
     def software_signal(c, fetch=None, warn=None, deadline=None):
         return {'industry': 'Software and IT services', 'employee_count': None}
@@ -1475,7 +1485,7 @@ def test_llm_signal_high_confidence_fills_sector_and_size_with_llm_provenance(tm
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
-        'sector': 'K', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': 'large'})))
+        'sector': 'L', 'sector_label': 'global investment bank', 'confidence': 'high', 'size_hint': 'large'})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Big Bank Inc'})
     collector = company_lookup.BackfillAccounting()
@@ -1483,7 +1493,7 @@ def test_llm_signal_high_confidence_fills_sector_and_size_with_llm_provenance(tm
                                       size_signals=(company_lookup._llm_signal,), collector=collector)
     saved = vault.load_company(tmp_path, company['id'])
     assert company['id'] in updated
-    assert saved['sectors'] == ['K']
+    assert saved['sectors'] == ['L']
     assert saved['size_class'] == 'large'
     # Provenance: the same mechanism every other signal uses -- a named
     # accounting event, 'llm' -- there is no other per-field provenance
@@ -1497,17 +1507,17 @@ def test_llm_signal_letter_authoritative_when_label_has_no_keyword_match(tmp_pat
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
-        'sector': 'Q', 'sector_label': 'runs a well-known chain of clinics',
+        'sector': 'R', 'sector_label': 'runs a well-known chain of clinics',
         'confidence': 'high', 'size_hint': None})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Clinic Co'})
     product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
-    assert vault.load_company(tmp_path, company['id'])['sectors'] == ['Q']
+    assert vault.load_company(tmp_path, company['id'])['sectors'] == ['R']
 
 
 def test_llm_signal_self_contradictory_rationale_refused(tmp_path, monkeypatch):
-    # The stated letter (J) and the free-text rationale confidently
-    # keyword-match to a DIFFERENT section (F, "construction company"): the
+    # The stated letter (J, content production) and the free-text rationale
+    # confidently keyword-match to a DIFFERENT section (F, construction): the
     # response contradicts itself, so it is refused rather than trusted.
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
@@ -1525,7 +1535,7 @@ def test_llm_signal_low_confidence_flags_for_review_without_filling(tmp_path, mo
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
-        'sector': 'K', 'sector_label': 'maybe a bank?', 'confidence': 'low', 'size_hint': None})))
+        'sector': 'L', 'sector_label': 'maybe a bank?', 'confidence': 'low', 'size_hint': None})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     company = vault.save_company(tmp_path, {'name': 'Unsure Co'})
     updated = product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
@@ -1716,17 +1726,22 @@ def test_llm_signal_prompt_contains_only_identifying_fields_never_job_data(tmp_p
     assert 'Berlin' in content and 'Owner note.' in content
 
 
-def test_llm_system_prompt_inlines_the_isic_letter_table(tmp_path, monkeypatch):
-    """The system prompt must carry every ISIC letter + label from
-    isic_sections.yaml so the model looks the mapping up instead of
+def test_llm_system_prompt_inlines_the_noga_letter_table(tmp_path, monkeypatch):
+    """The system prompt must carry every NOGA letter + label from
+    noga_sections.yaml so the model looks the mapping up instead of
     recalling it (live defect 2026-10-09: the local LLM answered letter C
     with the section-D label 'Electricity, gas, steam...' and the
     consistency check correctly refused -- Retry could never resolve a
-    real grid operator until the table shipped)."""
+    real grid operator until the table shipped).
+
+    CAREER-132 makes this the NOGA 2025 switch's safety net on the model
+    side: a model that remembers the 21 ISIC letters better than the 22
+    NOGA ones cannot act on that memory while the table is in front of
+    it."""
     import json
     prompt = company_lookup._llm_system_prompt()
-    loaded = sectors.load_isic_sections()
-    assert len(loaded) == 21  # A-U ISIC Rev.4 sections
+    loaded = sectors.load_sections()
+    assert len(loaded) == 22  # A-V NOGA 2025 sections
     for section in loaded:
         assert f"{section['code']} = {section['label']}" in prompt
     # Cache discipline (Codex review 2026-10-09): with sectors._SECTIONS
@@ -1741,11 +1756,16 @@ def test_llm_system_prompt_inlines_the_isic_letter_table(tmp_path, monkeypatch):
 
     monkeypatch.setattr(Path, 'read_text', counting_read_text)
     company_lookup._llm_system_prompt()
-    assert not any('isic_sections' in path for path in read_calls)
+    assert not any('noga_sections' in path for path in read_calls)
     # The two letters that were confused live must both be present with
     # their correct labels, so a lookup cannot return C for electricity.
-    assert 'D = Electricity, gas, steam and air conditioning supply' in prompt
+    assert 'D = Electricity, Gas, Steam and Air Conditioning Supply' in prompt
     assert 'C = Manufacturing' in prompt
+    # The split that letter-shifted everything from J onwards is in the
+    # table in full, so neither half of old J can be answered with the
+    # other's letter.
+    assert 'J = ' + loaded[9]['label'] in prompt and loaded[9]['code'] == 'J'
+    assert 'K = ' + loaded[10]['label'] in prompt and loaded[10]['code'] == 'K'
     # The table is in the SYSTEM message, and identifying fields remain
     # the only user content.
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
@@ -1768,16 +1788,16 @@ def test_llm_system_prompt_inlines_the_isic_letter_table(tmp_path, monkeypatch):
     product_enrich.backfill(tmp_path, sector_signals=(company_lookup._llm_signal,), size_signals=())
     system = [m for m in captured['messages'] if m['role'] == 'system']
     assert len(system) == 1
-    assert 'D = Electricity, gas, steam and air conditioning supply' in system[0]['content']
+    assert 'D = Electricity, Gas, Steam and Air Conditioning Supply' in system[0]['content']
     user = [m for m in captured['messages'] if m['role'] == 'user'][0]['content']
-    assert 'ISIC' not in user  # table never leaks into user content
+    assert 'NOGA' not in user  # table never leaks into user content
 
 
 def test_llm_signal_accounting_summary_counts(tmp_path, monkeypatch):
     import json
     monkeypatch.setenv('BACKFILL_USE_LLM', '1')
     monkeypatch.setattr(product_enrich, 'get_llm_client', lambda: client_for(json.dumps({
-        'sector': 'J', 'sector_label': 'software company', 'confidence': 'high', 'size_hint': 'small'})))
+        'sector': 'K', 'sector_label': 'software company', 'confidence': 'high', 'size_hint': 'small'})))
     monkeypatch.setattr(product_enrich, 'get_llm_model', object)
     vault.save_company(tmp_path, {'name': 'Counted Software Co'})
     collector = company_lookup.BackfillAccounting()
@@ -1843,8 +1863,8 @@ def test_company_detail_shows_sector_label_not_code(client, root):
                                         'size_class': 'large'})
     page = client.get('/api/companies/' + company['id'] + '?view=page').json
     # Section 3 display rule (same as the directory card): the detail page
-    # view carries the human label, never the bare ISIC code.
-    label = next(s['label'] for s in sectors.load_isic_sections() if s['code'] == 'D')
+    # view carries the human label, never the bare NOGA code.
+    label = next(s['label'] for s in sectors.load_sections() if s['code'] == 'D')
     assert page['sector_labels'] == [label]
 
 

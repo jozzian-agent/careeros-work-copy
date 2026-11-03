@@ -1,4 +1,13 @@
-"""Sector (ISIC Rev.4) and size (employee-count class) classification.
+"""Sector (NOGA 2025) and size (employee-count class) classification.
+
+The sector taxonomy is NOGA 2025, Switzerland's implementation of NACE
+Rev. 2.1: 22 section letters, A-V (noga_sections.yaml). It was UN ISIC
+Rev.4 (21 letters, A-U) until 2026-11-03, and the two agree only up to I
+- NACE Rev. 2.1 split old J in two and shifted every later letter up by
+one. A letter stored before that date is an ISIC Rev.4 letter and means
+something else from J onwards; translating stored data is a consumer's
+one-shot migration, not something this module does at read time, because
+a bare letter does not carry which revision wrote it.
 
 Pure, offline, deterministic logic; no network I/O lives here (that is
 enrich.py's concern). Ported from careeros/sectors.py. Behavior rule 7
@@ -54,17 +63,17 @@ SIZE_BUCKETS = ((10, '1-10'), (50, '11-50'), (200, '51-200'), (1000, '201-1000')
 SIZE_CLASS_THRESHOLDS = ((9, 'micro'), (49, 'small'), (249, 'medium'), (999, 'large'))
 SIZE_CLASSES = ('micro', 'small', 'medium', 'large', 'xl')
 
-def load_isic_sections():
-    data = yaml.safe_load((_DATA_DIR / 'isic_sections.yaml').read_text())
+def load_sections():
+    data = yaml.safe_load((_DATA_DIR / 'noga_sections.yaml').read_text())
     return data['sections']
 
 
-# isic_sections.yaml is read once, at import. This is allowed: the
+# noga_sections.yaml is read once, at import. This is allowed: the
 # no-file-I/O boundary this capability holds to covers record storage
 # (organisation records always cross through the injected `store`, never
-# a path this package opens itself) - the ISIC taxonomy is reference data
-# the capability owns outright, per Behavior rule 7.
-_SECTIONS = load_isic_sections()
+# a path this package opens itself) - the sector taxonomy is reference
+# data the capability owns outright, per Behavior rule 7.
+_SECTIONS = load_sections()
 
 
 def _sections():
@@ -108,8 +117,8 @@ def all_matched_sections(text):
 
 
 def match_sectors(text):
-    """Keyword-match one free-text industry signal to zero or more ISIC
-    section codes.
+    """Keyword-match one free-text industry signal to zero or more NOGA
+    2025 section codes.
 
     This answers "which single interpretation is right for one ambiguous
     signal," not "how many sectors apply": a signal that matches more than

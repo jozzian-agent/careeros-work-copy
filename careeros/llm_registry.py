@@ -36,7 +36,7 @@ whole point of the page:
     stored fields reach it, and the never-sent section of the page is
     every other field of those kinds.
   * `TAXONOMY` -- a vocabulary the app owns (the function facet options,
-    the ISIC letter table). Not about any one person.
+    the NOGA section-letter table). Not about any one person.
   * `FIXED` -- instruction text that is the same on every call.
 
 `parameter` and `keys` are the claim the generator checks: `keys` is
@@ -262,7 +262,7 @@ COMPANY_WORLD_KNOWLEDGE = CallSite(
             vault_fields=('locations', 'name', 'notes', 'website'),
         ),
         PromptPart(
-            label='the ISIC Rev.4 letter table and the fixed instructions',
+            label='the NOGA 2025 letter table and the fixed instructions',
             kind=FIXED,
             origin='`org_intake.enrich` _llm_system_prompt, over the sections of '
                    '`org_intake.classify`',

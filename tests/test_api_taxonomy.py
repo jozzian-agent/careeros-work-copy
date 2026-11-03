@@ -1,5 +1,9 @@
 """Pinned JSON page contracts against an isolated fixture vault."""
 
+# NOGA 2025 J, the content half of the old ISIC J. Named once: the
+# section titles are long.
+J_LABEL = 'Publishing, Broadcasting, and Content Production and Distribution Activities'
+
 JOB_SHAPE = {
  # M2 (CAREER-39, decision D3): whether this reader may add a value to
  # the shared tag vocabulary. The propose-a-new-tag control reads it.
@@ -56,7 +60,8 @@ JOB_SHAPE = {
                  'R': 'str',
                  'S': 'str',
                  'T': 'str',
-                 'U': 'str'},
+                 'U': 'str',
+                 'V': 'str'},
  'job': {'added': 'str',
          'ai_error': 'NoneType',
          'ai_finished': 'NoneType',
@@ -158,7 +163,7 @@ def test_taxonomy_values(api_client):
     assert job['function_labels'] == {'builder': {'label': 'Builder', 'local': True}}
     assert job['tags'] == ['function:builder']
     assert job['company']['sectors'] == ['J']
-    assert job['isic_labels']['J'] == 'Information and communication'
+    assert job['isic_labels']['J'] == J_LABEL
     # B6: the company half of this endpoint is retired. The same values
     # now reach the company detail page through its own context
     # (kinds/size_classes there, review_flags on the record).
