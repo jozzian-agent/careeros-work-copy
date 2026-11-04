@@ -1319,6 +1319,84 @@ def test_promote_refuses_to_replace_a_live_generation(lan, vps):
     assert 'already promoted' in done.stdout
 
 
+def export_generation_in(incoming, name='2026-12-31T235959Z'):
+    """An upload from push_to_prod.sh, in incoming/ beside the pipeline ones.
+
+    The shape the export half really writes (scripts/export_jobs_for_prod.py,
+    verified against data/prod-export/2026-11-03/): the prod-export manifest
+    header, `pool.yaml` + `classification.yaml` + their sha256 lines, and a
+    COMPLETE pushed last. The name sorts NEWEST on purpose: this is the
+    generation a bare promote run used to pick up, fail validation on after
+    the move, and delete.
+    """
+    generation = incoming / name
+    generation.mkdir(parents=True)
+    (generation / 'pool.yaml').write_text('day: 2026-11-03\npostings: []\n')
+    (generation / 'classification.yaml').write_text('day: 2026-11-03\npostings: []\n')
+    lines = ['# careeros prod-export manifest',
+             'day: 2026-11-03',
+             'source_pool: /fixture/pool.yaml',
+             'source_run: /fixture/run.yaml',
+             'postings: 0',
+             '--']
+    for relative in ('pool.yaml', 'classification.yaml'):
+        digest = hashlib.sha256((generation / relative).read_bytes()).hexdigest()
+        lines.append(f'{digest}  {relative}')
+    (generation / 'MANIFEST').write_text('\n'.join(lines) + '\n')
+    (generation / 'COMPLETE').write_text(f'{name}\n')
+    return name
+
+
+def test_promote_skips_an_export_generation_rather_than_destroying_it(lan, vps):
+    """The upload is somebody's hand-pushed work product, not a release.
+
+    An export generation cannot pass pipeline validation (no
+    golden_set_pool_<day>.yaml layout), and a generation that fails
+    validation after the move is deleted -- so before this guard, a bare
+    promote run on a box holding one upload and nothing else picked the
+    upload by name, moved it, failed it, and destroyed it.
+    """
+    export = export_generation_in(lan.incoming)
+    before = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+              for path in (lan.incoming / export).iterdir()}
+
+    done = vps()
+    assert done.returncode != 0
+    assert 'no COMPLETE pipeline generation' in done.stdout
+    # The refusal is not the point; survival is. Every byte still there.
+    assert {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (lan.incoming / export).iterdir()} == before
+
+
+def test_promote_names_an_export_generation_it_is_asked_for_and_moves_nothing(lan, vps):
+    export = export_generation_in(lan.incoming)
+
+    done = vps(export)
+    assert done.returncode != 0
+    assert 'export generation' in done.stdout
+    assert 'import_prod_generation.sh' in done.stdout, 'the refusal says what to run instead'
+    assert (lan.incoming / export).is_dir()
+    assert not (vps.root / 'generations' / export).exists(), 'nothing was moved'
+
+
+def test_a_bare_run_promotes_the_pipeline_generation_past_a_newer_export(lan, vps):
+    """Newest-first picking with the export skipped, not export-first picking."""
+    export = export_generation_in(lan.incoming)
+    assert lan('sync_vault_to_prod.sh', DAY).returncode == 0
+    names = sorted(path.name for path in lan.incoming.iterdir() if path.is_dir())
+    pipeline = [name for name in names if name != export]
+    assert len(pipeline) == 1, names
+    pipeline = pipeline[0]
+    assert export > pipeline, 'the fixture export sorts newest, as a real later upload would'
+
+    done = vps()
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert f'skipping {export}' in done.stdout, 'the skip says so out loud'
+    assert os.readlink(vps.root / 'current') == f'generations/{pipeline}'
+    assert (lan.incoming / export / 'MANIFEST').is_file(), 'the upload is untouched'
+    assert not (lan.incoming / pipeline).exists(), 'the pipeline generation moved as usual'
+
+
 # --- the backup's fail-closed rule ---------------------------------------
 
 @pytest.fixture

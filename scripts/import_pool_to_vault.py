@@ -102,6 +102,10 @@ PROVIDER_ROOTS = {'personio': Path('data/personio')}
 #: never a reading of the posting and never a person's.
 FEED_PROVENANCE = 'feed'
 
+#: How many postings a dry run names in its sample, so the owner can see
+#: five real rows beside the counts before an apply touches the vault.
+DRY_RUN_SAMPLE_ROWS = 5
+
 #: The job fields this import fills from the pool row, for the
 #: provenance stamp above. Listed rather than derived from the payload so
 #: a field that happens to be empty on one posting still records who
@@ -615,6 +619,10 @@ def run(pool_path, classification_path, root, *, dry_run=False, base=None,
 
     counts['new_postings'] = len(fresh)
     stores = {}
+    #: The first few rows a dry run shows, so the numbers have faces:
+    #: `would create` over a 796-row pool is an abstraction until the
+    #: reader sees five of the postings and what they would carry.
+    samples = []
     for row in fresh:
         name, _basis = company_name_for(row, stated_names)
         key = identity._normalize_name(name)
@@ -647,6 +655,10 @@ def run(pool_path, classification_path, root, *, dry_run=False, base=None,
                               today=today)
         if dry_run:
             counts['imported'] += 1
+            if len(samples) < DRY_RUN_SAMPLE_ROWS:
+                family = ((values or {}).get('occupation_family') or {}).get('value')
+                samples.append(f"  {row.get('key')}  {str(row.get('title'))[:50]!r}"
+                               f"  company={name[:30]!r}  family={family or '-'}")
             continue
         try:
             job = vault.save_job(root, payload)
@@ -657,11 +669,11 @@ def run(pool_path, classification_path, root, *, dry_run=False, base=None,
         index.record(job)
         counts['imported'] += 1
 
-    report(counts, root, dry_run, out)
+    report(counts, root, dry_run, out, samples=samples)
     return counts
 
 
-def report(counts, root, dry_run, out=None):
+def report(counts, root, dry_run, out=None, samples=()):
     """The whole run in the numbers CAREER-72 asks for, plus the ones a
     reader needs to tell a clean import from a lucky one."""
     out = out if out is not None else sys.stdout
@@ -693,6 +705,11 @@ def report(counts, root, dry_run, out=None):
     if counts['failed']:
         print(f"FAILED to import:         {counts['failed']}  (see the warnings above)", file=out)
     print('-' * 78, file=out)
+    if samples:
+        print(f"sample (first {len(samples)}):", file=out)
+        for line in samples:
+            print(line, file=out)
+        print('-' * 78, file=out)
     print('every imported job is ownerless and in_pipeline: false -- All jobs for '
           'everyone, on nobody\'s board', file=out)
     if dry_run:
