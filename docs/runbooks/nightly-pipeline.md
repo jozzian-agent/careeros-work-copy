@@ -8,10 +8,10 @@ kills; what changed is in "Memory, disk and the log" below.
 
 ## The schedule
 
-| When (Swiss local) | What | Where it runs | Expected duration |
+| When (host clock, UTC) | What | Where it runs | Expected duration |
 |---|---|---|---|
-| 19:00 | `scripts/nightly_pipeline.sh` — fetch all six ATS providers, export the pool, classify it with the local LLM | Hermes cron job `careeros-nightly-pipeline` on 192.168.1.203 (this host) | ~10 h on the current pool (see "Measured durations" below) |
-| on completion, next morning | Telegram message with the one-line result and any failures (the cron job delivers the script's stdout when it exits, so a 19:00 start that finishes around 05:00 delivers around 05:00) | delivered by the cron job | instant |
+| 19:00 UTC (20:00 Swiss in winter, 21:00 in summer) | `scripts/nightly_pipeline.sh` — fetch all six ATS providers, export the pool, classify it with the local LLM | Hermes cron job `careeros-nightly-pipeline` on 192.168.1.203 (this host) | ~10 h on the current pool (see "Measured durations" below) |
+| on completion, next morning | Telegram message with the one-line result and any failures (the cron job delivers the script's stdout when it exits, so a 19:00 UTC start that finishes around 05:00 UTC delivers around 05:00 UTC) | delivered by the cron job | instant |
 
 There is exactly **one** scheduled job for this pipeline. It is a
 `no_agent` cron job: the scheduler runs the script and delivers its
@@ -182,7 +182,7 @@ takes a vault backup before running it.
 ## Measured durations
 
 2026-11-03 night (pool of 797 postings, log `data/nightly/nightly_2026-11-03.log`,
-run 19:00 → 04:57 the next day, ~10 h total):
+run 19:00 → 04:57 the next day, host clock = UTC, ~10 h total):
 
 - Fetch legs: personio 43 min, greenhouse 97 min, lever 6 min, ashby
   78 min, recruitee 8 min, smartrecruiters 47 min; export 29 min.
@@ -297,14 +297,22 @@ confirm it later via the CAREER-29 route). An approved family starts as
 Hermes cron job **`careeros-nightly-pipeline`, id `488ba0fa1330`**,
 `no_agent: true`, script `~/.hermes/scripts/careeros_nightly.sh` (a
 one-line wrapper that execs `scripts/nightly_pipeline.sh`), schedule
-`0 17 * * *`, delivery to the owner's Telegram. Created 2026-10-18.
+`0 19 * * *` (fires 19:00 UTC per `cron list`; see the DST record
+below), delivery to the owner's Telegram. Created 2026-10-18.
 
-**DST — fixed 2026-10-22.** The Hermes cron timezone is now explicitly
-`Europe/Zurich` (`hermes config set timezone Europe/Zurich`) and the
-schedule is `0 19 * * *`, so the pipeline fires at 19:00 Swiss
-wall-clock year-round; croniter computes the next run from a
-Zurich-anchored `now()` and DST shifts the UTC fire time instead of the
-local one. Note the gateway caches the timezone at startup — the config
-change only takes effect after a gateway restart. Historical caveat
-(now obsolete): before the fix, a fixed-UTC `0 17 * * *` fired one hour
-early in winter (CET), which was judged cosmetic.
+**DST — record corrected 2026-11-04.** The intended fix (2026-10-22)
+was `hermes config set timezone Europe/Zurich` plus schedule
+`0 19 * * *`, so the pipeline would fire at 19:00 Swiss wall-clock
+year-round. What the scheduler actually does today (raw `cron list`
+output, 2026-11-04): schedule `0 19 * * *`,
+`next_run_at: 2026-11-04T19:00:00+00:00` — it fires at **19:00 UTC**,
+which is 20:00 Swiss in winter (CET) and 21:00 in summer (CEST). The
+config line `timezone: Europe/Zurich` is set but is not taking effect
+on this job; the most likely cause is the gateway caching the timezone
+at startup — the config change only applies after a gateway restart —
+and the measured 2026-11-03 run started at 19:00 host
+time with the host clock on UTC, matching the +00:00 next-run. Until
+either the gateway is restarted on the Zurich timezone or the schedule
+is deliberately kept on UTC, treat **19:00 UTC** as the real fire time.
+Historical caveat: before the 2026-10-22 fix, a fixed-UTC `0 17 * * *`
+fired one hour early in winter (CET), which was judged cosmetic.
