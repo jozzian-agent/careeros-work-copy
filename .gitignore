@@ -43,5 +43,9 @@ data/ats/*
 # nightly pipeline logs and run outputs, written by
 # scripts/nightly_pipeline.sh; nothing in here is source
 data/nightly/
+
+# staged prod-push exports (deploy/push_to_prod.sh, export_jobs_for_prod.py):
+# pipeline output, megabytes per day, regenerable from data/ats + the vault
+data/prod-export/
 tmp-plan-vision-to-mvp.md
 tmp-vision-and-mvp.md

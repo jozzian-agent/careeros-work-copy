@@ -273,6 +273,10 @@ ownership only exists inside vault job records — so the owner check is
 enforced against the vault, and the `owner_id` column is a
 belt-and-braces guard for a future pool format.
 
-The export stages only; it sends nothing. The upload and the VPS-side
-import are separate, owner-started follow-ups. Nothing here is
-scheduled and nothing here is part of the nightly.
+The staged directory lives at `data/prod-export/<DATE>/` (gitignored —
+regenerable pipeline output, megabytes per day). The export stages only;
+it sends nothing. The upload is [`deploy/push_to_prod.sh`](../../deploy/push_to_prod.sh)
+— procedure, host-key pinning, permissions and failure recovery in
+[push-to-prod.md](push-to-prod.md) — and the VPS-side import is a
+separate, owner-started follow-up. Nothing here is scheduled and nothing
+here is part of the nightly.
