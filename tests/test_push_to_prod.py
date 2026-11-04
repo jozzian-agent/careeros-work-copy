@@ -17,17 +17,37 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 SCRIPT = REPO / 'deploy' / 'push_to_prod.sh'
 
+# The REAL shape of an upload's itemized dry-run output, captured 2026-11-04
+# against the live rrsync target: an upload's creations start with `<f`
+# (sending), NOT `>f` (receiving), and rsync prints a `created directory`
+# info line when the generation directory is new. Fixtures that canned
+# `>f+++` let a classifier accepting only `>f+++` ship: it counted all four
+# of these lines as "updates" and refused a perfectly new generation.
 CREATION_ONLY = (
+    'created directory 2026-11-03T151246Z\n'
+    'cd+++++++++ ./\n'
+    '<f+++++++++ MANIFEST\n'
+    '<f+++++++++ classification.yaml\n'
+    '<f+++++++++ pool.yaml\n'
+)
+# Receiving-direction creations are legal too (a local-path variant).
+CREATION_ONLY_RECEIVE = (
     '>f+++++++++ pool.yaml\n'
     '>f+++++++++ classification.yaml\n'
     '>f+++++++++ MANIFEST\n'
     'cd+++++++++ ./\n'
 )
+# An update, not a creation -- in EITHER direction this is a refusal: the
+# generation name is taken or half-populated.
 NON_EMPTY_TARGET = (
+    '<f+++++++++ pool.yaml\n'
+    '<f.st...... classification.yaml\n'
+)
+NON_EMPTY_TARGET_RECEIVE = (
     '>f+++++++++ pool.yaml\n'
     '>f.st...... classification.yaml\n'   # an update, not a creation
 )
-DELETION_LINE = '*deleting old.yaml\n>f+++++++++ pool.yaml\n'
+DELETION_LINE = '*deleting old.yaml\n<f+++++++++ pool.yaml\n'
 
 
 @pytest.fixture()
@@ -144,6 +164,32 @@ def test_existing_generation_refuses_no_overwrite(env):
     assert not (env['root'] / 'push-receipts.log').exists()
 
 
+def test_existing_generation_refuses_receive_direction_too(env):
+    """The update tail is foreign whichever direction character it wears."""
+    env['dry_file'].write_text(NON_EMPTY_TARGET_RECEIVE)
+    r = run_push(env)
+    assert r.returncode != 0
+    assert 'not empty' in r.stderr
+    assert len(calls(env)) == 1
+
+
+def test_receive_direction_creations_are_allowed(env):
+    env['dry_file'].write_text(CREATION_ONLY_RECEIVE)
+    r = run_push(env, '--dry-run')
+    assert r.returncode == 0, r.stderr
+    assert 'nothing sent, no receipt written' in r.stdout
+
+
+def test_payload_transfer_carries_ignore_existing(env):
+    """Belt-and-braces: no transfer may overwrite an existing remote file."""
+    r = run_push(env)
+    assert r.returncode == 0, r.stderr
+    c = calls(env)
+    assert '--ignore-existing' not in c[0]      # the pre-flight stays strict
+    assert '--ignore-existing' in c[1]          # payload cannot overwrite
+    assert '--ignore-existing' not in c[2]      # COMPLETE travels alone
+
+
 def test_deletion_in_preflight_refuses(env):
     env['dry_file'].write_text(DELETION_LINE)
     r = run_push(env)
@@ -180,6 +226,9 @@ def test_payload_failure_means_no_complete_marker(env):
 
 def test_missing_host_is_a_usage_error(env):
     del env['env']['SYNC_HOST']
+    # Point the fallback at a nonexistent path: the real /etc/careeros/push-host
+    # may exist on the machine running the tests (it does in production).
+    env['env']['PUSH_HOST_FILE'] = str(env['tmp'] / 'no-such-push-host')
     r = run_push(env)
     assert r.returncode != 0
     assert 'SYNC_HOST' in r.stderr

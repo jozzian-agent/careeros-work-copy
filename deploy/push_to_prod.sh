@@ -77,11 +77,13 @@ PUSH_PYTHON="${PUSH_PYTHON:-$REPO/.venv/bin/python}"
 
 # The host is never hard-coded: owner-set variable or owner-written file.
 SYNC_HOST="${SYNC_HOST:-}"
-if [[ -z $SYNC_HOST && -r /etc/careeros/push-host ]]; then
-  SYNC_HOST=$(head -1 /etc/careeros/push-host | tr -d '[:space:]')
+# Overridable for tests only; production uses the default path.
+PUSH_HOST_FILE="${PUSH_HOST_FILE:-/etc/careeros/push-host}"
+if [[ -z $SYNC_HOST && -r $PUSH_HOST_FILE ]]; then
+  SYNC_HOST=$(head -1 "$PUSH_HOST_FILE" | tr -d '[:space:]')
 fi
 [[ -n $SYNC_HOST ]] \
-  || alert "SYNC_HOST is unset and /etc/careeros/push-host is missing; set one (owner decision: no invented hostnames)"
+  || alert "SYNC_HOST is unset and $PUSH_HOST_FILE is missing; set one (owner decision: no invented hostnames)"
 
 # --- 1. find or re-run the staged export -----------------------------------
 if [[ ! -d $EXPORT_DIR ]]; then
@@ -150,9 +152,20 @@ echo "   $postings postings, $(du -sb "$EXPORT_DIR" | cut -f1) bytes staged:"
 # A dry run that FAILS is not a dry run that found nothing (the lesson
 # sync_vault_to_prod.sh carries in its comments): any non-zero exit stops
 # the push. rrsync -wo cannot list, but the receiver's file list still shows
-# what EXISTS at the target: a pure creation itemizes as `+++++++++`.
-# Anything else (an update line, a deletion line) means the generation name
-# is taken or half-populated, and this script refuses instead of overwriting.
+# what EXISTS at the target: a pure creation itemizes with a `+++++++++`
+# tail. Anything else (an update line, a deletion line) means the generation
+# name is taken or half-populated, and this script refuses instead of
+# overwriting.
+#
+# THE DIRECTION CHARACTER, WHICH BIT US ONCE (2026-11-04): an itemized line
+# starts with `<` when rsync is SENDING to the remote and `>` when
+# receiving. This is an upload, so real creations arrive as `<f+++++++++`,
+# and a filter that only allowed `>f+++` counted every creation as an
+# update and refused a perfectly new generation ("4 item(s)"). Both
+# directions are allowed below; an update tail (`<f.st......`) is still
+# foreign either way. rsync also prints one info line, `created directory
+# <GEN>`, when the target directory does not exist yet -- which is exactly
+# the new-generation case, so it is allowed too.
 pre=$(mktemp -d -t push-to-prod-XXXXXX)
 trap 'rm -rf "$pre"' EXIT
 rc=0
@@ -160,7 +173,7 @@ rsync -ni --dry-run "${RSYNC_SAFE[@]}" -e "$ssh_cmd" \
       "$EXPORT_DIR/" "$TARGET:$GEN/" >"$pre/dry.out" 2>"$pre/dry.err" || rc=$?
 (( rc == 0 )) \
   || alert "the pre-flight dry run failed (rsync exit $rc: $(tr '\n' ' ' <"$pre/dry.err" | head -c 300))"
-foreign=$(grep -v '^\(>f+++\|cd+++\|\.d+++\)' "$pre/dry.out" | grep -c '[^[:space:]]' || true)
+foreign=$(grep -v '^\([<>]f+++\|cd+++\|\.d+++\|created directory \)' "$pre/dry.out" | grep -c '[^[:space:]]' || true)
 deletes=$(grep -c '^\*deleting' "$pre/dry.out" || true)
 (( deletes == 0 )) || alert "the dry run shows $deletes deletion(s) at the target; this script never deletes -- something is very wrong"
 (( foreign == 0 )) \
@@ -179,7 +192,12 @@ fi
 # docs/runbooks/push-to-prod.md, "Permissions"). promote_incoming.sh
 # re-chmods 750/640 after the move regardless, so root-run promotion is
 # unaffected.
-rsync "${RSYNC_SAFE[@]}" --stats --no-owner --no-group --chmod=D770,F640 \
+# --ignore-existing is belt-and-braces for the window between pre-flight
+# and transfer: even if something appeared at the target in between, no
+# existing remote file is ever overwritten. It cannot delete (no --delete)
+# and cannot mask the pre-flight's verdict (the dry run runs without it).
+rsync "${RSYNC_SAFE[@]}" --ignore-existing --stats \
+      --no-owner --no-group --chmod=D770,F640 \
       -e "$ssh_cmd" "$EXPORT_DIR/" "$TARGET:$GEN/" >"$pre/send.out" \
   || alert "rsync of generation $GEN failed; nothing is promotable until COMPLETE lands, and it has not"
 sent_bytes=$(sed -n 's/^Total transferred file size: \([0-9,]*\) bytes$/\1/p' "$pre/send.out" | tr -d ',')

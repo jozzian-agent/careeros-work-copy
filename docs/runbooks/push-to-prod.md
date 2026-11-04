@@ -72,8 +72,14 @@ vouches for. A generation without COMPLETE is invisible to
 
 The script **never deletes anything remote** (no `--delete` on any
 transfer, tested) and **never overwrites a generation**: the pre-flight
-dry run requires every remote item to be a pure creation (`+++++++++`);
-any update or delete line aborts the push before a byte moves.
+dry run requires every remote item to be a pure creation (an itemized
+`+++++++++` tail in either direction, `<f` for an upload, `>f` for a
+receive, plus rsync's `created directory` info line for a new generation);
+any update or delete line aborts the push before a byte moves. Belt and
+braces: the payload transfer also carries `--ignore-existing`, so even a
+file that appeared between pre-flight and transfer is never overwritten
+(the pre-flight itself deliberately does not carry it, so it cannot mask
+a taken generation name).
 
 Upload modes are `D770,F640` with `--no-owner --no-group` — see
 "Permissions" for why they differ from the vault sync's `D750,F640`.
