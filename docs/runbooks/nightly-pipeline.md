@@ -8,10 +8,10 @@ kills; what changed is in "Memory, disk and the log" below.
 
 ## The schedule
 
-| When (Swiss local) | What | Where it runs | Expected duration |
+| When (host clock, UTC) | What | Where it runs | Expected duration |
 |---|---|---|---|
-| 19:00 | `scripts/nightly_pipeline.sh` — fetch all six ATS providers, export the pool, classify it with the local LLM | Hermes cron job `careeros-nightly-pipeline` on 192.168.1.203 (this host) | ~40-90 min measured (see below) |
-| ~19:05+ | Telegram message with the one-line result and any failures | delivered by the cron job | instant |
+| 19:00 UTC (20:00 Swiss in winter, 21:00 in summer) | `scripts/nightly_pipeline.sh` — fetch all six ATS providers, export the pool, classify it with the local LLM | Hermes cron job `careeros-nightly-pipeline` on 192.168.1.203 (this host) | ~10 h on the current pool (see "Measured durations" below) |
+| on completion, next morning | Telegram message with the one-line result and any failures (the cron job delivers the script's stdout when it exits, so a 19:00 UTC start that finishes around 05:00 UTC delivers around 05:00 UTC) | delivered by the cron job | instant |
 
 There is exactly **one** scheduled job for this pipeline. It is a
 `no_agent` cron job: the scheduler runs the script and delivers its
@@ -63,9 +63,10 @@ free).
    carried into tonight's run file unchanged, and the model only sees
    the new postings and the ones whose family is still unknown. A night
    with nothing new and nothing unknown makes zero model calls and still
-   writes the run file. The first night after CAREER-138 is a one-off
-   re-run of every still-unknown family (~95 postings ≈ 40 min measured
-   at 23 s/call); every later night classifies only what is new.
+   writes the run file. The first night after CAREER-138 was the one-off
+   re-run of every still-unknown family (2026-11-03: 797 model calls,
+   ~4.8 h — see "Measured durations"); every later night classifies only
+   what is new.
    `CLASSIFY_LLM_NATIVE=1` is exported by the script and is **required** —
    see `local-llm-optimisation.md` for why (10x speed difference).
 8. **Sync to prod**, only with `SYNC_TO_PROD=1` and only after a night
@@ -178,20 +179,22 @@ files above and writes the postings as universe jobs
 holds the vault write lock for the length of the import and the owner
 takes a vault backup before running it.
 
-## Measured durations (2026-10-18, ideaai: Lenovo IdeaPad Pro 5, CPU-only)
+## Measured durations
 
-- One LLM classification call (realistic 395-token prompt, JSON out):
-  **mean 19.0 s** over a 10-posting live run (min 15.5, max 27.0),
-  mean 1 106 tokens per call. This is the `--layer llm` path with
-  `CLASSIFY_LLM_NATIVE=1`; the same call through the OpenAI-compat
-  endpoint without it takes ~106 s and often times out.
-- The current pool is 204 postings → classification ≈ **65 minutes**,
-  worst case (all at the 27 s max) ≈ 92 minutes. Comfortably inside the
-  overnight window.
-- Fetch duration depends on how many tenants are live; the 1 req/s
-  politeness cap dominates. Personio's store alone is ~2 500 tenants, so
-  if fetch time becomes a problem, `--sample` or `--max-tenants` are the
-  knobs — do not raise the rate limit.
+2026-11-03 night (pool of 797 postings, log `data/nightly/nightly_2026-11-03.log`,
+run 19:00 → 04:57 the next day, host clock = UTC, ~10 h total):
+
+- Fetch legs: personio 43 min, greenhouse 97 min, lever 6 min, ashby
+  78 min, recruitee 8 min, smartrecruiters 47 min; export 29 min.
+- Classification: 797 model calls, 0 failed, mean 23.3 s per call,
+  4 h 48 min total — `CLASSIFY_LLM_NATIVE=1`, `qwen3:30b-a3b` on the
+  local LLM host (192.168.1.10). This night was the one-off CAREER-138
+  re-run of every still-unknown family; a night with `--previous`
+  carrying settled families classifies only what is new.
+- The 2026-10-18 measurements this section used to quote (mean 19.0 s
+  per call on a 204-posting pool, ≈65 min classification) were on the
+  same host and still describe a single call, but the pool is ~4x
+  larger now and a full classify night is hours, not minutes.
 
 Re-measure after any model or prompt change:
 `scripts/run_classification.py --pool <pool> --layer llm --limit 10 --dry-run`
@@ -294,14 +297,22 @@ confirm it later via the CAREER-29 route). An approved family starts as
 Hermes cron job **`careeros-nightly-pipeline`, id `488ba0fa1330`**,
 `no_agent: true`, script `~/.hermes/scripts/careeros_nightly.sh` (a
 one-line wrapper that execs `scripts/nightly_pipeline.sh`), schedule
-`0 17 * * *`, delivery to the owner's Telegram. Created 2026-10-18.
+`0 19 * * *` (fires 19:00 UTC per `cron list`; see the DST record
+below), delivery to the owner's Telegram. Created 2026-10-18.
 
-**DST — fixed 2026-10-22.** The Hermes cron timezone is now explicitly
-`Europe/Zurich` (`hermes config set timezone Europe/Zurich`) and the
-schedule is `0 19 * * *`, so the pipeline fires at 19:00 Swiss
-wall-clock year-round; croniter computes the next run from a
-Zurich-anchored `now()` and DST shifts the UTC fire time instead of the
-local one. Note the gateway caches the timezone at startup — the config
-change only takes effect after a gateway restart. Historical caveat
-(now obsolete): before the fix, a fixed-UTC `0 17 * * *` fired one hour
-early in winter (CET), which was judged cosmetic.
+**DST — record corrected 2026-11-04.** The intended fix (2026-10-22)
+was `hermes config set timezone Europe/Zurich` plus schedule
+`0 19 * * *`, so the pipeline would fire at 19:00 Swiss wall-clock
+year-round. What the scheduler actually does today (raw `cron list`
+output, 2026-11-04): schedule `0 19 * * *`,
+`next_run_at: 2026-11-04T19:00:00+00:00` — it fires at **19:00 UTC**,
+which is 20:00 Swiss in winter (CET) and 21:00 in summer (CEST). The
+config line `timezone: Europe/Zurich` is set but is not taking effect
+on this job; the most likely cause is the gateway caching the timezone
+at startup — the config change only applies after a gateway restart —
+and the measured 2026-11-03 run started at 19:00 host
+time with the host clock on UTC, matching the +00:00 next-run. Until
+either the gateway is restarted on the Zurich timezone or the schedule
+is deliberately kept on UTC, treat **19:00 UTC** as the real fire time.
+Historical caveat: before the 2026-10-22 fix, a fixed-UTC `0 17 * * *`
+fired one hour early in winter (CET), which was judged cosmetic.
