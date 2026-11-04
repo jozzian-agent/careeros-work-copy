@@ -7,8 +7,8 @@ the linked doc wins.
 
 Two machines run jobs, and they are easy to confuse:
 
-- **the LAN host** (192.168.1.203, where the repo and the staging
-  dashboard live) runs Hermes cron jobs;
+- **the LAN host** (192.168.1.203, where the repo, the nightly pipeline
+  and the owner's local dashboard live) runs Hermes cron jobs;
 - **the VPS** (staging + prod behind careeros domains) runs systemd
   timers.
 
@@ -29,13 +29,14 @@ Two machines run jobs, and they are easy to confuse:
 | nightly pipeline, posting watcher | Hermes cron on the LAN host | live as long as Hermes runs |
 | deploy-stg | `deploy/setup-vps.sh` | live |
 | deploy-prod | nobody — installed, not enabled | **owner enables by hand** |
-| company-requests | nobody — file not even placed | **owner installs and enables by hand** (see below) |
+| company-requests | owner, by hand | **enabled on the VPS since 2026-11-01** (owner decision; not verifiable from the LAN host — check with `systemctl is-enabled careeros-company-requests.timer` on the VPS) |
 
 ### Enabling the company-request resolver on the VPS, once
 
-The unit files ship in the repo but nothing places them; that is
-deliberate — the resolver writes the production vault, so a human
-decides when that starts happening.
+Done 2026-11-01. The steps stay here for a fresh setup: the unit files
+ship in the repo but nothing places them; that is deliberate — the
+resolver writes the production vault, so a human decides when that
+starts happening.
 
 ```bash
 # on the VPS, as root
@@ -71,3 +72,19 @@ company itself. A quiet night writes nothing and exits in under a second.
 - Either way: **update this table in the same change.** A job that is
   documented only in its own corner is how the resolver's timer came to
   be "maybe enabled, nobody checked".
+
+### The standing rule (owner decision 2026-11-04)
+
+Any change to a scheduled job, any new job, and any change to the
+nightly pipeline (`scripts/nightly_pipeline.sh`), the vault sync
+(`deploy/sync_vault_to_prod.sh`, `deploy/promote_incoming.sh`) or the
+release flow (`deploy/deploy.sh` and the runbooks) must update the
+documentation that describes it **in the same PR**, and the PR
+description must list which docs were checked.
+
+`docs-fresh` cannot enforce this: it only regenerates `docs/as-built/`
+from the running app and diffs it. A CI job could: fail when the PR's
+changed files touch any of the paths above and the PR description has
+no `Docs checked:` line (`github.event.pull_request.body` is available
+to the workflow). Proposed here, not implemented — a workflow change is
+not a docs-only change.

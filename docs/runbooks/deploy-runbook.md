@@ -55,6 +55,25 @@ hold production access.
 One VPS is enough to start. For stronger isolation later, move staging to
 its own small VPS; only its DNS record and its deploy timer move.
 
+## Where the repositories live on the LAN host (192.168.1.203)
+
+The agent's working machine. Verified 2026-11-04:
+
+| Directory | Branch | Remote | Role |
+| --- | --- | --- | --- |
+| `/root/work/careeros-dashboard` | `main`, kept fast-forwarded to `origin/main` | `jozzian-agent/careeros-work-copy` | **the cron checkout**: the nightly pipeline and the posting watcher both run from it (`~/.hermes/scripts/careeros_nightly.sh`, `careeros_watch.sh` call its scripts by absolute path). Untracked `data/classification/run_*.yaml` files accumulate here — that is pipeline output, not drift. Nothing commits to it; never leave it on another branch or behind `origin/main`. |
+| `git worktree` dirs under `/tmp/wt-*` and `/root/work/wt-noga` | one feature/docs branch each | same (shared `.git`) | where PR branches are cut and built, one worktree per PR, always from a fresh `origin/main`. Worktrees are disposable; the cron checkout is not. |
+
+The owner's local dashboard (port 8788, wrapper `/root/careeros-server.sh`,
+not committed) also serves from the cron checkout against the owner's live
+vault. Restarting it after a merge picks up the new code with no deploy step.
+
+The flow stays exactly: **local (this host) → work-copy PR → owner merges →
+owner promotes to `jozzian/careeros` main → staging deploys within ~2 min →
+owner publishes a tag → production deploys within ~5 min.** No environment
+skips a step, and no code reaches staging or production except through
+`jozzian/careeros`'s own `main` or a tag on it.
+
 ## The release flow
 
 1. The agent opens a pull request in `jozzian-agent/careeros-work-copy`.

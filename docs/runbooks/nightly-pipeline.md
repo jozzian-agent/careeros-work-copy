@@ -10,8 +10,8 @@ kills; what changed is in "Memory, disk and the log" below.
 
 | When (Swiss local) | What | Where it runs | Expected duration |
 |---|---|---|---|
-| 19:00 | `scripts/nightly_pipeline.sh` — fetch all six ATS providers, export the pool, classify it with the local LLM | Hermes cron job `careeros-nightly-pipeline` on 192.168.1.203 (this host) | ~40-90 min measured (see below) |
-| ~19:05+ | Telegram message with the one-line result and any failures | delivered by the cron job | instant |
+| 19:00 | `scripts/nightly_pipeline.sh` — fetch all six ATS providers, export the pool, classify it with the local LLM | Hermes cron job `careeros-nightly-pipeline` on 192.168.1.203 (this host) | ~10 h on the current pool (see "Measured durations" below) |
+| on completion, next morning | Telegram message with the one-line result and any failures (the cron job delivers the script's stdout when it exits, so a 19:00 start that finishes around 05:00 delivers around 05:00) | delivered by the cron job | instant |
 
 There is exactly **one** scheduled job for this pipeline. It is a
 `no_agent` cron job: the scheduler runs the script and delivers its
@@ -63,9 +63,10 @@ free).
    carried into tonight's run file unchanged, and the model only sees
    the new postings and the ones whose family is still unknown. A night
    with nothing new and nothing unknown makes zero model calls and still
-   writes the run file. The first night after CAREER-138 is a one-off
-   re-run of every still-unknown family (~95 postings ≈ 40 min measured
-   at 23 s/call); every later night classifies only what is new.
+   writes the run file. The first night after CAREER-138 was the one-off
+   re-run of every still-unknown family (2026-11-03: 797 model calls,
+   ~4.8 h — see "Measured durations"); every later night classifies only
+   what is new.
    `CLASSIFY_LLM_NATIVE=1` is exported by the script and is **required** —
    see `local-llm-optimisation.md` for why (10x speed difference).
 8. **Sync to prod**, only with `SYNC_TO_PROD=1` and only after a night
@@ -178,20 +179,22 @@ files above and writes the postings as universe jobs
 holds the vault write lock for the length of the import and the owner
 takes a vault backup before running it.
 
-## Measured durations (2026-10-18, ideaai: Lenovo IdeaPad Pro 5, CPU-only)
+## Measured durations
 
-- One LLM classification call (realistic 395-token prompt, JSON out):
-  **mean 19.0 s** over a 10-posting live run (min 15.5, max 27.0),
-  mean 1 106 tokens per call. This is the `--layer llm` path with
-  `CLASSIFY_LLM_NATIVE=1`; the same call through the OpenAI-compat
-  endpoint without it takes ~106 s and often times out.
-- The current pool is 204 postings → classification ≈ **65 minutes**,
-  worst case (all at the 27 s max) ≈ 92 minutes. Comfortably inside the
-  overnight window.
-- Fetch duration depends on how many tenants are live; the 1 req/s
-  politeness cap dominates. Personio's store alone is ~2 500 tenants, so
-  if fetch time becomes a problem, `--sample` or `--max-tenants` are the
-  knobs — do not raise the rate limit.
+2026-11-03 night (pool of 797 postings, log `data/nightly/nightly_2026-11-03.log`,
+run 19:00 → 04:57 the next day, ~10 h total):
+
+- Fetch legs: personio 43 min, greenhouse 97 min, lever 6 min, ashby
+  78 min, recruitee 8 min, smartrecruiters 47 min; export 29 min.
+- Classification: 797 model calls, 0 failed, mean 23.3 s per call,
+  4 h 48 min total — `CLASSIFY_LLM_NATIVE=1`, `qwen3:30b-a3b` on the
+  local LLM host (192.168.1.10). This night was the one-off CAREER-138
+  re-run of every still-unknown family; a night with `--previous`
+  carrying settled families classifies only what is new.
+- The 2026-10-18 measurements this section used to quote (mean 19.0 s
+  per call on a 204-posting pool, ≈65 min classification) were on the
+  same host and still describe a single call, but the pool is ~4x
+  larger now and a full classify night is hours, not minutes.
 
 Re-measure after any model or prompt change:
 `scripts/run_classification.py --pool <pool> --layer llm --limit 10 --dry-run`
