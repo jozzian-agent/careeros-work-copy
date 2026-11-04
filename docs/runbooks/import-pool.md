@@ -236,3 +236,43 @@ import's to fix.
 Undoing an import is a restore from the backup. Nothing in the script
 deletes, and there is no `--undo`: 668 records is not something to remove
 one API call at a time.
+
+## The export half: staging a push to production
+
+`scripts/import_pool_to_vault.py` imports into whatever vault it is
+pointed at, and it dedupes against that vault's stored jobs. To import
+into **production** you need the production vault's job and company
+indexes at hand — and the vault sync deliberately never ships `jobs/`
+(see `deploy/sync_vault_to_prod.sh`: "`jobs/` is NOT in it … Splitting
+it needs a content-aware export that does not exist yet"). So the import
+into prod runs **on the VPS**, against the real vault, and the LAN host
+only stages the ownerless slice for it.
+
+`scripts/export_jobs_for_prod.py` is that content-aware export (owner
+decision 2026-11-04: get classified jobs onto production, first push
+started by hand). It:
+
+- reads a day's pool export + classification run and the owner's live
+  vault (read-only — it writes nothing outside `--out`),
+- **excludes any posting already in the vault**, by the same two dedupe
+  keys the import uses (`source_id` == pool `key`, and normalized `url`),
+  so an owned record can never be shadowed and a re-export is a no-op
+  rather than a duplicate,
+- writes `<out>/pool.yaml`, `<out>/classification.yaml` (matching key
+  sets) and `<out>/MANIFEST` (sha256 + row counts, the shape
+  `promote_incoming.sh` already validates),
+- refuses to run into a non-empty `--out` and fails closed if any stored
+  job file does not parse (it cannot prove that record does not shadow a
+  posting).
+
+`--dry-run` prints the counts and a 5-row sample and writes nothing.
+Measured on the 2026-11-03 run against the owner's vault: 797 pool rows
+in, 1 excluded (already in vault), 0 carrying an `owner_id`, **796
+postings staged**. The pool export never carries `owner_id` at all —
+ownership only exists inside vault job records — so the owner check is
+enforced against the vault, and the `owner_id` column is a
+belt-and-braces guard for a future pool format.
+
+The export stages only; it sends nothing. The upload and the VPS-side
+import are separate, owner-started follow-ups. Nothing here is
+scheduled and nothing here is part of the nightly.
