@@ -2349,9 +2349,12 @@ def test_an_author_note_write_preserves_notes_they_cannot_see(
 #: strips `values` -- a fact about the public posting (the same class as
 #: the already-public `employment_type`, `function` and `occupation_code`,
 #: and derived like `company_industry`), never the admin's own handling.
+#: `has_description` (owner decision 2026-11-05) replaced the posting
+#: text itself in list entries: one boolean derived from `description`,
+#: so the text no longer ships on the All jobs payload at all.
 UNIVERSE_DECORATIONS = {'on_my_board', 'needs_attention', 'company_name',
                         'company_industry', 'company_size_class', 'pending',
-                        'contract'}
+                        'contract', 'has_description'}
 
 #: What a reader who does not own a job must never receive about it: the
 #: notes and who wrote them, the history, the custom data, the provenance

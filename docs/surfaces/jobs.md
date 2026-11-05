@@ -573,7 +573,13 @@ owner migration gave all 44 jobs to the admin.
 The board's own parts, not a second set: the same payload
 (`GET /api/jobs?view=universe`, the `view=board` shape plus one key), the
 same `FilterBar` over the same facets (`frontend/src/jobFilters.js`), the
-same `JobCard`, the same `PageLayout` title row.
+same `JobCard`, the same `PageLayout` title row. Since 2026-11-05 the
+list entries carry no posting text — `description` and
+`description_structured` are stripped server-side and replaced by one
+`has_description` boolean; the text is the detail page's
+(`GET /api/jobs/<id>?view=page`). No card ever rendered it, so nothing
+here changes on screen; the payload stops shipping ~3 MB the grid never
+used.
 
 - **One grid of cards**, not a kanban. A column per status would be a
   column of empty promises for the postings nobody has added yet. Since

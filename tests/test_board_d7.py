@@ -353,3 +353,124 @@ def test_the_contract_facet_reads_a_projection_that_has_no_values(tmp_path):
     entry = next(item for item in built['entries'] if item['id'] == saved['id'])
     assert entry['contract'] == 'internship'
     assert 'values' not in entry, 'the projection still strips the classified values'
+
+
+# --- the All jobs list payload carries no posting text (owner decision
+#     2026-11-05) --------------------------------------------------------
+
+DESCRIPTION_TEXT = 'The posting says a great deal about the role and the team.'
+
+
+def _saved_with_text(tmp_path, identifier_suffix, **fields):
+    return vault.save_job(tmp_path, {
+        'title': f'Builder {identifier_suffix}',
+        'url': f'{URL}-{identifier_suffix}',
+        'description': DESCRIPTION_TEXT,
+        'description_structured': {'summary': 'A summary.', 'requirements': ['One'],
+                                   'nice_to_have': [], 'method': 'heuristic'},
+        'in_pipeline': False,
+    } | fields)
+
+
+def test_list_entries_carry_no_posting_text_but_say_whether_there_is_any(tmp_path):
+    """An unowned (projected) entry: the two text fields are gone and
+    `has_description` carries the one bit a card could need."""
+    saved = _saved_with_text(tmp_path, 'unowned')
+    from careeros.web.pages import jobs as jobs_page
+    owner = vault.Owner('some-tester', inherits_ownerless=False)
+    built = jobs_page.universe_context(tmp_path, owner, is_admin=False)
+    entry = next(item for item in built['entries'] if item['id'] == saved['id'])
+    assert 'description' not in entry
+    assert 'description_structured' not in entry
+    assert entry['has_description'] is True
+
+
+def test_an_owned_job_is_stripped_too(tmp_path):
+    """The reader's own jobs reach the list as whole records, so the
+    strip has to name them too -- and `has_description` still answers
+    off the text they hold."""
+    saved = _saved_with_text(tmp_path, 'owned', owner_id='some-tester',
+                             in_pipeline=True, status='new')
+    from careeros.web.pages import jobs as jobs_page
+    owner = vault.Owner('some-tester', inherits_ownerless=False)
+    built = jobs_page.universe_context(tmp_path, owner, is_admin=False)
+    entry = next(item for item in built['entries'] if item['id'] == saved['id'])
+    assert entry['on_my_board']
+    assert 'description' not in entry
+    assert 'description_structured' not in entry
+    assert entry['has_description'] is True
+    # The stored record itself is untouched: the strip is a payload
+    # decision, not a vault write.
+    assert vault.load_job(tmp_path, saved['id'], owner)['description'] == DESCRIPTION_TEXT
+
+
+def test_a_job_without_text_says_so(tmp_path):
+    saved = vault.save_job(tmp_path, {'title': 'Bare', 'url': URL + '-bare',
+                                      'in_pipeline': False})
+    from careeros.web.pages import jobs as jobs_page
+    owner = vault.Owner('some-tester', inherits_ownerless=False)
+    built = jobs_page.universe_context(tmp_path, owner, is_admin=False)
+    entry = next(item for item in built['entries'] if item['id'] == saved['id'])
+    assert entry['has_description'] is False
+
+
+def test_whitespace_only_text_counts_as_none(tmp_path):
+    """The same rule job_context's `has_description` uses: present iff
+    strip() is non-empty. A whitespace-only body is no body."""
+    saved = vault.save_job(tmp_path, {'title': 'Blank', 'url': URL + '-blank',
+                                      'description': '   \n\t ', 'in_pipeline': False})
+    from careeros.web.pages import jobs as jobs_page
+    owner = vault.Owner('some-tester', inherits_ownerless=False)
+    built = jobs_page.universe_context(tmp_path, owner, is_admin=False)
+    entry = next(item for item in built['entries'] if item['id'] == saved['id'])
+    assert entry['has_description'] is False
+
+
+def test_the_decorations_do_not_read_the_stripped_text(tmp_path):
+    """The strip runs AFTER board_context on purpose, and this is the
+    proof the order buys nothing by accident: `needs_attention` and
+    `contract` answer the same with and without the posting text on the
+    record. needs_attention fires off company_link_state/ingest_state/
+    field_status_reason; contract off the classified values."""
+    from careeros import taxonomy
+    from careeros.web.pages import jobs as jobs_page
+    record = taxonomy.make_value_record('contract', 'internship', 'rule')
+    # One entry that NEEDS attention (a stuck ingest) and carries a
+    # contract, once with text and once without.
+    with_text = vault.save_job(tmp_path, {
+        'title': 'Stuck', 'url': URL + '-stuck', 'in_pipeline': False,
+        'ingest_state': 'extract_failed',
+        'ingest_error': {'stage': 'extract', 'reason': 'model_unavailable',
+                         'at': '2026-11-05T00:00:00+00:00'},
+        'description': DESCRIPTION_TEXT,
+        'values': {'contract': record}})
+    without_text = vault.save_job(tmp_path, {
+        'title': 'Stuck bare', 'url': URL + '-stuck-bare', 'in_pipeline': False,
+        'ingest_state': 'extract_failed',
+        'ingest_error': {'stage': 'extract', 'reason': 'model_unavailable',
+                         'at': '2026-11-05T00:00:00+00:00'},
+        'values': {'contract': record}})
+    # inherits_ownerless=True: the entries reach the reader as whole
+    # records (the admin-inheritance half), the only half where
+    # needs_attention can fire at all -- the projection strips the very
+    # states it reads, which is the privacy design and not what this
+    # test is about.
+    owner = vault.Owner('some-tester', inherits_ownerless=True)
+    built = jobs_page.universe_context(tmp_path, owner, is_admin=True)
+    entries = {item['id']: item for item in built['entries']}
+    assert entries[with_text['id']]['needs_attention'] \
+        == entries[without_text['id']]['needs_attention'] is True
+    assert entries[with_text['id']]['contract'] \
+        == entries[without_text['id']]['contract'] == 'internship'
+
+
+def test_the_detail_view_still_returns_the_full_text(tmp_path):
+    """view=page -> detail_context is the surface that shows the text,
+    and it is deliberately untouched by the list strip."""
+    from careeros.web.pages import jobs as jobs_page
+    saved = _saved_with_text(tmp_path, 'detail', owner_id='some-tester')
+    owner = vault.Owner('some-tester', inherits_ownerless=False)
+    detail = jobs_page.detail_context(tmp_path, saved['id'], owner=owner)
+    assert detail['job']['description'] == DESCRIPTION_TEXT
+    assert detail['job']['description_structured']['summary'] == 'A summary.'
+    assert detail['has_description'] is True

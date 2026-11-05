@@ -127,8 +127,14 @@ BOARD_SHAPE = {'companies': {'CO-001': {'industry': 'str', 'name': 'str', 'size_
 # contract is that shape plus one key per entry -- whether the job is on
 # this reader's board, which decides whether the card shows its status or
 # offers "Add to my jobs".
+# Owner decision 2026-11-05: the list payload carries no posting text.
+# `description` and `description_structured` are stripped from every
+# entry (owned or not) and replaced by the one `has_description` bit;
+# the full text is the detail read's (`GET /api/jobs/<id>?view=page`).
 UNIVERSE_SHAPE = BOARD_SHAPE | {
-    'entries': [BOARD_SHAPE['entries'][0] | {'on_my_board': 'bool'}]}
+    'entries': [{key: value for key, value in BOARD_SHAPE['entries'][0].items()
+                 if key not in ('description', 'description_structured')}
+                | {'on_my_board': 'bool', 'has_description': 'bool'}]}
 
 
 def test_universe_contract_is_the_board_shape_plus_on_my_board(api_client, assert_json_shape):
