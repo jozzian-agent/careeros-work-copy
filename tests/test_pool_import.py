@@ -603,7 +603,455 @@ def test_the_report_prints_the_numbers_the_ticket_asks_for(root, people, files, 
         assert line in printed
 
 
-# --- 5. the small readings the rest of this rests on --------------------
+# --- 5. the shipped descriptions (the VPS import path) -------------------
+# On the VPS there are no frozen snapshots -- the export generation
+# carries the text as data instead (descriptions.yaml, written by
+# scripts/export_jobs_for_prod.py on the LAN host). These tests are about
+# that file: what it is allowed to look like, which rows its coverage is
+# measured over, and the floor an APPLY will not cross without being told
+# to. The `--stores` path above is untouched by all of it.
+
+def descriptions_file(tmp_path, mapping, *, wrapped=True, name='descriptions.yaml'):
+    """One generation's descriptions.yaml. `wrapped` writes the shape the
+    exporter writes (`day` + `descriptions`); False writes the bare
+    mapping the loader also accepts."""
+    path = tmp_path / name
+    body = {'day': '2026-10-19', 'descriptions': mapping} if wrapped else mapping
+    path.write_text(yaml.safe_dump(body, allow_unicode=True), encoding='utf-8')
+    return path
+
+
+def test_load_descriptions_refuses_a_missing_file(tmp_path):
+    """A caller that named a file meant it: the wrapper passes
+    --descriptions only for a generation that carries one, so a missing
+    file is a broken generation and not an empty mapping."""
+    with pytest.raises(SystemExit) as refusal:
+        script.load_descriptions(tmp_path / 'nothing-here.yaml')
+    assert 'no such descriptions file' in str(refusal.value)
+
+
+@pytest.mark.parametrize('wrapped', [True, False])
+def test_load_descriptions_reads_either_shape(tmp_path, wrapped):
+    path = descriptions_file(tmp_path, {POOL_KEY: POOL_DESCRIPTION}, wrapped=wrapped)
+    assert script.load_descriptions(path) == {POOL_KEY: POOL_DESCRIPTION}
+
+
+def test_load_descriptions_allows_an_empty_mapping(tmp_path):
+    assert script.load_descriptions(descriptions_file(tmp_path, {})) == {}
+
+
+@pytest.mark.parametrize('body', ['just a string\n', '- one\n- two\n',
+                                  'descriptions:\n- one\n- two\n'])
+def test_load_descriptions_refuses_content_that_is_not_a_mapping(tmp_path, body):
+    path = tmp_path / 'descriptions.yaml'
+    path.write_text(body)
+    with pytest.raises(SystemExit):
+        script.load_descriptions(path)
+
+
+@pytest.mark.parametrize('value', [{'description': 'nested'}, ['one', 'two'],
+                                   7, 1.5, None, True])
+def test_load_descriptions_refuses_a_value_that_is_not_text(tmp_path, value):
+    """Posting text is a string. `str()`-ing whatever else turned up would
+    put `{'description': 'nested'}` or `None` on a job AS its posting
+    text -- fake text no reader would recognise as a bug -- so the file
+    is refused instead, naming the key that is wrong."""
+    path = descriptions_file(tmp_path, {POOL_KEY: value})
+    with pytest.raises(SystemExit) as refusal:
+        script.load_descriptions(path)
+    assert POOL_KEY in str(refusal.value)
+    assert 'not text' in str(refusal.value)
+
+
+def test_load_descriptions_refuses_a_non_text_value_even_beside_good_ones(tmp_path):
+    """One bad value condemns the file rather than being dropped: a
+    mapping this shape did not come from the exporter, and the rest of it
+    has no more claim to being right."""
+    path = descriptions_file(tmp_path, {POOL_KEY: POOL_DESCRIPTION, SIBLING_KEY: 42})
+    with pytest.raises(SystemExit) as refusal:
+        script.load_descriptions(path)
+    assert SIBLING_KEY in str(refusal.value)
+
+
+def test_load_descriptions_keeps_an_empty_string_value(tmp_path):
+    """An empty string IS text (an export that resolved nothing for the
+    key), so it loads; the coverage counter is what calls it missing."""
+    assert script.load_descriptions(
+        descriptions_file(tmp_path, {POOL_KEY: ''})) == {POOL_KEY: ''}
+
+
+def test_load_descriptions_coerces_a_non_string_key(tmp_path):
+    """YAML reads an all-digit key as an int, and a pool key is compared
+    as a string, so the coercion stays."""
+    path = tmp_path / 'descriptions.yaml'
+    path.write_text("descriptions:\n  7001: Acme is hiring.\n")
+    assert script.load_descriptions(path) == {'7001': 'Acme is hiring.'}
+
+
+def test_load_descriptions_refuses_keys_that_collide_once_coerced(tmp_path):
+    """`1` and `'1'` are two different YAML values that name one pool key
+    after `str()`. Which of the two texts the row got would be an
+    accident of mapping order, so the file is refused and both keys are
+    named."""
+    path = tmp_path / 'descriptions.yaml'
+    path.write_text("descriptions:\n  1: 'text for the int key'\n"
+                    "  '1': 'text for the string key'\n")
+    with pytest.raises(SystemExit) as refusal:
+        script.load_descriptions(path)
+    message = str(refusal.value)
+    assert 'keys 1 and ' in message          # the int key, named as itself
+    assert "'1'" in message                  # and the string key
+    assert 'accident of ordering' in message
+
+
+def test_the_key_collision_is_a_real_collision_and_not_a_parse_quirk(tmp_path):
+    """Non-vacuous half: YAML really does hand the loader two distinct
+    keys here (safe_load collapses IDENTICAL keys, which is its call and
+    not ours), so the refusal is about a choice the loader would
+    otherwise have had to make."""
+    path = tmp_path / 'descriptions.yaml'
+    path.write_text("descriptions:\n  1: 'text for the int key'\n"
+                    "  '1': 'text for the string key'\n")
+    raw = yaml.safe_load(path.read_text())['descriptions']
+    assert sorted(map(repr, raw)) == ["'1'", '1']
+    assert len(raw) == 2
+
+
+def test_the_shipped_text_lands_on_the_job(root, people, files, tmp_path, capsys):
+    """The whole point: text the VPS could not have resolved itself is on
+    the imported record, out of the file the generation carried."""
+    shipped = {POOL_KEY: POOL_DESCRIPTION, SIBLING_KEY: 'Backend work in Zurich.',
+               SLUG_KEY: 'Research in Zurich.'}
+    counts = script.run(files['pool'], files['classification'], root,
+                        descriptions_path=descriptions_file(tmp_path, shipped))
+    assert counts['imported'] == 3
+    assert (counts['descriptions_resolved'], counts['descriptions_missing']) == (3, 0)
+    assert counts['descriptions_covered'] == 3
+    landed = {job['source_id']: job for job in vault.list_owned_jobs(root)}
+    assert {key: landed[key]['description'] for key in shipped} == shipped
+    assert 'description coverage:     3/3 postings to import (100%)' in capsys.readouterr().out
+
+
+def test_coverage_is_measured_over_the_postings_to_import_not_the_pool(
+        root, people, files, tmp_path, capsys):
+    """A duplicate's description is never read, so a mapping that covers
+    every row that WILL be imported is full coverage even though it
+    covers only two thirds of the pool -- 67% measured over the pool
+    would refuse an apply that has nothing wrong with it."""
+    vault.save_job(root, {'title': 'Mine', 'url': POOL_URL, 'status': 'applied',
+                          vault.OWNER_FIELD: people['admin']['id']})
+    shipped = {SIBLING_KEY: 'Backend work in Zurich.', SLUG_KEY: 'Research in Zurich.'}
+    counts = script.run(files['pool'], files['classification'], root,
+                        descriptions_path=descriptions_file(tmp_path, shipped))
+    assert (counts['imported'], counts['skipped_duplicate']) == (2, 1)
+    assert counts['descriptions_covered'] == 2
+    assert 'description coverage:     2/2 postings to import (100%)' in capsys.readouterr().out
+
+
+def test_descriptions_missing_counts_only_the_uncovered_rows(root, people, files, tmp_path):
+    """The report's own counter still means what it always meant, and it
+    is now a reading of the shipped mapping rather than of the stores."""
+    counts = script.run(
+        files['pool'], files['classification'], root, warn=lambda message: None,
+        allow_low_descriptions=True,
+        descriptions_path=descriptions_file(tmp_path, {POOL_KEY: POOL_DESCRIPTION,
+                                                       SIBLING_KEY: 'Backend work.'}))
+    assert (counts['descriptions_resolved'], counts['descriptions_missing']) == (2, 1)
+    landed = next(job for job in vault.list_owned_jobs(root) if job['source_id'] == SLUG_KEY)
+    assert landed['description'] == ''
+
+
+def test_a_dry_run_at_low_coverage_warns_and_completes(root, people, files, tmp_path, capsys):
+    """A rehearsal exists to SHOW this: it reports the collapse and runs
+    to the end, so the owner sees the whole report before deciding."""
+    warnings = []
+    counts = script.run(files['pool'], files['classification'], root, dry_run=True,
+                        descriptions_path=descriptions_file(tmp_path, {}),
+                        warn=warnings.append)
+    assert counts['imported'] == 3
+    assert any('LOW DESCRIPTION COVERAGE' in message for message in warnings)
+    assert 'description coverage:     0/3 postings to import (0%)' in capsys.readouterr().out
+    assert vault.list_owned_jobs(root) == []
+
+
+def vault_bytes(root):
+    """Every file in the vault and its exact bytes.
+
+    Names and record lists are not enough to prove "wrote nothing": an
+    index file like `ids.yaml` can be rewritten in place, keeping its
+    name and leaving the lists it feeds looking unchanged. Bytes are the
+    only reading that cannot be satisfied by a near miss.
+    """
+    return {str(path.relative_to(root)): path.read_bytes()
+            for path in sorted(root.rglob('*')) if path.is_file()}
+
+
+def test_an_apply_at_low_coverage_is_refused_and_writes_nothing(root, people, files, tmp_path):
+    """The gate: below the floor an apply stops BEFORE the first write,
+    so the vault is exactly as it was and a re-run after a fixed export
+    is a first import rather than a repair."""
+    before = vault_bytes(root)
+    # The fixture vault really does carry the files this is about, so the
+    # comparison below is not comparing two empty dicts.
+    assert before, 'the fixture vault holds no files to compare'
+    assert any(name.endswith('ids.yaml') for name in before), sorted(before)
+    before_tree = sorted(str(path.relative_to(root)) for path in root.rglob('*'))
+    with pytest.raises(SystemExit) as refusal:
+        script.run(files['pool'], files['classification'], root,
+                   descriptions_path=descriptions_file(tmp_path, {}),
+                   warn=lambda message: None)
+    assert 'refusing to APPLY' in str(refusal.value)
+    assert '--allow-low-descriptions' in str(refusal.value)
+    assert sorted(str(path.relative_to(root)) for path in root.rglob('*')) == before_tree
+    assert vault_bytes(root) == before
+    assert vault.list_owned_jobs(root) == []
+    assert vault.list_companies(root) == []
+
+
+def test_the_low_coverage_refusal_is_the_gate_and_not_the_fixture(
+        root, people, files, tmp_path, monkeypatch):
+    """The non-vacuous half of the test above: with the floor lowered,
+    the SAME fixture imports cleanly. So the refusal is the gate's doing
+    and nothing else about this generation is broken."""
+    monkeypatch.setattr(script, 'DESCRIPTION_COVERAGE_FLOOR', 0.0)
+    counts = script.run(files['pool'], files['classification'], root,
+                        descriptions_path=descriptions_file(tmp_path, {}),
+                        warn=lambda message: None)
+    assert counts['imported'] == 3
+    assert counts['descriptions_missing'] == 3
+    assert [job['description'] for job in vault.list_owned_jobs(root)] == ['', '', '']
+
+
+def test_allow_low_descriptions_applies_anyway(root, people, files, tmp_path):
+    """The owner's explicit confirmation: import them with no text, which
+    is a decision and not a default."""
+    warnings = []
+    counts = script.run(files['pool'], files['classification'], root,
+                        descriptions_path=descriptions_file(tmp_path, {}),
+                        allow_low_descriptions=True, warn=warnings.append)
+    assert counts['imported'] == 3
+    # Still loud about it: confirmed is not the same as fine.
+    assert any('LOW DESCRIPTION COVERAGE' in message for message in warnings)
+    assert len(vault.list_owned_jobs(root)) == 3
+
+
+def test_coverage_at_the_floor_applies_without_confirmation(root, people, files, tmp_path):
+    """95% is the floor and not a wall: a mapping at or above it is a
+    normal import with no flag and no refusal."""
+    document = yaml.safe_load(files['pool'].read_text())
+    # 20 postings, 19 of them covered: exactly the floor.
+    rows = [dict(document['postings'][0], key=f'greenhouse:acme:8{index:03d}',
+                 url=f'https://job-boards.greenhouse.io/acme/jobs/8{index:03d}',
+                 posting_id=f'8{index:03d}') for index in range(20)]
+    files['pool'].write_text(yaml.safe_dump({'day': '2026-10-19', 'postings': rows},
+                                            allow_unicode=True))
+    shipped = {row['key']: POOL_DESCRIPTION for row in rows[:19]}
+    counts = script.run(files['pool'], files['classification'], root,
+                        descriptions_path=descriptions_file(tmp_path, shipped),
+                        warn=lambda message: None)
+    assert counts['imported'] == 20
+    assert counts['descriptions_covered'] == 19
+
+
+#: Three shipped values that are whitespace and nothing else, one per
+#: fixture posting. Spaces, a tab-and-newlines run, and a single space:
+#: all of them are "no posting text" however they are spelled.
+WHITESPACE_ONLY = {POOL_KEY: '   ', SIBLING_KEY: '\n\t\n', SLUG_KEY: ' '}
+
+
+def test_whitespace_only_text_is_missing_for_the_coverage_counter(
+        root, people, files, tmp_path, capsys):
+    """ONE rule for "has text", shared by the coverage counter and the
+    per-row resolved/missing counters: non-empty after `.strip()`. A
+    generation whose every value is whitespace is 0% coverage, not 100%,
+    so a dry run says so instead of reporting a full house of blanks."""
+    warnings = []
+    counts = script.run(files['pool'], files['classification'], root, dry_run=True,
+                        descriptions_path=descriptions_file(tmp_path, WHITESPACE_ONLY),
+                        warn=warnings.append)
+    assert counts['imported'] == 3
+    assert counts['descriptions_covered'] == 0
+    assert (counts['descriptions_resolved'], counts['descriptions_missing']) == (0, 3)
+    assert any('LOW DESCRIPTION COVERAGE' in message for message in warnings)
+    assert 'description coverage:     0/3 postings to import (0%)' in capsys.readouterr().out
+    assert vault.list_owned_jobs(root) == []
+
+
+def test_an_apply_on_whitespace_only_text_is_refused(root, people, files, tmp_path):
+    """And the APPLY refuses, exactly as it does for an absent key: a
+    mapping full of spaces is the same broken export, spelled with
+    characters that happen to be non-empty."""
+    before = vault_bytes(root)
+    with pytest.raises(SystemExit) as refusal:
+        script.run(files['pool'], files['classification'], root,
+                   descriptions_path=descriptions_file(tmp_path, WHITESPACE_ONLY),
+                   warn=lambda message: None)
+    assert 'refusing to APPLY' in str(refusal.value)
+    assert vault_bytes(root) == before
+
+
+def test_whitespace_only_text_lands_as_an_empty_description(
+        root, people, files, tmp_path, monkeypatch):
+    """With the floor out of the way, the row still lands with an EMPTY
+    description rather than three spaces: a job's body is text or it is
+    nothing, and "nothing" is what the report already counted."""
+    monkeypatch.setattr(script, 'DESCRIPTION_COVERAGE_FLOOR', 0.0)
+    counts = script.run(files['pool'], files['classification'], root,
+                        descriptions_path=descriptions_file(tmp_path, WHITESPACE_ONLY),
+                        warn=lambda message: None)
+    assert counts['descriptions_missing'] == 3
+    assert [job['description'] for job in vault.list_owned_jobs(root)] == ['', '', '']
+
+
+def test_text_that_has_text_keeps_its_own_bytes(root, people, files, tmp_path):
+    """The other half of the rule: `.strip()` decides whether a value
+    COUNTS, it does not rewrite a value that counts. A posting whose text
+    opens and closes on a blank line arrives as the exporter shipped
+    it."""
+    padded = '\nAcme is hiring a platform engineer in Zurich.\n'
+    shipped = dict(WHITESPACE_ONLY, **{POOL_KEY: padded})
+    counts = script.run(files['pool'], files['classification'], root,
+                        descriptions_path=descriptions_file(tmp_path, shipped),
+                        allow_low_descriptions=True, warn=lambda message: None)
+    assert (counts['descriptions_resolved'], counts['descriptions_missing']) == (1, 2)
+    landed = next(job for job in vault.list_owned_jobs(root) if job['source_id'] == POOL_KEY)
+    assert landed['description'] == padded
+
+
+def test_a_whitespace_only_snapshot_is_missing_on_the_store_path_too(
+        root, people, files, tmp_path):
+    """The same rule on the LAN path, so the two halves of the system
+    cannot disagree about what counts as a description: a snapshot
+    holding only whitespace is a missing description there as well."""
+    store = store_module.Store(files['stores'] / 'greenhouse', provider='greenhouse')
+    path = store.posting_snapshot_path('acme', '7002', SIBLING_HASH)
+    # Snapshots are immutable by design, so the fixture's one is removed
+    # rather than rewritten.
+    store_module.stored_path(path).unlink()
+    store.write_snapshot(path, yaml.safe_dump({'snapshot_id': SIBLING_KEY,
+                                               'content_hash': SIBLING_HASH,
+                                               'posting': {'description': '   \n  '}}))
+    counts = script.run(files['pool'], files['classification'], root,
+                        base=files['stores'], warn=lambda message: None)
+    # Was (2, 1) with the sibling's real text: the whitespace snapshot
+    # moved it from resolved to missing.
+    assert (counts['descriptions_resolved'], counts['descriptions_missing']) == (1, 2)
+    landed = next(job for job in vault.list_owned_jobs(root) if job['source_id'] == SIBLING_KEY)
+    assert landed['description'] == ''
+
+
+def test_the_store_path_is_untouched_when_no_descriptions_are_shipped(root, people, files,
+                                                                     capsys):
+    """The LAN import reads snapshots exactly as before: no coverage
+    line, no gate, no flag -- the new code is reached only by a caller
+    that names a descriptions file."""
+    counts = script.run(files['pool'], files['classification'], root, base=files['stores'],
+                        warn=lambda message: None)
+    assert (counts['descriptions_resolved'], counts['descriptions_missing']) == (2, 1)
+    assert 'descriptions_covered' not in counts
+    printed = capsys.readouterr().out
+    assert 'description coverage:' not in printed
+    landed = next(job for job in vault.list_owned_jobs(root) if job['source_id'] == POOL_KEY)
+    assert landed['description'] == POOL_DESCRIPTION
+
+
+def test_main_wires_the_descriptions_flags(root, people, files, tmp_path):
+    """The two flags the VPS wrapper passes, through argparse and into
+    run(): the path is read, and the confirmation gets through."""
+    path = descriptions_file(tmp_path, {POOL_KEY: POOL_DESCRIPTION})
+    assert script.main(['--pool', str(files['pool']),
+                        '--classification', str(files['classification']),
+                        '--vault', str(root), '--descriptions', str(path),
+                        '--allow-low-descriptions']) == 0
+    landed = {job['source_id']: job for job in vault.list_owned_jobs(root)}
+    assert landed[POOL_KEY]['description'] == POOL_DESCRIPTION
+    assert landed[SLUG_KEY]['description'] == ''
+
+
+def test_main_refuses_a_low_coverage_apply_without_the_flag(root, people, files, tmp_path):
+    path = descriptions_file(tmp_path, {})
+    with pytest.raises(SystemExit):
+        script.main(['--pool', str(files['pool']),
+                     '--classification', str(files['classification']),
+                     '--vault', str(root), '--descriptions', str(path)])
+    assert vault.list_owned_jobs(root) == []
+
+
+def load_exporter():
+    """scripts/export_jobs_for_prod.py, loaded by path like the import
+    script above. Used by the one end-to-end test below, which is the
+    only place the two scripts meet."""
+    path = Path(__file__).resolve().parents[1] / 'scripts' / 'export_jobs_for_prod.py'
+    spec = importlib.util.spec_from_file_location('export_jobs_for_prod', path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_snapshot_reaches_the_vault_through_a_real_export_generation(
+        root, people, files, tmp_path):
+    """The whole path this change exists for, end to end: a frozen ATS
+    snapshot on the LAN host -> the exporter's descriptions.yaml -> an
+    import that is given NO store tree at all (the VPS's world) -> the
+    posting text on the job.
+
+    Each half has its own tests above; this one is the seam between
+    them, which is where a disagreement about key shape, field name or
+    document wrapper would hide and nothing else would catch it.
+    """
+    exporter = load_exporter()
+    lan_vault = tmp_path / 'lan-vault'           # nothing owned yet, so nothing is excluded
+    (lan_vault / 'jobs').mkdir(parents=True)
+    generation = tmp_path / 'generation'
+    assert exporter.main(['--pool', str(files['pool']),
+                          '--classification', str(files['classification']),
+                          '--vault', str(lan_vault), '--out', str(generation),
+                          '--stores', str(files['stores'])]) == 0
+
+    shipped = yaml.safe_load((generation / 'descriptions.yaml').read_text())
+    assert shipped['descriptions'][POOL_KEY] == POOL_DESCRIPTION
+
+    # The import runs with no `base=`: the default store roots resolve
+    # against this test's working directory and hold nothing, which is
+    # the VPS's situation. Any text that lands came from the generation.
+    counts = script.run(generation / 'pool.yaml', generation / 'classification.yaml', root,
+                        descriptions_path=generation / 'descriptions.yaml',
+                        allow_low_descriptions=True, warn=lambda message: None)
+    assert counts['imported'] == 3
+    landed = {job['source_id']: job for job in vault.list_owned_jobs(root)}
+    assert landed[POOL_KEY]['description'] == POOL_DESCRIPTION
+    assert landed[SIBLING_KEY]['description'] == 'Backend work in Zurich.'
+    # NormalComputing's snapshot is deliberately absent from the fixture
+    # store, so the generation carries no text for it and prod says so
+    # rather than borrowing another posting's.
+    assert landed[SLUG_KEY]['description'] == ''
+    assert (counts['descriptions_resolved'], counts['descriptions_missing']) == (2, 1)
+
+
+def test_the_end_to_end_text_really_came_from_the_generation(root, people, files, tmp_path):
+    """Non-vacuous half of the test above: the same import with the
+    generation's descriptions.yaml emptied lands three blank
+    descriptions. So the text in that test travelled through the file
+    and was not resolved locally by some fallback."""
+    exporter = load_exporter()
+    lan_vault = tmp_path / 'lan-vault'
+    (lan_vault / 'jobs').mkdir(parents=True)
+    generation = tmp_path / 'generation'
+    assert exporter.main(['--pool', str(files['pool']),
+                          '--classification', str(files['classification']),
+                          '--vault', str(lan_vault), '--out', str(generation),
+                          '--stores', str(files['stores'])]) == 0
+    (generation / 'descriptions.yaml').write_text(
+        yaml.safe_dump({'day': '2026-10-19', 'descriptions': {}}))
+    counts = script.run(generation / 'pool.yaml', generation / 'classification.yaml', root,
+                        descriptions_path=generation / 'descriptions.yaml',
+                        allow_low_descriptions=True, warn=lambda message: None)
+    assert counts['descriptions_resolved'] == 0
+    assert [job['description'] for job in vault.list_owned_jobs(root)] == ['', '', '']
+
+
+# --- 6. the small readings the rest of this rests on --------------------
 
 @pytest.mark.parametrize('stored, expected', [
     ({}, True),

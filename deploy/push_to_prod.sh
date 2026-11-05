@@ -6,8 +6,9 @@
 #
 #   Finds the staged export for DATE (data/prod-export/<DATE>/, the shape
 #   scripts/export_jobs_for_prod.py writes: pool.yaml, classification.yaml,
-#   MANIFEST), re-running the export if the directory is missing. Re-verifies
-#   the MANIFEST checksums LOCALLY and refuses to continue on any mismatch.
+#   descriptions.yaml, MANIFEST), re-running the export if the directory is
+#   missing. Re-verifies the MANIFEST checksums LOCALLY -- and that the three
+#   payload names each HAVE a checksum line -- refusing to continue otherwise.
 #   Uploads over the dedicated push key with rsync into
 #   /srv/careeros/prod/incoming/<generation>/ on the VPS, following the
 #   generation naming (YYYY-MM-DDTHHMMSSZ) and COMPLETE-marker convention of
@@ -101,20 +102,30 @@ if [[ ! -d $EXPORT_DIR ]]; then
     || alert "the export step failed; nothing was sent"
 fi
 
-for f in pool.yaml classification.yaml MANIFEST; do
+for f in pool.yaml classification.yaml descriptions.yaml MANIFEST; do
   [[ -f $EXPORT_DIR/$f ]] || alert "$EXPORT_DIR/$f is missing; the staged export is incomplete"
 done
 
 # --- 2. re-verify the MANIFEST locally, byte for byte ----------------------
+# Every line is verified, and coverage is then checked BY NAME: a count
+# cannot tell "pool, classification, descriptions" apart from "pool,
+# classification, something-else", and it is the second shape that would
+# ship a descriptions.yaml nothing vouches for. Extra lines beyond the
+# three are fine -- the loop verified them too.
 manifest_ok=0
+manifest_names=' '
 while read -r digest name; do
   [[ -f $EXPORT_DIR/$name ]] || alert "MANIFEST lists $name but the file is not in the staged export"
   actual=$(sha256sum "$EXPORT_DIR/$name" | cut -d' ' -f1)
   [[ $actual == "$digest" ]] \
     || alert "checksum mismatch for $name (manifest ${digest:0:12}…, actual ${actual:0:12}…); refusing to send a tree that changed after it was staged"
   manifest_ok=$(( manifest_ok + 1 ))
+  manifest_names+="$name "
 done < <(sed -n '/^--$/,$p' "$EXPORT_DIR/MANIFEST" | tail -n +2)
-(( manifest_ok >= 2 )) || alert "MANIFEST carries $manifest_ok checksum line(s); expected pool.yaml and classification.yaml"
+for required in pool.yaml classification.yaml descriptions.yaml; do
+  [[ $manifest_names == *" $required "* ]] \
+    || alert "MANIFEST carries $manifest_ok checksum line(s) but none for $required (it names:${manifest_names% }); pool.yaml, classification.yaml and descriptions.yaml must each be vouched for by a sha256 line before anything is sent"
+done
 echo "-- manifest ok: $manifest_ok file(s) verified against their sha256"
 
 postings=$(sed -n 's/^postings: //p' "$EXPORT_DIR/MANIFEST" | head -1)

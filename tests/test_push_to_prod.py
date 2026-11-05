@@ -59,11 +59,14 @@ def env(tmp_path):
     d.mkdir(parents=True)
     pool = {'day': day, 'postings': [{'key': 'lever:a:1', 'title': 'T'}]}
     run = {'day': day, 'postings': [{'key': 'lever:a:1', 'values': {}}]}
+    descriptions = {'day': day, 'descriptions': {'lever:a:1': 'A real posting text.'}}
     (d / 'pool.yaml').write_text(yaml.safe_dump(pool))
     (d / 'classification.yaml').write_text(yaml.safe_dump(run))
+    (d / 'descriptions.yaml').write_text(yaml.safe_dump(descriptions))
     lines = ['# careeros prod-export manifest', f'day: {day}',
-             f'postings: {len(pool["postings"])}', '--']
-    for name in ('pool.yaml', 'classification.yaml'):
+             f'postings: {len(pool["postings"])}',
+             f'descriptions: {len(descriptions["descriptions"])}', '--']
+    for name in ('pool.yaml', 'classification.yaml', 'descriptions.yaml'):
         digest = hashlib.sha256((d / name).read_bytes()).hexdigest()
         lines.append(f'{digest}  {name}')
     (d / 'MANIFEST').write_text('\n'.join(lines) + '\n')
@@ -243,6 +246,129 @@ def test_loose_key_modes_refuse(env):
     assert r.returncode != 0
     assert 'must be 600' in r.stderr
     assert calls(env) == []
+
+
+# --- descriptions.yaml is part of a complete generation ------------------
+
+def test_a_generation_without_descriptions_yaml_is_refused(env):
+    """The file the VPS import needs to write any posting text at all. A
+    staged export missing it is incomplete, and nothing is sent: pushing
+    it would mean a prod import with 0% coverage."""
+    (env['export'] / 'descriptions.yaml').unlink()
+    r = run_push(env)
+    assert r.returncode != 0
+    assert 'descriptions.yaml is missing' in r.stderr
+    assert 'incomplete' in r.stderr
+    assert calls(env) == []          # nothing reached the wire
+    assert not (env['root'] / 'push-receipts.log').exists()
+
+
+def drop_descriptions_line(env):
+    """The MANIFEST minus descriptions.yaml's checksum line. The file
+    itself stays on disk, which is the point: a payload can be present
+    and vouched for by nothing."""
+    manifest = env['export'] / 'MANIFEST'
+    manifest.write_text('\n'.join(
+        line for line in manifest.read_text().splitlines()
+        if not line.endswith('  descriptions.yaml')) + '\n')
+    return manifest
+
+
+def add_manifest_line(env, name, body):
+    """One more staged file, with a correct checksum line for it."""
+    path = env['export'] / name
+    path.write_text(body)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest = env['export'] / 'MANIFEST'
+    manifest.write_text(manifest.read_text() + f'{digest}  {name}\n')
+    return path
+
+
+def test_a_manifest_with_only_two_checksum_lines_is_refused(env):
+    """A manifest an older exporter wrote (or one a hand edit shortened):
+    the file may be on disk and still be vouched for by nothing."""
+    drop_descriptions_line(env)
+    r = run_push(env)
+    assert r.returncode != 0
+    assert 'MANIFEST carries 2 checksum line(s)' in r.stderr
+    assert 'none for descriptions.yaml' in r.stderr
+    assert calls(env) == []
+
+
+def test_three_checksum_lines_that_omit_descriptions_are_refused(env):
+    """Coverage is by NAME and not by COUNT. Three lines where one of
+    them is some other file reaches the same count a complete manifest
+    does, and it is the shape that would send a descriptions.yaml nothing
+    vouches for -- exactly what a `>= 3` count could not tell apart."""
+    drop_descriptions_line(env)
+    add_manifest_line(env, 'notes.txt', 'an unrelated staged file\n')
+    r = run_push(env)
+    assert r.returncode != 0
+    assert 'MANIFEST carries 3 checksum line(s)' in r.stderr
+    assert 'none for descriptions.yaml' in r.stderr
+    assert calls(env) == []
+    assert not (env['root'] / 'push-receipts.log').exists()
+
+
+@pytest.mark.parametrize('missing', ['pool.yaml', 'classification.yaml'])
+def test_three_checksum_lines_that_omit_any_required_name_are_refused(env, missing):
+    """The same reading for the other two required names, so the check is
+    a rule and not a special case for the new file."""
+    manifest = env['export'] / 'MANIFEST'
+    manifest.write_text('\n'.join(
+        line for line in manifest.read_text().splitlines()
+        if not line.endswith(f'  {missing}')) + '\n')
+    add_manifest_line(env, 'notes.txt', 'an unrelated staged file\n')
+    r = run_push(env)
+    assert r.returncode != 0
+    assert f'none for {missing}' in r.stderr
+    assert calls(env) == []
+
+
+def test_a_fourth_checksum_line_does_not_block_the_push(env):
+    """An extra file in the manifest is fine: the three required names are
+    all there, and the verify loop checked the fourth line too."""
+    add_manifest_line(env, 'notes.txt', 'an unrelated staged file\n')
+    r = run_push(env)
+    assert r.returncode == 0, r.stderr
+    assert 'manifest ok: 4 file(s)' in r.stdout
+    assert 'push ok' in r.stdout
+
+
+def test_the_fourth_checksum_line_is_verified_like_the_rest(env):
+    """Non-vacuous half of the test above: the loop that let four lines
+    through is the same loop that verifies them, so a fourth file whose
+    bytes changed after staging still stops the push."""
+    extra = add_manifest_line(env, 'notes.txt', 'an unrelated staged file\n')
+    extra.write_text('rewritten after the manifest was written\n')
+    r = run_push(env)
+    assert r.returncode != 0
+    assert 'checksum mismatch for notes.txt' in r.stderr
+    assert calls(env) == []
+
+
+def test_a_tampered_descriptions_file_is_refused_before_any_rsync(env):
+    """The posting text is covered by the same checksum gate as the rest:
+    bytes that changed after staging never leave this host."""
+    path = env['export'] / 'descriptions.yaml'
+    path.write_text(path.read_text() + '  injected: not what was staged\n')
+    r = run_push(env)
+    assert r.returncode != 0
+    assert 'checksum mismatch for descriptions.yaml' in r.stderr
+    assert calls(env) == []
+    assert not (env['root'] / 'push-receipts.log').exists()
+
+
+def test_the_happy_path_verifies_and_ships_descriptions_yaml(env):
+    """Three files verified, and the payload transfer is the whole
+    directory -- so descriptions.yaml travels without being named."""
+    r = run_push(env)
+    assert r.returncode == 0, r.stderr
+    assert 'manifest ok: 3 file(s)' in r.stdout
+    assert './descriptions.yaml' in r.stdout          # listed in what is staged
+    payload = calls(env)[1]
+    assert str(env['export']) + '/' in payload        # the directory, not a file list
+    assert 'descriptions.yaml' not in payload
 
 
 def test_bad_date_argument_is_usage(env):
