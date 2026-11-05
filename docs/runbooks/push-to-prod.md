@@ -206,7 +206,10 @@ Below 95% a dry run warns loudly and an apply REFUSES, naming
 script and it reaches the import. A generation exported before
 `descriptions.yaml` existed carries none, is still importable, and takes
 the old honest path: every job lands with an empty description, counted
-under "descriptions missing". The generation stays in `incoming/` after a
+under "descriptions missing". Generation `2026-11-03` is exactly that
+shape — the 752 jobs it imported have no posting text, and
+[backfill-descriptions.md](backfill-descriptions.md) is the one-time fill
+that gives them theirs. The generation stays in `incoming/` after a
 successful import — it is an input and a record of what was imported, not
 a release. Removing it is an owner decision.
 
