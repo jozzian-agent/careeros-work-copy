@@ -63,6 +63,35 @@ not a one-shot that must never fire by accident.
 per-provider staging stores; the default is `data/ats/<provider>` plus
 `data/personio`, which is where `scripts/run_ats_fetch.py` writes them.
 
+`--descriptions FILE` is the other way to get posting text, and the one
+the VPS uses: an export generation's `descriptions.yaml` (pool `key` →
+text, resolved on the LAN host where the snapshots live). When it is
+given the snapshot stores are not read at all, and the report prints a
+`description coverage:` line over the postings **to import** — duplicates
+are never read, so their text cannot lower it. Below 95% coverage a dry
+run warns loudly and an apply refuses unless
+`--allow-low-descriptions` is given: a `descriptions.yaml` that resolved
+nothing is a broken export, not a reason to fill a vault with empty
+bodies. See [push-to-prod.md](push-to-prod.md), "The import step".
+
+The file is read strictly, because a mapping that is not the one the
+exporter writes is a broken generation and not something to repair
+in flight:
+
+- a value that is not a string (a dict, list, number or `null`) aborts
+  the run naming the key — `str()`-ing it would put `None` or
+  `{'description': ...}` on a job AS its posting text;
+- two different YAML keys that become one pool key once stringified
+  (`1` and `'1'`) abort naming both, because which text the row got
+  would be an accident of mapping order. Identical repeated keys are
+  collapsed by the YAML parser before the import sees them, which is
+  the parser's call;
+- "has text" means **non-empty after `.strip()`**, one rule shared by
+  the coverage line and the report's `descriptions resolved` /
+  `descriptions missing` counters. A whitespace-only value counts as
+  missing and lands as an empty description, exactly like an absent
+  key; text that does have text keeps its own bytes.
+
 ## What it writes
 
 **One job per posting**, carrying:
@@ -73,7 +102,7 @@ per-provider staging stores; the default is `data/ats/<provider>` plus
 | `location` | the row's `municipality_label` |
 | `posted_date` | the day out of the row's `published_at` (both shapes the six adapters state) |
 | `salary_info` | the row's `has_salary` |
-| `description` | the frozen posting snapshot the row names, by (tenant, posting id, content hash). No network call |
+| `description` | the frozen posting snapshot the row names, by (tenant, posting id, content hash) — or the `--descriptions` mapping when one is given. No network call either way |
 | `values`, `salary` | the classification run, validated by `vault.validate_value_records` / `validate_salary` |
 | `source_id` | the pool `key`, which is the dedupe key below |
 | `normalized_url`, `ats_provider`, `ats_tenant`, `ats_posting_id` | the row's own identity |
@@ -177,6 +206,13 @@ counted — never repaired and never silently kept. A posting whose
 description cannot be resolved is imported with an empty one and counted;
 dropping it would hide a job from the tab this import exists to fill.
 
+On the `--descriptions` path one more line is printed above the report,
+naming the file the text came from:
+
+```
+description coverage:     668/668 postings to import (100%) from /srv/careeros/prod/incoming/<GEN>/descriptions.yaml
+```
+
 A run that failed to import any posting exits non-zero and names each
 one; every other posting still landed.
 
@@ -229,6 +265,7 @@ import's to fix.
 | --- | --- | --- |
 | `does not look like a CareerOS vault (missing jobs/)` | wrong `--vault` | check the path |
 | `descriptions resolved` far below the pool's own `with_description` | `--stores` is pointing somewhere without the snapshots | run from the repository root, or pass `--stores` |
+| `refusing to APPLY at N% description coverage` | the generation's `descriptions.yaml` is incomplete (or was written by an export whose snapshots were missing) | re-export on the LAN host and push again; `--allow-low-descriptions` imports them with empty bodies if the owner decides the text can wait |
 | `companies ambiguous` above zero | the vault holds two companies with one name | merge them by hand and re-run; the affected postings are imported with the employer name as free text and link nothing |
 | `FAILED to import: N` | a posting the vault refused | the warnings name each one and the reason; the run exits 1 and everything else landed |
 | The import is interrupted | partially imported | re-run it; the dedupe keys make it resume rather than duplicate |
@@ -259,8 +296,22 @@ started by hand). It:
   so an owned record can never be shadowed and a re-export is a no-op
   rather than a duplicate,
 - writes `<out>/pool.yaml`, `<out>/classification.yaml` (matching key
-  sets) and `<out>/MANIFEST` (sha256 + row counts, the shape
-  `promote_incoming.sh` already validates),
+  sets), `<out>/descriptions.yaml` and `<out>/MANIFEST` (sha256 + row
+  counts, the shape `promote_incoming.sh` already validates),
+- resolves the posting text HERE, into `descriptions.yaml` (pool `key` →
+  text), by calling the importer's own snapshot lookup: the frozen ATS
+  snapshots exist only on the LAN host and are deliberately never
+  shipped, so text the export does not carry is text production cannot
+  have. The file is written even when nothing resolved (an empty
+  mapping), so a coverage problem shows up as a loud number in the
+  import report rather than as a missing file. `--stores DIR` points
+  that lookup at another tree, same as the import's flag,
+- **aborts** if one pool `key` appears twice with different resolved
+  text. The exclusion above is about postings the VAULT holds, not
+  repeats inside the pool file, so a repeated key does reach the
+  resolver twice — and shipping either text would be a coin flip over
+  which posting production shows. Two rows resolving the same text are
+  one entry and no error, because there is nothing to choose between,
 - refuses to run into a non-empty `--out` and fails closed if any stored
   job file does not parse (it cannot prove that record does not shadow a
   posting).

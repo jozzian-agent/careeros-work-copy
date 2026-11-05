@@ -24,9 +24,10 @@ half of a three-part path:
 
 **Promotion never touches an export generation.** An export generation is
 NOT a pipeline generation — it carries `pool.yaml` / `classification.yaml`
-/ a `# careeros prod-export manifest` header, not the mandatory
-`golden_set_pool_<day>.yaml` layout — and `promote_incoming.sh` DELETES a
-generation that fails validation after its move. Since 2026-11-04 the
+/ `descriptions.yaml` / a `# careeros prod-export manifest` header, not
+the mandatory `golden_set_pool_<day>.yaml` layout — and
+`promote_incoming.sh` DELETES a generation that fails validation after
+its move. Since 2026-11-04 the
 promoter reads that manifest header: a bare run skips export generations
 with a line naming the skip, and a run that names one is refused before
 anything moves (tests: `tests/test_deploy_scripts.py`,
@@ -47,6 +48,14 @@ ssh root@192.168.1.203 '/root/work/careeros-dashboard/deploy/push_to_prod.sh 202
 Dry run first, always: it does everything locally (find-or-rerun export,
 checksum verify) plus `rsync --dry-run` against the real target, prints
 file names, sizes and the generation name, and writes nothing remotely.
+
+The checksum step is a check by NAME, not by count: every line in the
+MANIFEST's checksum section is verified, AND `pool.yaml`,
+`classification.yaml` and `descriptions.yaml` must each HAVE a line of
+their own. A manifest can carry the right number of lines and still
+leave one payload vouched for by nothing — the shape that would send a
+`descriptions.yaml` whose bytes no digest covers. Extra lines beyond the
+three are fine; the loop verifies them too.
 
 The host is never hard-coded. Set it once, either way:
 
@@ -149,11 +158,12 @@ excludes everything already in a vault and never carries `owner_id`).
 
 ## The import step (on the VPS)
 
-`deploy/import_prod_generation.sh <GEN> [--dry-run]`, root-run like
-`promote_incoming.sh` (the backup directory is root-only), dropping to
-`careeros-prod` via `runuser` for the import itself — so the process that
-writes the vault is the account that owns it, and no release code ever
-runs as root. Reading the generation needs exactly the group setup above
+`deploy/import_prod_generation.sh <GEN> [--dry-run]
+[--allow-low-descriptions]`, root-run like `promote_incoming.sh` (the
+backup directory is root-only), dropping to `careeros-prod` via `runuser`
+for the import itself — so the process that writes the vault is the
+account that owns it, and no release code ever runs as root. Reading the
+generation needs exactly the group setup above
 and nothing more: files arrive 640/dirs 770 group `careeros-push`, and
 `careeros-prod` is a member.
 
@@ -166,8 +176,12 @@ line saying so.
 What it checks before any vault write: COMPLETE names the generation,
 the MANIFEST header says prod-export (a pipeline generation is
 `promote_incoming.sh`'s business, not this one's), `sha256sum -c` over
-every manifest line, the data lock (a backup or promotion cannot
-interleave), and — on an apply only — a `vault-*.tar.gz` in
+every manifest line, that a `descriptions.yaml` present in the
+generation HAS a manifest line of its own (`sha256sum -c` verifies the
+lines a manifest has, so an unlisted payload would otherwise pass it
+untouched; the refusal is the same posture as the symlink one and
+happens before the importer is invoked), the data lock (a backup or
+promotion cannot interleave), and — on an apply only — a `vault-*.tar.gz` in
 `/srv/careeros/prod/backups/` younger than 60 minutes. A refusal prints
 the exact `tar` command that makes the backup. A dry run needs no backup:
 rehearsing must not require insuring.
@@ -181,9 +195,18 @@ owner. Jobs arrive WITH their classification — the coded `values` block
 including the family top-3 (`ranked` inside the `occupation_family`
 record) and salary — because `coded_half` validates and stores the
 classification row's `values` verbatim (`vault.validate_value_records`).
-One honest gap: an export generation carries no ATS snapshots, so every
-imported job has an empty description and the report counts them under
-"descriptions missing". The generation stays in `incoming/` after a
+
+The posting text arrives too, as data: the generation carries
+`descriptions.yaml` (pool `key` → text, resolved on the LAN host where
+the frozen ATS snapshots live — the VPS has none and never will), and
+this script passes it to the import with `--descriptions`. The report
+then prints a `description coverage:` line over the postings to import.
+Below 95% a dry run warns loudly and an apply REFUSES, naming
+`--allow-low-descriptions` as the override; pass that flag to this
+script and it reaches the import. A generation exported before
+`descriptions.yaml` existed carries none, is still importable, and takes
+the old honest path: every job lands with an empty description, counted
+under "descriptions missing". The generation stays in `incoming/` after a
 successful import — it is an input and a record of what was imported, not
 a release. Removing it is an owner decision.
 
@@ -208,7 +231,9 @@ sudo grep -rl '^in_pipeline: false' /srv/careeros/prod/vault/jobs | wc -l
 
 Expected at each step: (1) prints nothing and exits 0; (2) ends with
 `-- dry run ok: nothing was written` above a report whose `imported:`
-line matches the export's posting count minus the duplicates it names;
+line matches the export's posting count minus the duplicates it names,
+and whose `description coverage:` line reads 100% or close to it (read
+this one before applying: the apply refuses below 95%);
 (3) ends with `-- import ok: <GEN> is in /srv/careeros/prod/vault`;
 (4) a number equal to the universe jobs the vault held before plus
 `imported:`.
@@ -244,11 +269,13 @@ gate exists to keep small.
 The imported postings are ownerless universe records
 (`in_pipeline: false`): they appear on the **All jobs** tab for every
 signed-in user, on **nobody's board**, with their coded values (family,
-language, municipality, …) and salary where the classification carried
-one, an empty description, and the company each was linked to (created
-where the vault had none). Pasting one of their urls into "Add a job"
-hits the existing duplicate rule: the universe record is offered for
-promotion, never added twice.
+language, municipality, …), salary where the classification carried one,
+the posting text the generation's `descriptions.yaml` carried (empty only
+for a posting the LAN host had no snapshot for — or for a whole
+generation exported before that file existed), and the company each was
+linked to (created where the vault had none). Pasting one of their urls
+into "Add a job" hits the existing duplicate rule: the universe record is
+offered for promotion, never added twice.
 
 Docs checked: import-pool.md (the LAN half it points at), deploy/RUNBOOK.md
 ("Restoring the vault from a backup" Route A, "The off-VPS copy" table),

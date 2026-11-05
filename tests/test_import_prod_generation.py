@@ -35,6 +35,9 @@ POOL_KEY = 'greenhouse:acme:7001'
 POOL_URL = 'https://job-boards.greenhouse.io/acme/jobs/7001'
 OWNER_URL = 'https://job-boards.greenhouse.io/acme/jobs/9999'
 PASSWORD = 'correct horse battery staple'
+#: The posting text a generation carries in descriptions.yaml, resolved on
+#: the LAN host from the frozen snapshot this VPS-shaped fixture has none of.
+DESCRIPTION_TEXT = 'Acme is hiring a platform engineer in Zürich.'
 
 
 # --- the fixtures ----------------------------------------------------------
@@ -56,11 +59,23 @@ def prod_vault(tmp_path):
 
 
 def export_generation(incoming, *, postings=None, classified=None, complete=GEN,
-                      header='# careeros prod-export manifest', tamper=None):
+                      header='# careeros prod-export manifest', tamper=None,
+                      descriptions=None, list_descriptions=True):
     """One prod-export generation, written the way export_jobs_for_prod.py
     writes it: MANIFEST header + counts + `--` + sha256 lines, COMPLETE
     last. `tamper` rewrites one payload file WITHOUT updating its digest:
-    the bytes-and-manifest disagreement the checksum gate exists for."""
+    the bytes-and-manifest disagreement the checksum gate exists for.
+
+    `descriptions` is the `key -> text` mapping descriptions.yaml
+    carries; None writes NO descriptions.yaml, which is a generation
+    exported before the file existed -- the legacy shape this wrapper
+    still has to import.
+
+    `list_descriptions=False` writes the file but leaves it OUT of the
+    checksum section: `sha256sum -c` verifies the lines a manifest HAS,
+    so an unlisted payload passes that gate without being vouched for by
+    anything, which is its own guard.
+    """
     generation = incoming / GEN
     generation.mkdir(parents=True)
     postings = postings if postings is not None else [pool_posting(POOL_KEY, POOL_URL),
@@ -70,10 +85,19 @@ def export_generation(incoming, *, postings=None, classified=None, complete=GEN,
         yaml.safe_dump({'day': '2026-11-03', 'postings': postings}, allow_unicode=True))
     (generation / 'classification.yaml').write_text(
         yaml.safe_dump({'day': '2026-11-03', 'postings': classified}, allow_unicode=True))
+    files = ['pool.yaml', 'classification.yaml']
     lines = [header, 'day: 2026-11-03',
              'source_pool: /fixture/pool.yaml', 'source_run: /fixture/run.yaml',
-             f'postings: {len(postings)}', '--']
-    for relative in ('pool.yaml', 'classification.yaml'):
+             f'postings: {len(postings)}']
+    if descriptions is not None:
+        (generation / 'descriptions.yaml').write_text(
+            yaml.safe_dump({'day': '2026-11-03', 'descriptions': descriptions},
+                           allow_unicode=True))
+        if list_descriptions:
+            files.append('descriptions.yaml')
+        lines.append(f'descriptions: {len(descriptions)}')
+    lines.append('--')
+    for relative in files:
         digest = hashlib.sha256((generation / relative).read_bytes()).hexdigest()
         lines.append(f'{digest}  {relative}')
     (generation / 'MANIFEST').write_text('\n'.join(lines) + '\n')
@@ -134,7 +158,7 @@ def vps(tmp_path, prod_vault, backups):
     release = tmp_path / 'release'
     release.symlink_to(ROOT)
 
-    def run(*args, env=None):
+    def run(*args, env=None, script=SCRIPT):
         environment = {
             **os.environ,
             'IMPORT_INCOMING': str(incoming),
@@ -149,7 +173,10 @@ def vps(tmp_path, prod_vault, backups):
             'DEPLOY_DATA_LOCK': str(tmp_path / 'data.lock'),
             **(env or {}),
         }
-        return subprocess.run(['bash', str(SCRIPT), *args],
+        # `script` names the file to run: a test that has to prove a
+        # guard is load-bearing runs a COPY with that one line removed,
+        # which is the only way to show the refusal came from the guard.
+        return subprocess.run(['bash', str(script), *args],
                               capture_output=True, text=True, env=environment, timeout=300)
 
     run.incoming = incoming
@@ -290,6 +317,164 @@ def test_a_second_apply_imports_nothing_again(vps):
     assert 'skipped-duplicate:' in done.stdout
     keys = [job.get('source_id') for job in vault.list_owned_jobs(vps.root)]
     assert keys.count(POOL_KEY) == 1
+
+
+# --- the posting text, which only the generation can carry ------------------
+
+def test_a_generation_carrying_descriptions_imports_the_posting_text(vps):
+    """The fix this path exists for: the text was resolved on the LAN
+    host (no ATS snapshot exists here) and travels as data, so an
+    imported job is not a title with an empty body."""
+    export_generation(vps.incoming, descriptions={POOL_KEY: DESCRIPTION_TEXT})
+    done = vps(GEN)
+    assert done.returncode == 0, done.stdout + done.stderr
+    # The coverage line names the file the wrapper handed to
+    # --descriptions, which is the generation's own.
+    assert 'description coverage:     1/1 postings to import (100%)' in done.stdout
+    assert f'{GEN}/descriptions.yaml' in done.stdout
+    job = next(job for job in vault.list_owned_jobs(vps.root)
+               if job.get('source_id') == POOL_KEY)
+    assert job['description'] == DESCRIPTION_TEXT
+
+
+def test_a_generation_without_descriptions_is_still_importable(vps):
+    """A generation exported before descriptions.yaml existed: no
+    --descriptions flag, no coverage gate, and the honest
+    no-description import it always was."""
+    export_generation(vps.incoming)
+    done = vps(GEN)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'import ok' in done.stdout
+    assert 'description coverage:' not in done.stdout
+    job = next(job for job in vault.list_owned_jobs(vps.root)
+               if job.get('source_id') == POOL_KEY)
+    assert job['description'] == ''
+
+
+def test_an_apply_below_the_coverage_floor_is_refused(vps):
+    """descriptions.yaml that resolved nothing is a broken export, not a
+    reason to fill prod with empty bodies. The import script refuses and
+    the wrapper reports its exit; the vault is untouched."""
+    export_generation(vps.incoming, descriptions={})
+    done = vps(GEN)
+    assert done.returncode != 0
+    assert 'LOW DESCRIPTION COVERAGE' in done.stderr
+    assert 'refusing to APPLY' in done.stderr
+    assert 'the import script exited 1' in done.stdout
+    assert vault.list_owned_jobs(vps.root) == [vps.mine]
+
+
+def test_allow_low_descriptions_is_passed_through_to_the_import(vps):
+    """The owner's explicit override, on this script as well as the
+    import script -- the refusal above names it, so it has to work."""
+    export_generation(vps.incoming, descriptions={})
+    done = vps(GEN, '--allow-low-descriptions')
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'import ok' in done.stdout
+    job = next(job for job in vault.list_owned_jobs(vps.root)
+               if job.get('source_id') == POOL_KEY)
+    assert job['description'] == ''
+
+
+def test_a_dry_run_reports_low_coverage_and_still_completes(vps):
+    """A rehearsal never refuses: it is how the owner finds out before
+    deciding, so it needs no override flag."""
+    export_generation(vps.incoming, descriptions={})
+    done = vps(GEN, '--dry-run')
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'LOW DESCRIPTION COVERAGE' in done.stderr
+    assert 'DRY RUN: nothing was written' in done.stdout
+    assert vault.list_owned_jobs(vps.root) == [vps.mine]
+
+
+@pytest.mark.parametrize('flags', [('--allow-low-descriptions', '--dry-run'),
+                                   ('--dry-run', '--allow-low-descriptions')])
+def test_both_flags_are_accepted_in_either_order(vps, flags):
+    """Both orders really run: the parser is a loop over "$@", so an
+    order that only one test exercised would be an order nothing
+    checked."""
+    export_generation(vps.incoming, descriptions={})
+    done = vps(GEN, *flags)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'dry run ok' in done.stdout
+    assert 'DRY RUN: nothing was written' in done.stdout
+    assert vault.list_owned_jobs(vps.root) == [vps.mine]
+
+
+def test_an_unknown_flag_is_a_usage_error(vps):
+    export_generation(vps.incoming)
+    done = vps(GEN, '--no-such-flag')
+    assert done.returncode == 2
+    assert 'usage:' in done.stderr
+    assert '--allow-low-descriptions' in done.stderr
+    assert vault.list_owned_jobs(vps.root) == [vps.mine]
+
+
+def test_a_symlinked_descriptions_file_is_refused(vps, tmp_path):
+    """The upload cannot create a symlink (rsync --no-links), so one in a
+    generation is something else -- the same posture the payload checks
+    in section 1 take, applied to the file that carries the text."""
+    generation = export_generation(vps.incoming, descriptions={POOL_KEY: DESCRIPTION_TEXT})
+    elsewhere = tmp_path / 'elsewhere.yaml'
+    elsewhere.write_text((generation / 'descriptions.yaml').read_text())
+    (generation / 'descriptions.yaml').unlink()
+    (generation / 'descriptions.yaml').symlink_to(elsewhere)
+    done = vps(GEN)
+    assert done.returncode != 0
+    assert 'descriptions.yaml in the generation is a symlink' in done.stdout
+    assert vault.list_owned_jobs(vps.root) == [vps.mine]
+
+
+def test_a_descriptions_file_the_manifest_does_not_list_is_refused(vps):
+    """`sha256sum -c` verifies the lines a MANIFEST HAS, so a
+    descriptions.yaml with no line of its own passes that gate without
+    being vouched for by anything -- the one payload whose bytes could be
+    swapped after the checksum step. The wrapper refuses before it builds
+    the import command, so the importer is never invoked."""
+    export_generation(vps.incoming, descriptions={POOL_KEY: DESCRIPTION_TEXT},
+                      list_descriptions=False)
+    done = vps(GEN)
+    assert done.returncode != 0
+    assert 'descriptions.yaml is in the generation but has no MANIFEST checksum line' \
+        in done.stdout
+    # Not merely "the import failed": it never started.
+    assert '-- import generation' not in done.stdout
+    assert 'description coverage:' not in done.stdout
+    assert vault.list_owned_jobs(vps.root) == [vps.mine]
+
+
+def test_the_unlisted_descriptions_guard_is_what_refuses(vps):
+    """Non-vacuous half: the SAME generation, with the coverage check
+    removed from a copy of the script, imports the unlisted file happily
+    -- so the refusal above is the guard's doing and not some other
+    objection to the fixture."""
+    export_generation(vps.incoming, descriptions={POOL_KEY: DESCRIPTION_TEXT},
+                      list_descriptions=False)
+    unguarded = vps.root.parent / 'import_prod_generation_unguarded.sh'
+    source = SCRIPT.read_text().replace(
+        "awk -v name=descriptions.yaml '$2 == name { found = 1 } END { exit !found }' \"$SUMS\" \\",
+        'true \\')
+    assert 'awk -v name=descriptions.yaml' not in source      # the patch really landed
+    unguarded.write_text(source)
+    done = vps(GEN, script=unguarded)
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert 'description coverage:     1/1 postings to import (100%)' in done.stdout
+    job = next(job for job in vault.list_owned_jobs(vps.root)
+               if job.get('source_id') == POOL_KEY)
+    assert job['description'] == DESCRIPTION_TEXT
+
+
+def test_a_tampered_descriptions_file_is_refused_like_any_other(vps):
+    """The MANIFEST check is `sha256sum -c` over every line the exporter
+    wrote, so the new file is covered by the existing gate rather than by
+    a second rule that could forget it."""
+    export_generation(vps.incoming, descriptions={POOL_KEY: DESCRIPTION_TEXT},
+                      tamper=('descriptions.yaml',
+                              'day: 2026-11-03\ndescriptions: {}\n'))
+    done = vps(GEN)
+    assert done.returncode != 0
+    assert 'checksum mismatch' in done.stdout
+    assert vault.list_owned_jobs(vps.root) == [vps.mine]
 
 
 def test_the_generation_survives_a_successful_import(vps):

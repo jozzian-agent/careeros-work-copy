@@ -106,6 +106,13 @@ FEED_PROVENANCE = 'feed'
 #: five real rows beside the counts before an apply touches the vault.
 DRY_RUN_SAMPLE_ROWS = 5
 
+#: Below this share of the postings-to-import carrying description text,
+#: the run warns loudly -- and an APPLY refuses without
+#: --allow-low-descriptions. 95% rather than 100% because a feed row can
+#: legitimately have no snapshot (a posting the fetcher never froze), and
+#: one or two of those is normal; a collapse of the whole mapping is not.
+DESCRIPTION_COVERAGE_FLOOR = 0.95
+
 #: The job fields this import fills from the pool row, for the
 #: provenance stamp above. Listed rather than derived from the payload so
 #: a field that happens to be empty on one posting still records who
@@ -196,6 +203,56 @@ def load_yaml(path):
     if not isinstance(data, dict):
         raise SystemExit(f'{path} does not hold a pool/classification document')
     return data
+
+
+def load_descriptions(path):
+    """The `key -> text` mapping an export generation's descriptions.yaml
+    carries, for the VPS-side import that has no snapshot store.
+
+    A missing file is a hard error, not an empty mapping: the wrapper
+    passes --descriptions only when the generation carries the file, so
+    a caller that named one means it. An empty mapping (no snapshot
+    resolved at export time) IS returned, and the coverage gate below
+    turns it into a loud warning rather than a silent no-description
+    import -- which is the whole point of shipping the file.
+
+    Strict about what a value is allowed to be: posting text is a
+    string, and a dict/list/number/None under a key means the file is
+    not the file the exporter writes. `str()`-ing such a value would
+    put `{'description': ...}` or `None` on a job as its posting text --
+    fake text nobody would read as a bug. So it refuses, naming the key.
+
+    Keys ARE coerced with `str()` (YAML reads an all-digit key as an
+    int), but a coercion that COLLIDES -- raw `1` and raw `"1"` in the
+    same mapping -- is refused too, because which of the two texts the
+    row gets would be decided by iteration order. Two identical raw keys
+    are already collapsed by `safe_load` before this sees the mapping;
+    that is YAML's call and not ours to re-litigate.
+    """
+    if not Path(path).is_file():
+        raise SystemExit(f'{path}: no such descriptions file')
+    doc = store_module.read_yaml(Path(path))
+    if not isinstance(doc, dict):
+        raise SystemExit(f'{path} does not hold a descriptions document')
+    mapping = doc.get('descriptions', doc)
+    if not isinstance(mapping, dict):
+        raise SystemExit(f'{path}: descriptions is not a mapping')
+    descriptions, raw_keys = {}, {}
+    for raw_key, value in mapping.items():
+        if not isinstance(value, str):
+            raise SystemExit(
+                f'{path}: the description for key {raw_key!r} is '
+                f'{type(value).__name__} and not text; this is not a descriptions.yaml '
+                f'this import can read')
+        key = str(raw_key)
+        if key in raw_keys:
+            raise SystemExit(
+                f'{path}: keys {raw_keys[key]!r} and {raw_key!r} are different YAML '
+                f'values that both name the pool key {key!r}; which posting text the '
+                f'row gets would be an accident of ordering')
+        raw_keys[key] = raw_key
+        descriptions[key] = value
+    return descriptions
 
 
 def classification_index(document):
@@ -571,8 +628,14 @@ def job_payload(row, *, company_id, company_name, link_reason, description, valu
 
 
 def run(pool_path, classification_path, root, *, dry_run=False, base=None,
+        descriptions_path=None, allow_low_descriptions=False,
         out=None, warn=None):
     """Import one pool export. Returns the report counters.
+
+    `descriptions_path` is an export generation's descriptions.yaml (pool
+    key -> text, resolved on the LAN host where the snapshots live);
+    `allow_low_descriptions` is the explicit confirmation an APPLY needs
+    when coverage is under DESCRIPTION_COVERAGE_FLOOR.
 
     `out` and `warn` are resolved here rather than defaulted to
     `sys.stdout`/`sys.stderr` in the signature, because a default is
@@ -610,6 +673,35 @@ def run(pool_path, classification_path, root, *, dry_run=False, base=None,
     counts['skipped_source_id'] = skipped_reasons['source_id']
     counts['skipped_url'] = skipped_reasons['url']
 
+    #: The shipped mapping (VPS path), or None to resolve per row from
+    #: snapshot stores (LAN path, unchanged).
+    #
+    # Read and gated HERE, before `resolve_company` -- which CREATES
+    # companies on an apply -- so a refusal leaves the vault exactly as
+    # it was. The gate needs only `fresh`, which the dedupe pass above
+    # has already decided, so there is nothing to gain by waiting and a
+    # half-written apply to lose.
+    descriptions = load_descriptions(descriptions_path) if descriptions_path else None
+    if descriptions is not None:
+        # Coverage over the postings TO IMPORT (fresh), not the pool: a
+        # duplicate is never read and its missing text cannot hurt anyone.
+        covered = sum(1 for row in fresh if descriptions.get(str(row.get('key')), '').strip())
+        share = (covered / len(fresh)) if fresh else 1.0
+        counts['descriptions_covered'] = covered
+        print(f"description coverage:     {covered}/{len(fresh)} postings to import "
+              f"({share:.0%}) from {descriptions_path}", file=out)
+        if share < DESCRIPTION_COVERAGE_FLOOR:
+            warn(f"LOW DESCRIPTION COVERAGE: {share:.0%} of the {len(fresh)} postings to "
+                 f"import carry text from {descriptions_path}, below the "
+                 f"{DESCRIPTION_COVERAGE_FLOOR:.0%} floor -- the generation's "
+                 f"descriptions.yaml is incomplete or was tampered with; inspect it "
+                 f"before applying (re-export if the LAN snapshots are the problem)")
+            if not dry_run and not allow_low_descriptions:
+                raise SystemExit(
+                    f'refusing to APPLY at {share:.0%} description coverage; '
+                    f're-run with --allow-low-descriptions to import them with '
+                    f'empty descriptions anyway, or fix the generation first')
+
     plans = plan_companies(fresh, stated_names)
     resolved, reasons = {}, {}
     for key, plan in sorted(plans.items()):
@@ -627,7 +719,15 @@ def run(pool_path, classification_path, root, *, dry_run=False, base=None,
         name, _basis = company_name_for(row, stated_names)
         key = identity._normalize_name(name)
         company_id, reason = resolved.get(key), reasons.get(key)
-        description = description_for(row, stores, base, warn)
+        description = (descriptions.get(str(row.get('key')), '') if descriptions is not None
+                       else description_for(row, stores, base, warn))
+        # ONE rule for "has text", shared with the coverage counter
+        # above: non-empty after `.strip()`. A whitespace-only value --
+        # shipped or resolved from a snapshot -- is no text at all, so it
+        # becomes an empty description and counts as missing, exactly
+        # like an absent key. Text that HAS text keeps its own bytes.
+        if not description.strip():
+            description = ''
         values, salary, problems = coded_half(row, classified.get(row.get('key')), warn)
         if description:
             counts['descriptions_resolved'] += 1
@@ -725,6 +825,14 @@ def main(argv=None):
     parser.add_argument('--stores', default=None,
                         help='base directory holding the per-provider staging stores '
                              '(default: data/ats/<provider>, data/personio)')
+    parser.add_argument('--descriptions', default=None,
+                        help='an export generation\'s descriptions.yaml (pool key -> text); '
+                             'when given, posting text is read from it instead of the '
+                             'snapshot stores -- the VPS-side import path')
+    parser.add_argument('--allow-low-descriptions', action='store_true',
+                        help='confirmation flag: APPLY anyway when fewer than 95%% of the '
+                             'postings to import carry description text (a dry run always '
+                             'reports and never refuses)')
     parser.add_argument('--dry-run', action='store_true',
                         help='print the report and write nothing')
     args = parser.parse_args(argv)
@@ -735,7 +843,9 @@ def main(argv=None):
 
     with vault.WriteLock(root):
         counts = run(args.pool, args.classification, root,
-                     dry_run=args.dry_run, base=args.stores)
+                     dry_run=args.dry_run, base=args.stores,
+                     descriptions_path=args.descriptions,
+                     allow_low_descriptions=args.allow_low_descriptions)
     return 1 if counts['failed'] else 0
 
 

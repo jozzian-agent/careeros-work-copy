@@ -46,18 +46,29 @@
 #     the import script, the vault.
 #
 # DESCRIPTIONS, HONESTLY
-#   An export generation carries pool.yaml + classification.yaml and no
-#   ATS snapshots (sync and export both exclude them), so every imported
-#   job lands with an empty description and the report counts them under
-#   "descriptions missing". Title, url, location, company, coded values
-#   (family top-3 included, as `ranked` inside the value record) and
-#   salary all arrive; the posting text does not. This is the export
-#   format's shape, not a failure of this step.
+#   A generation exported BEFORE descriptions.yaml existed carries only
+#   pool.yaml + classification.yaml and no ATS snapshots (sync and
+#   export both exclude them), so every imported job lands with an empty
+#   description and the report counts them under "descriptions missing".
+#   Title, url, location, company, coded values (family top-3 included,
+#   as `ranked` inside the value record) and salary all arrive; the
+#   posting text does not. Current exports resolve the text on the LAN
+#   host into descriptions.yaml (covered by the MANIFEST sha256 like
+#   every other file); when the generation carries it, this script
+#   passes it to the importer with --descriptions and the import
+#   report shows the coverage. Below the importer's 95% floor a dry run
+#   warns loudly and an APPLY refuses unless --allow-low-descriptions
+#   is given to THIS script too.
 #
 # ARGUMENTS
 #   $1  generation name (e.g. 2026-11-03T165340Z). Required.
-#   $2  --dry-run  optional: validate, take the lock, print the import
-#       report with its 5-row sample, write nothing. No backup needed.
+#   Then, in any order:
+#   --dry-run  validate, take the lock, print the import report with its
+#       5-row sample, write nothing. No backup needed.
+#   --allow-low-descriptions  APPLY even when the generation's
+#       descriptions.yaml covers fewer than 95% of the postings to
+#       import. Passed straight through to the import script, which is
+#       where the floor lives. A dry run never needs it.
 #
 # ENVIRONMENT
 #   IMPORT_INCOMING        where uploads land   (/srv/careeros/prod/incoming)
@@ -95,12 +106,16 @@ IMPORT_USER="${IMPORT_USER-careeros-prod}"
 DEPLOY_DATA_LOCK="${DEPLOY_DATA_LOCK:-/run/careeros/careeros-data.lock}"
 
 GEN="${1:-}"
+shift || true
 DRY_RUN=0
-case "${2:-}" in
-  '') ;;
-  --dry-run) DRY_RUN=1 ;;
-  *) echo "usage: $(basename "$0") <generation> [--dry-run]" >&2; exit 2 ;;
-esac
+ALLOW_LOW_DESCRIPTIONS=0
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --allow-low-descriptions) ALLOW_LOW_DESCRIPTIONS=1 ;;
+    *) echo "usage: $(basename "$0") <generation> [--dry-run] [--allow-low-descriptions]" >&2; exit 2 ;;
+  esac
+done
 
 alert() {
   echo "ALERT careeros-import ${GEN:-?}: $*"
@@ -175,14 +190,39 @@ fi
 
 # --- 5. the import itself ---------------------------------------------------
 # The existing script, unmodified in behaviour: --vault is the production
-# vault, --stores is deliberately NOT passed, because an export
-# generation carries no snapshots (see DESCRIPTIONS above) and the
-# default lookup finding nothing is the honest path -- every row counts
-# as "descriptions missing" in the report instead of silently borrowing
-# some other tree's text.
+# vault, and --stores is deliberately NOT passed, because an export
+# generation carries no ATS snapshots and pointing the lookup at some
+# other tree would mean borrowing another posting's text.
+#
+# The posting text arrives as data instead: a generation that carries
+# descriptions.yaml (every export since the file existed, verified by the
+# MANIFEST sha256 above) hands it to --descriptions, and the import
+# report prints the coverage. A generation WITHOUT the file -- one
+# exported before it existed -- is still importable and takes the honest
+# no-description path: the default snapshot lookup finds nothing on this
+# host and every row counts as "descriptions missing" in the report.
 cmd=("$IMPORT_PYTHON" "$IMPORT_RELEASE/scripts/import_pool_to_vault.py"
      --pool "$SRC/pool.yaml" --classification "$SRC/classification.yaml"
      --vault "$IMPORT_VAULT")
+if [[ -L $SRC/descriptions.yaml ]]; then
+  # Same posture as the payload checks in section 1: the upload cannot
+  # create a symlink (rsync --no-links), so one here is something else,
+  # and reading posting text through it is not a risk worth taking.
+  alert "descriptions.yaml in the generation is a symlink; refusing to read the posting text through it"
+elif [[ -f $SRC/descriptions.yaml ]]; then
+  # The `sha256sum -c` gate in section 1 verifies every file the MANIFEST
+  # LISTS, so a descriptions.yaml the MANIFEST does not list sails
+  # through it untouched -- the posting text would be the one payload
+  # nothing vouches for. Same posture as the symlink above: refuse,
+  # rather than import text of unknown provenance.
+  awk -v name=descriptions.yaml '$2 == name { found = 1 } END { exit !found }' "$SUMS" \
+    || alert "descriptions.yaml is in the generation but has no MANIFEST checksum line; refusing to import posting text the manifest does not vouch for"
+  cmd+=(--descriptions "$SRC/descriptions.yaml")
+fi
+# Passed through whether or not the generation carries descriptions.yaml:
+# the import script only reads it on the --descriptions path, and a flag
+# the owner typed should not be silently dropped.
+if (( ALLOW_LOW_DESCRIPTIONS )); then cmd+=(--allow-low-descriptions); fi
 # `if` and not `(( DRY_RUN )) && ...`: under `set -e` an AND-list whose
 # left side is false exits the script -- the whole wrapper would die
 # silently on every APPLY run.
