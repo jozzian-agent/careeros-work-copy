@@ -197,6 +197,10 @@ echo "-- import generation $GEN into $IMPORT_VAULT (mode: $( (( DRY_RUN )) && ec
 # something (it holds no snapshots either way, but a cwd that is the
 # vault's parent would be a different wrong guess).
 if [[ $(id -u) == 0 && -n $IMPORT_USER ]]; then
+  # SC2016 is the point: the single quotes keep $0 and $@ literal here so
+  # the inner bash -c expands them from its own argv (the release path and
+  # the import command), not from this shell's environment.
+  # shellcheck disable=SC2016
   if runuser -u "$IMPORT_USER" -- bash -c 'cd "$0" && exec "$@"' "$IMPORT_RELEASE" "${cmd[@]}"; then rc=0; else rc=$?; fi
 else
   [[ $(id -u) == 0 ]] \
