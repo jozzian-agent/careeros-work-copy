@@ -277,6 +277,7 @@ The staged directory lives at `data/prod-export/<DATE>/` (gitignored —
 regenerable pipeline output, megabytes per day). The export stages only;
 it sends nothing. The upload is [`deploy/push_to_prod.sh`](../../deploy/push_to_prod.sh)
 — procedure, host-key pinning, permissions and failure recovery in
-[push-to-prod.md](push-to-prod.md) — and the VPS-side import is a
-separate, owner-started follow-up. Nothing here is scheduled and nothing
+[push-to-prod.md](push-to-prod.md) — and the VPS-side import is
+`deploy/import_prod_generation.sh`, also owner-started, also documented
+there ("The import step"). Nothing here is scheduled and nothing
 here is part of the nightly.

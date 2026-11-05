@@ -18,20 +18,21 @@ half of a three-part path:
 2. **Upload** (this doc): `deploy/push_to_prod.sh DATE` verifies and
    rsyncs that directory into `/srv/careeros/prod/incoming/<generation>/`
    on the VPS over the dedicated write-confined push key.
-3. **Import on the VPS** (separate PR, pending): consumes the uploaded
-   generation against the real prod vault. Until it ships, an uploaded
-   generation just sits in `incoming/` — with one caveat below.
+3. **Import on the VPS**: `deploy/import_prod_generation.sh GEN`
+   consumes the uploaded generation against the real prod vault —
+   "The import step" below.
 
-**Caveat until the import step exists:** `deploy/promote_incoming.sh` run
-without arguments picks the **newest COMPLETE generation** in `incoming/`
-and deletes it after a move if validation fails (its header: "A
-generation that fails validation after the move is deleted"). An export
-generation is NOT a pipeline generation — it carries `pool.yaml` /
-`classification.yaml` / `MANIFEST`, not the mandatory
-`golden_set_pool_<day>.yaml` layout — so it would fail validation and be
-destroyed. Until the VPS-side import ships: do not run
-`promote_incoming.sh` (bare or named) while an export generation sits in
-`incoming/`.
+**Promotion never touches an export generation.** An export generation is
+NOT a pipeline generation — it carries `pool.yaml` / `classification.yaml`
+/ a `# careeros prod-export manifest` header, not the mandatory
+`golden_set_pool_<day>.yaml` layout — and `promote_incoming.sh` DELETES a
+generation that fails validation after its move. Since 2026-11-04 the
+promoter reads that manifest header: a bare run skips export generations
+with a line naming the skip, and a run that names one is refused before
+anything moves (tests: `tests/test_deploy_scripts.py`,
+`test_promote_skips_an_export_generation_rather_than_destroying_it` and
+friends). So an upload waiting in `incoming/` is safe from promotion; the
+import step below is what consumes it.
 
 ## What the owner runs
 
@@ -145,6 +146,114 @@ Trade-off, stated honestly: group membership lets `careeros-prod` read
 everything the `careeros-push` group can — which is only `incoming/`
 contents (pipeline exports, no owner data by construction: the export
 excludes everything already in a vault and never carries `owner_id`).
+
+## The import step (on the VPS)
+
+`deploy/import_prod_generation.sh <GEN> [--dry-run]`, root-run like
+`promote_incoming.sh` (the backup directory is root-only), dropping to
+`careeros-prod` via `runuser` for the import itself — so the process that
+writes the vault is the account that owns it, and no release code ever
+runs as root. Reading the generation needs exactly the group setup above
+and nothing more: files arrive 640/dirs 770 group `careeros-push`, and
+`careeros-prod` is a member.
+
+Prerequisite: the release carrying `scripts/import_pool_to_vault.py`
+(this code) must be promoted — the script runs the import out of
+`/srv/careeros/prod/app/current`, with that release's venv python. The
+owner tags and promotes after merge; until then the script refuses with a
+line saying so.
+
+What it checks before any vault write: COMPLETE names the generation,
+the MANIFEST header says prod-export (a pipeline generation is
+`promote_incoming.sh`'s business, not this one's), `sha256sum -c` over
+every manifest line, the data lock (a backup or promotion cannot
+interleave), and — on an apply only — a `vault-*.tar.gz` in
+`/srv/careeros/prod/backups/` younger than 60 minutes. A refusal prints
+the exact `tar` command that makes the backup. A dry run needs no backup:
+rehearsing must not require insuring.
+
+The import itself is the EXISTING `scripts/import_pool_to_vault.py`
+(unchanged behaviour; its rules and their tests live in
+[import-pool.md](import-pool.md) and `tests/test_pool_import.py`):
+create-only, ownerless `in_pipeline: false` records, skips anything the
+vault already holds by url/source_id, never touches a record with an
+owner. Jobs arrive WITH their classification — the coded `values` block
+including the family top-3 (`ranked` inside the `occupation_family`
+record) and salary — because `coded_half` validates and stores the
+classification row's `values` verbatim (`vault.validate_value_records`).
+One honest gap: an export generation carries no ATS snapshots, so every
+imported job has an empty description and the report counts them under
+"descriptions missing". The generation stays in `incoming/` after a
+successful import — it is an input and a record of what was imported, not
+a release. Removing it is an owner decision.
+
+### The owner's commands, in order
+
+```bash
+# 0. (once) the group setup in "Permissions" above, if not already done.
+
+# 1. backup (the apply refuses without one younger than 60 minutes)
+sudo tar -czf /srv/careeros/prod/backups/vault-$(date -u +%Y%m%dT%H%M%SZ).tar.gz \
+    -C /srv/careeros/prod vault
+
+# 2. rehearse: validates, prints the report with a 5-row sample, writes nothing
+sudo /srv/careeros/prod/app/current/deploy/import_prod_generation.sh 2026-11-03T165340Z --dry-run
+
+# 3. apply
+sudo /srv/careeros/prod/app/current/deploy/import_prod_generation.sh 2026-11-03T165340Z
+
+# 4. verify: count universe-only jobs (compare with the report's imported: line)
+sudo grep -rl '^in_pipeline: false' /srv/careeros/prod/vault/jobs | wc -l
+```
+
+Expected at each step: (1) prints nothing and exits 0; (2) ends with
+`-- dry run ok: nothing was written` above a report whose `imported:`
+line matches the export's posting count minus the duplicates it names;
+(3) ends with `-- import ok: <GEN> is in /srv/careeros/prod/vault`;
+(4) a number equal to the universe jobs the vault held before plus
+`imported:`.
+
+### Rollback
+
+The import only creates records, so rollback means removing the vault
+state the run added — restore the backup from step 1 (or the newest
+`vault-*.tar.gz` from before the damage), following
+[deploy/RUNBOOK.md](../../deploy/RUNBOOK.md), "Restoring the vault from a
+backup", Route A:
+
+```bash
+sudo systemctl stop careeros-prod
+cd /srv/careeros/prod/backups
+sudo mkdir -p /tmp/restore
+sudo tar -xzf vault-<timestamp>.tar.gz -C /tmp/restore
+sudo diff -rq /tmp/restore/vault /srv/careeros/prod/vault | head -30   # read this
+sudo mv /srv/careeros/prod/vault /srv/careeros/prod/vault.broken
+sudo mv /tmp/restore/vault /srv/careeros/prod/vault
+sudo chown -R careeros-prod:careeros-prod /srv/careeros/prod/vault
+sudo systemctl start careeros-prod
+curl -s http://127.0.0.1:8001/api/health                                # {"ok":true}
+```
+
+Verify the rollback with the same count as step 4: it should read the
+pre-import number again. A restore also rewinds anything testers did
+between backup and rollback — that is the trade the 60-minute freshness
+gate exists to keep small.
+
+### What testers see after the import
+
+The imported postings are ownerless universe records
+(`in_pipeline: false`): they appear on the **All jobs** tab for every
+signed-in user, on **nobody's board**, with their coded values (family,
+language, municipality, …) and salary where the classification carried
+one, an empty description, and the company each was linked to (created
+where the vault had none). Pasting one of their urls into "Add a job"
+hits the existing duplicate rule: the universe record is offered for
+promotion, never added twice.
+
+Docs checked: import-pool.md (the LAN half it points at), deploy/RUNBOOK.md
+("Restoring the vault from a backup" Route A, "The off-VPS copy" table),
+docs/index.md, scheduled-jobs.md (no new scheduled job: this step is
+owner-run by design).
 
 ## Failed or half-finished uploads
 

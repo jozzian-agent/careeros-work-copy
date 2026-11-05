@@ -96,10 +96,16 @@
 #     (decision 6), not this script's business.
 #   * Code, releases, `/etc`, backups, the uploader's key.
 #   * A generation that is being uploaded, or one that is current.
+#   * An EXPORT generation (push_to_prod.sh's upload, recognised by its
+#     `# careeros prod-export manifest` header): bare runs skip it with a
+#     line naming the skip, a run naming it is refused before anything
+#     moves. It is deploy/import_prod_generation.sh's input, and this
+#     script's delete-on-validation-failure must never reach an upload.
 #
 # ARGUMENTS
 #   $1  generation name (e.g. 2026-10-22T193005Z). Optional: with no
-#       argument the newest COMPLETE generation in incoming is promoted.
+#       argument the newest COMPLETE PIPELINE generation in incoming is
+#       promoted.
 #
 # ENVIRONMENT
 #   DEPLOY_INCOMING        where the LAN uploads  (/srv/careeros/prod/incoming)
@@ -201,17 +207,47 @@ trap cleanup EXIT
 [[ -d $DEPLOY_INCOMING ]] || alert "no incoming directory at $DEPLOY_INCOMING"
 
 # --- 1. which generation --------------------------------------------------
+# An EXPORT generation (push_to_prod.sh's upload: pool.yaml,
+# classification.yaml and a `# careeros prod-export manifest` header) is
+# input for deploy/import_prod_generation.sh, not a pipeline release. It
+# could never pass this script's validation -- the mandatory
+# golden_set_pool_<day>.yaml layout is not what it carries -- and a
+# generation that fails validation after the move is DELETED, so letting
+# one be picked would destroy an upload. Bare runs skip them with a line
+# naming the skip; a run that names one is refused before anything moves.
+is_export_generation() {   # is_export_generation <generation dir>
+  local dir=$1
+  [[ -f $dir/MANIFEST && ! -L $dir/MANIFEST ]] \
+    && [[ $(head -1 "$dir/MANIFEST") == '# careeros prod-export manifest' ]]
+}
+
 if [[ -z $GEN ]]; then
-  GEN=$(cd "$DEPLOY_INCOMING" && \
-        find . -mindepth 2 -maxdepth 2 -name COMPLETE -printf '%h\n' 2>/dev/null \
-        | sed 's|^\./||' | LC_ALL=C sort | tail -1)
-  [[ -n $GEN ]] || alert "no COMPLETE generation waiting in $DEPLOY_INCOMING"
+  # `sort -r` and a loop rather than `sort | tail -1`: the newest
+  # COMPLETE generation that is not an export one, which needs to look
+  # at each candidate's manifest and cannot be done inside the pipeline.
+  while read -r candidate; do
+    [[ -n $candidate ]] || continue
+    if is_export_generation "$DEPLOY_INCOMING/$candidate"; then
+      echo "-- skipping $candidate: an export generation (input for import_prod_generation.sh, never a promotion)"
+      continue
+    fi
+    GEN=$candidate
+    break
+  done < <(cd "$DEPLOY_INCOMING" && \
+           find . -mindepth 2 -maxdepth 2 -name COMPLETE -printf '%h\n' 2>/dev/null \
+           | xargs -r -n1 basename | LC_ALL=C sort -r)
+  [[ -n $GEN ]] || alert "no COMPLETE pipeline generation waiting in $DEPLOY_INCOMING"
 fi
 [[ $GEN =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z$ ]] \
   || alert "'$GEN' is not a generation name (YYYY-MM-DDTHHMMSSZ)"
 
 SRC="$DEPLOY_INCOMING/$GEN"
 [[ -d $SRC && ! -L $SRC ]] || alert "$SRC is not a directory"
+# Before the locks and before the move: naming an export generation is a
+# mistaken invocation, and this script's answer to a mistake must never
+# be a deleted upload.
+is_export_generation "$SRC" \
+  && alert "$GEN is an export generation (its MANIFEST says so): promotion never touches those -- it would fail validation after the move and the move is what deletes. Run deploy/import_prod_generation.sh $GEN instead. Nothing was moved"
 
 # --- 2. locks -------------------------------------------------------------
 mkdir -p "$(dirname "$DEPLOY_LOCK")" "$(dirname "$DEPLOY_DATA_LOCK")"

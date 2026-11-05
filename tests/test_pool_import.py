@@ -571,7 +571,7 @@ def test_an_owner_job_with_the_same_url_wins_and_is_not_touched(root, people, fi
     assert [job['id'] for job in vault.list_jobs(root, owners['admin'])] == [mine['id']]
 
 
-def test_a_dry_run_writes_nothing(root, people, files):
+def test_a_dry_run_writes_nothing(root, people, files, capsys):
     before = sorted(path.name for path in root.rglob('*'))
     counts = script.run(files['pool'], files['classification'], root,
                         base=files['stores'], dry_run=True)
@@ -580,6 +580,11 @@ def test_a_dry_run_writes_nothing(root, people, files):
     assert sorted(path.name for path in root.rglob('*')) == before
     assert vault.list_owned_jobs(root) == []
     assert vault.list_companies(root) == []
+    # The rehearsal names the postings it would create, so "would create
+    # 796" is five readable rows and not only a number.
+    printed = capsys.readouterr().out
+    assert 'sample (first 3):' in printed
+    assert POOL_KEY in printed and SLUG_KEY in printed
 
 
 def test_the_import_stamps_no_owner_on_anything(root, people, files):
