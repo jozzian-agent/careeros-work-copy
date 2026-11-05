@@ -246,6 +246,30 @@ def universe_context(root, owner=None, *, is_admin):
                               'contract': contract})
     context = board_context(entries, vault.visible_companies(root, owner),
                             vault.function_label_map(root), is_admin=is_admin)
+    # The posting text stays out of the LIST payload (owner decision
+    # 2026-11-05). A list entry is a card: no list surface renders the
+    # description (grep of the frontend confirms AllJobs, JobsBoard,
+    # JobCard, jobFilters, CompaniesList, CompanyDetail and every popup
+    # read it off the detail payload only), and 800 imported postings
+    # carry ~3 MB of text that every All jobs fetch would otherwise
+    # ship. `has_description` is the one bit a card could need, computed
+    # the same way the detail context computes it (job_context below),
+    # so the two surfaces cannot disagree about what "has text" means.
+    #
+    # AFTER board_context, deliberately: the decorations (needs_attention
+    # via company_link_state/ingest_state/field_status_reason, contract
+    # via the classified values, closed_review, search_so_far) are all
+    # computed off the unstripped entries first, so nothing here can
+    # change an answer a decoration gave -- and the tests beside this
+    # function pin that the decorations do not read the text anyway.
+    # The detail view (view=page -> job_context) is untouched and still
+    # returns the full text to a reader allowed to see the record.
+    context['entries'] = [
+        {k: v for k, v in entry.items()
+         if k not in ('description', 'description_structured')}
+        | {'has_description': bool((entry.get('description') or '').strip())}
+        for entry in context['entries']
+    ]
     return context | {'empty': UNIVERSE_EMPTY_STATE}
 
 def board_context(entries, companies, function_labels, today=None, *, is_admin):

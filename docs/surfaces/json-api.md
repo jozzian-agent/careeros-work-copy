@@ -250,7 +250,13 @@ only let a request in, it decides what the request can see.
   (B2, 2026-10-19). `GET /api/jobs?view=universe` answers with every job
   that is not private to another user -- the records carrying no
   `owner_id` plus the caller's own -- in the `view=board` shape, each
-  entry carrying `on_my_board`. Another user's job is absent, for the
+  entry carrying `on_my_board`. Since 2026-11-05 (owner decision) each
+  list entry also carries `has_description` and NEVER the posting text
+  itself: `description` and `description_structured` are stripped from
+  every entry, owned or not, after the decorations are computed. The
+  full text arrives on the detail read (`GET /api/jobs/<id>?view=page`)
+  alone; ~800 imported postings carry ~3 MB of text a list fetch has no
+  use for. Another user's job is absent, for the
   admin too, and every per-job route answers for one of them exactly as
   it answers for a job that never existed; `POST /api/jobs/<id>/promote`
   reads through the same scope
