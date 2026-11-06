@@ -24,6 +24,7 @@ timestamp: 2026-10-15
 - [Responsive breakpoint convention](responsive.md): Describe the Jinja theme breakpoint and responsive treatments.
 - [Import the ATS pool into a vault as universe jobs](runbooks/import-pool.md): Back up a vault, dry-run the pool import against it, run it, read the report and know what it costs.
 - [Push a staged export to production by hand](runbooks/push-to-prod.md): Stage, verify and upload one export generation to the VPS, then import it into the prod vault — permissions, verification, rollback, and what testers see after.
+- [Backfill empty descriptions on production's imported jobs](runbooks/backfill-descriptions.md): One-time fill — why the 2026-11-03 import left 752 jobs without posting text, how the text rides a normal export generation to the VPS, and how to fill, verify and roll back.
 - [Take markup and internal codes out of a vault's stored text](runbooks/clean-stored-text.md): Back up a vault, dry-run the stored-text cleanup against it, apply it, verify it and roll it back.
 - [Give a vault's jobs their coded value records](runbooks/migrate-job-value-records.md): Back up a vault, run the CAREER-57 classification migration against it, verify it, roll it back, and know what the second step still owes.
 - [Move a vault onto the D7 status list](runbooks/migrate-board-d7.md): Back up a vault, run the one-time D7 status migration against it, verify it and roll it back.
